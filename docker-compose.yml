@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+
+  eye:
+    build:
+      context: ./
+      dockerfile: spec/Dockerfile
+      args:
+        _path: cmd/eye
+    container_name: eye
+    environment:
+      EYE_LOGGING_LEVEL: DEBUG
+      EYE_SENTRY_DSN: ""
+      EYE_SENTRY_ENVIRONMENT: "develop"
+      EYE_MONGODB_HOST: mongodb
+      EYE_MONGODB_DATABASE: eye
+
+  eye_debug:
+    build:
+      context: ./
+      dockerfile: spec/Dockerfile.debug
+      args:
+        _path: cmd/eye
+    container_name: eye_debug
+    ports:
+      # Remote debugging (Delve)
+      - 40000:40000
+    environment:
+      EYE_LOGGING_LEVEL: DEBUG
+      EYE_SENTRY_DSN: ""
+      EYE_SENTRY_ENVIRONMENT: "develop"
+      EYE_MONGODB_HOST: mongodb
+      EYE_MONGODB_DATABASE: eye
