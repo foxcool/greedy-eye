@@ -15,6 +15,8 @@ var (
 
 func main() {
 	config := getConfig()
+	sendChan := make(chan interface{}, 100)
+	errorChan := make(chan interface{}, 100)
 
 	// Start control panel service if telegram credentials exists
 	if config.Telegram.Token != "" && config.Telegram.ChatIDs != nil {
@@ -22,9 +24,6 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-
-		sendChan := make(chan interface{}, 100)
-		errorChan := make(chan interface{}, 100)
 
 		cp, err := control_panel.NewService(sendChan,
 			errorChan,
