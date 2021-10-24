@@ -13,7 +13,7 @@ type Service struct {
 	// channel of information to be sent to the user
 	sendChan chan interface{}
 	// the channel to which the service sends errors
-	errorChan chan interface{}
+	errorChan chan error
 	// adapter for interaction with messengers or other means of communication
 	bot Messenger
 	// messenger chat
@@ -21,7 +21,7 @@ type Service struct {
 }
 
 // Service constructor
-func NewService(sendChan, errorChan chan interface{}, bot Messenger, chat string) (*Service, error) {
+func NewService(sendChan chan interface{}, errorChan chan error, bot Messenger, chat string) (*Service, error) {
 	if sendChan == nil {
 		return nil, errors.New("missing sendChan")
 	}
