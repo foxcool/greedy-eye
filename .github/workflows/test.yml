@@ -21,4 +21,4 @@ jobs:
           GO111MODULE: on
       - name: Lint with gometalinter
         run: |
-          docker run --rm -v "$PWD:/app" golangci/golangci-lint:latest golangci-lint run
+          docker run --rm -v "$PWD:/app" -w /app golangci/golangci-lint:latest golangci-lint run -v
