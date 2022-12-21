@@ -1,0 +1,24 @@
+name: Test
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: ^1.19
+      - name: Install dependencies
+        run: |
+          go get -v -t -d ./...
+      - name: Test with coverage
+        run: |
+          go test -v -coverprofile=coverage.txt -covermode=atomic ./...
+        env:
+          GO111MODULE: on
+      - name: Lint with gometalinter
+        run: |
+          docker run --rm -v "$PWD:/app" -w /app golangci/golangci-lint:latest golangci-lint run -v

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"sync/atomic"
 
-	"github.com/foxcool/greedy-eye/pkg/entities"
 	"github.com/gorilla/websocket"
 
 	"github.com/shopspring/decimal"
@@ -32,11 +31,12 @@ type JsonRPCResponse struct {
 	Result map[string]interface{} `json:"result"`
 }
 
-func (s *Service) registerRespHandler(id int64, job *entities.ExplorationJob) {
-	s.jobMapMutex.Lock()
-	s.jobMap[id] = job
-	s.jobMapMutex.Unlock()
-}
+// ToDo: drop if not needed
+// func (s *Service) registerRespHandler(id int64, job *entities.ExplorationJob) {
+// 	s.jobMapMutex.Lock()
+// 	s.jobMap[id] = job
+// 	s.jobMapMutex.Unlock()
+// }
 
 func (s *Service) SendPriceRequest(addressFrom, addressTo string, amount decimal.Decimal) (int64, error) {
 	n := atomic.AddInt64(s.lastReqID, 1)
