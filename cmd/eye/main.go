@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/foxcool/greedy-eye/pkg/adapters/telegram"
 	"github.com/foxcool/greedy-eye/pkg/entities"
-	"github.com/foxcool/greedy-eye/pkg/services/app_router"
 	"github.com/foxcool/greedy-eye/pkg/services/control_panel"
 	"github.com/foxcool/greedy-eye/pkg/services/sora"
 	"github.com/foxcool/greedy-eye/pkg/services/storage/memory"
@@ -24,17 +27,19 @@ func main() {
 	errorChan := make(chan error, 100)
 	jobChan := make(chan entities.ExplorationJob, 100)
 	opportunityChan := make(chan entities.TradingOpportunity, 100)
-	indexPriceStorage, err := memory.NewIndexPriceStorage()
-	if err != nil {
-		panic(err)
-	}
+	priceChan := make(chan entities.Price, 100)
+	memoryPriceChan := make(chan entities.Price, 100)
+	airtablePriceChan := make(chan entities.Price, 100)
 
-	// Start message router
-	appRouter, err := app_router.NewService(jobChan, opportunityChan, sendMessageChan, errorChan)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start in memory prices storage for local services
+	memoryPriceStorage, err := memory.NewPriceStorage()
 	if err != nil {
 		panic(err)
 	}
-	go appRouter.Work()
+	go memoryPriceStorage.Work(ctx, priceChan)
 
 	// Start control panel service if telegram credentials exists
 	if config.Telegram.Token != "" && config.Telegram.ChatIDs != nil {
@@ -43,7 +48,8 @@ func main() {
 			panic(err)
 		}
 
-		cp, err := control_panel.NewService(sendMessageChan,
+		cp, err := control_panel.NewService(
+			sendMessageChan,
 			errorChan,
 			bot,
 			fmt.Sprintf("%d", config.Telegram.ChatIDs[0]),
@@ -60,13 +66,30 @@ func main() {
 		for _, url := range strings.Split(config.Sora.URL, ",") {
 			soraClient := sora.Service{
 				URL:             url,
-				Storage:         indexPriceStorage,
+				Storage:         memoryPriceStorage,
 				JobChan:         jobChan,
 				OpportunityChan: opportunityChan,
 				ErrorChan:       errorChan,
 			}
 			go soraClient.WaitJobs()
 			go soraClient.WaitResponses()
+		}
+	}
+
+	// Start message router
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, os.Interrupt, syscall.SIGTERM)
+	for {
+		select {
+		case opportunity := <-opportunityChan:
+			sendMessageChan <- opportunity
+		case price := <-priceChan:
+			memoryPriceChan <- price
+			airtablePriceChan <- price
+		case err := <-errorChan:
+			sendMessageChan <- err
+		case <-sigc:
+			return
 		}
 	}
 }
