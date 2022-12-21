@@ -9,7 +9,7 @@ import (
 	"github.com/foxcool/greedy-eye/pkg/services/storage"
 )
 
-type IndexPriceStorage struct {
+type PriceStorage struct {
 	PriceChan chan entities.Price
 
 	storage map[entities.Asset]*entities.Price
@@ -17,13 +17,13 @@ type IndexPriceStorage struct {
 }
 
 func NewPriceStorage() (storage.PriceStorage, error) {
-	s := &IndexPriceStorage{
+	s := &PriceStorage{
 		storage: make(map[entities.Asset]*entities.Price)}
 
 	return s, nil
 }
 
-func (s *IndexPriceStorage) Get(params map[string]interface{}) (*entities.Price, error) {
+func (s *PriceStorage) Get(params map[string]interface{}) (*entities.Price, error) {
 	s.m.RLock()
 	defer s.m.RUnlock()
 
@@ -34,7 +34,7 @@ func (s *IndexPriceStorage) Get(params map[string]interface{}) (*entities.Price,
 	return s.storage[params[storage.GetParamAsset].(entities.Asset)], nil
 }
 
-func (s *IndexPriceStorage) Set(in *entities.Price) error {
+func (s *PriceStorage) Set(in *entities.Price) error {
 	if s.PriceChan != nil && in != nil {
 		s.PriceChan <- *in
 
@@ -44,7 +44,7 @@ func (s *IndexPriceStorage) Set(in *entities.Price) error {
 	return s.set(in)
 }
 
-func (s *IndexPriceStorage) set(in *entities.Price) error {
+func (s *PriceStorage) set(in *entities.Price) error {
 	s.m.Lock()
 	defer s.m.Unlock()
 
@@ -53,7 +53,7 @@ func (s *IndexPriceStorage) set(in *entities.Price) error {
 	return nil
 }
 
-func (s *IndexPriceStorage) Work(ctx context.Context, priceChan chan entities.Price) {
+func (s *PriceStorage) Work(ctx context.Context, priceChan chan entities.Price) {
 	for {
 		select {
 		case in := <-s.PriceChan:

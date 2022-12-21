@@ -4,8 +4,8 @@ services:
 
   eye:
     build:
-      context: ./
-      dockerfile: spec/Dockerfile
+      context: ..
+      dockerfile: build/Dockerfile
       args:
         _path: cmd/eye
     container_name: eye
@@ -18,8 +18,8 @@ services:
 
   eye_debug:
     build:
-      context: ./
-      dockerfile: spec/Dockerfile.debug
+      context: ..
+      dockerfile: build/Dockerfile.debug
       args:
         _path: cmd/eye
     container_name: eye_debug
