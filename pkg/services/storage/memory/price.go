@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/foxcool/greedy-eye/pkg/entities"
@@ -34,30 +35,37 @@ func (s *PriceStorage) Get(params map[string]interface{}) (*entities.Price, erro
 	return s.storage[params[storage.GetParamAsset].(entities.Asset)], nil
 }
 
-func (s *PriceStorage) Set(in *entities.Price) error {
-	if s.PriceChan != nil && in != nil {
-		s.PriceChan <- *in
-
-		return nil
+func (s *PriceStorage) Set(in ...*entities.Price) error {
+	if s.PriceChan == nil {
+		return s.set(in...)
 	}
 
-	return s.set(in)
-}
-
-func (s *PriceStorage) set(in *entities.Price) error {
-	s.m.Lock()
-	defer s.m.Unlock()
-
-	s.storage[in.Asset] = in
+	for _, price := range in {
+		s.PriceChan <- *price
+	}
 
 	return nil
 }
 
-func (s *PriceStorage) Work(ctx context.Context, priceChan chan entities.Price) {
+func (s *PriceStorage) set(in ...*entities.Price) error {
+	s.m.Lock()
+	defer s.m.Unlock()
+
+	for _, price := range in {
+		s.storage[price.Asset] = price
+	}
+
+	return nil
+}
+
+func (s *PriceStorage) Work(ctx context.Context, priceChan chan entities.Price, errorChan chan error) {
 	for {
 		select {
 		case in := <-s.PriceChan:
-			s.set(&in)
+			err := s.set(&in)
+			if err != nil {
+				errorChan <- fmt.Errorf("can't set price on memory storage: %e", err)
+			}
 		case <-ctx.Done():
 			return
 		}
