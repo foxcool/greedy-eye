@@ -16,7 +16,7 @@ import (
 
 type Service struct {
 	URL             string
-	Storage         storage.IndexPriceStorage
+	Storage         storage.PriceStorage
 	JobChan         chan entities.ExplorationJob
 	OpportunityChan chan entities.TradingOpportunity
 	ErrorChan       chan error
