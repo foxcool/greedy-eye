@@ -26,6 +26,10 @@ type Config struct {
 	Sora           struct {
 		URL string `koanf:"URL"`
 	} `koanf:"sora"`
+	Airtable struct {
+		Key        string `koanf:"key"`
+		DatabaseID string `koanf:"databaseID"`
+	} `koanf:"airtable"`
 }
 
 func getConfig() Config {

@@ -12,6 +12,7 @@ import (
 	"github.com/foxcool/greedy-eye/pkg/entities"
 	"github.com/foxcool/greedy-eye/pkg/services/control_panel"
 	"github.com/foxcool/greedy-eye/pkg/services/sora"
+	"github.com/foxcool/greedy-eye/pkg/services/storage/airtable"
 	"github.com/foxcool/greedy-eye/pkg/services/storage/memory"
 )
 
@@ -39,7 +40,19 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	go memoryPriceStorage.Work(ctx, priceChan)
+	go memoryPriceStorage.Work(ctx, memoryPriceChan, errorChan)
+
+	// Start airtable prices storage if DB key and ID if presented
+	if config.Airtable.DatabaseID != "" && config.Airtable.Key != "" {
+		airtablePriceStorage := airtable.PriceStorage{
+			DatabaseID: config.Airtable.DatabaseID,
+			APIKey:     config.Airtable.Key,
+		}
+		if err != nil {
+			panic(err)
+		}
+		go airtablePriceStorage.Work(ctx, airtablePriceChan, errorChan)
+	}
 
 	// Start control panel service if telegram credentials exists
 	if config.Telegram.Token != "" && config.Telegram.ChatIDs != nil {
@@ -85,7 +98,9 @@ func main() {
 			sendMessageChan <- opportunity
 		case price := <-priceChan:
 			memoryPriceChan <- price
-			airtablePriceChan <- price
+			if config.Airtable.DatabaseID != "" && config.Airtable.Key != "" {
+				airtablePriceChan <- price
+			}
 		case err := <-errorChan:
 			sendMessageChan <- err
 		case <-sigc:
