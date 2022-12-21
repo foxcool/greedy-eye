@@ -2,6 +2,6 @@
 
 ## Doc
 
-* [Logging](doc/logging.md)
-* [Config](doc/config.md)
-* [Common](doc/common.md)
+* [Logging](docs/logging.md)
+* [Config](docs/config.md)
+* [Common](docs/common.md)
