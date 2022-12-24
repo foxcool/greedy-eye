@@ -13,7 +13,7 @@ import (
 	"github.com/foxcool/greedy-eye/pkg/services/control_panel"
 	"github.com/foxcool/greedy-eye/pkg/services/sora"
 	"github.com/foxcool/greedy-eye/pkg/services/storage/airtable"
-	"github.com/foxcool/greedy-eye/pkg/services/storage/memory"
+	"github.com/foxcool/greedy-eye/pkg/services/storage/badger"
 )
 
 const ServiceName = "EYE"
@@ -36,11 +36,11 @@ func main() {
 	defer cancel()
 
 	// Start in memory prices storage for local services
-	memoryPriceStorage, err := memory.NewPriceStorage()
+	badgerPriceStorage, err := badger.NewPriceStorage("/tmp/prices")
 	if err != nil {
 		panic(err)
 	}
-	go memoryPriceStorage.Work(ctx, memoryPriceChan, errorChan)
+	go badgerPriceStorage.Work(ctx, memoryPriceChan, errorChan)
 
 	// Start airtable prices storage if DB key and ID if presented
 	if config.Airtable.DatabaseID != "" && config.Airtable.Key != "" {
@@ -79,7 +79,7 @@ func main() {
 		for _, url := range strings.Split(config.Sora.URL, ",") {
 			soraClient := sora.Service{
 				URL:             url,
-				Storage:         memoryPriceStorage,
+				Storage:         badgerPriceStorage,
 				JobChan:         jobChan,
 				OpportunityChan: opportunityChan,
 				ErrorChan:       errorChan,
