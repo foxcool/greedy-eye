@@ -30,6 +30,10 @@ type Config struct {
 		Key        string `koanf:"key"`
 		DatabaseID string `koanf:"databaseID"`
 	} `koanf:"airtable"`
+	Sentry struct {
+		DSN              string  `koanf:"dsn"`
+		TracesSampleRate float64 `koanf:"tracesSampleRate"`
+	} `koanf:"sentry"`
 }
 
 func getConfig() Config {
@@ -38,7 +42,9 @@ func getConfig() Config {
 
 	// Default values
 
-	defaults := map[string]interface{}{}
+	defaults := map[string]interface{}{
+		"sentry.tracesSampleRate": 1.0,
+	}
 	err = k.Load(confmap.Provider(defaults, "."), nil)
 	if err != nil {
 		log.Fatalf("error loading default config parameters: %v", err)
