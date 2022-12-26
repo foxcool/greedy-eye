@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/foxcool/greedy-eye/pkg/adapters/telegram"
 	"github.com/foxcool/greedy-eye/pkg/entities"
@@ -14,6 +15,7 @@ import (
 	"github.com/foxcool/greedy-eye/pkg/services/sora"
 	"github.com/foxcool/greedy-eye/pkg/services/storage/airtable"
 	"github.com/foxcool/greedy-eye/pkg/services/storage/badger"
+	"github.com/getsentry/sentry-go"
 )
 
 const ServiceName = "EYE"
@@ -31,6 +33,19 @@ func main() {
 	priceChan := make(chan entities.Price, 100)
 	memoryPriceChan := make(chan entities.Price, 100)
 	airtablePriceChan := make(chan entities.Price, 100)
+
+	// Init sentry
+	if config.Sentry.DSN != "" {
+		err := sentry.Init(sentry.ClientOptions{
+			Dsn:              config.Sentry.DSN,
+			TracesSampleRate: config.Sentry.TracesSampleRate,
+			Release:          version,
+		})
+		if err != nil {
+			panic(err)
+		}
+	}
+	defer sentry.Flush(2 * time.Second)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

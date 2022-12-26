@@ -11,7 +11,7 @@ services:
     container_name: eye
     environment:
       EYE_LOGGING_LEVEL: DEBUG
-      EYE_SENTRY_DSN: ""
+      EYE_SENTRY_DSN: "https://bc7d68d874af47a2b4d624319c976393@o4504393685925888.ingest.sentry.io/4504393690644480"
       EYE_SENTRY_ENVIRONMENT: "develop"
       EYE_MONGODB_HOST: mongodb
       EYE_MONGODB_DATABASE: eye
@@ -28,7 +28,7 @@ services:
       - 40000:40000
     environment:
       EYE_LOGGING_LEVEL: DEBUG
-      EYE_SENTRY_DSN: ""
+      EYE_SENTRY_DSN: "https://bc7d68d874af47a2b4d624319c976393@o4504393685925888.ingest.sentry.io/4504393690644480"
       EYE_SENTRY_ENVIRONMENT: "develop"
       EYE_MONGODB_HOST: mongodb
       EYE_MONGODB_DATABASE: eye
