@@ -11,6 +11,7 @@ import (
 
 	"github.com/foxcool/greedy-eye/pkg/adapters/telegram"
 	"github.com/foxcool/greedy-eye/pkg/entities"
+	"github.com/foxcool/greedy-eye/pkg/services/coingecko"
 	"github.com/foxcool/greedy-eye/pkg/services/control_panel"
 	"github.com/foxcool/greedy-eye/pkg/services/sora"
 	"github.com/foxcool/greedy-eye/pkg/services/storage/airtable"
@@ -103,6 +104,10 @@ func main() {
 			go soraClient.WaitResponses()
 		}
 	}
+
+	// Start coingecko price updater
+	coingeckoClient := coingecko.Service{}
+	go coingeckoClient.Work(ctx, priceChan, errorChan)
 
 	// Start message router
 	sigc := make(chan os.Signal, 1)
