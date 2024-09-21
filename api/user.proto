@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package user;
+
+import "google/protobuf/empty.proto";
+option go_package = ".;user";
+
+service UserService {
+  rpc GetUser(UserRequest) returns (UserResponse);
+  rpc SetPorfolio(UserRequest) returns (UserResponse);
+  rpc DeleteUser(UserRequest) returns (google.protobuf.Empty);
+}
+
+message UserRequest {
+  string ID = 1;
+}
+
+message UserResponse {
+  string ID = 1;
+}

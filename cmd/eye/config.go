@@ -18,22 +18,17 @@ import (
 
 // Config is application config struct
 type Config struct {
-	Telegram struct {
-		Token   string `koanf:"token"`
-		ChatIDs []int  `koanf:"chatIDs"`
-	} `koanf:"telegram"`
-	EtherscanToken string `koanf:"etherscanToken"`
-	Sora           struct {
-		URL string `koanf:"URL"`
-	} `koanf:"sora"`
-	Airtable struct {
-		Key        string `koanf:"key"`
-		DatabaseID string `koanf:"databaseID"`
-	} `koanf:"airtable"`
 	Sentry struct {
 		DSN              string  `koanf:"dsn"`
 		TracesSampleRate float64 `koanf:"tracesSampleRate"`
 	} `koanf:"sentry"`
+	DB struct {
+		Host string `koanf:"host"`
+		Port int    `koanf:"port"`
+		User string `koanf:"user"`
+		Pass string `koanf:"pass"`
+		Name string `koanf:"name"`
+	}
 }
 
 func getConfig() Config {

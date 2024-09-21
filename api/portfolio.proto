@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package portfolio;
+
+import "google/protobuf/empty.proto";
+option go_package = ".;portfolio";
+
+service PortfolioService {
+  rpc GetPortfolio(PortfolioRequest) returns (PortfolioResponse);
+  rpc SetPortfolio(PortfolioRequest) returns (PortfolioResponse);
+  rpc DeletePortfolio(PortfolioRequest) returns (google.protobuf.Empty);
+}
+
+message PortfolioRequest {
+  string ID = 1;
+  string userID = 2;
+}
+
+message PortfolioResponse {
+  string ID = 1;
+  string userID = 2;
+  string name = 3;
+  string description = 4;
+  int32 worth = 5;
+}

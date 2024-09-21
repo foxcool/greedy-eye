@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package price;
+
+option go_package = ".;price";
+
+service PricingService {
+  rpc GetPrice(PriceRequest) returns (PriceResponse);
+}
+
+message PriceRequest {
+  repeated string assetsIDs = 1;
+  repeated string baseAssetsIDs = 2;
+  repeated string assetsTags = 3;
+  repeated string sourcesIDs = 4;
+  repeated string sourcesTags = 5;
+}
+
+message PriceResponse {
+  repeated AssetPrices asetPrices = 1;
+}
+
+message AssetPrices {
+  string assetsID = 1;
+  repeated Price prices = 2;
+}
+
+message Price {
+  string sourceID = 1;
+  string baseAssetID = 2;
+  int32 amount = 3;
+}

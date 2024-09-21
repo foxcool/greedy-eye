@@ -2,19 +2,12 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
-	"github.com/foxcool/greedy-eye/pkg/adapters/telegram"
 	"github.com/foxcool/greedy-eye/pkg/entities"
-	"github.com/foxcool/greedy-eye/pkg/services/coingecko"
-	"github.com/foxcool/greedy-eye/pkg/services/control_panel"
-	"github.com/foxcool/greedy-eye/pkg/services/sora"
-	"github.com/foxcool/greedy-eye/pkg/services/storage/airtable"
 	"github.com/foxcool/greedy-eye/pkg/services/storage/badger"
 	"github.com/getsentry/sentry-go"
 )
@@ -29,11 +22,9 @@ func main() {
 	config := getConfig()
 	sendMessageChan := make(chan interface{}, 100)
 	errorChan := make(chan error, 100)
-	jobChan := make(chan entities.ExplorationJob, 100)
 	opportunityChan := make(chan entities.TradingOpportunity, 100)
 	priceChan := make(chan entities.Price, 100)
 	memoryPriceChan := make(chan entities.Price, 100)
-	airtablePriceChan := make(chan entities.Price, 100)
 
 	// Init sentry
 	if config.Sentry.DSN != "" {
@@ -58,56 +49,9 @@ func main() {
 	}
 	go badgerPriceStorage.Work(ctx, memoryPriceChan, errorChan)
 
-	// Start airtable prices storage if DB key and ID if presented
-	if config.Airtable.DatabaseID != "" && config.Airtable.Key != "" {
-		airtablePriceStorage := airtable.PriceStorage{
-			DatabaseID: config.Airtable.DatabaseID,
-			APIKey:     config.Airtable.Key,
-		}
-		if err != nil {
-			panic(err)
-		}
-		go airtablePriceStorage.Work(ctx, airtablePriceChan, errorChan)
-	}
+	// Connect to DB
 
-	// Start control panel service if telegram credentials exists
-	if config.Telegram.Token != "" && config.Telegram.ChatIDs != nil {
-		bot, err := telegram.NewClient(config.Telegram.Token)
-		if err != nil {
-			panic(err)
-		}
-
-		cp, err := control_panel.NewService(
-			sendMessageChan,
-			errorChan,
-			bot,
-			fmt.Sprintf("%d", config.Telegram.ChatIDs[0]),
-		)
-		if err != nil {
-			panic(err)
-		}
-
-		go cp.Run()
-	}
-
-	// Start sora price crawlers if urls exist
-	if config.Sora.URL != "" {
-		for _, url := range strings.Split(config.Sora.URL, ",") {
-			soraClient := sora.Service{
-				URL:             url,
-				Storage:         badgerPriceStorage,
-				JobChan:         jobChan,
-				OpportunityChan: opportunityChan,
-				ErrorChan:       errorChan,
-			}
-			go soraClient.WaitJobs()
-			go soraClient.WaitResponses()
-		}
-	}
-
-	// Start coingecko price updater
-	coingeckoClient := coingecko.Service{}
-	go coingeckoClient.Work(ctx, priceChan, errorChan)
+	// Start configured subservices
 
 	// Start message router
 	sigc := make(chan os.Signal, 1)
@@ -118,9 +62,6 @@ func main() {
 			sendMessageChan <- opportunity
 		case price := <-priceChan:
 			memoryPriceChan <- price
-			if config.Airtable.DatabaseID != "" && config.Airtable.Key != "" {
-				airtablePriceChan <- price
-			}
 		case err := <-errorChan:
 			sendMessageChan <- err
 		case <-sigc:

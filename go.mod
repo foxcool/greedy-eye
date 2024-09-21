@@ -1,6 +1,6 @@
 module github.com/foxcool/greedy-eye
 
-go 1.19
+go 1.23
 
 require (
 	github.com/agrea/ptr v0.0.0-20180711073057-77a518d99b7b
