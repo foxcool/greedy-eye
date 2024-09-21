@@ -19,3 +19,6 @@
 
 # Secrets
 secrets.env
+
+# Temporary files
+tmp

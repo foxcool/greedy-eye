@@ -19,7 +19,7 @@
 
 ## Overview
 
-Greedy-Eye is designed to help cryptocurrency enthusiasts manage their portfolios efficiently. It integrates data fetching, analysis, trading, and real-time notifications to provide a seamless experience for tracking and optimizing your crypto investments.
+Greedy-Eye is designed to help investment enthusiasts manage their portfolios efficiently. It integrates data fetching, analysis, trading, and real-time notifications to provide a seamless experience for tracking and optimizing your crypto investments.
 
 ```mermaid
     C4Context
@@ -120,7 +120,7 @@ version: '3.8'
 
 services:
    greedy-eye:
-      image: ghcr.io/fox-one/greedy-eye:latest
+      image: fox/greedy-eye:latest
       ports:
          - "8080:80"
       environment:
@@ -155,19 +155,19 @@ Greedy-Eye will be accessible at <http://localhost:8080>.
 
 To run Greedy-Eye manually, follow these steps:
 
-1. Clone the repository:
+Clone the repository:
 
 ```bash
-git clone
+git clone https://github.com/foxcool/greedy-eye.git
 ```
 
-2. Build the project:
+Build the project:
 
 ```bash
 make build
 ```
 
-3. Run the application:
+Run the application:
 
 ```bash
 ./greedy-eye
