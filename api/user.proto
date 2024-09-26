@@ -6,15 +6,33 @@ import "google/protobuf/empty.proto";
 option go_package = ".;user";
 
 service UserService {
-  rpc GetUser(UserRequest) returns (UserResponse);
-  rpc SetPorfolio(UserRequest) returns (UserResponse);
-  rpc DeleteUser(UserRequest) returns (google.protobuf.Empty);
+  rpc GetUser(User) returns (User);
+  rpc SetUser(User) returns (User);
+  rpc DeleteUser(User) returns (google.protobuf.Empty);
+
+  rpc GetAccount(AccountRequest) returns (AccountResponse);
+  rpc SetAccount(Account) returns (AccountResponse);
+  rpc DeleteAccount(AccountRequest) returns (google.protobuf.Empty);
 }
 
-message UserRequest {
-  string ID = 1;
+message User {
+  string id = 1;
 }
 
-message UserResponse {
-  string ID = 1;
+message Account {
+  string id = 1;
+  repeated string user_ids = 2;
+  string name = 3;
+  string description = 4;
+  string type = 5;
+  map<string, string> metadata = 6;
+}
+
+message AccountRequest {
+  string id = 1;
+  repeated string user_ids = 2;
+}
+
+message AccountResponse {
+  repeated Account accounts = 1;
 }

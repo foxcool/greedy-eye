@@ -2,31 +2,30 @@ syntax = "proto3";
 
 package price;
 
+import "google/protobuf/empty.proto";
 option go_package = ".;price";
 
 service PricingService {
   rpc GetPrice(PriceRequest) returns (PriceResponse);
-}
-
-message PriceRequest {
-  repeated string assetsIDs = 1;
-  repeated string baseAssetsIDs = 2;
-  repeated string assetsTags = 3;
-  repeated string sourcesIDs = 4;
-  repeated string sourcesTags = 5;
-}
-
-message PriceResponse {
-  repeated AssetPrices asetPrices = 1;
-}
-
-message AssetPrices {
-  string assetsID = 1;
-  repeated Price prices = 2;
+  rpc SetPrice(Price) returns (PriceResponse);
+  rpc DeletePrice(PriceRequest) returns (google.protobuf.Empty);
 }
 
 message Price {
-  string sourceID = 1;
-  string baseAssetID = 2;
-  int32 amount = 3;
+  string source_id = 1;
+  string asset_id = 2;
+  string base_asset_id = 3;
+  int32 amount = 4;
+}
+
+message PriceRequest {
+  repeated string asset_ids = 1;
+  repeated string base_asset_ids = 2;
+  repeated string asset_tags = 3;
+  repeated string source_ids = 4;
+  repeated string sources_tags = 5;
+}
+
+message PriceResponse {
+  repeated Price prices = 1;
 }
