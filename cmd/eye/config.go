@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strings"
 
@@ -14,24 +13,24 @@ import (
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/spf13/pflag"
+	"go.uber.org/zap"
 )
 
 // Config is application config struct
 type Config struct {
+	Logging struct {
+		Level string `koanf:"level"`
+	} `koanf:"logging"`
 	Sentry struct {
 		DSN              string  `koanf:"dsn"`
 		TracesSampleRate float64 `koanf:"tracesSampleRate"`
 	} `koanf:"sentry"`
 	DB struct {
-		Host string `koanf:"host"`
-		Port int    `koanf:"port"`
-		User string `koanf:"user"`
-		Pass string `koanf:"pass"`
-		Name string `koanf:"name"`
+		URL string `koanf:"url"`
 	}
 }
 
-func getConfig() Config {
+func getConfig(log *zap.Logger) Config {
 	var err error
 	k := koanf.New(".")
 
@@ -42,7 +41,7 @@ func getConfig() Config {
 	}
 	err = k.Load(confmap.Provider(defaults, "."), nil)
 	if err != nil {
-		log.Fatalf("error loading default config parameters: %v", err)
+		log.Fatal("can't load default config parameters", zap.Error(err))
 	}
 
 	// Load command line and configs
@@ -56,7 +55,7 @@ func getConfig() Config {
 	f.String("c", "", "Path to config file")
 	err = f.Parse(os.Args[1:])
 	if err != nil {
-		log.Fatalf("error loading command line parameters: %v", err)
+		log.Fatal("can't parse command line arguments", zap.Error(err))
 	}
 
 	// Show version and die if needed
@@ -71,15 +70,15 @@ func getConfig() Config {
 	switch {
 	case strings.HasSuffix(cFile, "toml"):
 		if err := k.Load(file.Provider(cFile), toml.Parser()); err != nil {
-			log.Fatalf("error loading file: %v", err)
+			log.Fatal("error loading file", zap.Error(err))
 		}
 	case strings.HasSuffix(cFile, "yaml"):
 		if err := k.Load(file.Provider(cFile), yaml.Parser()); err != nil {
-			log.Fatalf("error loading file: %v", err)
+			log.Fatal("error loading file", zap.Error(err))
 		}
 	case strings.HasSuffix(cFile, "json"):
 		if err := k.Load(file.Provider(cFile), json.Parser()); err != nil {
-			log.Fatalf("error loading file: %v", err)
+			log.Fatal("error loading file", zap.Error(err))
 		}
 	}
 
@@ -90,14 +89,14 @@ func getConfig() Config {
 			strings.TrimPrefix(s, ServiceName+"_")), "_", ".", -1)
 	}), nil)
 	if err != nil {
-		log.Fatalf("error loading ENV parameters: %v", err)
+		log.Fatal("can't load env variables", zap.Error(err))
 	}
 
 	// Unmarshal configs to struct
 	var config Config
 	err = k.Unmarshal("", &config)
 	if err != nil {
-		log.Fatalf("error unmarshaling config parameters to struct: %v", err)
+		log.Fatal("can't unmarshal config", zap.Error(err))
 	}
 
 	return config

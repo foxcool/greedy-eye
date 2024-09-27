@@ -3,7 +3,7 @@ syntax = "proto3";
 package user;
 
 import "google/protobuf/empty.proto";
-option go_package = ".;user";
+option go_package = "./user";
 
 service UserService {
   rpc GetUser(User) returns (User);

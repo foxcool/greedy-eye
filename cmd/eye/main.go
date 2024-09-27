@@ -10,6 +10,7 @@ import (
 	"github.com/foxcool/greedy-eye/pkg/entities"
 	"github.com/foxcool/greedy-eye/pkg/services/storage/badger"
 	"github.com/getsentry/sentry-go"
+	"go.uber.org/zap"
 )
 
 const ServiceName = "EYE"
@@ -19,7 +20,10 @@ var (
 )
 
 func main() {
-	config := getConfig()
+	log, _ := zap.NewProduction()
+	config := getConfig(log)
+	defer log.Sync()
+
 	sendMessageChan := make(chan interface{}, 100)
 	errorChan := make(chan error, 100)
 	opportunityChan := make(chan entities.TradingOpportunity, 100)

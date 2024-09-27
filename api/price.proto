@@ -3,7 +3,7 @@ syntax = "proto3";
 package price;
 
 import "google/protobuf/empty.proto";
-option go_package = ".;price";
+option go_package = "./price";
 
 service PricingService {
   rpc GetPrice(PriceRequest) returns (PriceResponse);

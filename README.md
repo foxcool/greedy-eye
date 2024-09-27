@@ -74,29 +74,36 @@ Greedy-Eye follows a modular monolithic architecture, with each component respon
     C4Component
       title Component diagram for Greedy-Eye
  
-      System_Boundary(b1, "Greedy-Eye Boundary", "The boundary of Greedy-Eye.") {
+      Container_Boundary(b1, "Greedy-Eye Application") {
+         Component(AssetService, "Asset Management Service")
          Component(PortfolioService, "Portfolio Management Service")
+         Component(PriceService, "Price Management Service")
+         Component(UserService, "Users and Accounts Management Service")
          Component(TradingService, "Trading Service")
-         Component(DataStorage, "Data Storage")
          Component(TerminalService, "Terminal Service")
-         Component(PricingService, "Pricing Service")
       }
 
-      Rel(PortfolioService, DataStorage, "Stores portfolio data")
-      Rel(TradingService, DataStorage, "Stores trade data")
-      Rel(TerminalService, DataStorage, "Stores user configurations")
-      Rel(PricingService, DataStorage, "Stores price data")
+      ContainerDb(DB, "Configuration and Data Storage")
+
+      Rel(PortfolioService, DB, "Stores portfolio data")
+      Rel(TradingService, DB, "Stores trade data")
+      Rel(TerminalService, DB, "Stores user configurations")
+      Rel(PriceService, DB, "Stores price data")
+      Rel(UserService, DB, "Stores user data")
+      Rel(AssetService, DB, "Stores asset data")
 
       Rel(PortfolioService, TradingService, "Rebalances portfolios")
-      Rel(TradingService, PricingService, "Fetches prices")
+      Rel(TradingService, PriceService, "Fetches prices")
       Rel(TerminalService, PortfolioService, "Interacts with user portfolios")
       Rel(TerminalService, TradingService, "Executes trades")
-      Rel(TerminalService, PricingService, "Fetches prices")
+      Rel(TerminalService, PriceService, "Fetches prices")
       Rel(PortfolioService, TerminalService, "Sends notifications")
-
+      Rel(PriceService, AssetService, "Fetches and updates asset data")
+      Rel(PortfolioService, AssetService, "Fetches and updates asset data")
+      Rel(TerminalService, UserService, "Manages user accounts")
       
 
-      UpdateLayoutConfig($c4ShapeInRow="2", $c4BoundaryInRow="2")
+      UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="2")
 ```
 
 Key Components:

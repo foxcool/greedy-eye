@@ -3,7 +3,7 @@ syntax = "proto3";
 package asset;
 
 import "google/protobuf/empty.proto";
-option go_package = ".;asset";
+option go_package = "./asset";
 
 service AssetService {
   rpc GetAsset(AssetRequest) returns (AssetResponse);

@@ -3,7 +3,7 @@ syntax = "proto3";
 package portfolio;
 
 import "google/protobuf/empty.proto";
-option go_package = ".;portfolio";
+option go_package = "./portfolio";
 
 service PortfolioService {
   rpc GetPortfolio(PortfolioRequest) returns (PortfolioResponse);
