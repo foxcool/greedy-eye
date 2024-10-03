@@ -60,10 +60,10 @@ func Get() ([]entities.Price, error) {
 	var result []entities.Price
 	for _, data := range resp {
 		result = append(result, entities.Price{
-			Source: "coingecko",
-			Asset:  entities.Asset(data.Symbol),
-			Price:  decimal.NewFromFloat32(float32(data.CurrentPrice)),
-			Time:   data.LastUpdated,
+			Source:    "coingecko",
+			BaseAsset: entities.Asset(data.Symbol),
+			LastPrice: decimal.NewFromFloat32(float32(data.CurrentPrice)),
+			Time:      data.LastUpdated,
 		})
 	}
 

@@ -1,8 +1,4 @@
-FROM golang:1.19-alpine AS builder
-
-# Install dependencies
-RUN apk add --no-cache \
-	git
+FROM golang:1.23-alpine AS builder
 
 ENV PROJECT_PATH=github.com/Foxcool/greedy-eye
 
@@ -15,18 +11,21 @@ ENV GOPATH=/go \
 
 # Copy project files
 WORKDIR ${GOPATH}/src/${PROJECT_PATH}
-COPY . .
+COPY go.mod .
+COPY go.sum .
+COPY cmd cmd
+COPY pkg pkg
 
 # Build
 WORKDIR ${_path}
-RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags "-X main.version=develop" -gcflags "all=-N -l" -o ${GOPATH}/bin/instance .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -o ${GOPATH}/bin/app .
 
 # Init new lightweight container
-FROM alpine:3.11
+FROM alpine:3.20
 RUN apk --no-cache add ca-certificates
 
-WORKDIR /app
-COPY --from=builder /go/bin/instance .
+
+COPY --from=builder /go/bin/app .
 
 # Run the compiled bin by default when the container start.
-CMD /app/instance
+CMD /app

@@ -18,9 +18,9 @@ import (
 
 // Config is application config struct
 type Config struct {
-	Logging struct {
+	Logger struct {
 		Level string `koanf:"level"`
-	} `koanf:"logging"`
+	} `koanf:"logger"`
 	Sentry struct {
 		DSN              string  `koanf:"dsn"`
 		TracesSampleRate float64 `koanf:"tracesSampleRate"`
@@ -28,9 +28,12 @@ type Config struct {
 	DB struct {
 		URL string `koanf:"url"`
 	}
+	GRPC struct {
+		Port int `koanf:"port"`
+	}
 }
 
-func getConfig(log *zap.Logger) Config {
+func getConfig() (*Config, error) {
 	var err error
 	k := koanf.New(".")
 
@@ -41,7 +44,7 @@ func getConfig(log *zap.Logger) Config {
 	}
 	err = k.Load(confmap.Provider(defaults, "."), nil)
 	if err != nil {
-		log.Fatal("can't load default config parameters", zap.Error(err))
+		return nil, fmt.Errorf("can't load default config parameters", zap.Error(err))
 	}
 
 	// Load command line and configs
@@ -51,18 +54,10 @@ func getConfig(log *zap.Logger) Config {
 		fmt.Println(f.FlagUsages())
 		os.Exit(0)
 	}
-	f.Bool("version", false, "Show version")
 	f.String("c", "", "Path to config file")
 	err = f.Parse(os.Args[1:])
 	if err != nil {
-		log.Fatal("can't parse command line arguments", zap.Error(err))
-	}
-
-	// Show version and die if needed
-	showVersion, _ := f.GetBool("version")
-	if showVersion {
-		fmt.Printf("Version: %s\n", version)
-		os.Exit(0)
+		return nil, fmt.Errorf("can't parse command line arguments", zap.Error(err))
 	}
 
 	// Load the config files provided in the commandline.
@@ -70,15 +65,15 @@ func getConfig(log *zap.Logger) Config {
 	switch {
 	case strings.HasSuffix(cFile, "toml"):
 		if err := k.Load(file.Provider(cFile), toml.Parser()); err != nil {
-			log.Fatal("error loading file", zap.Error(err))
+			return nil, fmt.Errorf("error loading file", zap.Error(err))
 		}
 	case strings.HasSuffix(cFile, "yaml"):
 		if err := k.Load(file.Provider(cFile), yaml.Parser()); err != nil {
-			log.Fatal("error loading file", zap.Error(err))
+			return nil, fmt.Errorf("error loading file", zap.Error(err))
 		}
 	case strings.HasSuffix(cFile, "json"):
 		if err := k.Load(file.Provider(cFile), json.Parser()); err != nil {
-			log.Fatal("error loading file", zap.Error(err))
+			return nil, fmt.Errorf("error loading file", zap.Error(err))
 		}
 	}
 
@@ -89,15 +84,15 @@ func getConfig(log *zap.Logger) Config {
 			strings.TrimPrefix(s, ServiceName+"_")), "_", ".", -1)
 	}), nil)
 	if err != nil {
-		log.Fatal("can't load env variables", zap.Error(err))
+		return nil, fmt.Errorf("can't load env variables", zap.Error(err))
 	}
 
 	// Unmarshal configs to struct
 	var config Config
 	err = k.Unmarshal("", &config)
 	if err != nil {
-		log.Fatal("can't unmarshal config", zap.Error(err))
+		return nil, fmt.Errorf("can't unmarshal config", zap.Error(err))
 	}
 
-	return config
+	return &config, nil
 }

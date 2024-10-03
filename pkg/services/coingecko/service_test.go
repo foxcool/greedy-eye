@@ -16,7 +16,7 @@ func TestGet(t *testing.T) {
 	// Check that the returned prices are correct
 	for _, price := range prices {
 		assert.Equal(t, "coingecko", price.Source)
-		assert.IsType(t, entities.Asset(""), price.Asset)
+		assert.IsType(t, entities.Asset(""), price.BaseAsset)
 		assert.IsType(t, time.Time{}, price.Time)
 	}
 }

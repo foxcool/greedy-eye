@@ -11,9 +11,9 @@ ifndef PROTOC_GEN_GO
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 endif
 	@echo "Generating .proto files..."
-	protoc --go_out=pkg/api --go-grpc_out=pkg/api $(shell find api -name "*.proto")
+	protoc --go_out=pkg/services --go-grpc_out=pkg/services $(shell find api -name "*.proto")
 
 # Run docker-compose up
-dev:
+up:
 	@echo "Starting Docker Compose..."
-	docker-compose -f $(DOCKER_COMPOSE_FILES) up
+	docker-compose -f $(DOCKER_COMPOSE_FILES) up --build eye
