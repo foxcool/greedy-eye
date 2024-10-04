@@ -13,7 +13,6 @@ import (
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/spf13/pflag"
-	"go.uber.org/zap"
 )
 
 // Config is application config struct
@@ -44,7 +43,7 @@ func getConfig() (*Config, error) {
 	}
 	err = k.Load(confmap.Provider(defaults, "."), nil)
 	if err != nil {
-		return nil, fmt.Errorf("can't load default config parameters", zap.Error(err))
+		return nil, fmt.Errorf("can't load default config parameters: %w", err)
 	}
 
 	// Load command line and configs
@@ -57,7 +56,7 @@ func getConfig() (*Config, error) {
 	f.String("c", "", "Path to config file")
 	err = f.Parse(os.Args[1:])
 	if err != nil {
-		return nil, fmt.Errorf("can't parse command line arguments", zap.Error(err))
+		return nil, fmt.Errorf("can't parse command line arguments: %w", err)
 	}
 
 	// Load the config files provided in the commandline.
@@ -65,15 +64,15 @@ func getConfig() (*Config, error) {
 	switch {
 	case strings.HasSuffix(cFile, "toml"):
 		if err := k.Load(file.Provider(cFile), toml.Parser()); err != nil {
-			return nil, fmt.Errorf("error loading file", zap.Error(err))
+			return nil, fmt.Errorf("error loading file: %w", err)
 		}
 	case strings.HasSuffix(cFile, "yaml"):
 		if err := k.Load(file.Provider(cFile), yaml.Parser()); err != nil {
-			return nil, fmt.Errorf("error loading file", zap.Error(err))
+			return nil, fmt.Errorf("error loading file: %w", err)
 		}
 	case strings.HasSuffix(cFile, "json"):
 		if err := k.Load(file.Provider(cFile), json.Parser()); err != nil {
-			return nil, fmt.Errorf("error loading file", zap.Error(err))
+			return nil, fmt.Errorf("error loading file: %w", err)
 		}
 	}
 
@@ -84,14 +83,14 @@ func getConfig() (*Config, error) {
 			strings.TrimPrefix(s, ServiceName+"_")), "_", ".", -1)
 	}), nil)
 	if err != nil {
-		return nil, fmt.Errorf("can't load env variables", zap.Error(err))
+		return nil, fmt.Errorf("can't load env variables: %w", err)
 	}
 
 	// Unmarshal configs to struct
 	var config Config
 	err = k.Unmarshal("", &config)
 	if err != nil {
-		return nil, fmt.Errorf("can't unmarshal config", zap.Error(err))
+		return nil, fmt.Errorf("can't unmarshal config: %w", err)
 	}
 
 	return &config, nil
