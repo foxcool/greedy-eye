@@ -45,20 +45,8 @@ func main() {
 	}
 	defer sentry.Flush(2 * time.Second)
 
-	// Connect to DB
-
 	// Start subservices and gRPC server
-	server := grpc.NewServer()
-
-	userService := user.NewUserService()
-	userService.Register(server)
-	assetService := asset.NewAssetService()
-	assetService.Register(server)
-	portfolioService := portfolio.NewPortfolioService()
-	portfolioService.Register(server)
-	pricingService := price.NewPricingService(assetService, nil)
-	pricingService.Register(server)
-
+	server := registerServices(config.Services)
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", config.GRPC.Port))
 	if err != nil {
 		log.Fatal("failed to listen gRPC", zap.Error(err))
@@ -79,4 +67,26 @@ func createLogger(level string) (*zap.Logger, error) {
 		cfg.Level.SetLevel(lvl)
 	}
 	return cfg.Build()
+}
+
+func registerServices(services []ServiceConfig) *grpc.Server {
+	server := grpc.NewServer()
+
+	if len(services) == 0 {
+		// Register all services with default implementations
+		userService := user.NewUserService()
+		userService.Register(server)
+		assetService := asset.NewAssetService()
+		assetService.Register(server)
+		portfolioService := portfolio.NewPortfolioService()
+		portfolioService.Register(server)
+		pricingService := price.NewPricingService(assetService, nil)
+		pricingService.Register(server)
+	} else {
+		// Register services with custom implementations
+		// for _, service := range services {
+		// ToDo: Implement custom service registration
+		// }
+	}
+	return server
 }

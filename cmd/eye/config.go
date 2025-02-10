@@ -30,7 +30,22 @@ type Config struct {
 	GRPC struct {
 		Port int `koanf:"port"`
 	}
+	Services []ServiceConfig `koanf:"services"`
 }
+
+// ServiceConfig is a config for a service
+type ServiceConfig struct {
+	Type       string            `koanf:"type"`
+	Parameters map[string]string `koanf:"parameters"`
+}
+
+const (
+	ServiceConfigTypeAsset     = "asset"
+	ServiceConfigTypeUser      = "user"
+	ServiceConfigTypePrice     = "price"
+	ServiceConfigTypePortfolio = "portfolio"
+	ServiceConfigTypeTrade     = "trade"
+)
 
 func getConfig() (*Config, error) {
 	var err error
