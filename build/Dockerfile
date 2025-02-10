@@ -7,7 +7,7 @@ ARG _path
 
 # Set environment variable for Go
 ENV GOPATH=/go \
-	PATH="/go/bin:$PATH"
+    PATH="/go/bin:$PATH"
 
 # Copy project files
 WORKDIR ${GOPATH}/src/${PROJECT_PATH}
@@ -15,6 +15,7 @@ COPY go.mod .
 COPY go.sum .
 COPY cmd cmd
 COPY pkg pkg
+COPY internal internal
 
 # Build
 WORKDIR ${_path}

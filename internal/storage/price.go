@@ -3,7 +3,7 @@ package storage
 import (
 	"context"
 
-	"github.com/foxcool/greedy-eye/pkg/entities"
+	"github.com/foxcool/greedy-eye/internal/entities"
 )
 
 type PriceStorage interface {

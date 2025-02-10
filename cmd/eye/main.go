@@ -5,10 +5,10 @@ import (
 	"net"
 	"time"
 
-	"github.com/foxcool/greedy-eye/pkg/services/asset"
-	"github.com/foxcool/greedy-eye/pkg/services/portfolio"
-	"github.com/foxcool/greedy-eye/pkg/services/price"
-	"github.com/foxcool/greedy-eye/pkg/services/user"
+	"github.com/foxcool/greedy-eye/internal/services/asset"
+	"github.com/foxcool/greedy-eye/internal/services/portfolio"
+	"github.com/foxcool/greedy-eye/internal/services/price"
+	"github.com/foxcool/greedy-eye/internal/services/user"
 	"github.com/getsentry/sentry-go"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -80,7 +80,7 @@ func registerServices(services []ServiceConfig) *grpc.Server {
 		assetService.Register(server)
 		portfolioService := portfolio.NewPortfolioService()
 		portfolioService.Register(server)
-		pricingService := price.NewPricingService(assetService, nil)
+		pricingService := price.NewPricingService(nil)
 		pricingService.Register(server)
 	} else {
 		// Register services with custom implementations
