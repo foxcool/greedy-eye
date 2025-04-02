@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/foxcool/greedy-eye/pkg/entities"
+	"github.com/foxcool/greedy-eye/internal/entities"
 	"github.com/shopspring/decimal"
 )
 

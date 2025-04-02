@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/foxcool/greedy-eye/pkg/entities"
+	"github.com/foxcool/greedy-eye/internal/entities"
 	"github.com/stretchr/testify/assert"
 )
 

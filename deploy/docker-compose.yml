@@ -1,4 +1,6 @@
 services:
+  volumes:
+    postgres_data:
 
   eye:
     build:
@@ -7,7 +9,43 @@ services:
       args:
         _path: cmd/eye
     container_name: eye
+    image: foxcool/greedy-eye:latest
     environment:
       EYE_LOGGING_LEVEL: DEBUG
-      EYE_SENTRY_DSN: "https://bc7d68d874af47a2b4d624319c976393@o4504393685925888.ingest.sentry.io/4504393690644480"
       EYE_SENTRY_ENVIRONMENT: "develop"
+    depends_on:
+      - postgres
+
+  postgres:
+    image: timescale/timescaledb:latest-pg14
+    environment:
+      POSTGRES_USER: greedy_eye
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: greedy_eye
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redash:
+    image: redash/redash:latest
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "5000:5000"
+    environment:
+      REDASH_DATABASE_URL: postgresql://greedy_eye:password@postgres:5432/redash
+      REDASH_REDIS_URL: redis://redis:6379/0
+
+  redis:
+    image: redis:alpine
+
+  redash-worker:
+    image: redash/redash:latest
+    depends_on:
+      - redis
+    environment:
+      REDASH_DATABASE_URL: postgresql://greedy_eye:password@postgres:5432/redash
+      REDASH_REDIS_URL: redis://redis:6379/0
+    command: scheduler

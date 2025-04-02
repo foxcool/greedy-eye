@@ -6,7 +6,12 @@
 
 ## ⚠️ Status
 
-:warning: **Under development.** Features are being actively added and improvements are ongoing.
+:warning: **Under development.**
+
+Current focus:
+- Building core service implementations (Asset, Portfolio, Price, User)
+- Establishing database schema and migrations
+- Implementing API integrations with exchanges
 
 ## 📜 Table of Contents
 
@@ -14,7 +19,10 @@
 - [Features](#features)
 - [Supported Services](#supported-services)
 - [Architecture](#architecture)
+- [Deployment Options](#deployment-options)
 - [Quickstart](#quickstart)
+- [Development](#development)
+- [Roadmap](#roadmap)
 - [License](#license)
 
 ## Overview
@@ -22,97 +30,127 @@
 Greedy-Eye is designed to help investment enthusiasts manage their portfolios efficiently. It integrates data fetching, analysis, trading, and real-time notifications to provide a seamless experience for tracking and optimizing your crypto investments.
 
 ```mermaid
-    C4Context
-      title System Context diagram for Greedy-Eye
-      Person(User, "User", "Greedy-Eye user.")
+C4Context
+title System Context diagram for Greedy-Eye
+Person(User, "User", "Greedy-Eye user.")
 
-      System_Ext(Exchange, "Exchange")
-      System_Ext(PricingService, "Pricing Service")
-      System_Ext(Messenger, "Messenger")
-      System_Ext(BrokerAPI, "Broker", "API of stock broker.")
-      System_Ext(PortfolioManager, "Portfolio Manager", "Another portfolio manager or wallet service.")
+System_Ext(Exchange, "Exchange")
+System_Ext(PricingService, "Pricing Service")
+System_Ext(Messenger, "Messenger")
+System_Ext(BrokerAPI, "Broker", "API of stock broker.")
+System_Ext(PortfolioManager, "Portfolio Manager", "Another portfolio manager or wallet service.")
 
-      System_Boundary(b1, "Greedy-Eye Boundary", "The boundary of Greedy-Eye.") {
-         System(Eye, "Eye instance", "An instance of Greedy-Eye.")
-         SystemDb(DB, "Eye DB", "Database for Greedy-Eye.")
-      }
-      
+System_Boundary(b1, "Greedy-Eye Boundary", "The boundary of Greedy-Eye.") {
+  System(Eye, "Eye instance", "An instance of Greedy-Eye.")
+  SystemDb(DB, "Eye DB", "Database for Greedy-Eye.")
+}
 
-      BiRel(User, Messenger, "Uses")
-      BiRel(Messenger, Eye, "Communicates with")
-      BiRel(Eye, DB, "Stores configuration and data")
-      BiRel(Eye, Exchange, "Sync balances and trades") 
-      BiRel(Eye, PricingService, "Fetches prices")
-      BiRel(Eye, BrokerAPI, "Sync stock balances and trades")
-      BiRel(Eye, PortfolioManager, "Sync balances and trades")
+BiRel(User, Messenger, "Uses")
+BiRel(Messenger, Eye, "Communicates with")
+BiRel(Eye, DB, "Stores configuration and data")
+BiRel(Eye, Exchange, "Sync balances and trades")
+BiRel(Eye, PricingService, "Fetches prices")
+BiRel(Eye, BrokerAPI, "Sync stock balances and trades")
+BiRel(Eye, PortfolioManager, "Sync balances and trades")
 
-
-      UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="2")
+UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="2")
 ```
 
 ## Features
 
-- Portfolio Management: Track and manage your cryptocurrency holdings across multiple wallets and exchanges.
-- Automated Trading: Execute trades based on predefined strategies and market conditions.
-- Analytics & Metrics: Gain insights into portfolio performance with detailed analytics.
-- Real-Time Notifications: Receive instant alerts on trades, portfolio changes, and important market events.
-- Extensible Architecture: Easily add new services and integrations as your needs grow.
+- **Portfolio Management**:
+  - [x] Basic portfolio structure and holdings
+  - [x] Multiple portfolios support
+  - [ ] Advanced portfolio metrics and analytics
+  - [ ] Rebalancing suggestions
+
+- **Data Integration**:
+  - [x] Basic price fetching from CoinGecko
+  - [ ] Balance synchronization with exchanges
+  - [ ] Transaction history import
+
+- **Notifications**:
+  - [x] Basic Telegram integration
+  - [ ] Price alerts
+  - [ ] Portfolio performance alerts
+
+- **Trading Automation**:
+  - [ ] Automated trading strategies
+  - [ ] DCA and rebalancing automation
+  - [ ] Trade execution on exchanges
+
+*Note: Checked items [x] are implemented in the current version.*
 
 ## Supported Services
 
-- Exchanges: Binance, GateIO.
-- Notification Channels: Telegram.
-- Price Providers: CoinGecko.
+- **Exchanges**:
+  - Binance (in progress)
+  - GateIO (planned)
 
-(Note: Currently in development. More services will be supported in upcoming releases.)
+- **Notification Channels**:
+  - Telegram (basic implementation)
+
+- **Price Providers**:
+  - CoinGecko (implemented)
 
 ## Architecture
 
-Greedy-Eye follows a modular monolithic architecture, with each component responsible for a specific set of functionalities. The system is designed to be extensible, allowing for easy integration of new services and features.
+Greedy-Eye follows a modular monolithic architecture with microservices deployment capability. Each component is responsible for a specific set of functionalities, and the system is designed to be extensible, allowing for easy integration of new services and features.
 
 ```mermaid
-    C4Component
-      title Component diagram for Greedy-Eye
- 
-      Container_Boundary(b1, "Greedy-Eye Application") {
-         Component(AssetService, "Asset Management Service")
-         Component(PortfolioService, "Portfolio Management Service")
-         Component(PriceService, "Price Management Service")
-         Component(UserService, "Users and Accounts Management Service")
-         Component(TradingService, "Trading Service")
-         Component(TerminalService, "Terminal Service")
-      }
+C4Component
+title Component diagram for Greedy-Eye
 
-      ContainerDb(DB, "Configuration and Data Storage")
+Container_Boundary(b1, "Greedy-Eye Application") {
+  Component(AssetService, "Asset Management Service")
+  Component(PortfolioService, "Portfolio Management Service")
+  Component(PriceService, "Price Management Service")
+  Component(UserService, "Users and Accounts Management Service")
+  Component(TradingService, "Trading Service")
+  Component(TerminalService, "Terminal Service")
+}
 
-      Rel(PortfolioService, DB, "Stores portfolio data")
-      Rel(TradingService, DB, "Stores trade data")
-      Rel(TerminalService, DB, "Stores user configurations")
-      Rel(PriceService, DB, "Stores price data")
-      Rel(UserService, DB, "Stores user data")
-      Rel(AssetService, DB, "Stores asset data")
+ContainerDb(DB, "Configuration and Data Storage")
 
-      Rel(PortfolioService, TradingService, "Rebalances portfolios")
-      Rel(TradingService, PriceService, "Fetches prices")
-      Rel(TerminalService, PortfolioService, "Interacts with user portfolios")
-      Rel(TerminalService, TradingService, "Executes trades")
-      Rel(TerminalService, PriceService, "Fetches prices")
-      Rel(PortfolioService, TerminalService, "Sends notifications")
-      Rel(PriceService, AssetService, "Fetches and updates asset data")
-      Rel(PortfolioService, AssetService, "Fetches and updates asset data")
-      Rel(TerminalService, UserService, "Manages user accounts")
-      
+Rel(PortfolioService, DB, "Stores portfolio data")
+Rel(TradingService, DB, "Stores trade data")
+Rel(TerminalService, DB, "Stores user configurations")
+Rel(PriceService, DB, "Stores price data")
+Rel(UserService, DB, "Stores user data")
+Rel(AssetService, DB, "Stores asset data")
 
-      UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="2")
+Rel(PortfolioService, TradingService, "Rebalances portfolios")
+Rel(TradingService, PriceService, "Fetches prices")
+Rel(TerminalService, PortfolioService, "Interacts with user portfolios")
+Rel(TerminalService, TradingService, "Executes trades")
+Rel(TerminalService, PriceService, "Fetches prices")
+Rel(PortfolioService, TerminalService, "Sends notifications")
+Rel(PriceService, AssetService, "Fetches and updates asset data")
+Rel(PortfolioService, AssetService, "Fetches and updates asset data")
+Rel(TerminalService, UserService, "Manages user accounts")
+
+UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="2")
 ```
 
-Key Components:
+### Key Components:
 
-- **Portfolio Management Service**: Handles the aggregation and management of user portfolios, including balances, trades, and performance metrics.
-- **Trading Service**: Manages trade executions based on predefined strategies and market conditions.
-- **Data Storage**: Central repository for storing all relevant data, including user configurations, balances, trades, and analytics.
-- **Terminal Service**: Provides a control interface for users to interact with the system and receive real-time notifications.
-- **Pricing Service**: Fetches and stores price data from external providers for use in portfolio analysis and trading.
+- **Asset Service**: Manages information about financial assets (cryptocurrencies, stocks, etc.).
+- **Portfolio Service**: Handles portfolio management, including balances, trades, and performance metrics.
+- **Price Service**: Fetches and stores price data from external providers.
+- **User Service**: Manages user accounts and authentication.
+- **Trading Service**: Handles trade executions and strategy implementation.
+- **Terminal Service**: Provides interfaces for user interaction and notifications.
+
+## Deployment Options
+
+Greedy-Eye offers flexible deployment options:
+
+1. **Monolithic Mode**: Run all services in a single binary
+2. **Microservices Mode**: Run each service separately and communicate via gRPC
+
+Configure which services to run using either:
+- Configuration file with `-c [config file path]`
+- Environment variables (e.g., `EYE_SERVICES="asset,portfolio,price"`)
 
 ## Quickstart
 
@@ -120,34 +158,41 @@ Key Components:
 
 To run Greedy-Eye using Docker, follow these steps:
 
-Write a docker-compose.yml file:
+Create a docker-compose.yml file:
 
 ```yaml
 version: '3.8'
 
 services:
-   greedy-eye:
-      image: fox/greedy-eye:latest
-      ports:
-         - "8080:80"
-      environment:
-         - GREEDY_EYE_DB_URL=postgresql://greedy-eye:password@db:5432/greedy-eye
-      depends_on:
-         - db
-      networks:
-         - greedy-eye
+  greedy-eye:
+    image: foxcool/greedy-eye:latest
+    ports:
+      - "8080:80"
+    environment:
+      - EYE_LOGGING_LEVEL=DEBUG
+      - EYE_DATABASE_URL=postgresql://greedy-eye:password@db:5432/greedy-eye
+      - EYE_SERVICES="asset,portfolio,price,user"
+    depends_on:
+      - db
+    networks:
+      - greedy-eye
 
-   db:
-      image: postgres:13
-      environment:
-         - POSTGRES_USER=greedy-eye
-         - POSTGRES_PASSWORD=password
-         - POSTGRES_DB=greedy-eye
-      networks:
-         - greedy-eye
+  db:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=greedy-eye
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=greedy-eye
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - greedy-eye
 
 networks:
-   greedy-eye:
+  greedy-eye:
+
+volumes:
+  postgres_data:
 ```
 
 Run the following command:
@@ -158,29 +203,66 @@ docker-compose up -d
 
 Greedy-Eye will be accessible at <http://localhost:8080>.
 
-### Manual
+### Manual Build
 
-To run Greedy-Eye manually, follow these steps:
+To build and run Greedy-Eye manually:
 
-Clone the repository:
-
+1. Clone the repository:
 ```bash
 git clone https://github.com/foxcool/greedy-eye.git
+cd greedy-eye
 ```
 
-Build the project:
+2. Generate Go code from Protocol Buffers:
+```bash
+make protoc
+```
 
+3. Build the project:
 ```bash
 make build
 ```
 
-Run the application:
-
+4. Run the application:
 ```bash
-./greedy-eye
+./bin/eye -c configs/config.yaml
 ```
 
-Greedy-Eye will be accessible at <http://localhost:8080>.
+## Development
+
+### Prerequisites
+
+- Go 1.23+
+- Protocol Buffers compiler
+- Docker and Docker Compose (for local development)
+
+### Development Commands
+
+```bash
+# Generate protobuf files
+make protoc
+
+# Run linting
+make lint
+
+# Run tests
+make test
+
+# Start development environment
+make up
+```
+
+## Roadmap
+
+- [x] Core architecture and service structure
+- [x] Basic gRPC interfaces
+- [ ] Database schema and migrations
+- [ ] Basic portfolio tracking
+- [ ] Binance API integration
+- [ ] Telegram notifications
+- [ ] Portfolio analytics
+- [ ] Trading automation
+- [ ] Web interface
 
 ## License
 

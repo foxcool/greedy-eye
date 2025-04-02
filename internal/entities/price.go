@@ -11,7 +11,7 @@ type Price struct {
 	Source     string
 	BaseAsset  Asset
 	QuoteAsset Asset
-	// Price is the last price of the asset
+	// LastPrice is the last price of the asset
 	LastPrice decimal.Decimal
 	// Ask is the lowest price for buying
 	Ask decimal.Decimal
