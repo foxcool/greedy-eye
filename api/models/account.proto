@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package models;
+
+import "google/protobuf/timestamp.proto";
+option go_package = "./models";
+
+enum AccountType {
+    ACCOUNT_TYPE_UNSPECIFIED = 0;
+    ACCOUNT_TYPE_WALLET = 1;
+    ACCOUNT_TYPE_EXCHANGE = 2;
+    ACCOUNT_TYPE_BANK = 3;
+    ACCOUNT_TYPE_BROKER = 4;
+}
+
+// Account represents a user's connection to an external financial entity
+// (like an exchange account, bank account, or a self-custody wallet).
+// It holds metadata and potentially credentials (in 'data' field) needed to interact.
+message Account {
+  string id = 1; // Unique identifier (UUID)
+  string user_id = 2; // ID of the user owning this account
+  string name = 3; // User-defined name (e.g., "My Binance Spot", "Ledger Nano S")
+  optional string description = 4; // Optional longer description
+  AccountType type = 5; // Type of the account
+  map<string, string> data = 6; // Flexible map for connection parameters, API keys, addresses etc. Needs careful handling due to sensitive data.
+  google.protobuf.Timestamp created_at = 7; // Timestamp of creation
+  google.protobuf.Timestamp updated_at = 8; // Timestamp of last update
+}

@@ -99,37 +99,52 @@ Greedy-Eye follows a modular monolithic architecture with microservices deployme
 
 ```mermaid
 C4Component
-title Component diagram for Greedy-Eye
+title Layered Component Architecture for Greedy-Eye
 
 Container_Boundary(b1, "Greedy-Eye Application") {
-  Component(AssetService, "Asset Management Service")
-  Component(PortfolioService, "Portfolio Management Service")
-  Component(PriceService, "Price Management Service")
-  Component(UserService, "Users and Accounts Management Service")
-  Component(TradingService, "Trading Service")
-  Component(TerminalService, "Terminal Service")
+
+  ComponentDb(DB, "Database", "PostgreSQL / TimescaleDB", "Stores application data, including time-series price data")
+
+  Boundary(storage, "Storage Layer") {
+    Component(StorageService, "Storage Service", "Abstracts database interactions")
+  }
+
+  Boundary(domain, "Domain Layer") {
+    Component(AssetService, "Asset Management Service", "Manages asset data and operations")
+    Component(PortfolioService, "Portfolio Management Service", "Manages portfolios and holdings")
+    Component(PriceService, "Price Management Service", "Manages price data and operations")
+    Component(UserService, "Users and Accounts Service", "Manages user accounts")
+    Component(TradingService, "Trading Service", "Handles trading operations")
+  }
+
+
+  Boundary(interface, "Interface Layer") {
+    Component(APIGateway, "API Gateway", "Handles external requests")
+    Component(TerminalService, "Terminal Service", "Handles user interactions")
+  }
 }
 
-ContainerDb(DB, "Configuration and Data Storage")
+Rel(StorageService, DB, "Persists and retrieves data")
 
-Rel(PortfolioService, DB, "Stores portfolio data")
-Rel(TradingService, DB, "Stores trade data")
-Rel(TerminalService, DB, "Stores user configurations")
-Rel(PriceService, DB, "Stores price data")
-Rel(UserService, DB, "Stores user data")
-Rel(AssetService, DB, "Stores asset data")
+Rel(AssetService, StorageService, "Uses")
+Rel(PortfolioService, StorageService, "Uses")
+Rel(PriceService, StorageService, "Uses")
+Rel(UserService, StorageService, "Uses")
+Rel(TradingService, StorageService, "Uses")
 
-Rel(PortfolioService, TradingService, "Rebalances portfolios")
-Rel(TradingService, PriceService, "Fetches prices")
-Rel(TerminalService, PortfolioService, "Interacts with user portfolios")
-Rel(TerminalService, TradingService, "Executes trades")
-Rel(TerminalService, PriceService, "Fetches prices")
-Rel(PortfolioService, TerminalService, "Sends notifications")
-Rel(PriceService, AssetService, "Fetches and updates asset data")
-Rel(PortfolioService, AssetService, "Fetches and updates asset data")
-Rel(TerminalService, UserService, "Manages user accounts")
+Rel(APIGateway, AssetService, "Uses")
+Rel(APIGateway, PortfolioService, "Uses")
+Rel(APIGateway, PriceService, "Uses")
+Rel(APIGateway, UserService, "Uses")
+Rel(APIGateway, TradingService, "Uses")
 
-UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="2")
+Rel(TerminalService, AssetService, "Uses")
+Rel(TerminalService, PortfolioService, "Uses")
+Rel(TerminalService, PriceService, "Uses")
+Rel(TerminalService, UserService, "Uses")
+Rel(TerminalService, TradingService, "Uses")
+
+UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="3")
 ```
 
 ### Key Components:
@@ -140,6 +155,26 @@ UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="2")
 - **User Service**: Manages user accounts and authentication.
 - **Trading Service**: Handles trade executions and strategy implementation.
 - **Terminal Service**: Provides interfaces for user interaction and notifications.
+
+### Service Layer Separation
+
+Greedy-Eye follows a layered architecture pattern with clear separation of concerns:
+
+#### Domain Services
+Services like `AssetService`, `PortfolioService`, and `UserService` represent the business domain and implement domain-specific logic:
+- Business rules validation
+- Domain workflows and operations
+- Cross-entity operations
+- External integrations
+
+#### Storage Service
+`StorageService` acts as an abstraction layer for persistent storage:
+- Low-level data CRUD operations
+- Database transaction management
+- Data versioning and history tracking
+- Query optimization
+
+Domain services depend on the Storage service for data persistence needs, never directly accessing the database.
 
 ## Deployment Options
 
@@ -266,4 +301,4 @@ make up
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License.

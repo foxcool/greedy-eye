@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package models;
+
+import "google/protobuf/timestamp.proto";
+option go_package = "./models";
+
+// Portfolio represents a collection of holdings (assets) managed by a user.
+// It's used for tracking performance and overall value.
+message Portfolio {
+  string id = 1; // Unique identifier (UUID)
+  string user_id = 2; // ID of the user owning this portfolio
+  string name = 3; // User-defined name (e.g., "Long Term Crypto", "Trading")
+  optional string description = 4; // Optional longer description
+  google.protobuf.Timestamp created_at = 5; // Timestamp of creation
+  google.protobuf.Timestamp updated_at = 6; // Timestamp of last update
+}

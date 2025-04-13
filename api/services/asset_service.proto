@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package services;
+
+import "google/protobuf/empty.proto";
+import "api/models/asset.proto";
+import "api/services/storage_service.proto"; // Import storage messages if needed for responses
+
+option go_package = "./services";
+
+// AssetService handles business logic related to financial assets.
+// It uses StorageService for persistence but adds higher-level operations.
+// See storage_service.proto for CRUD operations.
+service AssetService {
+  // Example business logic method: Fetches data from external sources and updates the asset info.
+  rpc EnrichAssetData(EnrichAssetDataRequest) returns (models.Asset);
+
+  // Example: Find assets similar to a given one based on tags, type, etc.
+  rpc FindSimilarAssets(FindSimilarAssetsRequest) returns (ListAssetsResponse); // Reuse ListAssetsResponse from storage
+}
+
+message EnrichAssetDataRequest {
+  string asset_id = 1;
+  repeated string sources = 2; // Optional: specify sources like "market_cap_provider", "fundamental_data_provider"
+}
+
+message FindSimilarAssetsRequest {
+  string asset_id = 1; // Find assets similar to this one
+  int32 limit = 2; // Max number of similar assets to return
+}

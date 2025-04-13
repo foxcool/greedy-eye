@@ -1,7 +1,7 @@
-services:
-  volumes:
-    postgres_data:
+volumes:
+  postgres_data:
 
+services:
   eye:
     build:
       context: ..

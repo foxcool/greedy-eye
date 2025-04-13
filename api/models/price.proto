@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package models;
+
+import "google/protobuf/timestamp.proto";
+option go_package = "./models";
+
+// Represents the price action of an Asset against a base Asset
+// over a specific interval (candle/OHLCV) or as a latest snapshot.
+message Price {
+  string id = 1; // Unique identifier (UUID)
+  string source_id = 2; // Identifier for the source (e.g., "coingecko", "binance")
+  string asset_id = 3; // ID of the Asset whose price is represented
+  string base_asset_id = 4; // ID of the Asset against which the price is quoted (e.g., USDT, USD, BTC)
+
+  // Interval defines the time period this price data represents.
+  // Examples: "1m", "5m", "1h", "4h", "1d", "tick", "latest".
+  // Empty or "latest" might indicate a snapshot price rather than a full candle.
+  string interval = 5;
+
+  // Monetary value represented by amount and precision. real_value = amount / (10^precision)
+  // 'amount' typically represents the closing price for candles or the last trade price for snapshots.
+  int64 amount = 6;
+  uint32 precision = 7; // Precision for amount and OHLC values
+
+  // OHLCV data - applicable when 'interval' represents a standard candle type (e.g., "1m", "1h").
+  // These fields might be 0 or unset if the price represents a 'latest' snapshot or 'tick'.
+  optional int64 open = 8;
+  optional int64 high = 9;
+  optional int64 low = 10;
+  optional int64 close = 11; // Close price (often same as 'amount' for candles)
+  optional int64 volume = 12; // Trading volume during the interval
+
+  google.protobuf.Timestamp timestamp = 13; // The closing time of the interval or the time of the snapshot/tick.
+  // Renamed created_at to timestamp for clarity, especially with intervals.
+  google.protobuf.Timestamp updated_at = 14; // Timestamp of last update in our system (e.g., if corrected)
+}

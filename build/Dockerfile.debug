@@ -1,4 +1,4 @@
-FROM golang:1.19-alpine AS builder
+FROM golang:alpine AS builder
 
 # Install dependencies
 RUN apk add --no-cache \
@@ -27,7 +27,7 @@ WORKDIR ${_path}
 RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags "-X main.version=develop" -gcflags "all=-N -l" -o ${GOPATH}/bin/instance .
 
 # Init new lightweight container
-FROM alpine:3.11
+FROM alpine:3.20
 RUN apk --no-cache add ca-certificates
 
 WORKDIR /app

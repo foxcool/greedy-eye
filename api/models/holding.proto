@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package models;
+
+import "google/protobuf/timestamp.proto";
+option go_package = "./models";
+
+// Holding represents a specific quantity of an Asset held within an Account
+// and associated with a Portfolio.
+message Holding {
+  string id = 1; // Unique identifier (UUID)
+  string asset_id = 2; // ID of the Asset being held
+  // Monetary value represented by amount and precision. real_value = amount / (10^precision)
+  int64 amount = 3; // Quantity of the asset held
+  uint32 precision = 4; // Number of decimal places for the amount
+  string account_id = 5; // ID of the Account where the asset is held (optional if portfolio aggregates holdings)
+  string portfolio_id = 6; // ID of the Portfolio this holding belongs to
+  google.protobuf.Timestamp created_at = 7; // Timestamp of creation
+  google.protobuf.Timestamp updated_at = 8; // Timestamp of last update
+}

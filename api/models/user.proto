@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package models;
+
+import "google/protobuf/timestamp.proto";
+option go_package = "./models";
+
+// User represents a user of the Greedy-Eye system.
+message User {
+  string id = 1; // Unique identifier (UUID)
+  string name = 2; // User's display name
+  string email = 3; // User's email address (used for login/notifications)
+  map<string, string> preferences = 4; // User-specific settings (e.g., default currency, notification preferences)
+  google.protobuf.Timestamp created_at = 5; // Timestamp of registration
+  google.protobuf.Timestamp updated_at = 6; // Timestamp of last profile update
+}

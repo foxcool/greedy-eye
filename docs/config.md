@@ -9,9 +9,46 @@ Start with config file
 
     eye -c [config file path]
 
+
+## Example Configuration (`config.yaml`)
+
+```yaml
+# Logging settings
+logging:
+  output: "STDOUT" # Can be "STDOUT" or a file path like "/var/log/eye.log"
+  level: "INFO"    # DEBUG, INFO, WARN, ERROR, FATAL
+  format: "JSON"   # TEXT or JSON
+
+# Telegram Bot settings (if Telegram service is enabled)
+telegram:
+  token: "YOUR_TELEGRAM_BOT_TOKEN" # Bot token from BotFather
+  chatIDs: # List of chat IDs to send notifications to
+    - "-1001234567890" # Example group chat ID
+    # - "987654321"      # Example private chat ID
+
+# Database connection (using environment variable is often preferred for secrets)
+# database:
+#   url: "postgresql://user:password@host:port/dbname?sslmode=disable"
+
+# Enabled services (can also be set via EYE_SERVICES env var)
+# services:
+#   - asset
+#   - portfolio
+#   - price
+#   - user
+#   - storage # If storage runs as a separate service instance
+#   - telegram # If telegram bot service is enabled
+
+# Sentry integration (optional)
+# sentry:
+#   dsn: "YOUR_SENTRY_DSN"
+#   environment: "production" # e.g., development, staging, production
+```
+
+
 ## parameters
 
-### logging.output 
+### logging.output
 
 Service logging output
 
@@ -19,7 +56,7 @@ Service logging output
 - ENV: EYE_LOGGING_OUTPUT
 - default: STDOUT
 
-### logging.level 
+### logging.level
 
 Service logging level
 
@@ -27,7 +64,7 @@ Service logging level
 - ENV: EYE_LOGGING_LEVEL
 - default: INFO
 
-### logging.format 
+### logging.format
 
 Service logging format
 

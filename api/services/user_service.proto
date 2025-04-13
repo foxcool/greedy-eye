@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package services;
+
+import "google/protobuf/empty.proto";
+import "api/models/user.proto";
+import "api/models/account.proto"; // Needed if returning account info
+import "api/services/storage_service.proto"; // Import storage messages
+
+option go_package = "./services";
+
+// UserService handles user authentication, profile management, and related business logic.
+// See storage_service.proto for CRUD operations on users and accounts.
+service UserService {
+  // Updates user-specific preferences.
+  rpc UpdateUserPreferences(UpdateUserPreferencesRequest) returns (models.User);
+}
+
+message UpdateUserPreferencesRequest {
+  string user_id = 1;
+  map<string, string> preferences_to_update = 2; // Only the preferences to change
+  google.protobuf.FieldMask update_mask = 3; // Alternatively, use a mask to specify which keys in the map to update/delete
+}

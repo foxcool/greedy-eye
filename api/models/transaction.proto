@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package models;
+
+import "google/protobuf/timestamp.proto";
+option go_package = "./models";
+
+enum TransactionType {
+  TRANSACTION_TYPE_UNSPECIFIED = 0;
+  TRANSACTION_TYPE_BUY = 1; // Buying an asset
+  TRANSACTION_TYPE_SELL = 2; // Selling an asset
+  TRANSACTION_TYPE_TRANSFER = 3; // Transferring asset between accounts (internal or external)
+  TRANSACTION_TYPE_DEPOSIT = 4; // Depositing asset into an account from outside the system
+  TRANSACTION_TYPE_WITHDRAWAL = 5; // Withdrawing asset from an account to outside the system
+}
+
+enum TransactionStatus {
+  TRANSACTION_STATUS_UNSPECIFIED = 0;
+  TRANSACTION_STATUS_PENDING = 1; // Transaction initiated but not confirmed
+  TRANSACTION_STATUS_COMPLETED = 2; // Transaction successfully completed
+  TRANSACTION_STATUS_FAILED = 3; // Transaction failed
+  TRANSACTION_STATUS_CANCELLED = 4; // Transaction cancelled before completion
+}
+
+// Transaction represents a financial event involving assets, accounts, and portfolios.
+message Transaction {
+  string id = 1; // Unique identifier (UUID)
+  string portfolio_id = 2; // ID of the Portfolio affected by the transaction
+  string account_id = 3; // ID of the primary Account involved
+  string asset_id = 4; // ID of the primary Asset involved
+  // Monetary value represented by amount and precision. real_value = amount / (10^precision)
+  int64 amount = 5; // Quantity of the primary asset involved
+  // Fee amount, represented by fee and precision. real_fee = fee / (10^precision)
+  int64 fee = 6; // Fee paid for the transaction
+  uint32 precision = 7; // Precision for both 'amount' and 'fee' (assuming same precision for simplicity, adjust if needed)
+  string fee_asset_id = 8; // ID of the Asset used to pay the fee (can be different from primary asset)
+  TransactionType type = 9; // Type of the transaction
+  TransactionStatus status = 10; // Current status of the transaction
+  google.protobuf.Timestamp created_at = 11; // Timestamp when the transaction occurred or was recorded
+  google.protobuf.Timestamp updated_at = 12; // Timestamp of last status update
+  map<string, string> metadata = 13; // Additional data (e.g., external transaction ID, notes)
+}
