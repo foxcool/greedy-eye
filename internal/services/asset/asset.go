@@ -1,18 +1,16 @@
 package asset
 
-import grpc "google.golang.org/grpc"
+import (
+	"github.com/foxcool/greedy-eye/internal/api/services"
+)
 
-// AssetService is main struct for asset service
-type AssetService struct {
-	UnimplementedAssetServiceServer
+// Service implements the AssetService gRPC service.
+type Service struct {
+	services.UnimplementedAssetServiceServer
+	// ToDo: Add dependencies, such as StorageClient, logger, etc.
 }
 
-// NewAssetService creates new asset service
-func NewAssetService() *AssetService {
-	return &AssetService{}
-}
-
-// Register starts the server
-func (s *AssetService) Register(server *grpc.Server) {
-	RegisterAssetServiceServer(server, s)
+// NewService creates a new AssetService.
+func NewService( /* dependencies */ ) *Service {
+	return &Service{}
 }

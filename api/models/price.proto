@@ -3,7 +3,7 @@ syntax = "proto3";
 package models;
 
 import "google/protobuf/timestamp.proto";
-option go_package = "./models";
+option go_package = "github.com/foxcool/greedy-eye/internal/api/models";
 
 // Represents the price action of an Asset against a base Asset
 // over a specific interval (candle/OHLCV) or as a latest snapshot.

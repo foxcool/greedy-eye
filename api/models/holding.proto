@@ -3,7 +3,7 @@ syntax = "proto3";
 package models;
 
 import "google/protobuf/timestamp.proto";
-option go_package = "./models";
+option go_package = "github.com/foxcool/greedy-eye/internal/api/models";
 
 // Holding represents a specific quantity of an Asset held within an Account
 // and associated with a Portfolio.

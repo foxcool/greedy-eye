@@ -1,21 +1,13 @@
 package price
 
 import (
-	grpc "google.golang.org/grpc"
+	"github.com/foxcool/greedy-eye/internal/api/services"
 )
 
 type PricingService struct {
-	UnimplementedPricingServiceServer
-	PriceStorage PriceStorage
+	services.UnimplementedPriceServiceServer
 }
 
-type PriceStorage interface {
-}
-
-func NewPricingService(priceStorage PriceStorage) *PricingService {
+func NewService() *PricingService {
 	return &PricingService{}
-}
-
-func (s *PricingService) Register(server *grpc.Server) {
-	RegisterPricingServiceServer(server, s)
 }

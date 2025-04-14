@@ -8,7 +8,7 @@ import "api/models/holding.proto";
 import "api/models/portfolio.proto";
 import "api/services/storage_service.proto"; // Import storage messages
 
-option go_package = "./services";
+option go_package = "github.com/foxcool/greedy-eye/internal/api/services";
 
 // PortfolioService handles business logic related to portfolios and holdings management.
 // See storage_service.proto for CRUD operations.

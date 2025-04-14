@@ -3,7 +3,7 @@ syntax = "proto3";
 package models;
 
 import "google/protobuf/timestamp.proto";
-option go_package = "./models";
+option go_package = "github.com/foxcool/greedy-eye/internal/api/models";
 
 // Portfolio represents a collection of holdings (assets) managed by a user.
 // It's used for tracking performance and overall value.

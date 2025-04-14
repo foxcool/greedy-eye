@@ -1,15 +1,13 @@
 package user
 
-import grpc "google.golang.org/grpc"
+import (
+	"github.com/foxcool/greedy-eye/internal/api/services"
+)
 
 type UserService struct {
-	UnimplementedUserServiceServer
+	services.UnimplementedUserServiceServer
 }
 
-func NewUserService() *UserService {
+func NewService() *UserService {
 	return &UserService{}
-}
-
-func (s *UserService) Register(server *grpc.Server) {
-	RegisterUserServiceServer(server, s)
 }

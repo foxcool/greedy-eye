@@ -1,15 +1,11 @@
 package portfolio
 
-import grpc "google.golang.org/grpc"
+import "github.com/foxcool/greedy-eye/internal/api/services"
 
 type PortfolioService struct {
-	UnimplementedPortfolioServiceServer
+	services.UnimplementedPortfolioServiceServer
 }
 
-func NewPortfolioService() *PortfolioService {
+func NewService() *PortfolioService {
 	return &PortfolioService{}
-}
-
-func (s *PortfolioService) Register(server *grpc.Server) {
-	RegisterPortfolioServiceServer(server, s)
 }

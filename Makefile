@@ -18,12 +18,10 @@ ifndef PROTOC_GEN_GO
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 endif
 	@echo "Generating .proto files..."
-	# Make directories if they don't exist
-	mkdir -p internal/generated/grpc/ # ToDo: select path for generated files
-	protoc --go_out=internal/generated/grpc/ --go_opt=paths=source_relative \
-		--go-grpc_out=internal/generated/grpc/ --go-grpc_opt=paths=source_relative \
+	protoc --go_out=internal/ --go_opt=paths=source_relative \
+		--go-grpc_out=internal/ --go-grpc_opt=paths=source_relative \
 	$(shell find api -name "*.proto")
-	@echo "Protobuf files generated in internal/generated/grpc/"
+	@echo "Protobuf files generated in internal/"
 
 # Generate other code (e.g., ent)
 generate:
@@ -49,7 +47,7 @@ analytics:
 # Stop and remove containers, networks, volumes defined in compose
 down:
 	@echo "Stopping Docker Compose..."
-	$(COMPOSE) -f $(COMPOSE_FILE) down
+	$(COMPOSE) -f $(COMPOSE_FILE) down --remove-orphans
 
 # Stop and remove containers, networks, AND remove volumes (use with caution!)
 clean: down

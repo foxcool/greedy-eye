@@ -3,11 +3,12 @@ syntax = "proto3";
 package services;
 
 import "google/protobuf/empty.proto";
+import "google/protobuf/field_mask.proto";
 import "api/models/user.proto";
 import "api/models/account.proto"; // Needed if returning account info
 import "api/services/storage_service.proto"; // Import storage messages
 
-option go_package = "./services";
+option go_package = "github.com/foxcool/greedy-eye/internal/api/services";
 
 // UserService handles user authentication, profile management, and related business logic.
 // See storage_service.proto for CRUD operations on users and accounts.

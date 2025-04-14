@@ -13,7 +13,7 @@ import "api/models/price.proto";
 import "api/models/transaction.proto";
 import "api/models/user.proto";
 
-option go_package = "./services";
+option go_package = "github.com/foxcool/greedy-eye/internal/api/services";
 
 // StorageService provides low-level CRUD operations for all core entities.
 // It acts as an abstraction layer over the database.
