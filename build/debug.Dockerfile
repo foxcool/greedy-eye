@@ -1,17 +1,13 @@
 FROM golang:alpine AS builder
 
-# Install dependencies
-RUN apk add --no-cache \
-	git
-
 # Install delve debugger
-RUN go get github.com/go-delve/delve/cmd/dlv
+RUN go install github.com/go-delve/delve/cmd/dlv@latest
 
 #ENV GO111MODULE=off
 ENV PROJECT_PATH=github.com/Foxcool/greedy-eye
 
-# get CMD path argument
-ARG _path
+# get CMD path argument (default: cmd/eye)
+ARG _path="cmd/eye"
 
 # Set environment variable for Go
 ENV GOPATH=/go \

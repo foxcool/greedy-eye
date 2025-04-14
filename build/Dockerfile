@@ -2,8 +2,8 @@ FROM golang:alpine AS builder
 
 ENV PROJECT_PATH=github.com/Foxcool/greedy-eye
 
-# get CMD path argument
-ARG _path
+# get CMD path argument (default: cmd/eye)
+ARG _path="cmd/eye"
 
 # Set environment variable for Go
 ENV GOPATH=/go \
@@ -11,20 +11,15 @@ ENV GOPATH=/go \
 
 # Copy project files
 WORKDIR ${GOPATH}/src/${PROJECT_PATH}
-COPY go.mod .
-COPY go.sum .
-COPY cmd cmd
-COPY pkg pkg
-COPY internal internal
+COPY go.mod go.sum cmd pkg internal ./
 
 # Build
 WORKDIR ${_path}
 RUN CGO_ENABLED=0 GOOS=linux go build -a -o ${GOPATH}/bin/app .
 
 # Init new lightweight container
-FROM alpine:3.20
+FROM alpine
 RUN apk --no-cache add ca-certificates
-
 
 COPY --from=builder /go/bin/app .
 

@@ -1,21 +1,62 @@
+# Deployment configuration for development environment
 volumes:
-  postgres_data:
+  postgres_data: # DB data
+  go_modules: # cache go modules
 
 services:
-  eye:
+  # greedy-eye
+  # Default profile for development.
+  eye-dev:
+    profiles: ["default", "dev"]
     build:
       context: ..
-      dockerfile: build/Dockerfile
+      dockerfile: build/dev.Dockerfile
       args:
         _path: cmd/eye
-    container_name: eye
-    image: foxcool/greedy-eye:latest
+    container_name: eye-dev
+    ports:
+      - "50080:80"
+    # Development specific configuration working with source code.
+    volumes:
+      # Mount source code for live reload.
+      - ..:/go/src/github.com/Foxcool/greedy-eye
+      - go_modules:/go/pkg/mod
+    working_dir: /go/src/github.com/Foxcool/greedy-eye
+    # Use air for running the application.
+    command: ["air", "-c", ".air.toml"]
+    environment:
+      EYE_LOGGING_LEVEL: INFO
+      EYE_SENTRY_ENVIRONMENT: "development"
+      EYE_DATABASE_URL: "postgresql://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Debug profile for development.
+  eye-debug:
+    profiles: ["debug"]
+    build:
+      context: ..
+      dockerfile: build/debug.Dockerfile
+      args:
+        _path: cmd/eye
+    container_name: eye-debug
+    ports:
+      - "50081:80"
+      - "40000:40000"
+    volumes:
+      - ..:/go/src/github.com/Foxcool/greedy-eye
+      - go_modules:/go/pkg/mod
+    working_dir: /go/src/github.com/Foxcool/greedy-eye
     environment:
       EYE_LOGGING_LEVEL: DEBUG
-      EYE_SENTRY_ENVIRONMENT: "develop"
+      EYE_SENTRY_ENVIRONMENT: "debug"
+      EYE_DATABASE_URL: "postgresql://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
+  # Database needed by the eye application for storing data
   postgres:
     image: timescale/timescaledb:latest-pg14
     environment:
@@ -26,25 +67,46 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U greedy_eye -d greedy_eye"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
+  # ========
+  # Redash side services for manual working with data in PostgreSQL/TimeScaleDB and making helpful dashboards and visualizations.
+  # Not necessary for the application to function. Used with analytics profile.
+  # ========
+
+  # Redis is necessary for Redash to function properly
+  redis:
+    profiles: ["analytics"]
+    image: redis:alpine
+
+  # Redash main service container
   redash:
+    profiles: ["analytics"]
     image: redash/redash:latest
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     ports:
       - "5000:5000"
     environment:
       REDASH_DATABASE_URL: postgresql://greedy_eye:password@postgres:5432/redash
       REDASH_REDIS_URL: redis://redis:6379/0
 
-  redis:
-    image: redis:alpine
-
+  # Redash worker service container
   redash-worker:
+    profiles: ["analytics"]
     image: redash/redash:latest
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     environment:
       REDASH_DATABASE_URL: postgresql://greedy_eye:password@postgres:5432/redash
       REDASH_REDIS_URL: redis://redis:6379/0

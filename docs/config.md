@@ -1,4 +1,4 @@
-# Configuration and execution parameters
+# Configuration, environment variables and execution parameters
 
 Get help with parameters and defaults
 
