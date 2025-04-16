@@ -3,8 +3,11 @@
 package price
 
 import (
+	"time"
+
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"github.com/google/uuid"
 )
 
 const (
@@ -12,53 +15,67 @@ const (
 	Label = "price"
 	// FieldID holds the string denoting the id field in the database.
 	FieldID = "id"
-	// FieldSource holds the string denoting the source field in the database.
-	FieldSource = "source"
-	// FieldLastPrice holds the string denoting the last_price field in the database.
-	FieldLastPrice = "last_price"
-	// FieldAsk holds the string denoting the ask field in the database.
-	FieldAsk = "ask"
-	// FieldBid holds the string denoting the bid field in the database.
-	FieldBid = "bid"
-	// FieldTime holds the string denoting the time field in the database.
-	FieldTime = "time"
+	// FieldUUID holds the string denoting the uuid field in the database.
+	FieldUUID = "uuid"
+	// FieldSourceID holds the string denoting the source_id field in the database.
+	FieldSourceID = "source_id"
+	// FieldInterval holds the string denoting the interval field in the database.
+	FieldInterval = "interval"
+	// FieldAmount holds the string denoting the amount field in the database.
+	FieldAmount = "amount"
+	// FieldPrecision holds the string denoting the precision field in the database.
+	FieldPrecision = "precision"
+	// FieldOpen holds the string denoting the open field in the database.
+	FieldOpen = "open"
+	// FieldHigh holds the string denoting the high field in the database.
+	FieldHigh = "high"
+	// FieldLow holds the string denoting the low field in the database.
+	FieldLow = "low"
+	// FieldClose holds the string denoting the close field in the database.
+	FieldClose = "close"
+	// FieldVolume holds the string denoting the volume field in the database.
+	FieldVolume = "volume"
+	// FieldCreatedAt holds the string denoting the created_at field in the database.
+	FieldCreatedAt = "created_at"
+	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
+	FieldUpdatedAt = "updated_at"
+	// EdgeAsset holds the string denoting the asset edge name in mutations.
+	EdgeAsset = "asset"
 	// EdgeBaseAsset holds the string denoting the base_asset edge name in mutations.
 	EdgeBaseAsset = "base_asset"
-	// EdgeQuoteAsset holds the string denoting the quote_asset edge name in mutations.
-	EdgeQuoteAsset = "quote_asset"
 	// Table holds the table name of the price in the database.
 	Table = "prices"
+	// AssetTable is the table that holds the asset relation/edge.
+	AssetTable = "assets"
+	// AssetInverseTable is the table name for the Asset entity.
+	// It exists in this package in order to avoid circular dependency with the "asset" package.
+	AssetInverseTable = "assets"
+	// AssetColumn is the table column denoting the asset relation/edge.
+	AssetColumn = "price_asset"
 	// BaseAssetTable is the table that holds the base_asset relation/edge.
-	BaseAssetTable = "prices"
+	BaseAssetTable = "assets"
 	// BaseAssetInverseTable is the table name for the Asset entity.
 	// It exists in this package in order to avoid circular dependency with the "asset" package.
 	BaseAssetInverseTable = "assets"
 	// BaseAssetColumn is the table column denoting the base_asset relation/edge.
 	BaseAssetColumn = "price_base_asset"
-	// QuoteAssetTable is the table that holds the quote_asset relation/edge.
-	QuoteAssetTable = "prices"
-	// QuoteAssetInverseTable is the table name for the Asset entity.
-	// It exists in this package in order to avoid circular dependency with the "asset" package.
-	QuoteAssetInverseTable = "assets"
-	// QuoteAssetColumn is the table column denoting the quote_asset relation/edge.
-	QuoteAssetColumn = "price_quote_asset"
 )
 
 // Columns holds all SQL columns for price fields.
 var Columns = []string{
 	FieldID,
-	FieldSource,
-	FieldLastPrice,
-	FieldAsk,
-	FieldBid,
-	FieldTime,
-}
-
-// ForeignKeys holds the SQL foreign-keys that are owned by the "prices"
-// table and are not defined as standalone fields in the schema.
-var ForeignKeys = []string{
-	"price_base_asset",
-	"price_quote_asset",
+	FieldUUID,
+	FieldSourceID,
+	FieldInterval,
+	FieldAmount,
+	FieldPrecision,
+	FieldOpen,
+	FieldHigh,
+	FieldLow,
+	FieldClose,
+	FieldVolume,
+	FieldCreatedAt,
+	FieldUpdatedAt,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -68,13 +85,19 @@ func ValidColumn(column string) bool {
 			return true
 		}
 	}
-	for i := range ForeignKeys {
-		if column == ForeignKeys[i] {
-			return true
-		}
-	}
 	return false
 }
+
+var (
+	// DefaultUUID holds the default value on creation for the "uuid" field.
+	DefaultUUID func() uuid.UUID
+	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
+	DefaultCreatedAt func() time.Time
+	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.
+	DefaultUpdatedAt func() time.Time
+	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
+	UpdateDefaultUpdatedAt func() time.Time
+)
 
 // OrderOption defines the ordering options for the Price queries.
 type OrderOption func(*sql.Selector)
@@ -84,55 +107,104 @@ func ByID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldID, opts...).ToFunc()
 }
 
-// BySource orders the results by the source field.
-func BySource(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldSource, opts...).ToFunc()
+// ByUUID orders the results by the uuid field.
+func ByUUID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUUID, opts...).ToFunc()
 }
 
-// ByLastPrice orders the results by the last_price field.
-func ByLastPrice(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldLastPrice, opts...).ToFunc()
+// BySourceID orders the results by the source_id field.
+func BySourceID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSourceID, opts...).ToFunc()
 }
 
-// ByAsk orders the results by the ask field.
-func ByAsk(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldAsk, opts...).ToFunc()
+// ByInterval orders the results by the interval field.
+func ByInterval(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldInterval, opts...).ToFunc()
 }
 
-// ByBid orders the results by the bid field.
-func ByBid(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldBid, opts...).ToFunc()
+// ByAmount orders the results by the amount field.
+func ByAmount(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAmount, opts...).ToFunc()
 }
 
-// ByTime orders the results by the time field.
-func ByTime(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldTime, opts...).ToFunc()
+// ByPrecision orders the results by the precision field.
+func ByPrecision(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPrecision, opts...).ToFunc()
 }
 
-// ByBaseAssetField orders the results by base_asset field.
-func ByBaseAssetField(field string, opts ...sql.OrderTermOption) OrderOption {
+// ByOpen orders the results by the open field.
+func ByOpen(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOpen, opts...).ToFunc()
+}
+
+// ByHigh orders the results by the high field.
+func ByHigh(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldHigh, opts...).ToFunc()
+}
+
+// ByLow orders the results by the low field.
+func ByLow(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldLow, opts...).ToFunc()
+}
+
+// ByClose orders the results by the close field.
+func ByClose(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldClose, opts...).ToFunc()
+}
+
+// ByVolume orders the results by the volume field.
+func ByVolume(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldVolume, opts...).ToFunc()
+}
+
+// ByCreatedAt orders the results by the created_at field.
+func ByCreatedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCreatedAt, opts...).ToFunc()
+}
+
+// ByUpdatedAt orders the results by the updated_at field.
+func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
+}
+
+// ByAssetCount orders the results by asset count.
+func ByAssetCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newBaseAssetStep(), sql.OrderByField(field, opts...))
+		sqlgraph.OrderByNeighborsCount(s, newAssetStep(), opts...)
 	}
 }
 
-// ByQuoteAssetField orders the results by quote_asset field.
-func ByQuoteAssetField(field string, opts ...sql.OrderTermOption) OrderOption {
+// ByAsset orders the results by asset terms.
+func ByAsset(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newQuoteAssetStep(), sql.OrderByField(field, opts...))
+		sqlgraph.OrderByNeighborTerms(s, newAssetStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
+}
+
+// ByBaseAssetCount orders the results by base_asset count.
+func ByBaseAssetCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newBaseAssetStep(), opts...)
+	}
+}
+
+// ByBaseAsset orders the results by base_asset terms.
+func ByBaseAsset(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newBaseAssetStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+func newAssetStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(AssetInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, AssetTable, AssetColumn),
+	)
 }
 func newBaseAssetStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(BaseAssetInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.M2O, false, BaseAssetTable, BaseAssetColumn),
-	)
-}
-func newQuoteAssetStep() *sqlgraph.Step {
-	return sqlgraph.NewStep(
-		sqlgraph.From(Table, FieldID),
-		sqlgraph.To(QuoteAssetInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.M2O, false, QuoteAssetTable, QuoteAssetColumn),
+		sqlgraph.Edge(sqlgraph.O2M, false, BaseAssetTable, BaseAssetColumn),
 	)
 }

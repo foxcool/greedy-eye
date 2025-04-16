@@ -4,13 +4,15 @@ package ent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/foxcool/greedy-eye/pkg/ent/asset"
-	"github.com/foxcool/greedy-eye/pkg/ent/holding"
-	"github.com/foxcool/greedy-eye/pkg/ent/tag"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
+	"github.com/google/uuid"
 )
 
 // AssetCreate is the builder for creating a Asset entity.
@@ -18,6 +20,72 @@ type AssetCreate struct {
 	config
 	mutation *AssetMutation
 	hooks    []Hook
+}
+
+// SetUUID sets the "uuid" field.
+func (ac *AssetCreate) SetUUID(u uuid.UUID) *AssetCreate {
+	ac.mutation.SetUUID(u)
+	return ac
+}
+
+// SetNillableUUID sets the "uuid" field if the given value is not nil.
+func (ac *AssetCreate) SetNillableUUID(u *uuid.UUID) *AssetCreate {
+	if u != nil {
+		ac.SetUUID(*u)
+	}
+	return ac
+}
+
+// SetSymbol sets the "symbol" field.
+func (ac *AssetCreate) SetSymbol(s string) *AssetCreate {
+	ac.mutation.SetSymbol(s)
+	return ac
+}
+
+// SetName sets the "name" field.
+func (ac *AssetCreate) SetName(s string) *AssetCreate {
+	ac.mutation.SetName(s)
+	return ac
+}
+
+// SetType sets the "type" field.
+func (ac *AssetCreate) SetType(a asset.Type) *AssetCreate {
+	ac.mutation.SetType(a)
+	return ac
+}
+
+// SetTags sets the "tags" field.
+func (ac *AssetCreate) SetTags(s []string) *AssetCreate {
+	ac.mutation.SetTags(s)
+	return ac
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (ac *AssetCreate) SetCreatedAt(t time.Time) *AssetCreate {
+	ac.mutation.SetCreatedAt(t)
+	return ac
+}
+
+// SetNillableCreatedAt sets the "created_at" field if the given value is not nil.
+func (ac *AssetCreate) SetNillableCreatedAt(t *time.Time) *AssetCreate {
+	if t != nil {
+		ac.SetCreatedAt(*t)
+	}
+	return ac
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (ac *AssetCreate) SetUpdatedAt(t time.Time) *AssetCreate {
+	ac.mutation.SetUpdatedAt(t)
+	return ac
+}
+
+// SetNillableUpdatedAt sets the "updated_at" field if the given value is not nil.
+func (ac *AssetCreate) SetNillableUpdatedAt(t *time.Time) *AssetCreate {
+	if t != nil {
+		ac.SetUpdatedAt(*t)
+	}
+	return ac
 }
 
 // AddHoldingIDs adds the "holdings" edge to the Holding entity by IDs.
@@ -35,21 +103,6 @@ func (ac *AssetCreate) AddHoldings(h ...*Holding) *AssetCreate {
 	return ac.AddHoldingIDs(ids...)
 }
 
-// AddTagIDs adds the "tags" edge to the Tag entity by IDs.
-func (ac *AssetCreate) AddTagIDs(ids ...int) *AssetCreate {
-	ac.mutation.AddTagIDs(ids...)
-	return ac
-}
-
-// AddTags adds the "tags" edges to the Tag entity.
-func (ac *AssetCreate) AddTags(t ...*Tag) *AssetCreate {
-	ids := make([]int, len(t))
-	for i := range t {
-		ids[i] = t[i].ID
-	}
-	return ac.AddTagIDs(ids...)
-}
-
 // Mutation returns the AssetMutation object of the builder.
 func (ac *AssetCreate) Mutation() *AssetMutation {
 	return ac.mutation
@@ -57,6 +110,7 @@ func (ac *AssetCreate) Mutation() *AssetMutation {
 
 // Save creates the Asset in the database.
 func (ac *AssetCreate) Save(ctx context.Context) (*Asset, error) {
+	ac.defaults()
 	return withHooks(ctx, ac.sqlSave, ac.mutation, ac.hooks)
 }
 
@@ -82,8 +136,50 @@ func (ac *AssetCreate) ExecX(ctx context.Context) {
 	}
 }
 
+// defaults sets the default values of the builder before save.
+func (ac *AssetCreate) defaults() {
+	if _, ok := ac.mutation.UUID(); !ok {
+		v := asset.DefaultUUID()
+		ac.mutation.SetUUID(v)
+	}
+	if _, ok := ac.mutation.CreatedAt(); !ok {
+		v := asset.DefaultCreatedAt
+		ac.mutation.SetCreatedAt(v)
+	}
+	if _, ok := ac.mutation.UpdatedAt(); !ok {
+		v := asset.DefaultUpdatedAt
+		ac.mutation.SetUpdatedAt(v)
+	}
+}
+
 // check runs all checks and user-defined validators on the builder.
 func (ac *AssetCreate) check() error {
+	if _, ok := ac.mutation.UUID(); !ok {
+		return &ValidationError{Name: "uuid", err: errors.New(`ent: missing required field "Asset.uuid"`)}
+	}
+	if _, ok := ac.mutation.Symbol(); !ok {
+		return &ValidationError{Name: "symbol", err: errors.New(`ent: missing required field "Asset.symbol"`)}
+	}
+	if _, ok := ac.mutation.Name(); !ok {
+		return &ValidationError{Name: "name", err: errors.New(`ent: missing required field "Asset.name"`)}
+	}
+	if _, ok := ac.mutation.GetType(); !ok {
+		return &ValidationError{Name: "type", err: errors.New(`ent: missing required field "Asset.type"`)}
+	}
+	if v, ok := ac.mutation.GetType(); ok {
+		if err := asset.TypeValidator(v); err != nil {
+			return &ValidationError{Name: "type", err: fmt.Errorf(`ent: validator failed for field "Asset.type": %w`, err)}
+		}
+	}
+	if _, ok := ac.mutation.Tags(); !ok {
+		return &ValidationError{Name: "tags", err: errors.New(`ent: missing required field "Asset.tags"`)}
+	}
+	if _, ok := ac.mutation.CreatedAt(); !ok {
+		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Asset.created_at"`)}
+	}
+	if _, ok := ac.mutation.UpdatedAt(); !ok {
+		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Asset.updated_at"`)}
+	}
 	return nil
 }
 
@@ -110,31 +206,43 @@ func (ac *AssetCreate) createSpec() (*Asset, *sqlgraph.CreateSpec) {
 		_node = &Asset{config: ac.config}
 		_spec = sqlgraph.NewCreateSpec(asset.Table, sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt))
 	)
+	if value, ok := ac.mutation.UUID(); ok {
+		_spec.SetField(asset.FieldUUID, field.TypeUUID, value)
+		_node.UUID = value
+	}
+	if value, ok := ac.mutation.Symbol(); ok {
+		_spec.SetField(asset.FieldSymbol, field.TypeString, value)
+		_node.Symbol = value
+	}
+	if value, ok := ac.mutation.Name(); ok {
+		_spec.SetField(asset.FieldName, field.TypeString, value)
+		_node.Name = value
+	}
+	if value, ok := ac.mutation.GetType(); ok {
+		_spec.SetField(asset.FieldType, field.TypeEnum, value)
+		_node.Type = value
+	}
+	if value, ok := ac.mutation.Tags(); ok {
+		_spec.SetField(asset.FieldTags, field.TypeJSON, value)
+		_node.Tags = value
+	}
+	if value, ok := ac.mutation.CreatedAt(); ok {
+		_spec.SetField(asset.FieldCreatedAt, field.TypeTime, value)
+		_node.CreatedAt = value
+	}
+	if value, ok := ac.mutation.UpdatedAt(); ok {
+		_spec.SetField(asset.FieldUpdatedAt, field.TypeTime, value)
+		_node.UpdatedAt = value
+	}
 	if nodes := ac.mutation.HoldingsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
-			Inverse: true,
+			Inverse: false,
 			Table:   asset.HoldingsTable,
 			Columns: []string{asset.HoldingsColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(holding.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges = append(_spec.Edges, edge)
-	}
-	if nodes := ac.mutation.TagsIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: true,
-			Table:   asset.TagsTable,
-			Columns: asset.TagsPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(tag.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -163,6 +271,7 @@ func (acb *AssetCreateBulk) Save(ctx context.Context) ([]*Asset, error) {
 	for i := range acb.builders {
 		func(i int, root context.Context) {
 			builder := acb.builders[i]
+			builder.defaults()
 			var mut Mutator = MutateFunc(func(ctx context.Context, m Mutation) (Value, error) {
 				mutation, ok := m.(*AssetMutation)
 				if !ok {

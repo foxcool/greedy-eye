@@ -5,43 +5,58 @@ package ent
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/foxcool/greedy-eye/pkg/ent/portfolio"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/portfolio"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/user"
+	"github.com/google/uuid"
 )
 
 // Portfolio is the model entity for the Portfolio schema.
 type Portfolio struct {
-	config
+	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// UUID holds the value of the "uuid" field.
+	UUID uuid.UUID `json:"uuid,omitempty"`
+	// Name holds the value of the "name" field.
+	Name string `json:"name,omitempty"`
+	// Description holds the value of the "description" field.
+	Description string `json:"description,omitempty"`
+	// CreatedAt holds the value of the "created_at" field.
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	// UpdatedAt holds the value of the "updated_at" field.
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the PortfolioQuery when eager-loading is set.
-	Edges        PortfolioEdges `json:"edges"`
-	selectValues sql.SelectValues
+	Edges                 PortfolioEdges `json:"edges"`
+	transaction_portfolio *int
+	user_portfolios       *int
+	selectValues          sql.SelectValues
 }
 
 // PortfolioEdges holds the relations/edges for other nodes in the graph.
 type PortfolioEdges struct {
-	// Owners holds the value of the owners edge.
-	Owners []*User `json:"owners,omitempty"`
+	// User holds the value of the user edge.
+	User *User `json:"user,omitempty"`
 	// Holdings holds the value of the holdings edge.
 	Holdings []*Holding `json:"holdings,omitempty"`
-	// Tags holds the value of the tags edge.
-	Tags []*Tag `json:"tags,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [2]bool
 }
 
-// OwnersOrErr returns the Owners value or an error if the edge
-// was not loaded in eager-loading.
-func (e PortfolioEdges) OwnersOrErr() ([]*User, error) {
-	if e.loadedTypes[0] {
-		return e.Owners, nil
+// UserOrErr returns the User value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e PortfolioEdges) UserOrErr() (*User, error) {
+	if e.User != nil {
+		return e.User, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: user.Label}
 	}
-	return nil, &NotLoadedError{edge: "owners"}
+	return nil, &NotLoadedError{edge: "user"}
 }
 
 // HoldingsOrErr returns the Holdings value or an error if the edge
@@ -53,21 +68,22 @@ func (e PortfolioEdges) HoldingsOrErr() ([]*Holding, error) {
 	return nil, &NotLoadedError{edge: "holdings"}
 }
 
-// TagsOrErr returns the Tags value or an error if the edge
-// was not loaded in eager-loading.
-func (e PortfolioEdges) TagsOrErr() ([]*Tag, error) {
-	if e.loadedTypes[2] {
-		return e.Tags, nil
-	}
-	return nil, &NotLoadedError{edge: "tags"}
-}
-
 // scanValues returns the types for scanning values from sql.Rows.
 func (*Portfolio) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
 		case portfolio.FieldID:
+			values[i] = new(sql.NullInt64)
+		case portfolio.FieldName, portfolio.FieldDescription:
+			values[i] = new(sql.NullString)
+		case portfolio.FieldCreatedAt, portfolio.FieldUpdatedAt:
+			values[i] = new(sql.NullTime)
+		case portfolio.FieldUUID:
+			values[i] = new(uuid.UUID)
+		case portfolio.ForeignKeys[0]: // transaction_portfolio
+			values[i] = new(sql.NullInt64)
+		case portfolio.ForeignKeys[1]: // user_portfolios
 			values[i] = new(sql.NullInt64)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -90,6 +106,50 @@ func (po *Portfolio) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			po.ID = int(value.Int64)
+		case portfolio.FieldUUID:
+			if value, ok := values[i].(*uuid.UUID); !ok {
+				return fmt.Errorf("unexpected type %T for field uuid", values[i])
+			} else if value != nil {
+				po.UUID = *value
+			}
+		case portfolio.FieldName:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field name", values[i])
+			} else if value.Valid {
+				po.Name = value.String
+			}
+		case portfolio.FieldDescription:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field description", values[i])
+			} else if value.Valid {
+				po.Description = value.String
+			}
+		case portfolio.FieldCreatedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field created_at", values[i])
+			} else if value.Valid {
+				po.CreatedAt = value.Time
+			}
+		case portfolio.FieldUpdatedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field updated_at", values[i])
+			} else if value.Valid {
+				po.UpdatedAt = value.Time
+			}
+		case portfolio.ForeignKeys[0]:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for edge-field transaction_portfolio", value)
+			} else if value.Valid {
+				po.transaction_portfolio = new(int)
+				*po.transaction_portfolio = int(value.Int64)
+			}
+		case portfolio.ForeignKeys[1]:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for edge-field user_portfolios", value)
+			} else if value.Valid {
+				po.user_portfolios = new(int)
+				*po.user_portfolios = int(value.Int64)
+			}
 		default:
 			po.selectValues.Set(columns[i], values[i])
 		}
@@ -103,19 +163,14 @@ func (po *Portfolio) Value(name string) (ent.Value, error) {
 	return po.selectValues.Get(name)
 }
 
-// QueryOwners queries the "owners" edge of the Portfolio entity.
-func (po *Portfolio) QueryOwners() *UserQuery {
-	return NewPortfolioClient(po.config).QueryOwners(po)
+// QueryUser queries the "user" edge of the Portfolio entity.
+func (po *Portfolio) QueryUser() *UserQuery {
+	return NewPortfolioClient(po.config).QueryUser(po)
 }
 
 // QueryHoldings queries the "holdings" edge of the Portfolio entity.
 func (po *Portfolio) QueryHoldings() *HoldingQuery {
 	return NewPortfolioClient(po.config).QueryHoldings(po)
-}
-
-// QueryTags queries the "tags" edge of the Portfolio entity.
-func (po *Portfolio) QueryTags() *TagQuery {
-	return NewPortfolioClient(po.config).QueryTags(po)
 }
 
 // Update returns a builder for updating this Portfolio.
@@ -140,7 +195,21 @@ func (po *Portfolio) Unwrap() *Portfolio {
 func (po *Portfolio) String() string {
 	var builder strings.Builder
 	builder.WriteString("Portfolio(")
-	builder.WriteString(fmt.Sprintf("id=%v", po.ID))
+	builder.WriteString(fmt.Sprintf("id=%v, ", po.ID))
+	builder.WriteString("uuid=")
+	builder.WriteString(fmt.Sprintf("%v", po.UUID))
+	builder.WriteString(", ")
+	builder.WriteString("name=")
+	builder.WriteString(po.Name)
+	builder.WriteString(", ")
+	builder.WriteString("description=")
+	builder.WriteString(po.Description)
+	builder.WriteString(", ")
+	builder.WriteString("created_at=")
+	builder.WriteString(po.CreatedAt.Format(time.ANSIC))
+	builder.WriteString(", ")
+	builder.WriteString("updated_at=")
+	builder.WriteString(po.UpdatedAt.Format(time.ANSIC))
 	builder.WriteByte(')')
 	return builder.String()
 }

@@ -8,8 +8,8 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/foxcool/greedy-eye/pkg/ent/holding"
-	"github.com/foxcool/greedy-eye/pkg/ent/predicate"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/predicate"
 )
 
 // HoldingDelete is the builder for deleting a Holding entity.

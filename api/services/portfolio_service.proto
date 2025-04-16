@@ -2,11 +2,8 @@ syntax = "proto3";
 
 package services;
 
-import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
-import "api/models/holding.proto";
-import "api/models/portfolio.proto";
-import "api/services/storage_service.proto"; // Import storage messages
+
 
 option go_package = "github.com/foxcool/greedy-eye/internal/api/services";
 

@@ -3,10 +3,12 @@
 package holding
 
 import (
+	"time"
+
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
-	"github.com/foxcool/greedy-eye/pkg/ent/predicate"
-	"github.com/shopspring/decimal"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/predicate"
+	"github.com/google/uuid"
 )
 
 // ID filters vertices based on their ID field.
@@ -54,49 +56,229 @@ func IDLTE(id int) predicate.Holding {
 	return predicate.Holding(sql.FieldLTE(FieldID, id))
 }
 
+// UUID applies equality check predicate on the "uuid" field. It's identical to UUIDEQ.
+func UUID(v uuid.UUID) predicate.Holding {
+	return predicate.Holding(sql.FieldEQ(FieldUUID, v))
+}
+
 // Amount applies equality check predicate on the "amount" field. It's identical to AmountEQ.
-func Amount(v decimal.Decimal) predicate.Holding {
+func Amount(v int64) predicate.Holding {
 	return predicate.Holding(sql.FieldEQ(FieldAmount, v))
 }
 
+// Precision applies equality check predicate on the "precision" field. It's identical to PrecisionEQ.
+func Precision(v uint32) predicate.Holding {
+	return predicate.Holding(sql.FieldEQ(FieldPrecision, v))
+}
+
+// CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
+func CreatedAt(v time.Time) predicate.Holding {
+	return predicate.Holding(sql.FieldEQ(FieldCreatedAt, v))
+}
+
+// UpdatedAt applies equality check predicate on the "updated_at" field. It's identical to UpdatedAtEQ.
+func UpdatedAt(v time.Time) predicate.Holding {
+	return predicate.Holding(sql.FieldEQ(FieldUpdatedAt, v))
+}
+
+// UUIDEQ applies the EQ predicate on the "uuid" field.
+func UUIDEQ(v uuid.UUID) predicate.Holding {
+	return predicate.Holding(sql.FieldEQ(FieldUUID, v))
+}
+
+// UUIDNEQ applies the NEQ predicate on the "uuid" field.
+func UUIDNEQ(v uuid.UUID) predicate.Holding {
+	return predicate.Holding(sql.FieldNEQ(FieldUUID, v))
+}
+
+// UUIDIn applies the In predicate on the "uuid" field.
+func UUIDIn(vs ...uuid.UUID) predicate.Holding {
+	return predicate.Holding(sql.FieldIn(FieldUUID, vs...))
+}
+
+// UUIDNotIn applies the NotIn predicate on the "uuid" field.
+func UUIDNotIn(vs ...uuid.UUID) predicate.Holding {
+	return predicate.Holding(sql.FieldNotIn(FieldUUID, vs...))
+}
+
+// UUIDGT applies the GT predicate on the "uuid" field.
+func UUIDGT(v uuid.UUID) predicate.Holding {
+	return predicate.Holding(sql.FieldGT(FieldUUID, v))
+}
+
+// UUIDGTE applies the GTE predicate on the "uuid" field.
+func UUIDGTE(v uuid.UUID) predicate.Holding {
+	return predicate.Holding(sql.FieldGTE(FieldUUID, v))
+}
+
+// UUIDLT applies the LT predicate on the "uuid" field.
+func UUIDLT(v uuid.UUID) predicate.Holding {
+	return predicate.Holding(sql.FieldLT(FieldUUID, v))
+}
+
+// UUIDLTE applies the LTE predicate on the "uuid" field.
+func UUIDLTE(v uuid.UUID) predicate.Holding {
+	return predicate.Holding(sql.FieldLTE(FieldUUID, v))
+}
+
 // AmountEQ applies the EQ predicate on the "amount" field.
-func AmountEQ(v decimal.Decimal) predicate.Holding {
+func AmountEQ(v int64) predicate.Holding {
 	return predicate.Holding(sql.FieldEQ(FieldAmount, v))
 }
 
 // AmountNEQ applies the NEQ predicate on the "amount" field.
-func AmountNEQ(v decimal.Decimal) predicate.Holding {
+func AmountNEQ(v int64) predicate.Holding {
 	return predicate.Holding(sql.FieldNEQ(FieldAmount, v))
 }
 
 // AmountIn applies the In predicate on the "amount" field.
-func AmountIn(vs ...decimal.Decimal) predicate.Holding {
+func AmountIn(vs ...int64) predicate.Holding {
 	return predicate.Holding(sql.FieldIn(FieldAmount, vs...))
 }
 
 // AmountNotIn applies the NotIn predicate on the "amount" field.
-func AmountNotIn(vs ...decimal.Decimal) predicate.Holding {
+func AmountNotIn(vs ...int64) predicate.Holding {
 	return predicate.Holding(sql.FieldNotIn(FieldAmount, vs...))
 }
 
 // AmountGT applies the GT predicate on the "amount" field.
-func AmountGT(v decimal.Decimal) predicate.Holding {
+func AmountGT(v int64) predicate.Holding {
 	return predicate.Holding(sql.FieldGT(FieldAmount, v))
 }
 
 // AmountGTE applies the GTE predicate on the "amount" field.
-func AmountGTE(v decimal.Decimal) predicate.Holding {
+func AmountGTE(v int64) predicate.Holding {
 	return predicate.Holding(sql.FieldGTE(FieldAmount, v))
 }
 
 // AmountLT applies the LT predicate on the "amount" field.
-func AmountLT(v decimal.Decimal) predicate.Holding {
+func AmountLT(v int64) predicate.Holding {
 	return predicate.Holding(sql.FieldLT(FieldAmount, v))
 }
 
 // AmountLTE applies the LTE predicate on the "amount" field.
-func AmountLTE(v decimal.Decimal) predicate.Holding {
+func AmountLTE(v int64) predicate.Holding {
 	return predicate.Holding(sql.FieldLTE(FieldAmount, v))
+}
+
+// PrecisionEQ applies the EQ predicate on the "precision" field.
+func PrecisionEQ(v uint32) predicate.Holding {
+	return predicate.Holding(sql.FieldEQ(FieldPrecision, v))
+}
+
+// PrecisionNEQ applies the NEQ predicate on the "precision" field.
+func PrecisionNEQ(v uint32) predicate.Holding {
+	return predicate.Holding(sql.FieldNEQ(FieldPrecision, v))
+}
+
+// PrecisionIn applies the In predicate on the "precision" field.
+func PrecisionIn(vs ...uint32) predicate.Holding {
+	return predicate.Holding(sql.FieldIn(FieldPrecision, vs...))
+}
+
+// PrecisionNotIn applies the NotIn predicate on the "precision" field.
+func PrecisionNotIn(vs ...uint32) predicate.Holding {
+	return predicate.Holding(sql.FieldNotIn(FieldPrecision, vs...))
+}
+
+// PrecisionGT applies the GT predicate on the "precision" field.
+func PrecisionGT(v uint32) predicate.Holding {
+	return predicate.Holding(sql.FieldGT(FieldPrecision, v))
+}
+
+// PrecisionGTE applies the GTE predicate on the "precision" field.
+func PrecisionGTE(v uint32) predicate.Holding {
+	return predicate.Holding(sql.FieldGTE(FieldPrecision, v))
+}
+
+// PrecisionLT applies the LT predicate on the "precision" field.
+func PrecisionLT(v uint32) predicate.Holding {
+	return predicate.Holding(sql.FieldLT(FieldPrecision, v))
+}
+
+// PrecisionLTE applies the LTE predicate on the "precision" field.
+func PrecisionLTE(v uint32) predicate.Holding {
+	return predicate.Holding(sql.FieldLTE(FieldPrecision, v))
+}
+
+// CreatedAtEQ applies the EQ predicate on the "created_at" field.
+func CreatedAtEQ(v time.Time) predicate.Holding {
+	return predicate.Holding(sql.FieldEQ(FieldCreatedAt, v))
+}
+
+// CreatedAtNEQ applies the NEQ predicate on the "created_at" field.
+func CreatedAtNEQ(v time.Time) predicate.Holding {
+	return predicate.Holding(sql.FieldNEQ(FieldCreatedAt, v))
+}
+
+// CreatedAtIn applies the In predicate on the "created_at" field.
+func CreatedAtIn(vs ...time.Time) predicate.Holding {
+	return predicate.Holding(sql.FieldIn(FieldCreatedAt, vs...))
+}
+
+// CreatedAtNotIn applies the NotIn predicate on the "created_at" field.
+func CreatedAtNotIn(vs ...time.Time) predicate.Holding {
+	return predicate.Holding(sql.FieldNotIn(FieldCreatedAt, vs...))
+}
+
+// CreatedAtGT applies the GT predicate on the "created_at" field.
+func CreatedAtGT(v time.Time) predicate.Holding {
+	return predicate.Holding(sql.FieldGT(FieldCreatedAt, v))
+}
+
+// CreatedAtGTE applies the GTE predicate on the "created_at" field.
+func CreatedAtGTE(v time.Time) predicate.Holding {
+	return predicate.Holding(sql.FieldGTE(FieldCreatedAt, v))
+}
+
+// CreatedAtLT applies the LT predicate on the "created_at" field.
+func CreatedAtLT(v time.Time) predicate.Holding {
+	return predicate.Holding(sql.FieldLT(FieldCreatedAt, v))
+}
+
+// CreatedAtLTE applies the LTE predicate on the "created_at" field.
+func CreatedAtLTE(v time.Time) predicate.Holding {
+	return predicate.Holding(sql.FieldLTE(FieldCreatedAt, v))
+}
+
+// UpdatedAtEQ applies the EQ predicate on the "updated_at" field.
+func UpdatedAtEQ(v time.Time) predicate.Holding {
+	return predicate.Holding(sql.FieldEQ(FieldUpdatedAt, v))
+}
+
+// UpdatedAtNEQ applies the NEQ predicate on the "updated_at" field.
+func UpdatedAtNEQ(v time.Time) predicate.Holding {
+	return predicate.Holding(sql.FieldNEQ(FieldUpdatedAt, v))
+}
+
+// UpdatedAtIn applies the In predicate on the "updated_at" field.
+func UpdatedAtIn(vs ...time.Time) predicate.Holding {
+	return predicate.Holding(sql.FieldIn(FieldUpdatedAt, vs...))
+}
+
+// UpdatedAtNotIn applies the NotIn predicate on the "updated_at" field.
+func UpdatedAtNotIn(vs ...time.Time) predicate.Holding {
+	return predicate.Holding(sql.FieldNotIn(FieldUpdatedAt, vs...))
+}
+
+// UpdatedAtGT applies the GT predicate on the "updated_at" field.
+func UpdatedAtGT(v time.Time) predicate.Holding {
+	return predicate.Holding(sql.FieldGT(FieldUpdatedAt, v))
+}
+
+// UpdatedAtGTE applies the GTE predicate on the "updated_at" field.
+func UpdatedAtGTE(v time.Time) predicate.Holding {
+	return predicate.Holding(sql.FieldGTE(FieldUpdatedAt, v))
+}
+
+// UpdatedAtLT applies the LT predicate on the "updated_at" field.
+func UpdatedAtLT(v time.Time) predicate.Holding {
+	return predicate.Holding(sql.FieldLT(FieldUpdatedAt, v))
+}
+
+// UpdatedAtLTE applies the LTE predicate on the "updated_at" field.
+func UpdatedAtLTE(v time.Time) predicate.Holding {
+	return predicate.Holding(sql.FieldLTE(FieldUpdatedAt, v))
 }
 
 // HasAsset applies the HasEdge predicate on the "asset" edge.
@@ -104,7 +286,7 @@ func HasAsset() predicate.Holding {
 	return predicate.Holding(func(s *sql.Selector) {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, false, AssetTable, AssetColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, AssetTable, AssetColumn),
 		)
 		sqlgraph.HasNeighbors(s, step)
 	})

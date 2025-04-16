@@ -11,10 +11,10 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/foxcool/greedy-eye/pkg/ent/asset"
-	"github.com/foxcool/greedy-eye/pkg/ent/predicate"
-	"github.com/foxcool/greedy-eye/pkg/ent/price"
-	"github.com/shopspring/decimal"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/predicate"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/price"
+	"github.com/google/uuid"
 )
 
 // PriceUpdate is the builder for updating Price entities.
@@ -30,133 +30,259 @@ func (pu *PriceUpdate) Where(ps ...predicate.Price) *PriceUpdate {
 	return pu
 }
 
-// SetSource sets the "source" field.
-func (pu *PriceUpdate) SetSource(s string) *PriceUpdate {
-	pu.mutation.SetSource(s)
+// SetUUID sets the "uuid" field.
+func (pu *PriceUpdate) SetUUID(u uuid.UUID) *PriceUpdate {
+	pu.mutation.SetUUID(u)
 	return pu
 }
 
-// SetNillableSource sets the "source" field if the given value is not nil.
-func (pu *PriceUpdate) SetNillableSource(s *string) *PriceUpdate {
+// SetNillableUUID sets the "uuid" field if the given value is not nil.
+func (pu *PriceUpdate) SetNillableUUID(u *uuid.UUID) *PriceUpdate {
+	if u != nil {
+		pu.SetUUID(*u)
+	}
+	return pu
+}
+
+// SetSourceID sets the "source_id" field.
+func (pu *PriceUpdate) SetSourceID(s string) *PriceUpdate {
+	pu.mutation.SetSourceID(s)
+	return pu
+}
+
+// SetNillableSourceID sets the "source_id" field if the given value is not nil.
+func (pu *PriceUpdate) SetNillableSourceID(s *string) *PriceUpdate {
 	if s != nil {
-		pu.SetSource(*s)
+		pu.SetSourceID(*s)
 	}
 	return pu
 }
 
-// SetLastPrice sets the "last_price" field.
-func (pu *PriceUpdate) SetLastPrice(d decimal.Decimal) *PriceUpdate {
-	pu.mutation.ResetLastPrice()
-	pu.mutation.SetLastPrice(d)
+// SetInterval sets the "interval" field.
+func (pu *PriceUpdate) SetInterval(s string) *PriceUpdate {
+	pu.mutation.SetInterval(s)
 	return pu
 }
 
-// SetNillableLastPrice sets the "last_price" field if the given value is not nil.
-func (pu *PriceUpdate) SetNillableLastPrice(d *decimal.Decimal) *PriceUpdate {
-	if d != nil {
-		pu.SetLastPrice(*d)
+// SetNillableInterval sets the "interval" field if the given value is not nil.
+func (pu *PriceUpdate) SetNillableInterval(s *string) *PriceUpdate {
+	if s != nil {
+		pu.SetInterval(*s)
 	}
 	return pu
 }
 
-// AddLastPrice adds d to the "last_price" field.
-func (pu *PriceUpdate) AddLastPrice(d decimal.Decimal) *PriceUpdate {
-	pu.mutation.AddLastPrice(d)
+// SetAmount sets the "amount" field.
+func (pu *PriceUpdate) SetAmount(i int64) *PriceUpdate {
+	pu.mutation.ResetAmount()
+	pu.mutation.SetAmount(i)
 	return pu
 }
 
-// SetAsk sets the "ask" field.
-func (pu *PriceUpdate) SetAsk(d decimal.Decimal) *PriceUpdate {
-	pu.mutation.ResetAsk()
-	pu.mutation.SetAsk(d)
-	return pu
-}
-
-// SetNillableAsk sets the "ask" field if the given value is not nil.
-func (pu *PriceUpdate) SetNillableAsk(d *decimal.Decimal) *PriceUpdate {
-	if d != nil {
-		pu.SetAsk(*d)
+// SetNillableAmount sets the "amount" field if the given value is not nil.
+func (pu *PriceUpdate) SetNillableAmount(i *int64) *PriceUpdate {
+	if i != nil {
+		pu.SetAmount(*i)
 	}
 	return pu
 }
 
-// AddAsk adds d to the "ask" field.
-func (pu *PriceUpdate) AddAsk(d decimal.Decimal) *PriceUpdate {
-	pu.mutation.AddAsk(d)
+// AddAmount adds i to the "amount" field.
+func (pu *PriceUpdate) AddAmount(i int64) *PriceUpdate {
+	pu.mutation.AddAmount(i)
 	return pu
 }
 
-// SetBid sets the "bid" field.
-func (pu *PriceUpdate) SetBid(d decimal.Decimal) *PriceUpdate {
-	pu.mutation.ResetBid()
-	pu.mutation.SetBid(d)
+// SetPrecision sets the "precision" field.
+func (pu *PriceUpdate) SetPrecision(u uint32) *PriceUpdate {
+	pu.mutation.ResetPrecision()
+	pu.mutation.SetPrecision(u)
 	return pu
 }
 
-// SetNillableBid sets the "bid" field if the given value is not nil.
-func (pu *PriceUpdate) SetNillableBid(d *decimal.Decimal) *PriceUpdate {
-	if d != nil {
-		pu.SetBid(*d)
+// SetNillablePrecision sets the "precision" field if the given value is not nil.
+func (pu *PriceUpdate) SetNillablePrecision(u *uint32) *PriceUpdate {
+	if u != nil {
+		pu.SetPrecision(*u)
 	}
 	return pu
 }
 
-// AddBid adds d to the "bid" field.
-func (pu *PriceUpdate) AddBid(d decimal.Decimal) *PriceUpdate {
-	pu.mutation.AddBid(d)
+// AddPrecision adds u to the "precision" field.
+func (pu *PriceUpdate) AddPrecision(u int32) *PriceUpdate {
+	pu.mutation.AddPrecision(u)
 	return pu
 }
 
-// SetTime sets the "time" field.
-func (pu *PriceUpdate) SetTime(t time.Time) *PriceUpdate {
-	pu.mutation.SetTime(t)
+// SetOpen sets the "open" field.
+func (pu *PriceUpdate) SetOpen(i int64) *PriceUpdate {
+	pu.mutation.ResetOpen()
+	pu.mutation.SetOpen(i)
 	return pu
 }
 
-// SetNillableTime sets the "time" field if the given value is not nil.
-func (pu *PriceUpdate) SetNillableTime(t *time.Time) *PriceUpdate {
-	if t != nil {
-		pu.SetTime(*t)
+// SetNillableOpen sets the "open" field if the given value is not nil.
+func (pu *PriceUpdate) SetNillableOpen(i *int64) *PriceUpdate {
+	if i != nil {
+		pu.SetOpen(*i)
 	}
 	return pu
 }
 
-// SetBaseAssetID sets the "base_asset" edge to the Asset entity by ID.
-func (pu *PriceUpdate) SetBaseAssetID(id int) *PriceUpdate {
-	pu.mutation.SetBaseAssetID(id)
+// AddOpen adds i to the "open" field.
+func (pu *PriceUpdate) AddOpen(i int64) *PriceUpdate {
+	pu.mutation.AddOpen(i)
 	return pu
 }
 
-// SetNillableBaseAssetID sets the "base_asset" edge to the Asset entity by ID if the given value is not nil.
-func (pu *PriceUpdate) SetNillableBaseAssetID(id *int) *PriceUpdate {
-	if id != nil {
-		pu = pu.SetBaseAssetID(*id)
+// ClearOpen clears the value of the "open" field.
+func (pu *PriceUpdate) ClearOpen() *PriceUpdate {
+	pu.mutation.ClearOpen()
+	return pu
+}
+
+// SetHigh sets the "high" field.
+func (pu *PriceUpdate) SetHigh(i int64) *PriceUpdate {
+	pu.mutation.ResetHigh()
+	pu.mutation.SetHigh(i)
+	return pu
+}
+
+// SetNillableHigh sets the "high" field if the given value is not nil.
+func (pu *PriceUpdate) SetNillableHigh(i *int64) *PriceUpdate {
+	if i != nil {
+		pu.SetHigh(*i)
 	}
 	return pu
 }
 
-// SetBaseAsset sets the "base_asset" edge to the Asset entity.
-func (pu *PriceUpdate) SetBaseAsset(a *Asset) *PriceUpdate {
-	return pu.SetBaseAssetID(a.ID)
-}
-
-// SetQuoteAssetID sets the "quote_asset" edge to the Asset entity by ID.
-func (pu *PriceUpdate) SetQuoteAssetID(id int) *PriceUpdate {
-	pu.mutation.SetQuoteAssetID(id)
+// AddHigh adds i to the "high" field.
+func (pu *PriceUpdate) AddHigh(i int64) *PriceUpdate {
+	pu.mutation.AddHigh(i)
 	return pu
 }
 
-// SetNillableQuoteAssetID sets the "quote_asset" edge to the Asset entity by ID if the given value is not nil.
-func (pu *PriceUpdate) SetNillableQuoteAssetID(id *int) *PriceUpdate {
-	if id != nil {
-		pu = pu.SetQuoteAssetID(*id)
+// ClearHigh clears the value of the "high" field.
+func (pu *PriceUpdate) ClearHigh() *PriceUpdate {
+	pu.mutation.ClearHigh()
+	return pu
+}
+
+// SetLow sets the "low" field.
+func (pu *PriceUpdate) SetLow(i int64) *PriceUpdate {
+	pu.mutation.ResetLow()
+	pu.mutation.SetLow(i)
+	return pu
+}
+
+// SetNillableLow sets the "low" field if the given value is not nil.
+func (pu *PriceUpdate) SetNillableLow(i *int64) *PriceUpdate {
+	if i != nil {
+		pu.SetLow(*i)
 	}
 	return pu
 }
 
-// SetQuoteAsset sets the "quote_asset" edge to the Asset entity.
-func (pu *PriceUpdate) SetQuoteAsset(a *Asset) *PriceUpdate {
-	return pu.SetQuoteAssetID(a.ID)
+// AddLow adds i to the "low" field.
+func (pu *PriceUpdate) AddLow(i int64) *PriceUpdate {
+	pu.mutation.AddLow(i)
+	return pu
+}
+
+// ClearLow clears the value of the "low" field.
+func (pu *PriceUpdate) ClearLow() *PriceUpdate {
+	pu.mutation.ClearLow()
+	return pu
+}
+
+// SetClose sets the "close" field.
+func (pu *PriceUpdate) SetClose(i int64) *PriceUpdate {
+	pu.mutation.ResetClose()
+	pu.mutation.SetClose(i)
+	return pu
+}
+
+// SetNillableClose sets the "close" field if the given value is not nil.
+func (pu *PriceUpdate) SetNillableClose(i *int64) *PriceUpdate {
+	if i != nil {
+		pu.SetClose(*i)
+	}
+	return pu
+}
+
+// AddClose adds i to the "close" field.
+func (pu *PriceUpdate) AddClose(i int64) *PriceUpdate {
+	pu.mutation.AddClose(i)
+	return pu
+}
+
+// ClearClose clears the value of the "close" field.
+func (pu *PriceUpdate) ClearClose() *PriceUpdate {
+	pu.mutation.ClearClose()
+	return pu
+}
+
+// SetVolume sets the "volume" field.
+func (pu *PriceUpdate) SetVolume(i int64) *PriceUpdate {
+	pu.mutation.ResetVolume()
+	pu.mutation.SetVolume(i)
+	return pu
+}
+
+// SetNillableVolume sets the "volume" field if the given value is not nil.
+func (pu *PriceUpdate) SetNillableVolume(i *int64) *PriceUpdate {
+	if i != nil {
+		pu.SetVolume(*i)
+	}
+	return pu
+}
+
+// AddVolume adds i to the "volume" field.
+func (pu *PriceUpdate) AddVolume(i int64) *PriceUpdate {
+	pu.mutation.AddVolume(i)
+	return pu
+}
+
+// ClearVolume clears the value of the "volume" field.
+func (pu *PriceUpdate) ClearVolume() *PriceUpdate {
+	pu.mutation.ClearVolume()
+	return pu
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (pu *PriceUpdate) SetUpdatedAt(t time.Time) *PriceUpdate {
+	pu.mutation.SetUpdatedAt(t)
+	return pu
+}
+
+// AddAssetIDs adds the "asset" edge to the Asset entity by IDs.
+func (pu *PriceUpdate) AddAssetIDs(ids ...int) *PriceUpdate {
+	pu.mutation.AddAssetIDs(ids...)
+	return pu
+}
+
+// AddAsset adds the "asset" edges to the Asset entity.
+func (pu *PriceUpdate) AddAsset(a ...*Asset) *PriceUpdate {
+	ids := make([]int, len(a))
+	for i := range a {
+		ids[i] = a[i].ID
+	}
+	return pu.AddAssetIDs(ids...)
+}
+
+// AddBaseAssetIDs adds the "base_asset" edge to the Asset entity by IDs.
+func (pu *PriceUpdate) AddBaseAssetIDs(ids ...int) *PriceUpdate {
+	pu.mutation.AddBaseAssetIDs(ids...)
+	return pu
+}
+
+// AddBaseAsset adds the "base_asset" edges to the Asset entity.
+func (pu *PriceUpdate) AddBaseAsset(a ...*Asset) *PriceUpdate {
+	ids := make([]int, len(a))
+	for i := range a {
+		ids[i] = a[i].ID
+	}
+	return pu.AddBaseAssetIDs(ids...)
 }
 
 // Mutation returns the PriceMutation object of the builder.
@@ -164,20 +290,51 @@ func (pu *PriceUpdate) Mutation() *PriceMutation {
 	return pu.mutation
 }
 
-// ClearBaseAsset clears the "base_asset" edge to the Asset entity.
+// ClearAsset clears all "asset" edges to the Asset entity.
+func (pu *PriceUpdate) ClearAsset() *PriceUpdate {
+	pu.mutation.ClearAsset()
+	return pu
+}
+
+// RemoveAssetIDs removes the "asset" edge to Asset entities by IDs.
+func (pu *PriceUpdate) RemoveAssetIDs(ids ...int) *PriceUpdate {
+	pu.mutation.RemoveAssetIDs(ids...)
+	return pu
+}
+
+// RemoveAsset removes "asset" edges to Asset entities.
+func (pu *PriceUpdate) RemoveAsset(a ...*Asset) *PriceUpdate {
+	ids := make([]int, len(a))
+	for i := range a {
+		ids[i] = a[i].ID
+	}
+	return pu.RemoveAssetIDs(ids...)
+}
+
+// ClearBaseAsset clears all "base_asset" edges to the Asset entity.
 func (pu *PriceUpdate) ClearBaseAsset() *PriceUpdate {
 	pu.mutation.ClearBaseAsset()
 	return pu
 }
 
-// ClearQuoteAsset clears the "quote_asset" edge to the Asset entity.
-func (pu *PriceUpdate) ClearQuoteAsset() *PriceUpdate {
-	pu.mutation.ClearQuoteAsset()
+// RemoveBaseAssetIDs removes the "base_asset" edge to Asset entities by IDs.
+func (pu *PriceUpdate) RemoveBaseAssetIDs(ids ...int) *PriceUpdate {
+	pu.mutation.RemoveBaseAssetIDs(ids...)
 	return pu
+}
+
+// RemoveBaseAsset removes "base_asset" edges to Asset entities.
+func (pu *PriceUpdate) RemoveBaseAsset(a ...*Asset) *PriceUpdate {
+	ids := make([]int, len(a))
+	for i := range a {
+		ids[i] = a[i].ID
+	}
+	return pu.RemoveBaseAssetIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
 func (pu *PriceUpdate) Save(ctx context.Context) (int, error) {
+	pu.defaults()
 	return withHooks(ctx, pu.sqlSave, pu.mutation, pu.hooks)
 }
 
@@ -203,6 +360,14 @@ func (pu *PriceUpdate) ExecX(ctx context.Context) {
 	}
 }
 
+// defaults sets the default values of the builder before save.
+func (pu *PriceUpdate) defaults() {
+	if _, ok := pu.mutation.UpdatedAt(); !ok {
+		v := price.UpdateDefaultUpdatedAt()
+		pu.mutation.SetUpdatedAt(v)
+	}
+}
+
 func (pu *PriceUpdate) sqlSave(ctx context.Context) (n int, err error) {
 	_spec := sqlgraph.NewUpdateSpec(price.Table, price.Columns, sqlgraph.NewFieldSpec(price.FieldID, field.TypeInt))
 	if ps := pu.mutation.predicates; len(ps) > 0 {
@@ -212,33 +377,123 @@ func (pu *PriceUpdate) sqlSave(ctx context.Context) (n int, err error) {
 			}
 		}
 	}
-	if value, ok := pu.mutation.Source(); ok {
-		_spec.SetField(price.FieldSource, field.TypeString, value)
+	if value, ok := pu.mutation.UUID(); ok {
+		_spec.SetField(price.FieldUUID, field.TypeUUID, value)
 	}
-	if value, ok := pu.mutation.LastPrice(); ok {
-		_spec.SetField(price.FieldLastPrice, field.TypeFloat64, value)
+	if value, ok := pu.mutation.SourceID(); ok {
+		_spec.SetField(price.FieldSourceID, field.TypeString, value)
 	}
-	if value, ok := pu.mutation.AddedLastPrice(); ok {
-		_spec.AddField(price.FieldLastPrice, field.TypeFloat64, value)
+	if value, ok := pu.mutation.Interval(); ok {
+		_spec.SetField(price.FieldInterval, field.TypeString, value)
 	}
-	if value, ok := pu.mutation.Ask(); ok {
-		_spec.SetField(price.FieldAsk, field.TypeFloat64, value)
+	if value, ok := pu.mutation.Amount(); ok {
+		_spec.SetField(price.FieldAmount, field.TypeInt64, value)
 	}
-	if value, ok := pu.mutation.AddedAsk(); ok {
-		_spec.AddField(price.FieldAsk, field.TypeFloat64, value)
+	if value, ok := pu.mutation.AddedAmount(); ok {
+		_spec.AddField(price.FieldAmount, field.TypeInt64, value)
 	}
-	if value, ok := pu.mutation.Bid(); ok {
-		_spec.SetField(price.FieldBid, field.TypeFloat64, value)
+	if value, ok := pu.mutation.Precision(); ok {
+		_spec.SetField(price.FieldPrecision, field.TypeUint32, value)
 	}
-	if value, ok := pu.mutation.AddedBid(); ok {
-		_spec.AddField(price.FieldBid, field.TypeFloat64, value)
+	if value, ok := pu.mutation.AddedPrecision(); ok {
+		_spec.AddField(price.FieldPrecision, field.TypeUint32, value)
 	}
-	if value, ok := pu.mutation.Time(); ok {
-		_spec.SetField(price.FieldTime, field.TypeTime, value)
+	if value, ok := pu.mutation.Open(); ok {
+		_spec.SetField(price.FieldOpen, field.TypeInt64, value)
+	}
+	if value, ok := pu.mutation.AddedOpen(); ok {
+		_spec.AddField(price.FieldOpen, field.TypeInt64, value)
+	}
+	if pu.mutation.OpenCleared() {
+		_spec.ClearField(price.FieldOpen, field.TypeInt64)
+	}
+	if value, ok := pu.mutation.High(); ok {
+		_spec.SetField(price.FieldHigh, field.TypeInt64, value)
+	}
+	if value, ok := pu.mutation.AddedHigh(); ok {
+		_spec.AddField(price.FieldHigh, field.TypeInt64, value)
+	}
+	if pu.mutation.HighCleared() {
+		_spec.ClearField(price.FieldHigh, field.TypeInt64)
+	}
+	if value, ok := pu.mutation.Low(); ok {
+		_spec.SetField(price.FieldLow, field.TypeInt64, value)
+	}
+	if value, ok := pu.mutation.AddedLow(); ok {
+		_spec.AddField(price.FieldLow, field.TypeInt64, value)
+	}
+	if pu.mutation.LowCleared() {
+		_spec.ClearField(price.FieldLow, field.TypeInt64)
+	}
+	if value, ok := pu.mutation.Close(); ok {
+		_spec.SetField(price.FieldClose, field.TypeInt64, value)
+	}
+	if value, ok := pu.mutation.AddedClose(); ok {
+		_spec.AddField(price.FieldClose, field.TypeInt64, value)
+	}
+	if pu.mutation.CloseCleared() {
+		_spec.ClearField(price.FieldClose, field.TypeInt64)
+	}
+	if value, ok := pu.mutation.Volume(); ok {
+		_spec.SetField(price.FieldVolume, field.TypeInt64, value)
+	}
+	if value, ok := pu.mutation.AddedVolume(); ok {
+		_spec.AddField(price.FieldVolume, field.TypeInt64, value)
+	}
+	if pu.mutation.VolumeCleared() {
+		_spec.ClearField(price.FieldVolume, field.TypeInt64)
+	}
+	if value, ok := pu.mutation.UpdatedAt(); ok {
+		_spec.SetField(price.FieldUpdatedAt, field.TypeTime, value)
+	}
+	if pu.mutation.AssetCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   price.AssetTable,
+			Columns: []string{price.AssetColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := pu.mutation.RemovedAssetIDs(); len(nodes) > 0 && !pu.mutation.AssetCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   price.AssetTable,
+			Columns: []string{price.AssetColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := pu.mutation.AssetIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   price.AssetTable,
+			Columns: []string{price.AssetColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if pu.mutation.BaseAssetCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
+			Rel:     sqlgraph.O2M,
 			Inverse: false,
 			Table:   price.BaseAssetTable,
 			Columns: []string{price.BaseAssetColumn},
@@ -249,9 +504,9 @@ func (pu *PriceUpdate) sqlSave(ctx context.Context) (n int, err error) {
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
-	if nodes := pu.mutation.BaseAssetIDs(); len(nodes) > 0 {
+	if nodes := pu.mutation.RemovedBaseAssetIDs(); len(nodes) > 0 && !pu.mutation.BaseAssetCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
+			Rel:     sqlgraph.O2M,
 			Inverse: false,
 			Table:   price.BaseAssetTable,
 			Columns: []string{price.BaseAssetColumn},
@@ -263,27 +518,14 @@ func (pu *PriceUpdate) sqlSave(ctx context.Context) (n int, err error) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if pu.mutation.QuoteAssetCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: false,
-			Table:   price.QuoteAssetTable,
-			Columns: []string{price.QuoteAssetColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
-			},
-		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
-	if nodes := pu.mutation.QuoteAssetIDs(); len(nodes) > 0 {
+	if nodes := pu.mutation.BaseAssetIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
+			Rel:     sqlgraph.O2M,
 			Inverse: false,
-			Table:   price.QuoteAssetTable,
-			Columns: []string{price.QuoteAssetColumn},
+			Table:   price.BaseAssetTable,
+			Columns: []string{price.BaseAssetColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
@@ -314,133 +556,259 @@ type PriceUpdateOne struct {
 	mutation *PriceMutation
 }
 
-// SetSource sets the "source" field.
-func (puo *PriceUpdateOne) SetSource(s string) *PriceUpdateOne {
-	puo.mutation.SetSource(s)
+// SetUUID sets the "uuid" field.
+func (puo *PriceUpdateOne) SetUUID(u uuid.UUID) *PriceUpdateOne {
+	puo.mutation.SetUUID(u)
 	return puo
 }
 
-// SetNillableSource sets the "source" field if the given value is not nil.
-func (puo *PriceUpdateOne) SetNillableSource(s *string) *PriceUpdateOne {
+// SetNillableUUID sets the "uuid" field if the given value is not nil.
+func (puo *PriceUpdateOne) SetNillableUUID(u *uuid.UUID) *PriceUpdateOne {
+	if u != nil {
+		puo.SetUUID(*u)
+	}
+	return puo
+}
+
+// SetSourceID sets the "source_id" field.
+func (puo *PriceUpdateOne) SetSourceID(s string) *PriceUpdateOne {
+	puo.mutation.SetSourceID(s)
+	return puo
+}
+
+// SetNillableSourceID sets the "source_id" field if the given value is not nil.
+func (puo *PriceUpdateOne) SetNillableSourceID(s *string) *PriceUpdateOne {
 	if s != nil {
-		puo.SetSource(*s)
+		puo.SetSourceID(*s)
 	}
 	return puo
 }
 
-// SetLastPrice sets the "last_price" field.
-func (puo *PriceUpdateOne) SetLastPrice(d decimal.Decimal) *PriceUpdateOne {
-	puo.mutation.ResetLastPrice()
-	puo.mutation.SetLastPrice(d)
+// SetInterval sets the "interval" field.
+func (puo *PriceUpdateOne) SetInterval(s string) *PriceUpdateOne {
+	puo.mutation.SetInterval(s)
 	return puo
 }
 
-// SetNillableLastPrice sets the "last_price" field if the given value is not nil.
-func (puo *PriceUpdateOne) SetNillableLastPrice(d *decimal.Decimal) *PriceUpdateOne {
-	if d != nil {
-		puo.SetLastPrice(*d)
+// SetNillableInterval sets the "interval" field if the given value is not nil.
+func (puo *PriceUpdateOne) SetNillableInterval(s *string) *PriceUpdateOne {
+	if s != nil {
+		puo.SetInterval(*s)
 	}
 	return puo
 }
 
-// AddLastPrice adds d to the "last_price" field.
-func (puo *PriceUpdateOne) AddLastPrice(d decimal.Decimal) *PriceUpdateOne {
-	puo.mutation.AddLastPrice(d)
+// SetAmount sets the "amount" field.
+func (puo *PriceUpdateOne) SetAmount(i int64) *PriceUpdateOne {
+	puo.mutation.ResetAmount()
+	puo.mutation.SetAmount(i)
 	return puo
 }
 
-// SetAsk sets the "ask" field.
-func (puo *PriceUpdateOne) SetAsk(d decimal.Decimal) *PriceUpdateOne {
-	puo.mutation.ResetAsk()
-	puo.mutation.SetAsk(d)
-	return puo
-}
-
-// SetNillableAsk sets the "ask" field if the given value is not nil.
-func (puo *PriceUpdateOne) SetNillableAsk(d *decimal.Decimal) *PriceUpdateOne {
-	if d != nil {
-		puo.SetAsk(*d)
+// SetNillableAmount sets the "amount" field if the given value is not nil.
+func (puo *PriceUpdateOne) SetNillableAmount(i *int64) *PriceUpdateOne {
+	if i != nil {
+		puo.SetAmount(*i)
 	}
 	return puo
 }
 
-// AddAsk adds d to the "ask" field.
-func (puo *PriceUpdateOne) AddAsk(d decimal.Decimal) *PriceUpdateOne {
-	puo.mutation.AddAsk(d)
+// AddAmount adds i to the "amount" field.
+func (puo *PriceUpdateOne) AddAmount(i int64) *PriceUpdateOne {
+	puo.mutation.AddAmount(i)
 	return puo
 }
 
-// SetBid sets the "bid" field.
-func (puo *PriceUpdateOne) SetBid(d decimal.Decimal) *PriceUpdateOne {
-	puo.mutation.ResetBid()
-	puo.mutation.SetBid(d)
+// SetPrecision sets the "precision" field.
+func (puo *PriceUpdateOne) SetPrecision(u uint32) *PriceUpdateOne {
+	puo.mutation.ResetPrecision()
+	puo.mutation.SetPrecision(u)
 	return puo
 }
 
-// SetNillableBid sets the "bid" field if the given value is not nil.
-func (puo *PriceUpdateOne) SetNillableBid(d *decimal.Decimal) *PriceUpdateOne {
-	if d != nil {
-		puo.SetBid(*d)
+// SetNillablePrecision sets the "precision" field if the given value is not nil.
+func (puo *PriceUpdateOne) SetNillablePrecision(u *uint32) *PriceUpdateOne {
+	if u != nil {
+		puo.SetPrecision(*u)
 	}
 	return puo
 }
 
-// AddBid adds d to the "bid" field.
-func (puo *PriceUpdateOne) AddBid(d decimal.Decimal) *PriceUpdateOne {
-	puo.mutation.AddBid(d)
+// AddPrecision adds u to the "precision" field.
+func (puo *PriceUpdateOne) AddPrecision(u int32) *PriceUpdateOne {
+	puo.mutation.AddPrecision(u)
 	return puo
 }
 
-// SetTime sets the "time" field.
-func (puo *PriceUpdateOne) SetTime(t time.Time) *PriceUpdateOne {
-	puo.mutation.SetTime(t)
+// SetOpen sets the "open" field.
+func (puo *PriceUpdateOne) SetOpen(i int64) *PriceUpdateOne {
+	puo.mutation.ResetOpen()
+	puo.mutation.SetOpen(i)
 	return puo
 }
 
-// SetNillableTime sets the "time" field if the given value is not nil.
-func (puo *PriceUpdateOne) SetNillableTime(t *time.Time) *PriceUpdateOne {
-	if t != nil {
-		puo.SetTime(*t)
+// SetNillableOpen sets the "open" field if the given value is not nil.
+func (puo *PriceUpdateOne) SetNillableOpen(i *int64) *PriceUpdateOne {
+	if i != nil {
+		puo.SetOpen(*i)
 	}
 	return puo
 }
 
-// SetBaseAssetID sets the "base_asset" edge to the Asset entity by ID.
-func (puo *PriceUpdateOne) SetBaseAssetID(id int) *PriceUpdateOne {
-	puo.mutation.SetBaseAssetID(id)
+// AddOpen adds i to the "open" field.
+func (puo *PriceUpdateOne) AddOpen(i int64) *PriceUpdateOne {
+	puo.mutation.AddOpen(i)
 	return puo
 }
 
-// SetNillableBaseAssetID sets the "base_asset" edge to the Asset entity by ID if the given value is not nil.
-func (puo *PriceUpdateOne) SetNillableBaseAssetID(id *int) *PriceUpdateOne {
-	if id != nil {
-		puo = puo.SetBaseAssetID(*id)
+// ClearOpen clears the value of the "open" field.
+func (puo *PriceUpdateOne) ClearOpen() *PriceUpdateOne {
+	puo.mutation.ClearOpen()
+	return puo
+}
+
+// SetHigh sets the "high" field.
+func (puo *PriceUpdateOne) SetHigh(i int64) *PriceUpdateOne {
+	puo.mutation.ResetHigh()
+	puo.mutation.SetHigh(i)
+	return puo
+}
+
+// SetNillableHigh sets the "high" field if the given value is not nil.
+func (puo *PriceUpdateOne) SetNillableHigh(i *int64) *PriceUpdateOne {
+	if i != nil {
+		puo.SetHigh(*i)
 	}
 	return puo
 }
 
-// SetBaseAsset sets the "base_asset" edge to the Asset entity.
-func (puo *PriceUpdateOne) SetBaseAsset(a *Asset) *PriceUpdateOne {
-	return puo.SetBaseAssetID(a.ID)
-}
-
-// SetQuoteAssetID sets the "quote_asset" edge to the Asset entity by ID.
-func (puo *PriceUpdateOne) SetQuoteAssetID(id int) *PriceUpdateOne {
-	puo.mutation.SetQuoteAssetID(id)
+// AddHigh adds i to the "high" field.
+func (puo *PriceUpdateOne) AddHigh(i int64) *PriceUpdateOne {
+	puo.mutation.AddHigh(i)
 	return puo
 }
 
-// SetNillableQuoteAssetID sets the "quote_asset" edge to the Asset entity by ID if the given value is not nil.
-func (puo *PriceUpdateOne) SetNillableQuoteAssetID(id *int) *PriceUpdateOne {
-	if id != nil {
-		puo = puo.SetQuoteAssetID(*id)
+// ClearHigh clears the value of the "high" field.
+func (puo *PriceUpdateOne) ClearHigh() *PriceUpdateOne {
+	puo.mutation.ClearHigh()
+	return puo
+}
+
+// SetLow sets the "low" field.
+func (puo *PriceUpdateOne) SetLow(i int64) *PriceUpdateOne {
+	puo.mutation.ResetLow()
+	puo.mutation.SetLow(i)
+	return puo
+}
+
+// SetNillableLow sets the "low" field if the given value is not nil.
+func (puo *PriceUpdateOne) SetNillableLow(i *int64) *PriceUpdateOne {
+	if i != nil {
+		puo.SetLow(*i)
 	}
 	return puo
 }
 
-// SetQuoteAsset sets the "quote_asset" edge to the Asset entity.
-func (puo *PriceUpdateOne) SetQuoteAsset(a *Asset) *PriceUpdateOne {
-	return puo.SetQuoteAssetID(a.ID)
+// AddLow adds i to the "low" field.
+func (puo *PriceUpdateOne) AddLow(i int64) *PriceUpdateOne {
+	puo.mutation.AddLow(i)
+	return puo
+}
+
+// ClearLow clears the value of the "low" field.
+func (puo *PriceUpdateOne) ClearLow() *PriceUpdateOne {
+	puo.mutation.ClearLow()
+	return puo
+}
+
+// SetClose sets the "close" field.
+func (puo *PriceUpdateOne) SetClose(i int64) *PriceUpdateOne {
+	puo.mutation.ResetClose()
+	puo.mutation.SetClose(i)
+	return puo
+}
+
+// SetNillableClose sets the "close" field if the given value is not nil.
+func (puo *PriceUpdateOne) SetNillableClose(i *int64) *PriceUpdateOne {
+	if i != nil {
+		puo.SetClose(*i)
+	}
+	return puo
+}
+
+// AddClose adds i to the "close" field.
+func (puo *PriceUpdateOne) AddClose(i int64) *PriceUpdateOne {
+	puo.mutation.AddClose(i)
+	return puo
+}
+
+// ClearClose clears the value of the "close" field.
+func (puo *PriceUpdateOne) ClearClose() *PriceUpdateOne {
+	puo.mutation.ClearClose()
+	return puo
+}
+
+// SetVolume sets the "volume" field.
+func (puo *PriceUpdateOne) SetVolume(i int64) *PriceUpdateOne {
+	puo.mutation.ResetVolume()
+	puo.mutation.SetVolume(i)
+	return puo
+}
+
+// SetNillableVolume sets the "volume" field if the given value is not nil.
+func (puo *PriceUpdateOne) SetNillableVolume(i *int64) *PriceUpdateOne {
+	if i != nil {
+		puo.SetVolume(*i)
+	}
+	return puo
+}
+
+// AddVolume adds i to the "volume" field.
+func (puo *PriceUpdateOne) AddVolume(i int64) *PriceUpdateOne {
+	puo.mutation.AddVolume(i)
+	return puo
+}
+
+// ClearVolume clears the value of the "volume" field.
+func (puo *PriceUpdateOne) ClearVolume() *PriceUpdateOne {
+	puo.mutation.ClearVolume()
+	return puo
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (puo *PriceUpdateOne) SetUpdatedAt(t time.Time) *PriceUpdateOne {
+	puo.mutation.SetUpdatedAt(t)
+	return puo
+}
+
+// AddAssetIDs adds the "asset" edge to the Asset entity by IDs.
+func (puo *PriceUpdateOne) AddAssetIDs(ids ...int) *PriceUpdateOne {
+	puo.mutation.AddAssetIDs(ids...)
+	return puo
+}
+
+// AddAsset adds the "asset" edges to the Asset entity.
+func (puo *PriceUpdateOne) AddAsset(a ...*Asset) *PriceUpdateOne {
+	ids := make([]int, len(a))
+	for i := range a {
+		ids[i] = a[i].ID
+	}
+	return puo.AddAssetIDs(ids...)
+}
+
+// AddBaseAssetIDs adds the "base_asset" edge to the Asset entity by IDs.
+func (puo *PriceUpdateOne) AddBaseAssetIDs(ids ...int) *PriceUpdateOne {
+	puo.mutation.AddBaseAssetIDs(ids...)
+	return puo
+}
+
+// AddBaseAsset adds the "base_asset" edges to the Asset entity.
+func (puo *PriceUpdateOne) AddBaseAsset(a ...*Asset) *PriceUpdateOne {
+	ids := make([]int, len(a))
+	for i := range a {
+		ids[i] = a[i].ID
+	}
+	return puo.AddBaseAssetIDs(ids...)
 }
 
 // Mutation returns the PriceMutation object of the builder.
@@ -448,16 +816,46 @@ func (puo *PriceUpdateOne) Mutation() *PriceMutation {
 	return puo.mutation
 }
 
-// ClearBaseAsset clears the "base_asset" edge to the Asset entity.
+// ClearAsset clears all "asset" edges to the Asset entity.
+func (puo *PriceUpdateOne) ClearAsset() *PriceUpdateOne {
+	puo.mutation.ClearAsset()
+	return puo
+}
+
+// RemoveAssetIDs removes the "asset" edge to Asset entities by IDs.
+func (puo *PriceUpdateOne) RemoveAssetIDs(ids ...int) *PriceUpdateOne {
+	puo.mutation.RemoveAssetIDs(ids...)
+	return puo
+}
+
+// RemoveAsset removes "asset" edges to Asset entities.
+func (puo *PriceUpdateOne) RemoveAsset(a ...*Asset) *PriceUpdateOne {
+	ids := make([]int, len(a))
+	for i := range a {
+		ids[i] = a[i].ID
+	}
+	return puo.RemoveAssetIDs(ids...)
+}
+
+// ClearBaseAsset clears all "base_asset" edges to the Asset entity.
 func (puo *PriceUpdateOne) ClearBaseAsset() *PriceUpdateOne {
 	puo.mutation.ClearBaseAsset()
 	return puo
 }
 
-// ClearQuoteAsset clears the "quote_asset" edge to the Asset entity.
-func (puo *PriceUpdateOne) ClearQuoteAsset() *PriceUpdateOne {
-	puo.mutation.ClearQuoteAsset()
+// RemoveBaseAssetIDs removes the "base_asset" edge to Asset entities by IDs.
+func (puo *PriceUpdateOne) RemoveBaseAssetIDs(ids ...int) *PriceUpdateOne {
+	puo.mutation.RemoveBaseAssetIDs(ids...)
 	return puo
+}
+
+// RemoveBaseAsset removes "base_asset" edges to Asset entities.
+func (puo *PriceUpdateOne) RemoveBaseAsset(a ...*Asset) *PriceUpdateOne {
+	ids := make([]int, len(a))
+	for i := range a {
+		ids[i] = a[i].ID
+	}
+	return puo.RemoveBaseAssetIDs(ids...)
 }
 
 // Where appends a list predicates to the PriceUpdate builder.
@@ -475,6 +873,7 @@ func (puo *PriceUpdateOne) Select(field string, fields ...string) *PriceUpdateOn
 
 // Save executes the query and returns the updated Price entity.
 func (puo *PriceUpdateOne) Save(ctx context.Context) (*Price, error) {
+	puo.defaults()
 	return withHooks(ctx, puo.sqlSave, puo.mutation, puo.hooks)
 }
 
@@ -497,6 +896,14 @@ func (puo *PriceUpdateOne) Exec(ctx context.Context) error {
 func (puo *PriceUpdateOne) ExecX(ctx context.Context) {
 	if err := puo.Exec(ctx); err != nil {
 		panic(err)
+	}
+}
+
+// defaults sets the default values of the builder before save.
+func (puo *PriceUpdateOne) defaults() {
+	if _, ok := puo.mutation.UpdatedAt(); !ok {
+		v := price.UpdateDefaultUpdatedAt()
+		puo.mutation.SetUpdatedAt(v)
 	}
 }
 
@@ -526,33 +933,123 @@ func (puo *PriceUpdateOne) sqlSave(ctx context.Context) (_node *Price, err error
 			}
 		}
 	}
-	if value, ok := puo.mutation.Source(); ok {
-		_spec.SetField(price.FieldSource, field.TypeString, value)
+	if value, ok := puo.mutation.UUID(); ok {
+		_spec.SetField(price.FieldUUID, field.TypeUUID, value)
 	}
-	if value, ok := puo.mutation.LastPrice(); ok {
-		_spec.SetField(price.FieldLastPrice, field.TypeFloat64, value)
+	if value, ok := puo.mutation.SourceID(); ok {
+		_spec.SetField(price.FieldSourceID, field.TypeString, value)
 	}
-	if value, ok := puo.mutation.AddedLastPrice(); ok {
-		_spec.AddField(price.FieldLastPrice, field.TypeFloat64, value)
+	if value, ok := puo.mutation.Interval(); ok {
+		_spec.SetField(price.FieldInterval, field.TypeString, value)
 	}
-	if value, ok := puo.mutation.Ask(); ok {
-		_spec.SetField(price.FieldAsk, field.TypeFloat64, value)
+	if value, ok := puo.mutation.Amount(); ok {
+		_spec.SetField(price.FieldAmount, field.TypeInt64, value)
 	}
-	if value, ok := puo.mutation.AddedAsk(); ok {
-		_spec.AddField(price.FieldAsk, field.TypeFloat64, value)
+	if value, ok := puo.mutation.AddedAmount(); ok {
+		_spec.AddField(price.FieldAmount, field.TypeInt64, value)
 	}
-	if value, ok := puo.mutation.Bid(); ok {
-		_spec.SetField(price.FieldBid, field.TypeFloat64, value)
+	if value, ok := puo.mutation.Precision(); ok {
+		_spec.SetField(price.FieldPrecision, field.TypeUint32, value)
 	}
-	if value, ok := puo.mutation.AddedBid(); ok {
-		_spec.AddField(price.FieldBid, field.TypeFloat64, value)
+	if value, ok := puo.mutation.AddedPrecision(); ok {
+		_spec.AddField(price.FieldPrecision, field.TypeUint32, value)
 	}
-	if value, ok := puo.mutation.Time(); ok {
-		_spec.SetField(price.FieldTime, field.TypeTime, value)
+	if value, ok := puo.mutation.Open(); ok {
+		_spec.SetField(price.FieldOpen, field.TypeInt64, value)
+	}
+	if value, ok := puo.mutation.AddedOpen(); ok {
+		_spec.AddField(price.FieldOpen, field.TypeInt64, value)
+	}
+	if puo.mutation.OpenCleared() {
+		_spec.ClearField(price.FieldOpen, field.TypeInt64)
+	}
+	if value, ok := puo.mutation.High(); ok {
+		_spec.SetField(price.FieldHigh, field.TypeInt64, value)
+	}
+	if value, ok := puo.mutation.AddedHigh(); ok {
+		_spec.AddField(price.FieldHigh, field.TypeInt64, value)
+	}
+	if puo.mutation.HighCleared() {
+		_spec.ClearField(price.FieldHigh, field.TypeInt64)
+	}
+	if value, ok := puo.mutation.Low(); ok {
+		_spec.SetField(price.FieldLow, field.TypeInt64, value)
+	}
+	if value, ok := puo.mutation.AddedLow(); ok {
+		_spec.AddField(price.FieldLow, field.TypeInt64, value)
+	}
+	if puo.mutation.LowCleared() {
+		_spec.ClearField(price.FieldLow, field.TypeInt64)
+	}
+	if value, ok := puo.mutation.Close(); ok {
+		_spec.SetField(price.FieldClose, field.TypeInt64, value)
+	}
+	if value, ok := puo.mutation.AddedClose(); ok {
+		_spec.AddField(price.FieldClose, field.TypeInt64, value)
+	}
+	if puo.mutation.CloseCleared() {
+		_spec.ClearField(price.FieldClose, field.TypeInt64)
+	}
+	if value, ok := puo.mutation.Volume(); ok {
+		_spec.SetField(price.FieldVolume, field.TypeInt64, value)
+	}
+	if value, ok := puo.mutation.AddedVolume(); ok {
+		_spec.AddField(price.FieldVolume, field.TypeInt64, value)
+	}
+	if puo.mutation.VolumeCleared() {
+		_spec.ClearField(price.FieldVolume, field.TypeInt64)
+	}
+	if value, ok := puo.mutation.UpdatedAt(); ok {
+		_spec.SetField(price.FieldUpdatedAt, field.TypeTime, value)
+	}
+	if puo.mutation.AssetCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   price.AssetTable,
+			Columns: []string{price.AssetColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := puo.mutation.RemovedAssetIDs(); len(nodes) > 0 && !puo.mutation.AssetCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   price.AssetTable,
+			Columns: []string{price.AssetColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := puo.mutation.AssetIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   price.AssetTable,
+			Columns: []string{price.AssetColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if puo.mutation.BaseAssetCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
+			Rel:     sqlgraph.O2M,
 			Inverse: false,
 			Table:   price.BaseAssetTable,
 			Columns: []string{price.BaseAssetColumn},
@@ -563,9 +1060,9 @@ func (puo *PriceUpdateOne) sqlSave(ctx context.Context) (_node *Price, err error
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
-	if nodes := puo.mutation.BaseAssetIDs(); len(nodes) > 0 {
+	if nodes := puo.mutation.RemovedBaseAssetIDs(); len(nodes) > 0 && !puo.mutation.BaseAssetCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
+			Rel:     sqlgraph.O2M,
 			Inverse: false,
 			Table:   price.BaseAssetTable,
 			Columns: []string{price.BaseAssetColumn},
@@ -577,27 +1074,14 @@ func (puo *PriceUpdateOne) sqlSave(ctx context.Context) (_node *Price, err error
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if puo.mutation.QuoteAssetCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: false,
-			Table:   price.QuoteAssetTable,
-			Columns: []string{price.QuoteAssetColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
-			},
-		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
-	if nodes := puo.mutation.QuoteAssetIDs(); len(nodes) > 0 {
+	if nodes := puo.mutation.BaseAssetIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
+			Rel:     sqlgraph.O2M,
 			Inverse: false,
-			Table:   price.QuoteAssetTable,
-			Columns: []string{price.QuoteAssetColumn},
+			Table:   price.BaseAssetTable,
+			Columns: []string{price.BaseAssetColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),

@@ -4,14 +4,16 @@ package ent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/foxcool/greedy-eye/pkg/ent/holding"
-	"github.com/foxcool/greedy-eye/pkg/ent/portfolio"
-	"github.com/foxcool/greedy-eye/pkg/ent/tag"
-	"github.com/foxcool/greedy-eye/pkg/ent/user"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/portfolio"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/user"
+	"github.com/google/uuid"
 )
 
 // PortfolioCreate is the builder for creating a Portfolio entity.
@@ -21,19 +23,85 @@ type PortfolioCreate struct {
 	hooks    []Hook
 }
 
-// AddOwnerIDs adds the "owners" edge to the User entity by IDs.
-func (pc *PortfolioCreate) AddOwnerIDs(ids ...int) *PortfolioCreate {
-	pc.mutation.AddOwnerIDs(ids...)
+// SetUUID sets the "uuid" field.
+func (pc *PortfolioCreate) SetUUID(u uuid.UUID) *PortfolioCreate {
+	pc.mutation.SetUUID(u)
 	return pc
 }
 
-// AddOwners adds the "owners" edges to the User entity.
-func (pc *PortfolioCreate) AddOwners(u ...*User) *PortfolioCreate {
-	ids := make([]int, len(u))
-	for i := range u {
-		ids[i] = u[i].ID
+// SetNillableUUID sets the "uuid" field if the given value is not nil.
+func (pc *PortfolioCreate) SetNillableUUID(u *uuid.UUID) *PortfolioCreate {
+	if u != nil {
+		pc.SetUUID(*u)
 	}
-	return pc.AddOwnerIDs(ids...)
+	return pc
+}
+
+// SetName sets the "name" field.
+func (pc *PortfolioCreate) SetName(s string) *PortfolioCreate {
+	pc.mutation.SetName(s)
+	return pc
+}
+
+// SetDescription sets the "description" field.
+func (pc *PortfolioCreate) SetDescription(s string) *PortfolioCreate {
+	pc.mutation.SetDescription(s)
+	return pc
+}
+
+// SetNillableDescription sets the "description" field if the given value is not nil.
+func (pc *PortfolioCreate) SetNillableDescription(s *string) *PortfolioCreate {
+	if s != nil {
+		pc.SetDescription(*s)
+	}
+	return pc
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (pc *PortfolioCreate) SetCreatedAt(t time.Time) *PortfolioCreate {
+	pc.mutation.SetCreatedAt(t)
+	return pc
+}
+
+// SetNillableCreatedAt sets the "created_at" field if the given value is not nil.
+func (pc *PortfolioCreate) SetNillableCreatedAt(t *time.Time) *PortfolioCreate {
+	if t != nil {
+		pc.SetCreatedAt(*t)
+	}
+	return pc
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (pc *PortfolioCreate) SetUpdatedAt(t time.Time) *PortfolioCreate {
+	pc.mutation.SetUpdatedAt(t)
+	return pc
+}
+
+// SetNillableUpdatedAt sets the "updated_at" field if the given value is not nil.
+func (pc *PortfolioCreate) SetNillableUpdatedAt(t *time.Time) *PortfolioCreate {
+	if t != nil {
+		pc.SetUpdatedAt(*t)
+	}
+	return pc
+}
+
+// SetUserID sets the "user" edge to the User entity by ID.
+func (pc *PortfolioCreate) SetUserID(id int) *PortfolioCreate {
+	pc.mutation.SetUserID(id)
+	return pc
+}
+
+// SetNillableUserID sets the "user" edge to the User entity by ID if the given value is not nil.
+func (pc *PortfolioCreate) SetNillableUserID(id *int) *PortfolioCreate {
+	if id != nil {
+		pc = pc.SetUserID(*id)
+	}
+	return pc
+}
+
+// SetUser sets the "user" edge to the User entity.
+func (pc *PortfolioCreate) SetUser(u *User) *PortfolioCreate {
+	return pc.SetUserID(u.ID)
 }
 
 // AddHoldingIDs adds the "holdings" edge to the Holding entity by IDs.
@@ -51,21 +119,6 @@ func (pc *PortfolioCreate) AddHoldings(h ...*Holding) *PortfolioCreate {
 	return pc.AddHoldingIDs(ids...)
 }
 
-// AddTagIDs adds the "tags" edge to the Tag entity by IDs.
-func (pc *PortfolioCreate) AddTagIDs(ids ...int) *PortfolioCreate {
-	pc.mutation.AddTagIDs(ids...)
-	return pc
-}
-
-// AddTags adds the "tags" edges to the Tag entity.
-func (pc *PortfolioCreate) AddTags(t ...*Tag) *PortfolioCreate {
-	ids := make([]int, len(t))
-	for i := range t {
-		ids[i] = t[i].ID
-	}
-	return pc.AddTagIDs(ids...)
-}
-
 // Mutation returns the PortfolioMutation object of the builder.
 func (pc *PortfolioCreate) Mutation() *PortfolioMutation {
 	return pc.mutation
@@ -73,6 +126,7 @@ func (pc *PortfolioCreate) Mutation() *PortfolioMutation {
 
 // Save creates the Portfolio in the database.
 func (pc *PortfolioCreate) Save(ctx context.Context) (*Portfolio, error) {
+	pc.defaults()
 	return withHooks(ctx, pc.sqlSave, pc.mutation, pc.hooks)
 }
 
@@ -98,8 +152,36 @@ func (pc *PortfolioCreate) ExecX(ctx context.Context) {
 	}
 }
 
+// defaults sets the default values of the builder before save.
+func (pc *PortfolioCreate) defaults() {
+	if _, ok := pc.mutation.UUID(); !ok {
+		v := portfolio.DefaultUUID()
+		pc.mutation.SetUUID(v)
+	}
+	if _, ok := pc.mutation.CreatedAt(); !ok {
+		v := portfolio.DefaultCreatedAt()
+		pc.mutation.SetCreatedAt(v)
+	}
+	if _, ok := pc.mutation.UpdatedAt(); !ok {
+		v := portfolio.DefaultUpdatedAt()
+		pc.mutation.SetUpdatedAt(v)
+	}
+}
+
 // check runs all checks and user-defined validators on the builder.
 func (pc *PortfolioCreate) check() error {
+	if _, ok := pc.mutation.UUID(); !ok {
+		return &ValidationError{Name: "uuid", err: errors.New(`ent: missing required field "Portfolio.uuid"`)}
+	}
+	if _, ok := pc.mutation.Name(); !ok {
+		return &ValidationError{Name: "name", err: errors.New(`ent: missing required field "Portfolio.name"`)}
+	}
+	if _, ok := pc.mutation.CreatedAt(); !ok {
+		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Portfolio.created_at"`)}
+	}
+	if _, ok := pc.mutation.UpdatedAt(); !ok {
+		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Portfolio.updated_at"`)}
+	}
 	return nil
 }
 
@@ -126,12 +208,32 @@ func (pc *PortfolioCreate) createSpec() (*Portfolio, *sqlgraph.CreateSpec) {
 		_node = &Portfolio{config: pc.config}
 		_spec = sqlgraph.NewCreateSpec(portfolio.Table, sqlgraph.NewFieldSpec(portfolio.FieldID, field.TypeInt))
 	)
-	if nodes := pc.mutation.OwnersIDs(); len(nodes) > 0 {
+	if value, ok := pc.mutation.UUID(); ok {
+		_spec.SetField(portfolio.FieldUUID, field.TypeUUID, value)
+		_node.UUID = value
+	}
+	if value, ok := pc.mutation.Name(); ok {
+		_spec.SetField(portfolio.FieldName, field.TypeString, value)
+		_node.Name = value
+	}
+	if value, ok := pc.mutation.Description(); ok {
+		_spec.SetField(portfolio.FieldDescription, field.TypeString, value)
+		_node.Description = value
+	}
+	if value, ok := pc.mutation.CreatedAt(); ok {
+		_spec.SetField(portfolio.FieldCreatedAt, field.TypeTime, value)
+		_node.CreatedAt = value
+	}
+	if value, ok := pc.mutation.UpdatedAt(); ok {
+		_spec.SetField(portfolio.FieldUpdatedAt, field.TypeTime, value)
+		_node.UpdatedAt = value
+	}
+	if nodes := pc.mutation.UserIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
+			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   portfolio.OwnersTable,
-			Columns: portfolio.OwnersPrimaryKey,
+			Table:   portfolio.UserTable,
+			Columns: []string{portfolio.UserColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
@@ -140,6 +242,7 @@ func (pc *PortfolioCreate) createSpec() (*Portfolio, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
+		_node.user_portfolios = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := pc.mutation.HoldingsIDs(); len(nodes) > 0 {
@@ -151,22 +254,6 @@ func (pc *PortfolioCreate) createSpec() (*Portfolio, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(holding.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges = append(_spec.Edges, edge)
-	}
-	if nodes := pc.mutation.TagsIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: true,
-			Table:   portfolio.TagsTable,
-			Columns: portfolio.TagsPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(tag.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -195,6 +282,7 @@ func (pcb *PortfolioCreateBulk) Save(ctx context.Context) ([]*Portfolio, error) 
 	for i := range pcb.builders {
 		func(i int, root context.Context) {
 			builder := pcb.builders[i]
+			builder.defaults()
 			var mut Mutator = MutateFunc(func(ctx context.Context, m Mutation) (Value, error) {
 				mutation, ok := m.(*PortfolioMutation)
 				if !ok {

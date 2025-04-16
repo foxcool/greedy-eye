@@ -10,9 +10,9 @@ import (
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/foxcool/greedy-eye/pkg/ent/asset"
-	"github.com/foxcool/greedy-eye/pkg/ent/price"
-	"github.com/shopspring/decimal"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/price"
+	"github.com/google/uuid"
 )
 
 // PriceCreate is the builder for creating a Price entity.
@@ -22,72 +22,170 @@ type PriceCreate struct {
 	hooks    []Hook
 }
 
-// SetSource sets the "source" field.
-func (pc *PriceCreate) SetSource(s string) *PriceCreate {
-	pc.mutation.SetSource(s)
+// SetUUID sets the "uuid" field.
+func (pc *PriceCreate) SetUUID(u uuid.UUID) *PriceCreate {
+	pc.mutation.SetUUID(u)
 	return pc
 }
 
-// SetLastPrice sets the "last_price" field.
-func (pc *PriceCreate) SetLastPrice(d decimal.Decimal) *PriceCreate {
-	pc.mutation.SetLastPrice(d)
-	return pc
-}
-
-// SetAsk sets the "ask" field.
-func (pc *PriceCreate) SetAsk(d decimal.Decimal) *PriceCreate {
-	pc.mutation.SetAsk(d)
-	return pc
-}
-
-// SetBid sets the "bid" field.
-func (pc *PriceCreate) SetBid(d decimal.Decimal) *PriceCreate {
-	pc.mutation.SetBid(d)
-	return pc
-}
-
-// SetTime sets the "time" field.
-func (pc *PriceCreate) SetTime(t time.Time) *PriceCreate {
-	pc.mutation.SetTime(t)
-	return pc
-}
-
-// SetBaseAssetID sets the "base_asset" edge to the Asset entity by ID.
-func (pc *PriceCreate) SetBaseAssetID(id int) *PriceCreate {
-	pc.mutation.SetBaseAssetID(id)
-	return pc
-}
-
-// SetNillableBaseAssetID sets the "base_asset" edge to the Asset entity by ID if the given value is not nil.
-func (pc *PriceCreate) SetNillableBaseAssetID(id *int) *PriceCreate {
-	if id != nil {
-		pc = pc.SetBaseAssetID(*id)
+// SetNillableUUID sets the "uuid" field if the given value is not nil.
+func (pc *PriceCreate) SetNillableUUID(u *uuid.UUID) *PriceCreate {
+	if u != nil {
+		pc.SetUUID(*u)
 	}
 	return pc
 }
 
-// SetBaseAsset sets the "base_asset" edge to the Asset entity.
-func (pc *PriceCreate) SetBaseAsset(a *Asset) *PriceCreate {
-	return pc.SetBaseAssetID(a.ID)
-}
-
-// SetQuoteAssetID sets the "quote_asset" edge to the Asset entity by ID.
-func (pc *PriceCreate) SetQuoteAssetID(id int) *PriceCreate {
-	pc.mutation.SetQuoteAssetID(id)
+// SetSourceID sets the "source_id" field.
+func (pc *PriceCreate) SetSourceID(s string) *PriceCreate {
+	pc.mutation.SetSourceID(s)
 	return pc
 }
 
-// SetNillableQuoteAssetID sets the "quote_asset" edge to the Asset entity by ID if the given value is not nil.
-func (pc *PriceCreate) SetNillableQuoteAssetID(id *int) *PriceCreate {
-	if id != nil {
-		pc = pc.SetQuoteAssetID(*id)
+// SetInterval sets the "interval" field.
+func (pc *PriceCreate) SetInterval(s string) *PriceCreate {
+	pc.mutation.SetInterval(s)
+	return pc
+}
+
+// SetAmount sets the "amount" field.
+func (pc *PriceCreate) SetAmount(i int64) *PriceCreate {
+	pc.mutation.SetAmount(i)
+	return pc
+}
+
+// SetPrecision sets the "precision" field.
+func (pc *PriceCreate) SetPrecision(u uint32) *PriceCreate {
+	pc.mutation.SetPrecision(u)
+	return pc
+}
+
+// SetOpen sets the "open" field.
+func (pc *PriceCreate) SetOpen(i int64) *PriceCreate {
+	pc.mutation.SetOpen(i)
+	return pc
+}
+
+// SetNillableOpen sets the "open" field if the given value is not nil.
+func (pc *PriceCreate) SetNillableOpen(i *int64) *PriceCreate {
+	if i != nil {
+		pc.SetOpen(*i)
 	}
 	return pc
 }
 
-// SetQuoteAsset sets the "quote_asset" edge to the Asset entity.
-func (pc *PriceCreate) SetQuoteAsset(a *Asset) *PriceCreate {
-	return pc.SetQuoteAssetID(a.ID)
+// SetHigh sets the "high" field.
+func (pc *PriceCreate) SetHigh(i int64) *PriceCreate {
+	pc.mutation.SetHigh(i)
+	return pc
+}
+
+// SetNillableHigh sets the "high" field if the given value is not nil.
+func (pc *PriceCreate) SetNillableHigh(i *int64) *PriceCreate {
+	if i != nil {
+		pc.SetHigh(*i)
+	}
+	return pc
+}
+
+// SetLow sets the "low" field.
+func (pc *PriceCreate) SetLow(i int64) *PriceCreate {
+	pc.mutation.SetLow(i)
+	return pc
+}
+
+// SetNillableLow sets the "low" field if the given value is not nil.
+func (pc *PriceCreate) SetNillableLow(i *int64) *PriceCreate {
+	if i != nil {
+		pc.SetLow(*i)
+	}
+	return pc
+}
+
+// SetClose sets the "close" field.
+func (pc *PriceCreate) SetClose(i int64) *PriceCreate {
+	pc.mutation.SetClose(i)
+	return pc
+}
+
+// SetNillableClose sets the "close" field if the given value is not nil.
+func (pc *PriceCreate) SetNillableClose(i *int64) *PriceCreate {
+	if i != nil {
+		pc.SetClose(*i)
+	}
+	return pc
+}
+
+// SetVolume sets the "volume" field.
+func (pc *PriceCreate) SetVolume(i int64) *PriceCreate {
+	pc.mutation.SetVolume(i)
+	return pc
+}
+
+// SetNillableVolume sets the "volume" field if the given value is not nil.
+func (pc *PriceCreate) SetNillableVolume(i *int64) *PriceCreate {
+	if i != nil {
+		pc.SetVolume(*i)
+	}
+	return pc
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (pc *PriceCreate) SetCreatedAt(t time.Time) *PriceCreate {
+	pc.mutation.SetCreatedAt(t)
+	return pc
+}
+
+// SetNillableCreatedAt sets the "created_at" field if the given value is not nil.
+func (pc *PriceCreate) SetNillableCreatedAt(t *time.Time) *PriceCreate {
+	if t != nil {
+		pc.SetCreatedAt(*t)
+	}
+	return pc
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (pc *PriceCreate) SetUpdatedAt(t time.Time) *PriceCreate {
+	pc.mutation.SetUpdatedAt(t)
+	return pc
+}
+
+// SetNillableUpdatedAt sets the "updated_at" field if the given value is not nil.
+func (pc *PriceCreate) SetNillableUpdatedAt(t *time.Time) *PriceCreate {
+	if t != nil {
+		pc.SetUpdatedAt(*t)
+	}
+	return pc
+}
+
+// AddAssetIDs adds the "asset" edge to the Asset entity by IDs.
+func (pc *PriceCreate) AddAssetIDs(ids ...int) *PriceCreate {
+	pc.mutation.AddAssetIDs(ids...)
+	return pc
+}
+
+// AddAsset adds the "asset" edges to the Asset entity.
+func (pc *PriceCreate) AddAsset(a ...*Asset) *PriceCreate {
+	ids := make([]int, len(a))
+	for i := range a {
+		ids[i] = a[i].ID
+	}
+	return pc.AddAssetIDs(ids...)
+}
+
+// AddBaseAssetIDs adds the "base_asset" edge to the Asset entity by IDs.
+func (pc *PriceCreate) AddBaseAssetIDs(ids ...int) *PriceCreate {
+	pc.mutation.AddBaseAssetIDs(ids...)
+	return pc
+}
+
+// AddBaseAsset adds the "base_asset" edges to the Asset entity.
+func (pc *PriceCreate) AddBaseAsset(a ...*Asset) *PriceCreate {
+	ids := make([]int, len(a))
+	for i := range a {
+		ids[i] = a[i].ID
+	}
+	return pc.AddBaseAssetIDs(ids...)
 }
 
 // Mutation returns the PriceMutation object of the builder.
@@ -97,6 +195,7 @@ func (pc *PriceCreate) Mutation() *PriceMutation {
 
 // Save creates the Price in the database.
 func (pc *PriceCreate) Save(ctx context.Context) (*Price, error) {
+	pc.defaults()
 	return withHooks(ctx, pc.sqlSave, pc.mutation, pc.hooks)
 }
 
@@ -122,22 +221,44 @@ func (pc *PriceCreate) ExecX(ctx context.Context) {
 	}
 }
 
+// defaults sets the default values of the builder before save.
+func (pc *PriceCreate) defaults() {
+	if _, ok := pc.mutation.UUID(); !ok {
+		v := price.DefaultUUID()
+		pc.mutation.SetUUID(v)
+	}
+	if _, ok := pc.mutation.CreatedAt(); !ok {
+		v := price.DefaultCreatedAt()
+		pc.mutation.SetCreatedAt(v)
+	}
+	if _, ok := pc.mutation.UpdatedAt(); !ok {
+		v := price.DefaultUpdatedAt()
+		pc.mutation.SetUpdatedAt(v)
+	}
+}
+
 // check runs all checks and user-defined validators on the builder.
 func (pc *PriceCreate) check() error {
-	if _, ok := pc.mutation.Source(); !ok {
-		return &ValidationError{Name: "source", err: errors.New(`ent: missing required field "Price.source"`)}
+	if _, ok := pc.mutation.UUID(); !ok {
+		return &ValidationError{Name: "uuid", err: errors.New(`ent: missing required field "Price.uuid"`)}
 	}
-	if _, ok := pc.mutation.LastPrice(); !ok {
-		return &ValidationError{Name: "last_price", err: errors.New(`ent: missing required field "Price.last_price"`)}
+	if _, ok := pc.mutation.SourceID(); !ok {
+		return &ValidationError{Name: "source_id", err: errors.New(`ent: missing required field "Price.source_id"`)}
 	}
-	if _, ok := pc.mutation.Ask(); !ok {
-		return &ValidationError{Name: "ask", err: errors.New(`ent: missing required field "Price.ask"`)}
+	if _, ok := pc.mutation.Interval(); !ok {
+		return &ValidationError{Name: "interval", err: errors.New(`ent: missing required field "Price.interval"`)}
 	}
-	if _, ok := pc.mutation.Bid(); !ok {
-		return &ValidationError{Name: "bid", err: errors.New(`ent: missing required field "Price.bid"`)}
+	if _, ok := pc.mutation.Amount(); !ok {
+		return &ValidationError{Name: "amount", err: errors.New(`ent: missing required field "Price.amount"`)}
 	}
-	if _, ok := pc.mutation.Time(); !ok {
-		return &ValidationError{Name: "time", err: errors.New(`ent: missing required field "Price.time"`)}
+	if _, ok := pc.mutation.Precision(); !ok {
+		return &ValidationError{Name: "precision", err: errors.New(`ent: missing required field "Price.precision"`)}
+	}
+	if _, ok := pc.mutation.CreatedAt(); !ok {
+		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Price.created_at"`)}
+	}
+	if _, ok := pc.mutation.UpdatedAt(); !ok {
+		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Price.updated_at"`)}
 	}
 	return nil
 }
@@ -165,29 +286,73 @@ func (pc *PriceCreate) createSpec() (*Price, *sqlgraph.CreateSpec) {
 		_node = &Price{config: pc.config}
 		_spec = sqlgraph.NewCreateSpec(price.Table, sqlgraph.NewFieldSpec(price.FieldID, field.TypeInt))
 	)
-	if value, ok := pc.mutation.Source(); ok {
-		_spec.SetField(price.FieldSource, field.TypeString, value)
-		_node.Source = value
+	if value, ok := pc.mutation.UUID(); ok {
+		_spec.SetField(price.FieldUUID, field.TypeUUID, value)
+		_node.UUID = value
 	}
-	if value, ok := pc.mutation.LastPrice(); ok {
-		_spec.SetField(price.FieldLastPrice, field.TypeFloat64, value)
-		_node.LastPrice = value
+	if value, ok := pc.mutation.SourceID(); ok {
+		_spec.SetField(price.FieldSourceID, field.TypeString, value)
+		_node.SourceID = value
 	}
-	if value, ok := pc.mutation.Ask(); ok {
-		_spec.SetField(price.FieldAsk, field.TypeFloat64, value)
-		_node.Ask = value
+	if value, ok := pc.mutation.Interval(); ok {
+		_spec.SetField(price.FieldInterval, field.TypeString, value)
+		_node.Interval = value
 	}
-	if value, ok := pc.mutation.Bid(); ok {
-		_spec.SetField(price.FieldBid, field.TypeFloat64, value)
-		_node.Bid = value
+	if value, ok := pc.mutation.Amount(); ok {
+		_spec.SetField(price.FieldAmount, field.TypeInt64, value)
+		_node.Amount = value
 	}
-	if value, ok := pc.mutation.Time(); ok {
-		_spec.SetField(price.FieldTime, field.TypeTime, value)
-		_node.Time = value
+	if value, ok := pc.mutation.Precision(); ok {
+		_spec.SetField(price.FieldPrecision, field.TypeUint32, value)
+		_node.Precision = value
+	}
+	if value, ok := pc.mutation.Open(); ok {
+		_spec.SetField(price.FieldOpen, field.TypeInt64, value)
+		_node.Open = value
+	}
+	if value, ok := pc.mutation.High(); ok {
+		_spec.SetField(price.FieldHigh, field.TypeInt64, value)
+		_node.High = value
+	}
+	if value, ok := pc.mutation.Low(); ok {
+		_spec.SetField(price.FieldLow, field.TypeInt64, value)
+		_node.Low = value
+	}
+	if value, ok := pc.mutation.Close(); ok {
+		_spec.SetField(price.FieldClose, field.TypeInt64, value)
+		_node.Close = value
+	}
+	if value, ok := pc.mutation.Volume(); ok {
+		_spec.SetField(price.FieldVolume, field.TypeInt64, value)
+		_node.Volume = value
+	}
+	if value, ok := pc.mutation.CreatedAt(); ok {
+		_spec.SetField(price.FieldCreatedAt, field.TypeTime, value)
+		_node.CreatedAt = value
+	}
+	if value, ok := pc.mutation.UpdatedAt(); ok {
+		_spec.SetField(price.FieldUpdatedAt, field.TypeTime, value)
+		_node.UpdatedAt = value
+	}
+	if nodes := pc.mutation.AssetIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   price.AssetTable,
+			Columns: []string{price.AssetColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := pc.mutation.BaseAssetIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
+			Rel:     sqlgraph.O2M,
 			Inverse: false,
 			Table:   price.BaseAssetTable,
 			Columns: []string{price.BaseAssetColumn},
@@ -199,24 +364,6 @@ func (pc *PriceCreate) createSpec() (*Price, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_node.price_base_asset = &nodes[0]
-		_spec.Edges = append(_spec.Edges, edge)
-	}
-	if nodes := pc.mutation.QuoteAssetIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: false,
-			Table:   price.QuoteAssetTable,
-			Columns: []string{price.QuoteAssetColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_node.price_quote_asset = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec
@@ -240,6 +387,7 @@ func (pcb *PriceCreateBulk) Save(ctx context.Context) ([]*Price, error) {
 	for i := range pcb.builders {
 		func(i int, root context.Context) {
 			builder := pcb.builders[i]
+			builder.defaults()
 			var mut Mutator = MutateFunc(func(ctx context.Context, m Mutation) (Value, error) {
 				mutation, ok := m.(*PriceMutation)
 				if !ok {

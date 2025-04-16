@@ -6,14 +6,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/foxcool/greedy-eye/pkg/ent/account"
-	"github.com/foxcool/greedy-eye/pkg/ent/holding"
-	"github.com/foxcool/greedy-eye/pkg/ent/predicate"
-	"github.com/foxcool/greedy-eye/pkg/ent/user"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/account"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/predicate"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/user"
+	"github.com/google/uuid"
 )
 
 // AccountUpdate is the builder for updating Account entities.
@@ -29,23 +31,119 @@ func (au *AccountUpdate) Where(ps ...predicate.Account) *AccountUpdate {
 	return au
 }
 
-// SetOwnerID sets the "owner" edge to the User entity by ID.
-func (au *AccountUpdate) SetOwnerID(id int) *AccountUpdate {
-	au.mutation.SetOwnerID(id)
+// SetUUID sets the "uuid" field.
+func (au *AccountUpdate) SetUUID(u uuid.UUID) *AccountUpdate {
+	au.mutation.SetUUID(u)
 	return au
 }
 
-// SetNillableOwnerID sets the "owner" edge to the User entity by ID if the given value is not nil.
-func (au *AccountUpdate) SetNillableOwnerID(id *int) *AccountUpdate {
-	if id != nil {
-		au = au.SetOwnerID(*id)
+// SetNillableUUID sets the "uuid" field if the given value is not nil.
+func (au *AccountUpdate) SetNillableUUID(u *uuid.UUID) *AccountUpdate {
+	if u != nil {
+		au.SetUUID(*u)
 	}
 	return au
 }
 
-// SetOwner sets the "owner" edge to the User entity.
-func (au *AccountUpdate) SetOwner(u *User) *AccountUpdate {
-	return au.SetOwnerID(u.ID)
+// SetName sets the "name" field.
+func (au *AccountUpdate) SetName(s string) *AccountUpdate {
+	au.mutation.SetName(s)
+	return au
+}
+
+// SetNillableName sets the "name" field if the given value is not nil.
+func (au *AccountUpdate) SetNillableName(s *string) *AccountUpdate {
+	if s != nil {
+		au.SetName(*s)
+	}
+	return au
+}
+
+// SetDescription sets the "description" field.
+func (au *AccountUpdate) SetDescription(s string) *AccountUpdate {
+	au.mutation.SetDescription(s)
+	return au
+}
+
+// SetNillableDescription sets the "description" field if the given value is not nil.
+func (au *AccountUpdate) SetNillableDescription(s *string) *AccountUpdate {
+	if s != nil {
+		au.SetDescription(*s)
+	}
+	return au
+}
+
+// ClearDescription clears the value of the "description" field.
+func (au *AccountUpdate) ClearDescription() *AccountUpdate {
+	au.mutation.ClearDescription()
+	return au
+}
+
+// SetType sets the "type" field.
+func (au *AccountUpdate) SetType(a account.Type) *AccountUpdate {
+	au.mutation.SetType(a)
+	return au
+}
+
+// SetNillableType sets the "type" field if the given value is not nil.
+func (au *AccountUpdate) SetNillableType(a *account.Type) *AccountUpdate {
+	if a != nil {
+		au.SetType(*a)
+	}
+	return au
+}
+
+// SetData sets the "data" field.
+func (au *AccountUpdate) SetData(m map[string]string) *AccountUpdate {
+	au.mutation.SetData(m)
+	return au
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (au *AccountUpdate) SetCreatedAt(t time.Time) *AccountUpdate {
+	au.mutation.SetCreatedAt(t)
+	return au
+}
+
+// SetNillableCreatedAt sets the "created_at" field if the given value is not nil.
+func (au *AccountUpdate) SetNillableCreatedAt(t *time.Time) *AccountUpdate {
+	if t != nil {
+		au.SetCreatedAt(*t)
+	}
+	return au
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (au *AccountUpdate) SetUpdatedAt(t time.Time) *AccountUpdate {
+	au.mutation.SetUpdatedAt(t)
+	return au
+}
+
+// SetNillableUpdatedAt sets the "updated_at" field if the given value is not nil.
+func (au *AccountUpdate) SetNillableUpdatedAt(t *time.Time) *AccountUpdate {
+	if t != nil {
+		au.SetUpdatedAt(*t)
+	}
+	return au
+}
+
+// SetUserID sets the "user" edge to the User entity by ID.
+func (au *AccountUpdate) SetUserID(id int) *AccountUpdate {
+	au.mutation.SetUserID(id)
+	return au
+}
+
+// SetNillableUserID sets the "user" edge to the User entity by ID if the given value is not nil.
+func (au *AccountUpdate) SetNillableUserID(id *int) *AccountUpdate {
+	if id != nil {
+		au = au.SetUserID(*id)
+	}
+	return au
+}
+
+// SetUser sets the "user" edge to the User entity.
+func (au *AccountUpdate) SetUser(u *User) *AccountUpdate {
+	return au.SetUserID(u.ID)
 }
 
 // AddHoldingIDs adds the "holdings" edge to the Holding entity by IDs.
@@ -68,9 +166,9 @@ func (au *AccountUpdate) Mutation() *AccountMutation {
 	return au.mutation
 }
 
-// ClearOwner clears the "owner" edge to the User entity.
-func (au *AccountUpdate) ClearOwner() *AccountUpdate {
-	au.mutation.ClearOwner()
+// ClearUser clears the "user" edge to the User entity.
+func (au *AccountUpdate) ClearUser() *AccountUpdate {
+	au.mutation.ClearUser()
 	return au
 }
 
@@ -122,7 +220,20 @@ func (au *AccountUpdate) ExecX(ctx context.Context) {
 	}
 }
 
+// check runs all checks and user-defined validators on the builder.
+func (au *AccountUpdate) check() error {
+	if v, ok := au.mutation.GetType(); ok {
+		if err := account.TypeValidator(v); err != nil {
+			return &ValidationError{Name: "type", err: fmt.Errorf(`ent: validator failed for field "Account.type": %w`, err)}
+		}
+	}
+	return nil
+}
+
 func (au *AccountUpdate) sqlSave(ctx context.Context) (n int, err error) {
+	if err := au.check(); err != nil {
+		return n, err
+	}
 	_spec := sqlgraph.NewUpdateSpec(account.Table, account.Columns, sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt))
 	if ps := au.mutation.predicates; len(ps) > 0 {
 		_spec.Predicate = func(selector *sql.Selector) {
@@ -131,12 +242,36 @@ func (au *AccountUpdate) sqlSave(ctx context.Context) (n int, err error) {
 			}
 		}
 	}
-	if au.mutation.OwnerCleared() {
+	if value, ok := au.mutation.UUID(); ok {
+		_spec.SetField(account.FieldUUID, field.TypeUUID, value)
+	}
+	if value, ok := au.mutation.Name(); ok {
+		_spec.SetField(account.FieldName, field.TypeString, value)
+	}
+	if value, ok := au.mutation.Description(); ok {
+		_spec.SetField(account.FieldDescription, field.TypeString, value)
+	}
+	if au.mutation.DescriptionCleared() {
+		_spec.ClearField(account.FieldDescription, field.TypeString)
+	}
+	if value, ok := au.mutation.GetType(); ok {
+		_spec.SetField(account.FieldType, field.TypeEnum, value)
+	}
+	if value, ok := au.mutation.Data(); ok {
+		_spec.SetField(account.FieldData, field.TypeJSON, value)
+	}
+	if value, ok := au.mutation.CreatedAt(); ok {
+		_spec.SetField(account.FieldCreatedAt, field.TypeTime, value)
+	}
+	if value, ok := au.mutation.UpdatedAt(); ok {
+		_spec.SetField(account.FieldUpdatedAt, field.TypeTime, value)
+	}
+	if au.mutation.UserCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   account.OwnerTable,
-			Columns: []string{account.OwnerColumn},
+			Table:   account.UserTable,
+			Columns: []string{account.UserColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
@@ -144,12 +279,12 @@ func (au *AccountUpdate) sqlSave(ctx context.Context) (n int, err error) {
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
-	if nodes := au.mutation.OwnerIDs(); len(nodes) > 0 {
+	if nodes := au.mutation.UserIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   account.OwnerTable,
-			Columns: []string{account.OwnerColumn},
+			Table:   account.UserTable,
+			Columns: []string{account.UserColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
@@ -225,23 +360,119 @@ type AccountUpdateOne struct {
 	mutation *AccountMutation
 }
 
-// SetOwnerID sets the "owner" edge to the User entity by ID.
-func (auo *AccountUpdateOne) SetOwnerID(id int) *AccountUpdateOne {
-	auo.mutation.SetOwnerID(id)
+// SetUUID sets the "uuid" field.
+func (auo *AccountUpdateOne) SetUUID(u uuid.UUID) *AccountUpdateOne {
+	auo.mutation.SetUUID(u)
 	return auo
 }
 
-// SetNillableOwnerID sets the "owner" edge to the User entity by ID if the given value is not nil.
-func (auo *AccountUpdateOne) SetNillableOwnerID(id *int) *AccountUpdateOne {
-	if id != nil {
-		auo = auo.SetOwnerID(*id)
+// SetNillableUUID sets the "uuid" field if the given value is not nil.
+func (auo *AccountUpdateOne) SetNillableUUID(u *uuid.UUID) *AccountUpdateOne {
+	if u != nil {
+		auo.SetUUID(*u)
 	}
 	return auo
 }
 
-// SetOwner sets the "owner" edge to the User entity.
-func (auo *AccountUpdateOne) SetOwner(u *User) *AccountUpdateOne {
-	return auo.SetOwnerID(u.ID)
+// SetName sets the "name" field.
+func (auo *AccountUpdateOne) SetName(s string) *AccountUpdateOne {
+	auo.mutation.SetName(s)
+	return auo
+}
+
+// SetNillableName sets the "name" field if the given value is not nil.
+func (auo *AccountUpdateOne) SetNillableName(s *string) *AccountUpdateOne {
+	if s != nil {
+		auo.SetName(*s)
+	}
+	return auo
+}
+
+// SetDescription sets the "description" field.
+func (auo *AccountUpdateOne) SetDescription(s string) *AccountUpdateOne {
+	auo.mutation.SetDescription(s)
+	return auo
+}
+
+// SetNillableDescription sets the "description" field if the given value is not nil.
+func (auo *AccountUpdateOne) SetNillableDescription(s *string) *AccountUpdateOne {
+	if s != nil {
+		auo.SetDescription(*s)
+	}
+	return auo
+}
+
+// ClearDescription clears the value of the "description" field.
+func (auo *AccountUpdateOne) ClearDescription() *AccountUpdateOne {
+	auo.mutation.ClearDescription()
+	return auo
+}
+
+// SetType sets the "type" field.
+func (auo *AccountUpdateOne) SetType(a account.Type) *AccountUpdateOne {
+	auo.mutation.SetType(a)
+	return auo
+}
+
+// SetNillableType sets the "type" field if the given value is not nil.
+func (auo *AccountUpdateOne) SetNillableType(a *account.Type) *AccountUpdateOne {
+	if a != nil {
+		auo.SetType(*a)
+	}
+	return auo
+}
+
+// SetData sets the "data" field.
+func (auo *AccountUpdateOne) SetData(m map[string]string) *AccountUpdateOne {
+	auo.mutation.SetData(m)
+	return auo
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (auo *AccountUpdateOne) SetCreatedAt(t time.Time) *AccountUpdateOne {
+	auo.mutation.SetCreatedAt(t)
+	return auo
+}
+
+// SetNillableCreatedAt sets the "created_at" field if the given value is not nil.
+func (auo *AccountUpdateOne) SetNillableCreatedAt(t *time.Time) *AccountUpdateOne {
+	if t != nil {
+		auo.SetCreatedAt(*t)
+	}
+	return auo
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (auo *AccountUpdateOne) SetUpdatedAt(t time.Time) *AccountUpdateOne {
+	auo.mutation.SetUpdatedAt(t)
+	return auo
+}
+
+// SetNillableUpdatedAt sets the "updated_at" field if the given value is not nil.
+func (auo *AccountUpdateOne) SetNillableUpdatedAt(t *time.Time) *AccountUpdateOne {
+	if t != nil {
+		auo.SetUpdatedAt(*t)
+	}
+	return auo
+}
+
+// SetUserID sets the "user" edge to the User entity by ID.
+func (auo *AccountUpdateOne) SetUserID(id int) *AccountUpdateOne {
+	auo.mutation.SetUserID(id)
+	return auo
+}
+
+// SetNillableUserID sets the "user" edge to the User entity by ID if the given value is not nil.
+func (auo *AccountUpdateOne) SetNillableUserID(id *int) *AccountUpdateOne {
+	if id != nil {
+		auo = auo.SetUserID(*id)
+	}
+	return auo
+}
+
+// SetUser sets the "user" edge to the User entity.
+func (auo *AccountUpdateOne) SetUser(u *User) *AccountUpdateOne {
+	return auo.SetUserID(u.ID)
 }
 
 // AddHoldingIDs adds the "holdings" edge to the Holding entity by IDs.
@@ -264,9 +495,9 @@ func (auo *AccountUpdateOne) Mutation() *AccountMutation {
 	return auo.mutation
 }
 
-// ClearOwner clears the "owner" edge to the User entity.
-func (auo *AccountUpdateOne) ClearOwner() *AccountUpdateOne {
-	auo.mutation.ClearOwner()
+// ClearUser clears the "user" edge to the User entity.
+func (auo *AccountUpdateOne) ClearUser() *AccountUpdateOne {
+	auo.mutation.ClearUser()
 	return auo
 }
 
@@ -331,7 +562,20 @@ func (auo *AccountUpdateOne) ExecX(ctx context.Context) {
 	}
 }
 
+// check runs all checks and user-defined validators on the builder.
+func (auo *AccountUpdateOne) check() error {
+	if v, ok := auo.mutation.GetType(); ok {
+		if err := account.TypeValidator(v); err != nil {
+			return &ValidationError{Name: "type", err: fmt.Errorf(`ent: validator failed for field "Account.type": %w`, err)}
+		}
+	}
+	return nil
+}
+
 func (auo *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err error) {
+	if err := auo.check(); err != nil {
+		return _node, err
+	}
 	_spec := sqlgraph.NewUpdateSpec(account.Table, account.Columns, sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt))
 	id, ok := auo.mutation.ID()
 	if !ok {
@@ -357,12 +601,36 @@ func (auo *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err e
 			}
 		}
 	}
-	if auo.mutation.OwnerCleared() {
+	if value, ok := auo.mutation.UUID(); ok {
+		_spec.SetField(account.FieldUUID, field.TypeUUID, value)
+	}
+	if value, ok := auo.mutation.Name(); ok {
+		_spec.SetField(account.FieldName, field.TypeString, value)
+	}
+	if value, ok := auo.mutation.Description(); ok {
+		_spec.SetField(account.FieldDescription, field.TypeString, value)
+	}
+	if auo.mutation.DescriptionCleared() {
+		_spec.ClearField(account.FieldDescription, field.TypeString)
+	}
+	if value, ok := auo.mutation.GetType(); ok {
+		_spec.SetField(account.FieldType, field.TypeEnum, value)
+	}
+	if value, ok := auo.mutation.Data(); ok {
+		_spec.SetField(account.FieldData, field.TypeJSON, value)
+	}
+	if value, ok := auo.mutation.CreatedAt(); ok {
+		_spec.SetField(account.FieldCreatedAt, field.TypeTime, value)
+	}
+	if value, ok := auo.mutation.UpdatedAt(); ok {
+		_spec.SetField(account.FieldUpdatedAt, field.TypeTime, value)
+	}
+	if auo.mutation.UserCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   account.OwnerTable,
-			Columns: []string{account.OwnerColumn},
+			Table:   account.UserTable,
+			Columns: []string{account.UserColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
@@ -370,12 +638,12 @@ func (auo *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err e
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
-	if nodes := auo.mutation.OwnerIDs(); len(nodes) > 0 {
+	if nodes := auo.mutation.UserIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   account.OwnerTable,
-			Columns: []string{account.OwnerColumn},
+			Table:   account.UserTable,
+			Columns: []string{account.UserColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),

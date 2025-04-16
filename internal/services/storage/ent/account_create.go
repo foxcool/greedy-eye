@@ -4,13 +4,16 @@ package ent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/foxcool/greedy-eye/pkg/ent/account"
-	"github.com/foxcool/greedy-eye/pkg/ent/holding"
-	"github.com/foxcool/greedy-eye/pkg/ent/user"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/account"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/user"
+	"github.com/google/uuid"
 )
 
 // AccountCreate is the builder for creating a Account entity.
@@ -20,23 +23,81 @@ type AccountCreate struct {
 	hooks    []Hook
 }
 
-// SetOwnerID sets the "owner" edge to the User entity by ID.
-func (ac *AccountCreate) SetOwnerID(id int) *AccountCreate {
-	ac.mutation.SetOwnerID(id)
+// SetUUID sets the "uuid" field.
+func (ac *AccountCreate) SetUUID(u uuid.UUID) *AccountCreate {
+	ac.mutation.SetUUID(u)
 	return ac
 }
 
-// SetNillableOwnerID sets the "owner" edge to the User entity by ID if the given value is not nil.
-func (ac *AccountCreate) SetNillableOwnerID(id *int) *AccountCreate {
-	if id != nil {
-		ac = ac.SetOwnerID(*id)
+// SetNillableUUID sets the "uuid" field if the given value is not nil.
+func (ac *AccountCreate) SetNillableUUID(u *uuid.UUID) *AccountCreate {
+	if u != nil {
+		ac.SetUUID(*u)
 	}
 	return ac
 }
 
-// SetOwner sets the "owner" edge to the User entity.
-func (ac *AccountCreate) SetOwner(u *User) *AccountCreate {
-	return ac.SetOwnerID(u.ID)
+// SetName sets the "name" field.
+func (ac *AccountCreate) SetName(s string) *AccountCreate {
+	ac.mutation.SetName(s)
+	return ac
+}
+
+// SetDescription sets the "description" field.
+func (ac *AccountCreate) SetDescription(s string) *AccountCreate {
+	ac.mutation.SetDescription(s)
+	return ac
+}
+
+// SetNillableDescription sets the "description" field if the given value is not nil.
+func (ac *AccountCreate) SetNillableDescription(s *string) *AccountCreate {
+	if s != nil {
+		ac.SetDescription(*s)
+	}
+	return ac
+}
+
+// SetType sets the "type" field.
+func (ac *AccountCreate) SetType(a account.Type) *AccountCreate {
+	ac.mutation.SetType(a)
+	return ac
+}
+
+// SetData sets the "data" field.
+func (ac *AccountCreate) SetData(m map[string]string) *AccountCreate {
+	ac.mutation.SetData(m)
+	return ac
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (ac *AccountCreate) SetCreatedAt(t time.Time) *AccountCreate {
+	ac.mutation.SetCreatedAt(t)
+	return ac
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (ac *AccountCreate) SetUpdatedAt(t time.Time) *AccountCreate {
+	ac.mutation.SetUpdatedAt(t)
+	return ac
+}
+
+// SetUserID sets the "user" edge to the User entity by ID.
+func (ac *AccountCreate) SetUserID(id int) *AccountCreate {
+	ac.mutation.SetUserID(id)
+	return ac
+}
+
+// SetNillableUserID sets the "user" edge to the User entity by ID if the given value is not nil.
+func (ac *AccountCreate) SetNillableUserID(id *int) *AccountCreate {
+	if id != nil {
+		ac = ac.SetUserID(*id)
+	}
+	return ac
+}
+
+// SetUser sets the "user" edge to the User entity.
+func (ac *AccountCreate) SetUser(u *User) *AccountCreate {
+	return ac.SetUserID(u.ID)
 }
 
 // AddHoldingIDs adds the "holdings" edge to the Holding entity by IDs.
@@ -61,6 +122,7 @@ func (ac *AccountCreate) Mutation() *AccountMutation {
 
 // Save creates the Account in the database.
 func (ac *AccountCreate) Save(ctx context.Context) (*Account, error) {
+	ac.defaults()
 	return withHooks(ctx, ac.sqlSave, ac.mutation, ac.hooks)
 }
 
@@ -86,8 +148,39 @@ func (ac *AccountCreate) ExecX(ctx context.Context) {
 	}
 }
 
+// defaults sets the default values of the builder before save.
+func (ac *AccountCreate) defaults() {
+	if _, ok := ac.mutation.UUID(); !ok {
+		v := account.DefaultUUID()
+		ac.mutation.SetUUID(v)
+	}
+}
+
 // check runs all checks and user-defined validators on the builder.
 func (ac *AccountCreate) check() error {
+	if _, ok := ac.mutation.UUID(); !ok {
+		return &ValidationError{Name: "uuid", err: errors.New(`ent: missing required field "Account.uuid"`)}
+	}
+	if _, ok := ac.mutation.Name(); !ok {
+		return &ValidationError{Name: "name", err: errors.New(`ent: missing required field "Account.name"`)}
+	}
+	if _, ok := ac.mutation.GetType(); !ok {
+		return &ValidationError{Name: "type", err: errors.New(`ent: missing required field "Account.type"`)}
+	}
+	if v, ok := ac.mutation.GetType(); ok {
+		if err := account.TypeValidator(v); err != nil {
+			return &ValidationError{Name: "type", err: fmt.Errorf(`ent: validator failed for field "Account.type": %w`, err)}
+		}
+	}
+	if _, ok := ac.mutation.Data(); !ok {
+		return &ValidationError{Name: "data", err: errors.New(`ent: missing required field "Account.data"`)}
+	}
+	if _, ok := ac.mutation.CreatedAt(); !ok {
+		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Account.created_at"`)}
+	}
+	if _, ok := ac.mutation.UpdatedAt(); !ok {
+		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Account.updated_at"`)}
+	}
 	return nil
 }
 
@@ -114,12 +207,40 @@ func (ac *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 		_node = &Account{config: ac.config}
 		_spec = sqlgraph.NewCreateSpec(account.Table, sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt))
 	)
-	if nodes := ac.mutation.OwnerIDs(); len(nodes) > 0 {
+	if value, ok := ac.mutation.UUID(); ok {
+		_spec.SetField(account.FieldUUID, field.TypeUUID, value)
+		_node.UUID = value
+	}
+	if value, ok := ac.mutation.Name(); ok {
+		_spec.SetField(account.FieldName, field.TypeString, value)
+		_node.Name = value
+	}
+	if value, ok := ac.mutation.Description(); ok {
+		_spec.SetField(account.FieldDescription, field.TypeString, value)
+		_node.Description = value
+	}
+	if value, ok := ac.mutation.GetType(); ok {
+		_spec.SetField(account.FieldType, field.TypeEnum, value)
+		_node.Type = value
+	}
+	if value, ok := ac.mutation.Data(); ok {
+		_spec.SetField(account.FieldData, field.TypeJSON, value)
+		_node.Data = value
+	}
+	if value, ok := ac.mutation.CreatedAt(); ok {
+		_spec.SetField(account.FieldCreatedAt, field.TypeTime, value)
+		_node.CreatedAt = value
+	}
+	if value, ok := ac.mutation.UpdatedAt(); ok {
+		_spec.SetField(account.FieldUpdatedAt, field.TypeTime, value)
+		_node.UpdatedAt = value
+	}
+	if nodes := ac.mutation.UserIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   account.OwnerTable,
-			Columns: []string{account.OwnerColumn},
+			Table:   account.UserTable,
+			Columns: []string{account.UserColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
@@ -168,6 +289,7 @@ func (acb *AccountCreateBulk) Save(ctx context.Context) ([]*Account, error) {
 	for i := range acb.builders {
 		func(i int, root context.Context) {
 			builder := acb.builders[i]
+			builder.defaults()
 			var mut Mutator = MutateFunc(func(ctx context.Context, m Mutation) (Value, error) {
 				mutation, ok := m.(*AccountMutation)
 				if !ok {

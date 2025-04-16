@@ -7,10 +7,8 @@
 package services
 
 import (
-	_ "github.com/foxcool/greedy-eye/internal/api/models"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	_ "google.golang.org/protobuf/types/known/emptypb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
@@ -302,7 +300,7 @@ var File_api_services_portfolio_service_proto protoreflect.FileDescriptor
 
 const file_api_services_portfolio_service_proto_rawDesc = "" +
 	"\n" +
-	"$api/services/portfolio_service.proto\x12\bservices\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x18api/models/holding.proto\x1a\x1aapi/models/portfolio.proto\x1a\"api/services/storage_service.proto\"\x9e\x01\n" +
+	"$api/services/portfolio_service.proto\x12\bservices\x1a\x1fgoogle/protobuf/timestamp.proto\"\x9e\x01\n" +
 	"\x1eCalculatePortfolioValueRequest\x12!\n" +
 	"\fportfolio_id\x18\x01 \x01(\tR\vportfolioId\x12$\n" +
 	"\x0equote_asset_id\x18\x02 \x01(\tR\fquoteAssetId\x123\n" +
@@ -370,7 +368,6 @@ func file_api_services_portfolio_service_proto_init() {
 	if File_api_services_portfolio_service_proto != nil {
 		return
 	}
-	file_api_services_storage_service_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

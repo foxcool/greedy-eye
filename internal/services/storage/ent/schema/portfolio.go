@@ -1,8 +1,12 @@
 package schema
 
 import (
+	"time"
+
 	"entgo.io/ent"
 	"entgo.io/ent/schema/edge"
+	"entgo.io/ent/schema/field"
+	"github.com/google/uuid"
 )
 
 // Portfolio holds the schema definition for the Portfolio entity.
@@ -12,16 +16,22 @@ type Portfolio struct {
 
 // Fields of the Portfolio.
 func (Portfolio) Fields() []ent.Field {
-	return nil
+	fields := []ent.Field{
+		field.UUID("uuid", uuid.UUID{}).
+			Default(uuid.New),
+		field.String("name"),
+		field.String("description").Optional(),
+		field.Time("created_at").Default(time.Now),
+		field.Time("updated_at").Default(time.Now).UpdateDefault(time.Now),
+	}
+	return fields
 }
 
 // Edges of the Portfolio.
 func (Portfolio) Edges() []ent.Edge {
 	return []ent.Edge{
-		edge.From("owners", User.Type).
+		edge.From("userы", User.Type).
 			Ref("portfolios"),
 		edge.To("holdings", Holding.Type),
-		edge.From("tags", Tag.Type).
-			Ref("portfolios"),
 	}
 }

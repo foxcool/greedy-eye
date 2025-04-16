@@ -3,8 +3,12 @@
 package asset
 
 import (
+	"fmt"
+	"time"
+
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"github.com/google/uuid"
 )
 
 const (
@@ -12,10 +16,22 @@ const (
 	Label = "asset"
 	// FieldID holds the string denoting the id field in the database.
 	FieldID = "id"
+	// FieldUUID holds the string denoting the uuid field in the database.
+	FieldUUID = "uuid"
+	// FieldSymbol holds the string denoting the symbol field in the database.
+	FieldSymbol = "symbol"
+	// FieldName holds the string denoting the name field in the database.
+	FieldName = "name"
+	// FieldType holds the string denoting the type field in the database.
+	FieldType = "type"
+	// FieldTags holds the string denoting the tags field in the database.
+	FieldTags = "tags"
+	// FieldCreatedAt holds the string denoting the created_at field in the database.
+	FieldCreatedAt = "created_at"
+	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
+	FieldUpdatedAt = "updated_at"
 	// EdgeHoldings holds the string denoting the holdings edge name in mutations.
 	EdgeHoldings = "holdings"
-	// EdgeTags holds the string denoting the tags edge name in mutations.
-	EdgeTags = "tags"
 	// Table holds the table name of the asset in the database.
 	Table = "assets"
 	// HoldingsTable is the table that holds the holdings relation/edge.
@@ -24,24 +40,29 @@ const (
 	// It exists in this package in order to avoid circular dependency with the "holding" package.
 	HoldingsInverseTable = "holdings"
 	// HoldingsColumn is the table column denoting the holdings relation/edge.
-	HoldingsColumn = "holding_asset"
-	// TagsTable is the table that holds the tags relation/edge. The primary key declared below.
-	TagsTable = "tag_assets"
-	// TagsInverseTable is the table name for the Tag entity.
-	// It exists in this package in order to avoid circular dependency with the "tag" package.
-	TagsInverseTable = "tags"
+	HoldingsColumn = "asset_holdings"
 )
 
 // Columns holds all SQL columns for asset fields.
 var Columns = []string{
 	FieldID,
+	FieldUUID,
+	FieldSymbol,
+	FieldName,
+	FieldType,
+	FieldTags,
+	FieldCreatedAt,
+	FieldUpdatedAt,
 }
 
-var (
-	// TagsPrimaryKey and TagsColumn2 are the table columns denoting the
-	// primary key for the tags relation (M2M).
-	TagsPrimaryKey = []string{"tag_id", "asset_id"}
-)
+// ForeignKeys holds the SQL foreign-keys that are owned by the "assets"
+// table and are not defined as standalone fields in the schema.
+var ForeignKeys = []string{
+	"price_asset",
+	"price_base_asset",
+	"transaction_asset",
+	"transaction_fee_asset",
+}
 
 // ValidColumn reports if the column name is valid (part of the table columns).
 func ValidColumn(column string) bool {
@@ -50,7 +71,49 @@ func ValidColumn(column string) bool {
 			return true
 		}
 	}
+	for i := range ForeignKeys {
+		if column == ForeignKeys[i] {
+			return true
+		}
+	}
 	return false
+}
+
+var (
+	// DefaultUUID holds the default value on creation for the "uuid" field.
+	DefaultUUID func() uuid.UUID
+	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
+	DefaultCreatedAt time.Time
+	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.
+	DefaultUpdatedAt time.Time
+)
+
+// Type defines the type for the "type" enum field.
+type Type string
+
+// Type values.
+const (
+	TypeUnspecified    Type = "unspecified"
+	TypeCryptocurrency Type = "cryptocurrency"
+	TypeStock          Type = "stock"
+	TypeBond           Type = "bond"
+	TypeCommodity      Type = "commodity"
+	TypeForex          Type = "forex"
+	TypeFund           Type = "fund"
+)
+
+func (_type Type) String() string {
+	return string(_type)
+}
+
+// TypeValidator is a validator for the "type" field enum values. It is called by the builders before save.
+func TypeValidator(_type Type) error {
+	switch _type {
+	case TypeUnspecified, TypeCryptocurrency, TypeStock, TypeBond, TypeCommodity, TypeForex, TypeFund:
+		return nil
+	default:
+		return fmt.Errorf("asset: invalid enum value for type field: %q", _type)
+	}
 }
 
 // OrderOption defines the ordering options for the Asset queries.
@@ -59,6 +122,36 @@ type OrderOption func(*sql.Selector)
 // ByID orders the results by the id field.
 func ByID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldID, opts...).ToFunc()
+}
+
+// ByUUID orders the results by the uuid field.
+func ByUUID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUUID, opts...).ToFunc()
+}
+
+// BySymbol orders the results by the symbol field.
+func BySymbol(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSymbol, opts...).ToFunc()
+}
+
+// ByName orders the results by the name field.
+func ByName(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldName, opts...).ToFunc()
+}
+
+// ByType orders the results by the type field.
+func ByType(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldType, opts...).ToFunc()
+}
+
+// ByCreatedAt orders the results by the created_at field.
+func ByCreatedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCreatedAt, opts...).ToFunc()
+}
+
+// ByUpdatedAt orders the results by the updated_at field.
+func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
 }
 
 // ByHoldingsCount orders the results by holdings count.
@@ -74,31 +167,10 @@ func ByHoldings(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newHoldingsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
-
-// ByTagsCount orders the results by tags count.
-func ByTagsCount(opts ...sql.OrderTermOption) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborsCount(s, newTagsStep(), opts...)
-	}
-}
-
-// ByTags orders the results by tags terms.
-func ByTags(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newTagsStep(), append([]sql.OrderTerm{term}, terms...)...)
-	}
-}
 func newHoldingsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(HoldingsInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.O2M, true, HoldingsTable, HoldingsColumn),
-	)
-}
-func newTagsStep() *sqlgraph.Step {
-	return sqlgraph.NewStep(
-		sqlgraph.From(Table, FieldID),
-		sqlgraph.To(TagsInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.M2M, true, TagsTable, TagsPrimaryKey...),
+		sqlgraph.Edge(sqlgraph.O2M, false, HoldingsTable, HoldingsColumn),
 	)
 }

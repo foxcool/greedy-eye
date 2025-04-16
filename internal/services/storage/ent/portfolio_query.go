@@ -12,11 +12,10 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/foxcool/greedy-eye/pkg/ent/holding"
-	"github.com/foxcool/greedy-eye/pkg/ent/portfolio"
-	"github.com/foxcool/greedy-eye/pkg/ent/predicate"
-	"github.com/foxcool/greedy-eye/pkg/ent/tag"
-	"github.com/foxcool/greedy-eye/pkg/ent/user"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/portfolio"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/predicate"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/user"
 )
 
 // PortfolioQuery is the builder for querying Portfolio entities.
@@ -26,9 +25,9 @@ type PortfolioQuery struct {
 	order        []portfolio.OrderOption
 	inters       []Interceptor
 	predicates   []predicate.Portfolio
-	withOwners   *UserQuery
+	withUser     *UserQuery
 	withHoldings *HoldingQuery
-	withTags     *TagQuery
+	withFKs      bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -65,8 +64,8 @@ func (pq *PortfolioQuery) Order(o ...portfolio.OrderOption) *PortfolioQuery {
 	return pq
 }
 
-// QueryOwners chains the current query on the "owners" edge.
-func (pq *PortfolioQuery) QueryOwners() *UserQuery {
+// QueryUser chains the current query on the "user" edge.
+func (pq *PortfolioQuery) QueryUser() *UserQuery {
 	query := (&UserClient{config: pq.config}).Query()
 	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
 		if err := pq.prepareQuery(ctx); err != nil {
@@ -79,7 +78,7 @@ func (pq *PortfolioQuery) QueryOwners() *UserQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(portfolio.Table, portfolio.FieldID, selector),
 			sqlgraph.To(user.Table, user.FieldID),
-			sqlgraph.Edge(sqlgraph.M2M, true, portfolio.OwnersTable, portfolio.OwnersPrimaryKey...),
+			sqlgraph.Edge(sqlgraph.M2O, true, portfolio.UserTable, portfolio.UserColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(pq.driver.Dialect(), step)
 		return fromU, nil
@@ -102,28 +101,6 @@ func (pq *PortfolioQuery) QueryHoldings() *HoldingQuery {
 			sqlgraph.From(portfolio.Table, portfolio.FieldID, selector),
 			sqlgraph.To(holding.Table, holding.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, portfolio.HoldingsTable, portfolio.HoldingsColumn),
-		)
-		fromU = sqlgraph.SetNeighbors(pq.driver.Dialect(), step)
-		return fromU, nil
-	}
-	return query
-}
-
-// QueryTags chains the current query on the "tags" edge.
-func (pq *PortfolioQuery) QueryTags() *TagQuery {
-	query := (&TagClient{config: pq.config}).Query()
-	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
-		if err := pq.prepareQuery(ctx); err != nil {
-			return nil, err
-		}
-		selector := pq.sqlQuery(ctx)
-		if err := selector.Err(); err != nil {
-			return nil, err
-		}
-		step := sqlgraph.NewStep(
-			sqlgraph.From(portfolio.Table, portfolio.FieldID, selector),
-			sqlgraph.To(tag.Table, tag.FieldID),
-			sqlgraph.Edge(sqlgraph.M2M, true, portfolio.TagsTable, portfolio.TagsPrimaryKey...),
 		)
 		fromU = sqlgraph.SetNeighbors(pq.driver.Dialect(), step)
 		return fromU, nil
@@ -323,23 +300,22 @@ func (pq *PortfolioQuery) Clone() *PortfolioQuery {
 		order:        append([]portfolio.OrderOption{}, pq.order...),
 		inters:       append([]Interceptor{}, pq.inters...),
 		predicates:   append([]predicate.Portfolio{}, pq.predicates...),
-		withOwners:   pq.withOwners.Clone(),
+		withUser:     pq.withUser.Clone(),
 		withHoldings: pq.withHoldings.Clone(),
-		withTags:     pq.withTags.Clone(),
 		// clone intermediate query.
 		sql:  pq.sql.Clone(),
 		path: pq.path,
 	}
 }
 
-// WithOwners tells the query-builder to eager-load the nodes that are connected to
-// the "owners" edge. The optional arguments are used to configure the query builder of the edge.
-func (pq *PortfolioQuery) WithOwners(opts ...func(*UserQuery)) *PortfolioQuery {
+// WithUser tells the query-builder to eager-load the nodes that are connected to
+// the "user" edge. The optional arguments are used to configure the query builder of the edge.
+func (pq *PortfolioQuery) WithUser(opts ...func(*UserQuery)) *PortfolioQuery {
 	query := (&UserClient{config: pq.config}).Query()
 	for _, opt := range opts {
 		opt(query)
 	}
-	pq.withOwners = query
+	pq.withUser = query
 	return pq
 }
 
@@ -354,19 +330,20 @@ func (pq *PortfolioQuery) WithHoldings(opts ...func(*HoldingQuery)) *PortfolioQu
 	return pq
 }
 
-// WithTags tells the query-builder to eager-load the nodes that are connected to
-// the "tags" edge. The optional arguments are used to configure the query builder of the edge.
-func (pq *PortfolioQuery) WithTags(opts ...func(*TagQuery)) *PortfolioQuery {
-	query := (&TagClient{config: pq.config}).Query()
-	for _, opt := range opts {
-		opt(query)
-	}
-	pq.withTags = query
-	return pq
-}
-
 // GroupBy is used to group vertices by one or more fields/columns.
 // It is often used with aggregate functions, like: count, max, mean, min, sum.
+//
+// Example:
+//
+//	var v []struct {
+//		UUID uuid.UUID `json:"uuid,omitempty"`
+//		Count int `json:"count,omitempty"`
+//	}
+//
+//	client.Portfolio.Query().
+//		GroupBy(portfolio.FieldUUID).
+//		Aggregate(ent.Count()).
+//		Scan(ctx, &v)
 func (pq *PortfolioQuery) GroupBy(field string, fields ...string) *PortfolioGroupBy {
 	pq.ctx.Fields = append([]string{field}, fields...)
 	grbuild := &PortfolioGroupBy{build: pq}
@@ -378,6 +355,16 @@ func (pq *PortfolioQuery) GroupBy(field string, fields ...string) *PortfolioGrou
 
 // Select allows the selection one or more fields/columns for the given query,
 // instead of selecting all fields in the entity.
+//
+// Example:
+//
+//	var v []struct {
+//		UUID uuid.UUID `json:"uuid,omitempty"`
+//	}
+//
+//	client.Portfolio.Query().
+//		Select(portfolio.FieldUUID).
+//		Scan(ctx, &v)
 func (pq *PortfolioQuery) Select(fields ...string) *PortfolioSelect {
 	pq.ctx.Fields = append(pq.ctx.Fields, fields...)
 	sbuild := &PortfolioSelect{PortfolioQuery: pq}
@@ -420,13 +407,19 @@ func (pq *PortfolioQuery) prepareQuery(ctx context.Context) error {
 func (pq *PortfolioQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Portfolio, error) {
 	var (
 		nodes       = []*Portfolio{}
+		withFKs     = pq.withFKs
 		_spec       = pq.querySpec()
-		loadedTypes = [3]bool{
-			pq.withOwners != nil,
+		loadedTypes = [2]bool{
+			pq.withUser != nil,
 			pq.withHoldings != nil,
-			pq.withTags != nil,
 		}
 	)
+	if pq.withUser != nil {
+		withFKs = true
+	}
+	if withFKs {
+		_spec.Node.Columns = append(_spec.Node.Columns, portfolio.ForeignKeys...)
+	}
 	_spec.ScanValues = func(columns []string) ([]any, error) {
 		return (*Portfolio).scanValues(nil, columns)
 	}
@@ -445,10 +438,9 @@ func (pq *PortfolioQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Po
 	if len(nodes) == 0 {
 		return nodes, nil
 	}
-	if query := pq.withOwners; query != nil {
-		if err := pq.loadOwners(ctx, query, nodes,
-			func(n *Portfolio) { n.Edges.Owners = []*User{} },
-			func(n *Portfolio, e *User) { n.Edges.Owners = append(n.Edges.Owners, e) }); err != nil {
+	if query := pq.withUser; query != nil {
+		if err := pq.loadUser(ctx, query, nodes, nil,
+			func(n *Portfolio, e *User) { n.Edges.User = e }); err != nil {
 			return nil, err
 		}
 	}
@@ -459,73 +451,37 @@ func (pq *PortfolioQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Po
 			return nil, err
 		}
 	}
-	if query := pq.withTags; query != nil {
-		if err := pq.loadTags(ctx, query, nodes,
-			func(n *Portfolio) { n.Edges.Tags = []*Tag{} },
-			func(n *Portfolio, e *Tag) { n.Edges.Tags = append(n.Edges.Tags, e) }); err != nil {
-			return nil, err
-		}
-	}
 	return nodes, nil
 }
 
-func (pq *PortfolioQuery) loadOwners(ctx context.Context, query *UserQuery, nodes []*Portfolio, init func(*Portfolio), assign func(*Portfolio, *User)) error {
-	edgeIDs := make([]driver.Value, len(nodes))
-	byID := make(map[int]*Portfolio)
-	nids := make(map[int]map[*Portfolio]struct{})
-	for i, node := range nodes {
-		edgeIDs[i] = node.ID
-		byID[node.ID] = node
-		if init != nil {
-			init(node)
+func (pq *PortfolioQuery) loadUser(ctx context.Context, query *UserQuery, nodes []*Portfolio, init func(*Portfolio), assign func(*Portfolio, *User)) error {
+	ids := make([]int, 0, len(nodes))
+	nodeids := make(map[int][]*Portfolio)
+	for i := range nodes {
+		if nodes[i].user_portfolios == nil {
+			continue
 		}
+		fk := *nodes[i].user_portfolios
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
 	}
-	query.Where(func(s *sql.Selector) {
-		joinT := sql.Table(portfolio.OwnersTable)
-		s.Join(joinT).On(s.C(user.FieldID), joinT.C(portfolio.OwnersPrimaryKey[0]))
-		s.Where(sql.InValues(joinT.C(portfolio.OwnersPrimaryKey[1]), edgeIDs...))
-		columns := s.SelectedColumns()
-		s.Select(joinT.C(portfolio.OwnersPrimaryKey[1]))
-		s.AppendSelect(columns...)
-		s.SetDistinct(false)
-	})
-	if err := query.prepareQuery(ctx); err != nil {
-		return err
+	if len(ids) == 0 {
+		return nil
 	}
-	qr := QuerierFunc(func(ctx context.Context, q Query) (Value, error) {
-		return query.sqlAll(ctx, func(_ context.Context, spec *sqlgraph.QuerySpec) {
-			assign := spec.Assign
-			values := spec.ScanValues
-			spec.ScanValues = func(columns []string) ([]any, error) {
-				values, err := values(columns[1:])
-				if err != nil {
-					return nil, err
-				}
-				return append([]any{new(sql.NullInt64)}, values...), nil
-			}
-			spec.Assign = func(columns []string, values []any) error {
-				outValue := int(values[0].(*sql.NullInt64).Int64)
-				inValue := int(values[1].(*sql.NullInt64).Int64)
-				if nids[inValue] == nil {
-					nids[inValue] = map[*Portfolio]struct{}{byID[outValue]: {}}
-					return assign(columns[1:], values[1:])
-				}
-				nids[inValue][byID[outValue]] = struct{}{}
-				return nil
-			}
-		})
-	})
-	neighbors, err := withInterceptors[[]*User](ctx, query, qr, query.inters)
+	query.Where(user.IDIn(ids...))
+	neighbors, err := query.All(ctx)
 	if err != nil {
 		return err
 	}
 	for _, n := range neighbors {
-		nodes, ok := nids[n.ID]
+		nodes, ok := nodeids[n.ID]
 		if !ok {
-			return fmt.Errorf(`unexpected "owners" node returned %v`, n.ID)
+			return fmt.Errorf(`unexpected foreign-key "user_portfolios" returned %v`, n.ID)
 		}
-		for kn := range nodes {
-			assign(kn, n)
+		for i := range nodes {
+			assign(nodes[i], n)
 		}
 	}
 	return nil
@@ -558,67 +514,6 @@ func (pq *PortfolioQuery) loadHoldings(ctx context.Context, query *HoldingQuery,
 			return fmt.Errorf(`unexpected referenced foreign-key "portfolio_holdings" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
-	}
-	return nil
-}
-func (pq *PortfolioQuery) loadTags(ctx context.Context, query *TagQuery, nodes []*Portfolio, init func(*Portfolio), assign func(*Portfolio, *Tag)) error {
-	edgeIDs := make([]driver.Value, len(nodes))
-	byID := make(map[int]*Portfolio)
-	nids := make(map[int]map[*Portfolio]struct{})
-	for i, node := range nodes {
-		edgeIDs[i] = node.ID
-		byID[node.ID] = node
-		if init != nil {
-			init(node)
-		}
-	}
-	query.Where(func(s *sql.Selector) {
-		joinT := sql.Table(portfolio.TagsTable)
-		s.Join(joinT).On(s.C(tag.FieldID), joinT.C(portfolio.TagsPrimaryKey[0]))
-		s.Where(sql.InValues(joinT.C(portfolio.TagsPrimaryKey[1]), edgeIDs...))
-		columns := s.SelectedColumns()
-		s.Select(joinT.C(portfolio.TagsPrimaryKey[1]))
-		s.AppendSelect(columns...)
-		s.SetDistinct(false)
-	})
-	if err := query.prepareQuery(ctx); err != nil {
-		return err
-	}
-	qr := QuerierFunc(func(ctx context.Context, q Query) (Value, error) {
-		return query.sqlAll(ctx, func(_ context.Context, spec *sqlgraph.QuerySpec) {
-			assign := spec.Assign
-			values := spec.ScanValues
-			spec.ScanValues = func(columns []string) ([]any, error) {
-				values, err := values(columns[1:])
-				if err != nil {
-					return nil, err
-				}
-				return append([]any{new(sql.NullInt64)}, values...), nil
-			}
-			spec.Assign = func(columns []string, values []any) error {
-				outValue := int(values[0].(*sql.NullInt64).Int64)
-				inValue := int(values[1].(*sql.NullInt64).Int64)
-				if nids[inValue] == nil {
-					nids[inValue] = map[*Portfolio]struct{}{byID[outValue]: {}}
-					return assign(columns[1:], values[1:])
-				}
-				nids[inValue][byID[outValue]] = struct{}{}
-				return nil
-			}
-		})
-	})
-	neighbors, err := withInterceptors[[]*Tag](ctx, query, qr, query.inters)
-	if err != nil {
-		return err
-	}
-	for _, n := range neighbors {
-		nodes, ok := nids[n.ID]
-		if !ok {
-			return fmt.Errorf(`unexpected "tags" node returned %v`, n.ID)
-		}
-		for kn := range nodes {
-			assign(kn, n)
-		}
 	}
 	return nil
 }

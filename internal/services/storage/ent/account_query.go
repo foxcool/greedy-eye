@@ -12,10 +12,10 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/foxcool/greedy-eye/pkg/ent/account"
-	"github.com/foxcool/greedy-eye/pkg/ent/holding"
-	"github.com/foxcool/greedy-eye/pkg/ent/predicate"
-	"github.com/foxcool/greedy-eye/pkg/ent/user"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/account"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/predicate"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/user"
 )
 
 // AccountQuery is the builder for querying Account entities.
@@ -25,7 +25,7 @@ type AccountQuery struct {
 	order        []account.OrderOption
 	inters       []Interceptor
 	predicates   []predicate.Account
-	withOwner    *UserQuery
+	withUser     *UserQuery
 	withHoldings *HoldingQuery
 	withFKs      bool
 	// intermediate query (i.e. traversal path).
@@ -64,8 +64,8 @@ func (aq *AccountQuery) Order(o ...account.OrderOption) *AccountQuery {
 	return aq
 }
 
-// QueryOwner chains the current query on the "owner" edge.
-func (aq *AccountQuery) QueryOwner() *UserQuery {
+// QueryUser chains the current query on the "user" edge.
+func (aq *AccountQuery) QueryUser() *UserQuery {
 	query := (&UserClient{config: aq.config}).Query()
 	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
 		if err := aq.prepareQuery(ctx); err != nil {
@@ -78,7 +78,7 @@ func (aq *AccountQuery) QueryOwner() *UserQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(account.Table, account.FieldID, selector),
 			sqlgraph.To(user.Table, user.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, account.OwnerTable, account.OwnerColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, account.UserTable, account.UserColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(aq.driver.Dialect(), step)
 		return fromU, nil
@@ -300,7 +300,7 @@ func (aq *AccountQuery) Clone() *AccountQuery {
 		order:        append([]account.OrderOption{}, aq.order...),
 		inters:       append([]Interceptor{}, aq.inters...),
 		predicates:   append([]predicate.Account{}, aq.predicates...),
-		withOwner:    aq.withOwner.Clone(),
+		withUser:     aq.withUser.Clone(),
 		withHoldings: aq.withHoldings.Clone(),
 		// clone intermediate query.
 		sql:  aq.sql.Clone(),
@@ -308,14 +308,14 @@ func (aq *AccountQuery) Clone() *AccountQuery {
 	}
 }
 
-// WithOwner tells the query-builder to eager-load the nodes that are connected to
-// the "owner" edge. The optional arguments are used to configure the query builder of the edge.
-func (aq *AccountQuery) WithOwner(opts ...func(*UserQuery)) *AccountQuery {
+// WithUser tells the query-builder to eager-load the nodes that are connected to
+// the "user" edge. The optional arguments are used to configure the query builder of the edge.
+func (aq *AccountQuery) WithUser(opts ...func(*UserQuery)) *AccountQuery {
 	query := (&UserClient{config: aq.config}).Query()
 	for _, opt := range opts {
 		opt(query)
 	}
-	aq.withOwner = query
+	aq.withUser = query
 	return aq
 }
 
@@ -332,6 +332,18 @@ func (aq *AccountQuery) WithHoldings(opts ...func(*HoldingQuery)) *AccountQuery 
 
 // GroupBy is used to group vertices by one or more fields/columns.
 // It is often used with aggregate functions, like: count, max, mean, min, sum.
+//
+// Example:
+//
+//	var v []struct {
+//		UUID uuid.UUID `json:"uuid,omitempty"`
+//		Count int `json:"count,omitempty"`
+//	}
+//
+//	client.Account.Query().
+//		GroupBy(account.FieldUUID).
+//		Aggregate(ent.Count()).
+//		Scan(ctx, &v)
 func (aq *AccountQuery) GroupBy(field string, fields ...string) *AccountGroupBy {
 	aq.ctx.Fields = append([]string{field}, fields...)
 	grbuild := &AccountGroupBy{build: aq}
@@ -343,6 +355,16 @@ func (aq *AccountQuery) GroupBy(field string, fields ...string) *AccountGroupBy 
 
 // Select allows the selection one or more fields/columns for the given query,
 // instead of selecting all fields in the entity.
+//
+// Example:
+//
+//	var v []struct {
+//		UUID uuid.UUID `json:"uuid,omitempty"`
+//	}
+//
+//	client.Account.Query().
+//		Select(account.FieldUUID).
+//		Scan(ctx, &v)
 func (aq *AccountQuery) Select(fields ...string) *AccountSelect {
 	aq.ctx.Fields = append(aq.ctx.Fields, fields...)
 	sbuild := &AccountSelect{AccountQuery: aq}
@@ -388,11 +410,11 @@ func (aq *AccountQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Acco
 		withFKs     = aq.withFKs
 		_spec       = aq.querySpec()
 		loadedTypes = [2]bool{
-			aq.withOwner != nil,
+			aq.withUser != nil,
 			aq.withHoldings != nil,
 		}
 	)
-	if aq.withOwner != nil {
+	if aq.withUser != nil {
 		withFKs = true
 	}
 	if withFKs {
@@ -416,9 +438,9 @@ func (aq *AccountQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Acco
 	if len(nodes) == 0 {
 		return nodes, nil
 	}
-	if query := aq.withOwner; query != nil {
-		if err := aq.loadOwner(ctx, query, nodes, nil,
-			func(n *Account, e *User) { n.Edges.Owner = e }); err != nil {
+	if query := aq.withUser; query != nil {
+		if err := aq.loadUser(ctx, query, nodes, nil,
+			func(n *Account, e *User) { n.Edges.User = e }); err != nil {
 			return nil, err
 		}
 	}
@@ -432,7 +454,7 @@ func (aq *AccountQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Acco
 	return nodes, nil
 }
 
-func (aq *AccountQuery) loadOwner(ctx context.Context, query *UserQuery, nodes []*Account, init func(*Account), assign func(*Account, *User)) error {
+func (aq *AccountQuery) loadUser(ctx context.Context, query *UserQuery, nodes []*Account, init func(*Account), assign func(*Account, *User)) error {
 	ids := make([]int, 0, len(nodes))
 	nodeids := make(map[int][]*Account)
 	for i := range nodes {

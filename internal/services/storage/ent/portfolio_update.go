@@ -6,15 +6,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/foxcool/greedy-eye/pkg/ent/holding"
-	"github.com/foxcool/greedy-eye/pkg/ent/portfolio"
-	"github.com/foxcool/greedy-eye/pkg/ent/predicate"
-	"github.com/foxcool/greedy-eye/pkg/ent/tag"
-	"github.com/foxcool/greedy-eye/pkg/ent/user"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/portfolio"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/predicate"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/user"
+	"github.com/google/uuid"
 )
 
 // PortfolioUpdate is the builder for updating Portfolio entities.
@@ -30,19 +31,91 @@ func (pu *PortfolioUpdate) Where(ps ...predicate.Portfolio) *PortfolioUpdate {
 	return pu
 }
 
-// AddOwnerIDs adds the "owners" edge to the User entity by IDs.
-func (pu *PortfolioUpdate) AddOwnerIDs(ids ...int) *PortfolioUpdate {
-	pu.mutation.AddOwnerIDs(ids...)
+// SetUUID sets the "uuid" field.
+func (pu *PortfolioUpdate) SetUUID(u uuid.UUID) *PortfolioUpdate {
+	pu.mutation.SetUUID(u)
 	return pu
 }
 
-// AddOwners adds the "owners" edges to the User entity.
-func (pu *PortfolioUpdate) AddOwners(u ...*User) *PortfolioUpdate {
-	ids := make([]int, len(u))
-	for i := range u {
-		ids[i] = u[i].ID
+// SetNillableUUID sets the "uuid" field if the given value is not nil.
+func (pu *PortfolioUpdate) SetNillableUUID(u *uuid.UUID) *PortfolioUpdate {
+	if u != nil {
+		pu.SetUUID(*u)
 	}
-	return pu.AddOwnerIDs(ids...)
+	return pu
+}
+
+// SetName sets the "name" field.
+func (pu *PortfolioUpdate) SetName(s string) *PortfolioUpdate {
+	pu.mutation.SetName(s)
+	return pu
+}
+
+// SetNillableName sets the "name" field if the given value is not nil.
+func (pu *PortfolioUpdate) SetNillableName(s *string) *PortfolioUpdate {
+	if s != nil {
+		pu.SetName(*s)
+	}
+	return pu
+}
+
+// SetDescription sets the "description" field.
+func (pu *PortfolioUpdate) SetDescription(s string) *PortfolioUpdate {
+	pu.mutation.SetDescription(s)
+	return pu
+}
+
+// SetNillableDescription sets the "description" field if the given value is not nil.
+func (pu *PortfolioUpdate) SetNillableDescription(s *string) *PortfolioUpdate {
+	if s != nil {
+		pu.SetDescription(*s)
+	}
+	return pu
+}
+
+// ClearDescription clears the value of the "description" field.
+func (pu *PortfolioUpdate) ClearDescription() *PortfolioUpdate {
+	pu.mutation.ClearDescription()
+	return pu
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (pu *PortfolioUpdate) SetCreatedAt(t time.Time) *PortfolioUpdate {
+	pu.mutation.SetCreatedAt(t)
+	return pu
+}
+
+// SetNillableCreatedAt sets the "created_at" field if the given value is not nil.
+func (pu *PortfolioUpdate) SetNillableCreatedAt(t *time.Time) *PortfolioUpdate {
+	if t != nil {
+		pu.SetCreatedAt(*t)
+	}
+	return pu
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (pu *PortfolioUpdate) SetUpdatedAt(t time.Time) *PortfolioUpdate {
+	pu.mutation.SetUpdatedAt(t)
+	return pu
+}
+
+// SetUserID sets the "user" edge to the User entity by ID.
+func (pu *PortfolioUpdate) SetUserID(id int) *PortfolioUpdate {
+	pu.mutation.SetUserID(id)
+	return pu
+}
+
+// SetNillableUserID sets the "user" edge to the User entity by ID if the given value is not nil.
+func (pu *PortfolioUpdate) SetNillableUserID(id *int) *PortfolioUpdate {
+	if id != nil {
+		pu = pu.SetUserID(*id)
+	}
+	return pu
+}
+
+// SetUser sets the "user" edge to the User entity.
+func (pu *PortfolioUpdate) SetUser(u *User) *PortfolioUpdate {
+	return pu.SetUserID(u.ID)
 }
 
 // AddHoldingIDs adds the "holdings" edge to the Holding entity by IDs.
@@ -60,45 +133,15 @@ func (pu *PortfolioUpdate) AddHoldings(h ...*Holding) *PortfolioUpdate {
 	return pu.AddHoldingIDs(ids...)
 }
 
-// AddTagIDs adds the "tags" edge to the Tag entity by IDs.
-func (pu *PortfolioUpdate) AddTagIDs(ids ...int) *PortfolioUpdate {
-	pu.mutation.AddTagIDs(ids...)
-	return pu
-}
-
-// AddTags adds the "tags" edges to the Tag entity.
-func (pu *PortfolioUpdate) AddTags(t ...*Tag) *PortfolioUpdate {
-	ids := make([]int, len(t))
-	for i := range t {
-		ids[i] = t[i].ID
-	}
-	return pu.AddTagIDs(ids...)
-}
-
 // Mutation returns the PortfolioMutation object of the builder.
 func (pu *PortfolioUpdate) Mutation() *PortfolioMutation {
 	return pu.mutation
 }
 
-// ClearOwners clears all "owners" edges to the User entity.
-func (pu *PortfolioUpdate) ClearOwners() *PortfolioUpdate {
-	pu.mutation.ClearOwners()
+// ClearUser clears the "user" edge to the User entity.
+func (pu *PortfolioUpdate) ClearUser() *PortfolioUpdate {
+	pu.mutation.ClearUser()
 	return pu
-}
-
-// RemoveOwnerIDs removes the "owners" edge to User entities by IDs.
-func (pu *PortfolioUpdate) RemoveOwnerIDs(ids ...int) *PortfolioUpdate {
-	pu.mutation.RemoveOwnerIDs(ids...)
-	return pu
-}
-
-// RemoveOwners removes "owners" edges to User entities.
-func (pu *PortfolioUpdate) RemoveOwners(u ...*User) *PortfolioUpdate {
-	ids := make([]int, len(u))
-	for i := range u {
-		ids[i] = u[i].ID
-	}
-	return pu.RemoveOwnerIDs(ids...)
 }
 
 // ClearHoldings clears all "holdings" edges to the Holding entity.
@@ -122,29 +165,9 @@ func (pu *PortfolioUpdate) RemoveHoldings(h ...*Holding) *PortfolioUpdate {
 	return pu.RemoveHoldingIDs(ids...)
 }
 
-// ClearTags clears all "tags" edges to the Tag entity.
-func (pu *PortfolioUpdate) ClearTags() *PortfolioUpdate {
-	pu.mutation.ClearTags()
-	return pu
-}
-
-// RemoveTagIDs removes the "tags" edge to Tag entities by IDs.
-func (pu *PortfolioUpdate) RemoveTagIDs(ids ...int) *PortfolioUpdate {
-	pu.mutation.RemoveTagIDs(ids...)
-	return pu
-}
-
-// RemoveTags removes "tags" edges to Tag entities.
-func (pu *PortfolioUpdate) RemoveTags(t ...*Tag) *PortfolioUpdate {
-	ids := make([]int, len(t))
-	for i := range t {
-		ids[i] = t[i].ID
-	}
-	return pu.RemoveTagIDs(ids...)
-}
-
 // Save executes the query and returns the number of nodes affected by the update operation.
 func (pu *PortfolioUpdate) Save(ctx context.Context) (int, error) {
+	pu.defaults()
 	return withHooks(ctx, pu.sqlSave, pu.mutation, pu.hooks)
 }
 
@@ -170,6 +193,14 @@ func (pu *PortfolioUpdate) ExecX(ctx context.Context) {
 	}
 }
 
+// defaults sets the default values of the builder before save.
+func (pu *PortfolioUpdate) defaults() {
+	if _, ok := pu.mutation.UpdatedAt(); !ok {
+		v := portfolio.UpdateDefaultUpdatedAt()
+		pu.mutation.SetUpdatedAt(v)
+	}
+}
+
 func (pu *PortfolioUpdate) sqlSave(ctx context.Context) (n int, err error) {
 	_spec := sqlgraph.NewUpdateSpec(portfolio.Table, portfolio.Columns, sqlgraph.NewFieldSpec(portfolio.FieldID, field.TypeInt))
 	if ps := pu.mutation.predicates; len(ps) > 0 {
@@ -179,12 +210,30 @@ func (pu *PortfolioUpdate) sqlSave(ctx context.Context) (n int, err error) {
 			}
 		}
 	}
-	if pu.mutation.OwnersCleared() {
+	if value, ok := pu.mutation.UUID(); ok {
+		_spec.SetField(portfolio.FieldUUID, field.TypeUUID, value)
+	}
+	if value, ok := pu.mutation.Name(); ok {
+		_spec.SetField(portfolio.FieldName, field.TypeString, value)
+	}
+	if value, ok := pu.mutation.Description(); ok {
+		_spec.SetField(portfolio.FieldDescription, field.TypeString, value)
+	}
+	if pu.mutation.DescriptionCleared() {
+		_spec.ClearField(portfolio.FieldDescription, field.TypeString)
+	}
+	if value, ok := pu.mutation.CreatedAt(); ok {
+		_spec.SetField(portfolio.FieldCreatedAt, field.TypeTime, value)
+	}
+	if value, ok := pu.mutation.UpdatedAt(); ok {
+		_spec.SetField(portfolio.FieldUpdatedAt, field.TypeTime, value)
+	}
+	if pu.mutation.UserCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
+			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   portfolio.OwnersTable,
-			Columns: portfolio.OwnersPrimaryKey,
+			Table:   portfolio.UserTable,
+			Columns: []string{portfolio.UserColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
@@ -192,28 +241,12 @@ func (pu *PortfolioUpdate) sqlSave(ctx context.Context) (n int, err error) {
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
-	if nodes := pu.mutation.RemovedOwnersIDs(); len(nodes) > 0 && !pu.mutation.OwnersCleared() {
+	if nodes := pu.mutation.UserIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
+			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   portfolio.OwnersTable,
-			Columns: portfolio.OwnersPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := pu.mutation.OwnersIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: true,
-			Table:   portfolio.OwnersTable,
-			Columns: portfolio.OwnersPrimaryKey,
+			Table:   portfolio.UserTable,
+			Columns: []string{portfolio.UserColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
@@ -269,51 +302,6 @@ func (pu *PortfolioUpdate) sqlSave(ctx context.Context) (n int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
-	if pu.mutation.TagsCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: true,
-			Table:   portfolio.TagsTable,
-			Columns: portfolio.TagsPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(tag.FieldID, field.TypeInt),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := pu.mutation.RemovedTagsIDs(); len(nodes) > 0 && !pu.mutation.TagsCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: true,
-			Table:   portfolio.TagsTable,
-			Columns: portfolio.TagsPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(tag.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := pu.mutation.TagsIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: true,
-			Table:   portfolio.TagsTable,
-			Columns: portfolio.TagsPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(tag.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
 	if n, err = sqlgraph.UpdateNodes(ctx, pu.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{portfolio.Label}
@@ -334,19 +322,91 @@ type PortfolioUpdateOne struct {
 	mutation *PortfolioMutation
 }
 
-// AddOwnerIDs adds the "owners" edge to the User entity by IDs.
-func (puo *PortfolioUpdateOne) AddOwnerIDs(ids ...int) *PortfolioUpdateOne {
-	puo.mutation.AddOwnerIDs(ids...)
+// SetUUID sets the "uuid" field.
+func (puo *PortfolioUpdateOne) SetUUID(u uuid.UUID) *PortfolioUpdateOne {
+	puo.mutation.SetUUID(u)
 	return puo
 }
 
-// AddOwners adds the "owners" edges to the User entity.
-func (puo *PortfolioUpdateOne) AddOwners(u ...*User) *PortfolioUpdateOne {
-	ids := make([]int, len(u))
-	for i := range u {
-		ids[i] = u[i].ID
+// SetNillableUUID sets the "uuid" field if the given value is not nil.
+func (puo *PortfolioUpdateOne) SetNillableUUID(u *uuid.UUID) *PortfolioUpdateOne {
+	if u != nil {
+		puo.SetUUID(*u)
 	}
-	return puo.AddOwnerIDs(ids...)
+	return puo
+}
+
+// SetName sets the "name" field.
+func (puo *PortfolioUpdateOne) SetName(s string) *PortfolioUpdateOne {
+	puo.mutation.SetName(s)
+	return puo
+}
+
+// SetNillableName sets the "name" field if the given value is not nil.
+func (puo *PortfolioUpdateOne) SetNillableName(s *string) *PortfolioUpdateOne {
+	if s != nil {
+		puo.SetName(*s)
+	}
+	return puo
+}
+
+// SetDescription sets the "description" field.
+func (puo *PortfolioUpdateOne) SetDescription(s string) *PortfolioUpdateOne {
+	puo.mutation.SetDescription(s)
+	return puo
+}
+
+// SetNillableDescription sets the "description" field if the given value is not nil.
+func (puo *PortfolioUpdateOne) SetNillableDescription(s *string) *PortfolioUpdateOne {
+	if s != nil {
+		puo.SetDescription(*s)
+	}
+	return puo
+}
+
+// ClearDescription clears the value of the "description" field.
+func (puo *PortfolioUpdateOne) ClearDescription() *PortfolioUpdateOne {
+	puo.mutation.ClearDescription()
+	return puo
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (puo *PortfolioUpdateOne) SetCreatedAt(t time.Time) *PortfolioUpdateOne {
+	puo.mutation.SetCreatedAt(t)
+	return puo
+}
+
+// SetNillableCreatedAt sets the "created_at" field if the given value is not nil.
+func (puo *PortfolioUpdateOne) SetNillableCreatedAt(t *time.Time) *PortfolioUpdateOne {
+	if t != nil {
+		puo.SetCreatedAt(*t)
+	}
+	return puo
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (puo *PortfolioUpdateOne) SetUpdatedAt(t time.Time) *PortfolioUpdateOne {
+	puo.mutation.SetUpdatedAt(t)
+	return puo
+}
+
+// SetUserID sets the "user" edge to the User entity by ID.
+func (puo *PortfolioUpdateOne) SetUserID(id int) *PortfolioUpdateOne {
+	puo.mutation.SetUserID(id)
+	return puo
+}
+
+// SetNillableUserID sets the "user" edge to the User entity by ID if the given value is not nil.
+func (puo *PortfolioUpdateOne) SetNillableUserID(id *int) *PortfolioUpdateOne {
+	if id != nil {
+		puo = puo.SetUserID(*id)
+	}
+	return puo
+}
+
+// SetUser sets the "user" edge to the User entity.
+func (puo *PortfolioUpdateOne) SetUser(u *User) *PortfolioUpdateOne {
+	return puo.SetUserID(u.ID)
 }
 
 // AddHoldingIDs adds the "holdings" edge to the Holding entity by IDs.
@@ -364,45 +424,15 @@ func (puo *PortfolioUpdateOne) AddHoldings(h ...*Holding) *PortfolioUpdateOne {
 	return puo.AddHoldingIDs(ids...)
 }
 
-// AddTagIDs adds the "tags" edge to the Tag entity by IDs.
-func (puo *PortfolioUpdateOne) AddTagIDs(ids ...int) *PortfolioUpdateOne {
-	puo.mutation.AddTagIDs(ids...)
-	return puo
-}
-
-// AddTags adds the "tags" edges to the Tag entity.
-func (puo *PortfolioUpdateOne) AddTags(t ...*Tag) *PortfolioUpdateOne {
-	ids := make([]int, len(t))
-	for i := range t {
-		ids[i] = t[i].ID
-	}
-	return puo.AddTagIDs(ids...)
-}
-
 // Mutation returns the PortfolioMutation object of the builder.
 func (puo *PortfolioUpdateOne) Mutation() *PortfolioMutation {
 	return puo.mutation
 }
 
-// ClearOwners clears all "owners" edges to the User entity.
-func (puo *PortfolioUpdateOne) ClearOwners() *PortfolioUpdateOne {
-	puo.mutation.ClearOwners()
+// ClearUser clears the "user" edge to the User entity.
+func (puo *PortfolioUpdateOne) ClearUser() *PortfolioUpdateOne {
+	puo.mutation.ClearUser()
 	return puo
-}
-
-// RemoveOwnerIDs removes the "owners" edge to User entities by IDs.
-func (puo *PortfolioUpdateOne) RemoveOwnerIDs(ids ...int) *PortfolioUpdateOne {
-	puo.mutation.RemoveOwnerIDs(ids...)
-	return puo
-}
-
-// RemoveOwners removes "owners" edges to User entities.
-func (puo *PortfolioUpdateOne) RemoveOwners(u ...*User) *PortfolioUpdateOne {
-	ids := make([]int, len(u))
-	for i := range u {
-		ids[i] = u[i].ID
-	}
-	return puo.RemoveOwnerIDs(ids...)
 }
 
 // ClearHoldings clears all "holdings" edges to the Holding entity.
@@ -426,27 +456,6 @@ func (puo *PortfolioUpdateOne) RemoveHoldings(h ...*Holding) *PortfolioUpdateOne
 	return puo.RemoveHoldingIDs(ids...)
 }
 
-// ClearTags clears all "tags" edges to the Tag entity.
-func (puo *PortfolioUpdateOne) ClearTags() *PortfolioUpdateOne {
-	puo.mutation.ClearTags()
-	return puo
-}
-
-// RemoveTagIDs removes the "tags" edge to Tag entities by IDs.
-func (puo *PortfolioUpdateOne) RemoveTagIDs(ids ...int) *PortfolioUpdateOne {
-	puo.mutation.RemoveTagIDs(ids...)
-	return puo
-}
-
-// RemoveTags removes "tags" edges to Tag entities.
-func (puo *PortfolioUpdateOne) RemoveTags(t ...*Tag) *PortfolioUpdateOne {
-	ids := make([]int, len(t))
-	for i := range t {
-		ids[i] = t[i].ID
-	}
-	return puo.RemoveTagIDs(ids...)
-}
-
 // Where appends a list predicates to the PortfolioUpdate builder.
 func (puo *PortfolioUpdateOne) Where(ps ...predicate.Portfolio) *PortfolioUpdateOne {
 	puo.mutation.Where(ps...)
@@ -462,6 +471,7 @@ func (puo *PortfolioUpdateOne) Select(field string, fields ...string) *Portfolio
 
 // Save executes the query and returns the updated Portfolio entity.
 func (puo *PortfolioUpdateOne) Save(ctx context.Context) (*Portfolio, error) {
+	puo.defaults()
 	return withHooks(ctx, puo.sqlSave, puo.mutation, puo.hooks)
 }
 
@@ -484,6 +494,14 @@ func (puo *PortfolioUpdateOne) Exec(ctx context.Context) error {
 func (puo *PortfolioUpdateOne) ExecX(ctx context.Context) {
 	if err := puo.Exec(ctx); err != nil {
 		panic(err)
+	}
+}
+
+// defaults sets the default values of the builder before save.
+func (puo *PortfolioUpdateOne) defaults() {
+	if _, ok := puo.mutation.UpdatedAt(); !ok {
+		v := portfolio.UpdateDefaultUpdatedAt()
+		puo.mutation.SetUpdatedAt(v)
 	}
 }
 
@@ -513,12 +531,30 @@ func (puo *PortfolioUpdateOne) sqlSave(ctx context.Context) (_node *Portfolio, e
 			}
 		}
 	}
-	if puo.mutation.OwnersCleared() {
+	if value, ok := puo.mutation.UUID(); ok {
+		_spec.SetField(portfolio.FieldUUID, field.TypeUUID, value)
+	}
+	if value, ok := puo.mutation.Name(); ok {
+		_spec.SetField(portfolio.FieldName, field.TypeString, value)
+	}
+	if value, ok := puo.mutation.Description(); ok {
+		_spec.SetField(portfolio.FieldDescription, field.TypeString, value)
+	}
+	if puo.mutation.DescriptionCleared() {
+		_spec.ClearField(portfolio.FieldDescription, field.TypeString)
+	}
+	if value, ok := puo.mutation.CreatedAt(); ok {
+		_spec.SetField(portfolio.FieldCreatedAt, field.TypeTime, value)
+	}
+	if value, ok := puo.mutation.UpdatedAt(); ok {
+		_spec.SetField(portfolio.FieldUpdatedAt, field.TypeTime, value)
+	}
+	if puo.mutation.UserCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
+			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   portfolio.OwnersTable,
-			Columns: portfolio.OwnersPrimaryKey,
+			Table:   portfolio.UserTable,
+			Columns: []string{portfolio.UserColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
@@ -526,28 +562,12 @@ func (puo *PortfolioUpdateOne) sqlSave(ctx context.Context) (_node *Portfolio, e
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
-	if nodes := puo.mutation.RemovedOwnersIDs(); len(nodes) > 0 && !puo.mutation.OwnersCleared() {
+	if nodes := puo.mutation.UserIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
+			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   portfolio.OwnersTable,
-			Columns: portfolio.OwnersPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := puo.mutation.OwnersIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: true,
-			Table:   portfolio.OwnersTable,
-			Columns: portfolio.OwnersPrimaryKey,
+			Table:   portfolio.UserTable,
+			Columns: []string{portfolio.UserColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
@@ -596,51 +616,6 @@ func (puo *PortfolioUpdateOne) sqlSave(ctx context.Context) (_node *Portfolio, e
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(holding.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if puo.mutation.TagsCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: true,
-			Table:   portfolio.TagsTable,
-			Columns: portfolio.TagsPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(tag.FieldID, field.TypeInt),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := puo.mutation.RemovedTagsIDs(); len(nodes) > 0 && !puo.mutation.TagsCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: true,
-			Table:   portfolio.TagsTable,
-			Columns: portfolio.TagsPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(tag.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := puo.mutation.TagsIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: true,
-			Table:   portfolio.TagsTable,
-			Columns: portfolio.TagsPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(tag.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

@@ -12,10 +12,9 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/foxcool/greedy-eye/pkg/ent/asset"
-	"github.com/foxcool/greedy-eye/pkg/ent/holding"
-	"github.com/foxcool/greedy-eye/pkg/ent/predicate"
-	"github.com/foxcool/greedy-eye/pkg/ent/tag"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/predicate"
 )
 
 // AssetQuery is the builder for querying Asset entities.
@@ -26,7 +25,7 @@ type AssetQuery struct {
 	inters       []Interceptor
 	predicates   []predicate.Asset
 	withHoldings *HoldingQuery
-	withTags     *TagQuery
+	withFKs      bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -77,29 +76,7 @@ func (aq *AssetQuery) QueryHoldings() *HoldingQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(asset.Table, asset.FieldID, selector),
 			sqlgraph.To(holding.Table, holding.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, true, asset.HoldingsTable, asset.HoldingsColumn),
-		)
-		fromU = sqlgraph.SetNeighbors(aq.driver.Dialect(), step)
-		return fromU, nil
-	}
-	return query
-}
-
-// QueryTags chains the current query on the "tags" edge.
-func (aq *AssetQuery) QueryTags() *TagQuery {
-	query := (&TagClient{config: aq.config}).Query()
-	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
-		if err := aq.prepareQuery(ctx); err != nil {
-			return nil, err
-		}
-		selector := aq.sqlQuery(ctx)
-		if err := selector.Err(); err != nil {
-			return nil, err
-		}
-		step := sqlgraph.NewStep(
-			sqlgraph.From(asset.Table, asset.FieldID, selector),
-			sqlgraph.To(tag.Table, tag.FieldID),
-			sqlgraph.Edge(sqlgraph.M2M, true, asset.TagsTable, asset.TagsPrimaryKey...),
+			sqlgraph.Edge(sqlgraph.O2M, false, asset.HoldingsTable, asset.HoldingsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(aq.driver.Dialect(), step)
 		return fromU, nil
@@ -300,7 +277,6 @@ func (aq *AssetQuery) Clone() *AssetQuery {
 		inters:       append([]Interceptor{}, aq.inters...),
 		predicates:   append([]predicate.Asset{}, aq.predicates...),
 		withHoldings: aq.withHoldings.Clone(),
-		withTags:     aq.withTags.Clone(),
 		// clone intermediate query.
 		sql:  aq.sql.Clone(),
 		path: aq.path,
@@ -318,19 +294,20 @@ func (aq *AssetQuery) WithHoldings(opts ...func(*HoldingQuery)) *AssetQuery {
 	return aq
 }
 
-// WithTags tells the query-builder to eager-load the nodes that are connected to
-// the "tags" edge. The optional arguments are used to configure the query builder of the edge.
-func (aq *AssetQuery) WithTags(opts ...func(*TagQuery)) *AssetQuery {
-	query := (&TagClient{config: aq.config}).Query()
-	for _, opt := range opts {
-		opt(query)
-	}
-	aq.withTags = query
-	return aq
-}
-
 // GroupBy is used to group vertices by one or more fields/columns.
 // It is often used with aggregate functions, like: count, max, mean, min, sum.
+//
+// Example:
+//
+//	var v []struct {
+//		UUID uuid.UUID `json:"uuid,omitempty"`
+//		Count int `json:"count,omitempty"`
+//	}
+//
+//	client.Asset.Query().
+//		GroupBy(asset.FieldUUID).
+//		Aggregate(ent.Count()).
+//		Scan(ctx, &v)
 func (aq *AssetQuery) GroupBy(field string, fields ...string) *AssetGroupBy {
 	aq.ctx.Fields = append([]string{field}, fields...)
 	grbuild := &AssetGroupBy{build: aq}
@@ -342,6 +319,16 @@ func (aq *AssetQuery) GroupBy(field string, fields ...string) *AssetGroupBy {
 
 // Select allows the selection one or more fields/columns for the given query,
 // instead of selecting all fields in the entity.
+//
+// Example:
+//
+//	var v []struct {
+//		UUID uuid.UUID `json:"uuid,omitempty"`
+//	}
+//
+//	client.Asset.Query().
+//		Select(asset.FieldUUID).
+//		Scan(ctx, &v)
 func (aq *AssetQuery) Select(fields ...string) *AssetSelect {
 	aq.ctx.Fields = append(aq.ctx.Fields, fields...)
 	sbuild := &AssetSelect{AssetQuery: aq}
@@ -384,12 +371,15 @@ func (aq *AssetQuery) prepareQuery(ctx context.Context) error {
 func (aq *AssetQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Asset, error) {
 	var (
 		nodes       = []*Asset{}
+		withFKs     = aq.withFKs
 		_spec       = aq.querySpec()
-		loadedTypes = [2]bool{
+		loadedTypes = [1]bool{
 			aq.withHoldings != nil,
-			aq.withTags != nil,
 		}
 	)
+	if withFKs {
+		_spec.Node.Columns = append(_spec.Node.Columns, asset.ForeignKeys...)
+	}
 	_spec.ScanValues = func(columns []string) ([]any, error) {
 		return (*Asset).scanValues(nil, columns)
 	}
@@ -415,13 +405,6 @@ func (aq *AssetQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Asset,
 			return nil, err
 		}
 	}
-	if query := aq.withTags; query != nil {
-		if err := aq.loadTags(ctx, query, nodes,
-			func(n *Asset) { n.Edges.Tags = []*Tag{} },
-			func(n *Asset, e *Tag) { n.Edges.Tags = append(n.Edges.Tags, e) }); err != nil {
-			return nil, err
-		}
-	}
 	return nodes, nil
 }
 
@@ -444,76 +427,15 @@ func (aq *AssetQuery) loadHoldings(ctx context.Context, query *HoldingQuery, nod
 		return err
 	}
 	for _, n := range neighbors {
-		fk := n.holding_asset
+		fk := n.asset_holdings
 		if fk == nil {
-			return fmt.Errorf(`foreign-key "holding_asset" is nil for node %v`, n.ID)
+			return fmt.Errorf(`foreign-key "asset_holdings" is nil for node %v`, n.ID)
 		}
 		node, ok := nodeids[*fk]
 		if !ok {
-			return fmt.Errorf(`unexpected referenced foreign-key "holding_asset" returned %v for node %v`, *fk, n.ID)
+			return fmt.Errorf(`unexpected referenced foreign-key "asset_holdings" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
-	}
-	return nil
-}
-func (aq *AssetQuery) loadTags(ctx context.Context, query *TagQuery, nodes []*Asset, init func(*Asset), assign func(*Asset, *Tag)) error {
-	edgeIDs := make([]driver.Value, len(nodes))
-	byID := make(map[int]*Asset)
-	nids := make(map[int]map[*Asset]struct{})
-	for i, node := range nodes {
-		edgeIDs[i] = node.ID
-		byID[node.ID] = node
-		if init != nil {
-			init(node)
-		}
-	}
-	query.Where(func(s *sql.Selector) {
-		joinT := sql.Table(asset.TagsTable)
-		s.Join(joinT).On(s.C(tag.FieldID), joinT.C(asset.TagsPrimaryKey[0]))
-		s.Where(sql.InValues(joinT.C(asset.TagsPrimaryKey[1]), edgeIDs...))
-		columns := s.SelectedColumns()
-		s.Select(joinT.C(asset.TagsPrimaryKey[1]))
-		s.AppendSelect(columns...)
-		s.SetDistinct(false)
-	})
-	if err := query.prepareQuery(ctx); err != nil {
-		return err
-	}
-	qr := QuerierFunc(func(ctx context.Context, q Query) (Value, error) {
-		return query.sqlAll(ctx, func(_ context.Context, spec *sqlgraph.QuerySpec) {
-			assign := spec.Assign
-			values := spec.ScanValues
-			spec.ScanValues = func(columns []string) ([]any, error) {
-				values, err := values(columns[1:])
-				if err != nil {
-					return nil, err
-				}
-				return append([]any{new(sql.NullInt64)}, values...), nil
-			}
-			spec.Assign = func(columns []string, values []any) error {
-				outValue := int(values[0].(*sql.NullInt64).Int64)
-				inValue := int(values[1].(*sql.NullInt64).Int64)
-				if nids[inValue] == nil {
-					nids[inValue] = map[*Asset]struct{}{byID[outValue]: {}}
-					return assign(columns[1:], values[1:])
-				}
-				nids[inValue][byID[outValue]] = struct{}{}
-				return nil
-			}
-		})
-	})
-	neighbors, err := withInterceptors[[]*Tag](ctx, query, qr, query.inters)
-	if err != nil {
-		return err
-	}
-	for _, n := range neighbors {
-		nodes, ok := nids[n.ID]
-		if !ok {
-			return fmt.Errorf(`unexpected "tags" node returned %v`, n.ID)
-		}
-		for kn := range nodes {
-			assign(kn, n)
-		}
 	}
 	return nil
 }

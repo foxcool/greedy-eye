@@ -3,8 +3,11 @@
 package user
 
 import (
+	"time"
+
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"github.com/google/uuid"
 )
 
 const (
@@ -12,12 +15,22 @@ const (
 	Label = "user"
 	// FieldID holds the string denoting the id field in the database.
 	FieldID = "id"
+	// FieldUUID holds the string denoting the uuid field in the database.
+	FieldUUID = "uuid"
+	// FieldEmail holds the string denoting the email field in the database.
+	FieldEmail = "email"
+	// FieldName holds the string denoting the name field in the database.
+	FieldName = "name"
+	// FieldPassword holds the string denoting the password field in the database.
+	FieldPassword = "password"
+	// FieldCreatedAt holds the string denoting the created_at field in the database.
+	FieldCreatedAt = "created_at"
+	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
+	FieldUpdatedAt = "updated_at"
 	// EdgeAccounts holds the string denoting the accounts edge name in mutations.
 	EdgeAccounts = "accounts"
 	// EdgePortfolios holds the string denoting the portfolios edge name in mutations.
 	EdgePortfolios = "portfolios"
-	// EdgeSettings holds the string denoting the settings edge name in mutations.
-	EdgeSettings = "settings"
 	// Table holds the table name of the user in the database.
 	Table = "users"
 	// AccountsTable is the table that holds the accounts relation/edge.
@@ -27,30 +40,25 @@ const (
 	AccountsInverseTable = "accounts"
 	// AccountsColumn is the table column denoting the accounts relation/edge.
 	AccountsColumn = "user_accounts"
-	// PortfoliosTable is the table that holds the portfolios relation/edge. The primary key declared below.
-	PortfoliosTable = "user_portfolios"
+	// PortfoliosTable is the table that holds the portfolios relation/edge.
+	PortfoliosTable = "portfolios"
 	// PortfoliosInverseTable is the table name for the Portfolio entity.
 	// It exists in this package in order to avoid circular dependency with the "portfolio" package.
 	PortfoliosInverseTable = "portfolios"
-	// SettingsTable is the table that holds the settings relation/edge.
-	SettingsTable = "settings"
-	// SettingsInverseTable is the table name for the Setting entity.
-	// It exists in this package in order to avoid circular dependency with the "setting" package.
-	SettingsInverseTable = "settings"
-	// SettingsColumn is the table column denoting the settings relation/edge.
-	SettingsColumn = "user_settings"
+	// PortfoliosColumn is the table column denoting the portfolios relation/edge.
+	PortfoliosColumn = "user_portfolios"
 )
 
 // Columns holds all SQL columns for user fields.
 var Columns = []string{
 	FieldID,
+	FieldUUID,
+	FieldEmail,
+	FieldName,
+	FieldPassword,
+	FieldCreatedAt,
+	FieldUpdatedAt,
 }
-
-var (
-	// PortfoliosPrimaryKey and PortfoliosColumn2 are the table columns denoting the
-	// primary key for the portfolios relation (M2M).
-	PortfoliosPrimaryKey = []string{"user_id", "portfolio_id"}
-)
 
 // ValidColumn reports if the column name is valid (part of the table columns).
 func ValidColumn(column string) bool {
@@ -62,12 +70,53 @@ func ValidColumn(column string) bool {
 	return false
 }
 
+var (
+	// DefaultUUID holds the default value on creation for the "uuid" field.
+	DefaultUUID func() uuid.UUID
+	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
+	DefaultCreatedAt func() time.Time
+	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.
+	DefaultUpdatedAt func() time.Time
+	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
+	UpdateDefaultUpdatedAt func() time.Time
+)
+
 // OrderOption defines the ordering options for the User queries.
 type OrderOption func(*sql.Selector)
 
 // ByID orders the results by the id field.
 func ByID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldID, opts...).ToFunc()
+}
+
+// ByUUID orders the results by the uuid field.
+func ByUUID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUUID, opts...).ToFunc()
+}
+
+// ByEmail orders the results by the email field.
+func ByEmail(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldEmail, opts...).ToFunc()
+}
+
+// ByName orders the results by the name field.
+func ByName(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldName, opts...).ToFunc()
+}
+
+// ByPassword orders the results by the password field.
+func ByPassword(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPassword, opts...).ToFunc()
+}
+
+// ByCreatedAt orders the results by the created_at field.
+func ByCreatedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCreatedAt, opts...).ToFunc()
+}
+
+// ByUpdatedAt orders the results by the updated_at field.
+func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
 }
 
 // ByAccountsCount orders the results by accounts count.
@@ -97,20 +146,6 @@ func ByPortfolios(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newPortfoliosStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
-
-// BySettingsCount orders the results by settings count.
-func BySettingsCount(opts ...sql.OrderTermOption) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborsCount(s, newSettingsStep(), opts...)
-	}
-}
-
-// BySettings orders the results by settings terms.
-func BySettings(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newSettingsStep(), append([]sql.OrderTerm{term}, terms...)...)
-	}
-}
 func newAccountsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -122,13 +157,6 @@ func newPortfoliosStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(PortfoliosInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.M2M, false, PortfoliosTable, PortfoliosPrimaryKey...),
-	)
-}
-func newSettingsStep() *sqlgraph.Step {
-	return sqlgraph.NewStep(
-		sqlgraph.From(Table, FieldID),
-		sqlgraph.To(SettingsInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.O2M, false, SettingsTable, SettingsColumn),
+		sqlgraph.Edge(sqlgraph.O2M, false, PortfoliosTable, PortfoliosColumn),
 	)
 }

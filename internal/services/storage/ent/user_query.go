@@ -12,11 +12,10 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/foxcool/greedy-eye/pkg/ent/account"
-	"github.com/foxcool/greedy-eye/pkg/ent/portfolio"
-	"github.com/foxcool/greedy-eye/pkg/ent/predicate"
-	"github.com/foxcool/greedy-eye/pkg/ent/setting"
-	"github.com/foxcool/greedy-eye/pkg/ent/user"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/account"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/portfolio"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/predicate"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/user"
 )
 
 // UserQuery is the builder for querying User entities.
@@ -28,7 +27,6 @@ type UserQuery struct {
 	predicates     []predicate.User
 	withAccounts   *AccountQuery
 	withPortfolios *PortfolioQuery
-	withSettings   *SettingQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -101,29 +99,7 @@ func (uq *UserQuery) QueryPortfolios() *PortfolioQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(user.Table, user.FieldID, selector),
 			sqlgraph.To(portfolio.Table, portfolio.FieldID),
-			sqlgraph.Edge(sqlgraph.M2M, false, user.PortfoliosTable, user.PortfoliosPrimaryKey...),
-		)
-		fromU = sqlgraph.SetNeighbors(uq.driver.Dialect(), step)
-		return fromU, nil
-	}
-	return query
-}
-
-// QuerySettings chains the current query on the "settings" edge.
-func (uq *UserQuery) QuerySettings() *SettingQuery {
-	query := (&SettingClient{config: uq.config}).Query()
-	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
-		if err := uq.prepareQuery(ctx); err != nil {
-			return nil, err
-		}
-		selector := uq.sqlQuery(ctx)
-		if err := selector.Err(); err != nil {
-			return nil, err
-		}
-		step := sqlgraph.NewStep(
-			sqlgraph.From(user.Table, user.FieldID, selector),
-			sqlgraph.To(setting.Table, setting.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, user.SettingsTable, user.SettingsColumn),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.PortfoliosTable, user.PortfoliosColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(uq.driver.Dialect(), step)
 		return fromU, nil
@@ -325,7 +301,6 @@ func (uq *UserQuery) Clone() *UserQuery {
 		predicates:     append([]predicate.User{}, uq.predicates...),
 		withAccounts:   uq.withAccounts.Clone(),
 		withPortfolios: uq.withPortfolios.Clone(),
-		withSettings:   uq.withSettings.Clone(),
 		// clone intermediate query.
 		sql:  uq.sql.Clone(),
 		path: uq.path,
@@ -354,19 +329,20 @@ func (uq *UserQuery) WithPortfolios(opts ...func(*PortfolioQuery)) *UserQuery {
 	return uq
 }
 
-// WithSettings tells the query-builder to eager-load the nodes that are connected to
-// the "settings" edge. The optional arguments are used to configure the query builder of the edge.
-func (uq *UserQuery) WithSettings(opts ...func(*SettingQuery)) *UserQuery {
-	query := (&SettingClient{config: uq.config}).Query()
-	for _, opt := range opts {
-		opt(query)
-	}
-	uq.withSettings = query
-	return uq
-}
-
 // GroupBy is used to group vertices by one or more fields/columns.
 // It is often used with aggregate functions, like: count, max, mean, min, sum.
+//
+// Example:
+//
+//	var v []struct {
+//		UUID uuid.UUID `json:"uuid,omitempty"`
+//		Count int `json:"count,omitempty"`
+//	}
+//
+//	client.User.Query().
+//		GroupBy(user.FieldUUID).
+//		Aggregate(ent.Count()).
+//		Scan(ctx, &v)
 func (uq *UserQuery) GroupBy(field string, fields ...string) *UserGroupBy {
 	uq.ctx.Fields = append([]string{field}, fields...)
 	grbuild := &UserGroupBy{build: uq}
@@ -378,6 +354,16 @@ func (uq *UserQuery) GroupBy(field string, fields ...string) *UserGroupBy {
 
 // Select allows the selection one or more fields/columns for the given query,
 // instead of selecting all fields in the entity.
+//
+// Example:
+//
+//	var v []struct {
+//		UUID uuid.UUID `json:"uuid,omitempty"`
+//	}
+//
+//	client.User.Query().
+//		Select(user.FieldUUID).
+//		Scan(ctx, &v)
 func (uq *UserQuery) Select(fields ...string) *UserSelect {
 	uq.ctx.Fields = append(uq.ctx.Fields, fields...)
 	sbuild := &UserSelect{UserQuery: uq}
@@ -421,10 +407,9 @@ func (uq *UserQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*User, e
 	var (
 		nodes       = []*User{}
 		_spec       = uq.querySpec()
-		loadedTypes = [3]bool{
+		loadedTypes = [2]bool{
 			uq.withAccounts != nil,
 			uq.withPortfolios != nil,
-			uq.withSettings != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -456,13 +441,6 @@ func (uq *UserQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*User, e
 		if err := uq.loadPortfolios(ctx, query, nodes,
 			func(n *User) { n.Edges.Portfolios = []*Portfolio{} },
 			func(n *User, e *Portfolio) { n.Edges.Portfolios = append(n.Edges.Portfolios, e) }); err != nil {
-			return nil, err
-		}
-	}
-	if query := uq.withSettings; query != nil {
-		if err := uq.loadSettings(ctx, query, nodes,
-			func(n *User) { n.Edges.Settings = []*Setting{} },
-			func(n *User, e *Setting) { n.Edges.Settings = append(n.Edges.Settings, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -501,67 +479,6 @@ func (uq *UserQuery) loadAccounts(ctx context.Context, query *AccountQuery, node
 	return nil
 }
 func (uq *UserQuery) loadPortfolios(ctx context.Context, query *PortfolioQuery, nodes []*User, init func(*User), assign func(*User, *Portfolio)) error {
-	edgeIDs := make([]driver.Value, len(nodes))
-	byID := make(map[int]*User)
-	nids := make(map[int]map[*User]struct{})
-	for i, node := range nodes {
-		edgeIDs[i] = node.ID
-		byID[node.ID] = node
-		if init != nil {
-			init(node)
-		}
-	}
-	query.Where(func(s *sql.Selector) {
-		joinT := sql.Table(user.PortfoliosTable)
-		s.Join(joinT).On(s.C(portfolio.FieldID), joinT.C(user.PortfoliosPrimaryKey[1]))
-		s.Where(sql.InValues(joinT.C(user.PortfoliosPrimaryKey[0]), edgeIDs...))
-		columns := s.SelectedColumns()
-		s.Select(joinT.C(user.PortfoliosPrimaryKey[0]))
-		s.AppendSelect(columns...)
-		s.SetDistinct(false)
-	})
-	if err := query.prepareQuery(ctx); err != nil {
-		return err
-	}
-	qr := QuerierFunc(func(ctx context.Context, q Query) (Value, error) {
-		return query.sqlAll(ctx, func(_ context.Context, spec *sqlgraph.QuerySpec) {
-			assign := spec.Assign
-			values := spec.ScanValues
-			spec.ScanValues = func(columns []string) ([]any, error) {
-				values, err := values(columns[1:])
-				if err != nil {
-					return nil, err
-				}
-				return append([]any{new(sql.NullInt64)}, values...), nil
-			}
-			spec.Assign = func(columns []string, values []any) error {
-				outValue := int(values[0].(*sql.NullInt64).Int64)
-				inValue := int(values[1].(*sql.NullInt64).Int64)
-				if nids[inValue] == nil {
-					nids[inValue] = map[*User]struct{}{byID[outValue]: {}}
-					return assign(columns[1:], values[1:])
-				}
-				nids[inValue][byID[outValue]] = struct{}{}
-				return nil
-			}
-		})
-	})
-	neighbors, err := withInterceptors[[]*Portfolio](ctx, query, qr, query.inters)
-	if err != nil {
-		return err
-	}
-	for _, n := range neighbors {
-		nodes, ok := nids[n.ID]
-		if !ok {
-			return fmt.Errorf(`unexpected "portfolios" node returned %v`, n.ID)
-		}
-		for kn := range nodes {
-			assign(kn, n)
-		}
-	}
-	return nil
-}
-func (uq *UserQuery) loadSettings(ctx context.Context, query *SettingQuery, nodes []*User, init func(*User), assign func(*User, *Setting)) error {
 	fks := make([]driver.Value, 0, len(nodes))
 	nodeids := make(map[int]*User)
 	for i := range nodes {
@@ -572,21 +489,21 @@ func (uq *UserQuery) loadSettings(ctx context.Context, query *SettingQuery, node
 		}
 	}
 	query.withFKs = true
-	query.Where(predicate.Setting(func(s *sql.Selector) {
-		s.Where(sql.InValues(s.C(user.SettingsColumn), fks...))
+	query.Where(predicate.Portfolio(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(user.PortfoliosColumn), fks...))
 	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {
 		return err
 	}
 	for _, n := range neighbors {
-		fk := n.user_settings
+		fk := n.user_portfolios
 		if fk == nil {
-			return fmt.Errorf(`foreign-key "user_settings" is nil for node %v`, n.ID)
+			return fmt.Errorf(`foreign-key "user_portfolios" is nil for node %v`, n.ID)
 		}
 		node, ok := nodeids[*fk]
 		if !ok {
-			return fmt.Errorf(`unexpected referenced foreign-key "user_settings" returned %v for node %v`, *fk, n.ID)
+			return fmt.Errorf(`unexpected referenced foreign-key "user_portfolios" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

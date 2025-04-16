@@ -7,8 +7,8 @@ import (
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
-	"github.com/foxcool/greedy-eye/pkg/ent/predicate"
-	"github.com/shopspring/decimal"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/predicate"
+	"github.com/google/uuid"
 )
 
 // ID filters vertices based on their ID field.
@@ -56,254 +56,667 @@ func IDLTE(id int) predicate.Price {
 	return predicate.Price(sql.FieldLTE(FieldID, id))
 }
 
-// Source applies equality check predicate on the "source" field. It's identical to SourceEQ.
-func Source(v string) predicate.Price {
-	return predicate.Price(sql.FieldEQ(FieldSource, v))
+// UUID applies equality check predicate on the "uuid" field. It's identical to UUIDEQ.
+func UUID(v uuid.UUID) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldUUID, v))
 }
 
-// LastPrice applies equality check predicate on the "last_price" field. It's identical to LastPriceEQ.
-func LastPrice(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldEQ(FieldLastPrice, v))
+// SourceID applies equality check predicate on the "source_id" field. It's identical to SourceIDEQ.
+func SourceID(v string) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldSourceID, v))
 }
 
-// Ask applies equality check predicate on the "ask" field. It's identical to AskEQ.
-func Ask(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldEQ(FieldAsk, v))
+// Interval applies equality check predicate on the "interval" field. It's identical to IntervalEQ.
+func Interval(v string) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldInterval, v))
 }
 
-// Bid applies equality check predicate on the "bid" field. It's identical to BidEQ.
-func Bid(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldEQ(FieldBid, v))
+// Amount applies equality check predicate on the "amount" field. It's identical to AmountEQ.
+func Amount(v int64) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldAmount, v))
 }
 
-// Time applies equality check predicate on the "time" field. It's identical to TimeEQ.
-func Time(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldEQ(FieldTime, v))
+// Precision applies equality check predicate on the "precision" field. It's identical to PrecisionEQ.
+func Precision(v uint32) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldPrecision, v))
 }
 
-// SourceEQ applies the EQ predicate on the "source" field.
-func SourceEQ(v string) predicate.Price {
-	return predicate.Price(sql.FieldEQ(FieldSource, v))
+// Open applies equality check predicate on the "open" field. It's identical to OpenEQ.
+func Open(v int64) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldOpen, v))
 }
 
-// SourceNEQ applies the NEQ predicate on the "source" field.
-func SourceNEQ(v string) predicate.Price {
-	return predicate.Price(sql.FieldNEQ(FieldSource, v))
+// High applies equality check predicate on the "high" field. It's identical to HighEQ.
+func High(v int64) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldHigh, v))
 }
 
-// SourceIn applies the In predicate on the "source" field.
-func SourceIn(vs ...string) predicate.Price {
-	return predicate.Price(sql.FieldIn(FieldSource, vs...))
+// Low applies equality check predicate on the "low" field. It's identical to LowEQ.
+func Low(v int64) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldLow, v))
 }
 
-// SourceNotIn applies the NotIn predicate on the "source" field.
-func SourceNotIn(vs ...string) predicate.Price {
-	return predicate.Price(sql.FieldNotIn(FieldSource, vs...))
+// Close applies equality check predicate on the "close" field. It's identical to CloseEQ.
+func Close(v int64) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldClose, v))
 }
 
-// SourceGT applies the GT predicate on the "source" field.
-func SourceGT(v string) predicate.Price {
-	return predicate.Price(sql.FieldGT(FieldSource, v))
+// Volume applies equality check predicate on the "volume" field. It's identical to VolumeEQ.
+func Volume(v int64) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldVolume, v))
 }
 
-// SourceGTE applies the GTE predicate on the "source" field.
-func SourceGTE(v string) predicate.Price {
-	return predicate.Price(sql.FieldGTE(FieldSource, v))
+// CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
+func CreatedAt(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldCreatedAt, v))
 }
 
-// SourceLT applies the LT predicate on the "source" field.
-func SourceLT(v string) predicate.Price {
-	return predicate.Price(sql.FieldLT(FieldSource, v))
+// UpdatedAt applies equality check predicate on the "updated_at" field. It's identical to UpdatedAtEQ.
+func UpdatedAt(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldUpdatedAt, v))
 }
 
-// SourceLTE applies the LTE predicate on the "source" field.
-func SourceLTE(v string) predicate.Price {
-	return predicate.Price(sql.FieldLTE(FieldSource, v))
+// UUIDEQ applies the EQ predicate on the "uuid" field.
+func UUIDEQ(v uuid.UUID) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldUUID, v))
 }
 
-// SourceContains applies the Contains predicate on the "source" field.
-func SourceContains(v string) predicate.Price {
-	return predicate.Price(sql.FieldContains(FieldSource, v))
+// UUIDNEQ applies the NEQ predicate on the "uuid" field.
+func UUIDNEQ(v uuid.UUID) predicate.Price {
+	return predicate.Price(sql.FieldNEQ(FieldUUID, v))
 }
 
-// SourceHasPrefix applies the HasPrefix predicate on the "source" field.
-func SourceHasPrefix(v string) predicate.Price {
-	return predicate.Price(sql.FieldHasPrefix(FieldSource, v))
+// UUIDIn applies the In predicate on the "uuid" field.
+func UUIDIn(vs ...uuid.UUID) predicate.Price {
+	return predicate.Price(sql.FieldIn(FieldUUID, vs...))
 }
 
-// SourceHasSuffix applies the HasSuffix predicate on the "source" field.
-func SourceHasSuffix(v string) predicate.Price {
-	return predicate.Price(sql.FieldHasSuffix(FieldSource, v))
+// UUIDNotIn applies the NotIn predicate on the "uuid" field.
+func UUIDNotIn(vs ...uuid.UUID) predicate.Price {
+	return predicate.Price(sql.FieldNotIn(FieldUUID, vs...))
 }
 
-// SourceEqualFold applies the EqualFold predicate on the "source" field.
-func SourceEqualFold(v string) predicate.Price {
-	return predicate.Price(sql.FieldEqualFold(FieldSource, v))
+// UUIDGT applies the GT predicate on the "uuid" field.
+func UUIDGT(v uuid.UUID) predicate.Price {
+	return predicate.Price(sql.FieldGT(FieldUUID, v))
 }
 
-// SourceContainsFold applies the ContainsFold predicate on the "source" field.
-func SourceContainsFold(v string) predicate.Price {
-	return predicate.Price(sql.FieldContainsFold(FieldSource, v))
+// UUIDGTE applies the GTE predicate on the "uuid" field.
+func UUIDGTE(v uuid.UUID) predicate.Price {
+	return predicate.Price(sql.FieldGTE(FieldUUID, v))
 }
 
-// LastPriceEQ applies the EQ predicate on the "last_price" field.
-func LastPriceEQ(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldEQ(FieldLastPrice, v))
+// UUIDLT applies the LT predicate on the "uuid" field.
+func UUIDLT(v uuid.UUID) predicate.Price {
+	return predicate.Price(sql.FieldLT(FieldUUID, v))
 }
 
-// LastPriceNEQ applies the NEQ predicate on the "last_price" field.
-func LastPriceNEQ(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldNEQ(FieldLastPrice, v))
+// UUIDLTE applies the LTE predicate on the "uuid" field.
+func UUIDLTE(v uuid.UUID) predicate.Price {
+	return predicate.Price(sql.FieldLTE(FieldUUID, v))
 }
 
-// LastPriceIn applies the In predicate on the "last_price" field.
-func LastPriceIn(vs ...decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldIn(FieldLastPrice, vs...))
+// SourceIDEQ applies the EQ predicate on the "source_id" field.
+func SourceIDEQ(v string) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldSourceID, v))
 }
 
-// LastPriceNotIn applies the NotIn predicate on the "last_price" field.
-func LastPriceNotIn(vs ...decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldNotIn(FieldLastPrice, vs...))
+// SourceIDNEQ applies the NEQ predicate on the "source_id" field.
+func SourceIDNEQ(v string) predicate.Price {
+	return predicate.Price(sql.FieldNEQ(FieldSourceID, v))
 }
 
-// LastPriceGT applies the GT predicate on the "last_price" field.
-func LastPriceGT(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldGT(FieldLastPrice, v))
+// SourceIDIn applies the In predicate on the "source_id" field.
+func SourceIDIn(vs ...string) predicate.Price {
+	return predicate.Price(sql.FieldIn(FieldSourceID, vs...))
 }
 
-// LastPriceGTE applies the GTE predicate on the "last_price" field.
-func LastPriceGTE(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldGTE(FieldLastPrice, v))
+// SourceIDNotIn applies the NotIn predicate on the "source_id" field.
+func SourceIDNotIn(vs ...string) predicate.Price {
+	return predicate.Price(sql.FieldNotIn(FieldSourceID, vs...))
 }
 
-// LastPriceLT applies the LT predicate on the "last_price" field.
-func LastPriceLT(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldLT(FieldLastPrice, v))
+// SourceIDGT applies the GT predicate on the "source_id" field.
+func SourceIDGT(v string) predicate.Price {
+	return predicate.Price(sql.FieldGT(FieldSourceID, v))
 }
 
-// LastPriceLTE applies the LTE predicate on the "last_price" field.
-func LastPriceLTE(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldLTE(FieldLastPrice, v))
+// SourceIDGTE applies the GTE predicate on the "source_id" field.
+func SourceIDGTE(v string) predicate.Price {
+	return predicate.Price(sql.FieldGTE(FieldSourceID, v))
 }
 
-// AskEQ applies the EQ predicate on the "ask" field.
-func AskEQ(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldEQ(FieldAsk, v))
+// SourceIDLT applies the LT predicate on the "source_id" field.
+func SourceIDLT(v string) predicate.Price {
+	return predicate.Price(sql.FieldLT(FieldSourceID, v))
 }
 
-// AskNEQ applies the NEQ predicate on the "ask" field.
-func AskNEQ(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldNEQ(FieldAsk, v))
+// SourceIDLTE applies the LTE predicate on the "source_id" field.
+func SourceIDLTE(v string) predicate.Price {
+	return predicate.Price(sql.FieldLTE(FieldSourceID, v))
 }
 
-// AskIn applies the In predicate on the "ask" field.
-func AskIn(vs ...decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldIn(FieldAsk, vs...))
+// SourceIDContains applies the Contains predicate on the "source_id" field.
+func SourceIDContains(v string) predicate.Price {
+	return predicate.Price(sql.FieldContains(FieldSourceID, v))
 }
 
-// AskNotIn applies the NotIn predicate on the "ask" field.
-func AskNotIn(vs ...decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldNotIn(FieldAsk, vs...))
+// SourceIDHasPrefix applies the HasPrefix predicate on the "source_id" field.
+func SourceIDHasPrefix(v string) predicate.Price {
+	return predicate.Price(sql.FieldHasPrefix(FieldSourceID, v))
 }
 
-// AskGT applies the GT predicate on the "ask" field.
-func AskGT(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldGT(FieldAsk, v))
+// SourceIDHasSuffix applies the HasSuffix predicate on the "source_id" field.
+func SourceIDHasSuffix(v string) predicate.Price {
+	return predicate.Price(sql.FieldHasSuffix(FieldSourceID, v))
 }
 
-// AskGTE applies the GTE predicate on the "ask" field.
-func AskGTE(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldGTE(FieldAsk, v))
+// SourceIDEqualFold applies the EqualFold predicate on the "source_id" field.
+func SourceIDEqualFold(v string) predicate.Price {
+	return predicate.Price(sql.FieldEqualFold(FieldSourceID, v))
 }
 
-// AskLT applies the LT predicate on the "ask" field.
-func AskLT(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldLT(FieldAsk, v))
+// SourceIDContainsFold applies the ContainsFold predicate on the "source_id" field.
+func SourceIDContainsFold(v string) predicate.Price {
+	return predicate.Price(sql.FieldContainsFold(FieldSourceID, v))
 }
 
-// AskLTE applies the LTE predicate on the "ask" field.
-func AskLTE(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldLTE(FieldAsk, v))
+// IntervalEQ applies the EQ predicate on the "interval" field.
+func IntervalEQ(v string) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldInterval, v))
 }
 
-// BidEQ applies the EQ predicate on the "bid" field.
-func BidEQ(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldEQ(FieldBid, v))
+// IntervalNEQ applies the NEQ predicate on the "interval" field.
+func IntervalNEQ(v string) predicate.Price {
+	return predicate.Price(sql.FieldNEQ(FieldInterval, v))
 }
 
-// BidNEQ applies the NEQ predicate on the "bid" field.
-func BidNEQ(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldNEQ(FieldBid, v))
+// IntervalIn applies the In predicate on the "interval" field.
+func IntervalIn(vs ...string) predicate.Price {
+	return predicate.Price(sql.FieldIn(FieldInterval, vs...))
 }
 
-// BidIn applies the In predicate on the "bid" field.
-func BidIn(vs ...decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldIn(FieldBid, vs...))
+// IntervalNotIn applies the NotIn predicate on the "interval" field.
+func IntervalNotIn(vs ...string) predicate.Price {
+	return predicate.Price(sql.FieldNotIn(FieldInterval, vs...))
 }
 
-// BidNotIn applies the NotIn predicate on the "bid" field.
-func BidNotIn(vs ...decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldNotIn(FieldBid, vs...))
+// IntervalGT applies the GT predicate on the "interval" field.
+func IntervalGT(v string) predicate.Price {
+	return predicate.Price(sql.FieldGT(FieldInterval, v))
 }
 
-// BidGT applies the GT predicate on the "bid" field.
-func BidGT(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldGT(FieldBid, v))
+// IntervalGTE applies the GTE predicate on the "interval" field.
+func IntervalGTE(v string) predicate.Price {
+	return predicate.Price(sql.FieldGTE(FieldInterval, v))
 }
 
-// BidGTE applies the GTE predicate on the "bid" field.
-func BidGTE(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldGTE(FieldBid, v))
+// IntervalLT applies the LT predicate on the "interval" field.
+func IntervalLT(v string) predicate.Price {
+	return predicate.Price(sql.FieldLT(FieldInterval, v))
 }
 
-// BidLT applies the LT predicate on the "bid" field.
-func BidLT(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldLT(FieldBid, v))
+// IntervalLTE applies the LTE predicate on the "interval" field.
+func IntervalLTE(v string) predicate.Price {
+	return predicate.Price(sql.FieldLTE(FieldInterval, v))
 }
 
-// BidLTE applies the LTE predicate on the "bid" field.
-func BidLTE(v decimal.Decimal) predicate.Price {
-	return predicate.Price(sql.FieldLTE(FieldBid, v))
+// IntervalContains applies the Contains predicate on the "interval" field.
+func IntervalContains(v string) predicate.Price {
+	return predicate.Price(sql.FieldContains(FieldInterval, v))
 }
 
-// TimeEQ applies the EQ predicate on the "time" field.
-func TimeEQ(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldEQ(FieldTime, v))
+// IntervalHasPrefix applies the HasPrefix predicate on the "interval" field.
+func IntervalHasPrefix(v string) predicate.Price {
+	return predicate.Price(sql.FieldHasPrefix(FieldInterval, v))
 }
 
-// TimeNEQ applies the NEQ predicate on the "time" field.
-func TimeNEQ(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldNEQ(FieldTime, v))
+// IntervalHasSuffix applies the HasSuffix predicate on the "interval" field.
+func IntervalHasSuffix(v string) predicate.Price {
+	return predicate.Price(sql.FieldHasSuffix(FieldInterval, v))
 }
 
-// TimeIn applies the In predicate on the "time" field.
-func TimeIn(vs ...time.Time) predicate.Price {
-	return predicate.Price(sql.FieldIn(FieldTime, vs...))
+// IntervalEqualFold applies the EqualFold predicate on the "interval" field.
+func IntervalEqualFold(v string) predicate.Price {
+	return predicate.Price(sql.FieldEqualFold(FieldInterval, v))
 }
 
-// TimeNotIn applies the NotIn predicate on the "time" field.
-func TimeNotIn(vs ...time.Time) predicate.Price {
-	return predicate.Price(sql.FieldNotIn(FieldTime, vs...))
+// IntervalContainsFold applies the ContainsFold predicate on the "interval" field.
+func IntervalContainsFold(v string) predicate.Price {
+	return predicate.Price(sql.FieldContainsFold(FieldInterval, v))
 }
 
-// TimeGT applies the GT predicate on the "time" field.
-func TimeGT(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldGT(FieldTime, v))
+// AmountEQ applies the EQ predicate on the "amount" field.
+func AmountEQ(v int64) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldAmount, v))
 }
 
-// TimeGTE applies the GTE predicate on the "time" field.
-func TimeGTE(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldGTE(FieldTime, v))
+// AmountNEQ applies the NEQ predicate on the "amount" field.
+func AmountNEQ(v int64) predicate.Price {
+	return predicate.Price(sql.FieldNEQ(FieldAmount, v))
 }
 
-// TimeLT applies the LT predicate on the "time" field.
-func TimeLT(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldLT(FieldTime, v))
+// AmountIn applies the In predicate on the "amount" field.
+func AmountIn(vs ...int64) predicate.Price {
+	return predicate.Price(sql.FieldIn(FieldAmount, vs...))
 }
 
-// TimeLTE applies the LTE predicate on the "time" field.
-func TimeLTE(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldLTE(FieldTime, v))
+// AmountNotIn applies the NotIn predicate on the "amount" field.
+func AmountNotIn(vs ...int64) predicate.Price {
+	return predicate.Price(sql.FieldNotIn(FieldAmount, vs...))
+}
+
+// AmountGT applies the GT predicate on the "amount" field.
+func AmountGT(v int64) predicate.Price {
+	return predicate.Price(sql.FieldGT(FieldAmount, v))
+}
+
+// AmountGTE applies the GTE predicate on the "amount" field.
+func AmountGTE(v int64) predicate.Price {
+	return predicate.Price(sql.FieldGTE(FieldAmount, v))
+}
+
+// AmountLT applies the LT predicate on the "amount" field.
+func AmountLT(v int64) predicate.Price {
+	return predicate.Price(sql.FieldLT(FieldAmount, v))
+}
+
+// AmountLTE applies the LTE predicate on the "amount" field.
+func AmountLTE(v int64) predicate.Price {
+	return predicate.Price(sql.FieldLTE(FieldAmount, v))
+}
+
+// PrecisionEQ applies the EQ predicate on the "precision" field.
+func PrecisionEQ(v uint32) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldPrecision, v))
+}
+
+// PrecisionNEQ applies the NEQ predicate on the "precision" field.
+func PrecisionNEQ(v uint32) predicate.Price {
+	return predicate.Price(sql.FieldNEQ(FieldPrecision, v))
+}
+
+// PrecisionIn applies the In predicate on the "precision" field.
+func PrecisionIn(vs ...uint32) predicate.Price {
+	return predicate.Price(sql.FieldIn(FieldPrecision, vs...))
+}
+
+// PrecisionNotIn applies the NotIn predicate on the "precision" field.
+func PrecisionNotIn(vs ...uint32) predicate.Price {
+	return predicate.Price(sql.FieldNotIn(FieldPrecision, vs...))
+}
+
+// PrecisionGT applies the GT predicate on the "precision" field.
+func PrecisionGT(v uint32) predicate.Price {
+	return predicate.Price(sql.FieldGT(FieldPrecision, v))
+}
+
+// PrecisionGTE applies the GTE predicate on the "precision" field.
+func PrecisionGTE(v uint32) predicate.Price {
+	return predicate.Price(sql.FieldGTE(FieldPrecision, v))
+}
+
+// PrecisionLT applies the LT predicate on the "precision" field.
+func PrecisionLT(v uint32) predicate.Price {
+	return predicate.Price(sql.FieldLT(FieldPrecision, v))
+}
+
+// PrecisionLTE applies the LTE predicate on the "precision" field.
+func PrecisionLTE(v uint32) predicate.Price {
+	return predicate.Price(sql.FieldLTE(FieldPrecision, v))
+}
+
+// OpenEQ applies the EQ predicate on the "open" field.
+func OpenEQ(v int64) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldOpen, v))
+}
+
+// OpenNEQ applies the NEQ predicate on the "open" field.
+func OpenNEQ(v int64) predicate.Price {
+	return predicate.Price(sql.FieldNEQ(FieldOpen, v))
+}
+
+// OpenIn applies the In predicate on the "open" field.
+func OpenIn(vs ...int64) predicate.Price {
+	return predicate.Price(sql.FieldIn(FieldOpen, vs...))
+}
+
+// OpenNotIn applies the NotIn predicate on the "open" field.
+func OpenNotIn(vs ...int64) predicate.Price {
+	return predicate.Price(sql.FieldNotIn(FieldOpen, vs...))
+}
+
+// OpenGT applies the GT predicate on the "open" field.
+func OpenGT(v int64) predicate.Price {
+	return predicate.Price(sql.FieldGT(FieldOpen, v))
+}
+
+// OpenGTE applies the GTE predicate on the "open" field.
+func OpenGTE(v int64) predicate.Price {
+	return predicate.Price(sql.FieldGTE(FieldOpen, v))
+}
+
+// OpenLT applies the LT predicate on the "open" field.
+func OpenLT(v int64) predicate.Price {
+	return predicate.Price(sql.FieldLT(FieldOpen, v))
+}
+
+// OpenLTE applies the LTE predicate on the "open" field.
+func OpenLTE(v int64) predicate.Price {
+	return predicate.Price(sql.FieldLTE(FieldOpen, v))
+}
+
+// OpenIsNil applies the IsNil predicate on the "open" field.
+func OpenIsNil() predicate.Price {
+	return predicate.Price(sql.FieldIsNull(FieldOpen))
+}
+
+// OpenNotNil applies the NotNil predicate on the "open" field.
+func OpenNotNil() predicate.Price {
+	return predicate.Price(sql.FieldNotNull(FieldOpen))
+}
+
+// HighEQ applies the EQ predicate on the "high" field.
+func HighEQ(v int64) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldHigh, v))
+}
+
+// HighNEQ applies the NEQ predicate on the "high" field.
+func HighNEQ(v int64) predicate.Price {
+	return predicate.Price(sql.FieldNEQ(FieldHigh, v))
+}
+
+// HighIn applies the In predicate on the "high" field.
+func HighIn(vs ...int64) predicate.Price {
+	return predicate.Price(sql.FieldIn(FieldHigh, vs...))
+}
+
+// HighNotIn applies the NotIn predicate on the "high" field.
+func HighNotIn(vs ...int64) predicate.Price {
+	return predicate.Price(sql.FieldNotIn(FieldHigh, vs...))
+}
+
+// HighGT applies the GT predicate on the "high" field.
+func HighGT(v int64) predicate.Price {
+	return predicate.Price(sql.FieldGT(FieldHigh, v))
+}
+
+// HighGTE applies the GTE predicate on the "high" field.
+func HighGTE(v int64) predicate.Price {
+	return predicate.Price(sql.FieldGTE(FieldHigh, v))
+}
+
+// HighLT applies the LT predicate on the "high" field.
+func HighLT(v int64) predicate.Price {
+	return predicate.Price(sql.FieldLT(FieldHigh, v))
+}
+
+// HighLTE applies the LTE predicate on the "high" field.
+func HighLTE(v int64) predicate.Price {
+	return predicate.Price(sql.FieldLTE(FieldHigh, v))
+}
+
+// HighIsNil applies the IsNil predicate on the "high" field.
+func HighIsNil() predicate.Price {
+	return predicate.Price(sql.FieldIsNull(FieldHigh))
+}
+
+// HighNotNil applies the NotNil predicate on the "high" field.
+func HighNotNil() predicate.Price {
+	return predicate.Price(sql.FieldNotNull(FieldHigh))
+}
+
+// LowEQ applies the EQ predicate on the "low" field.
+func LowEQ(v int64) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldLow, v))
+}
+
+// LowNEQ applies the NEQ predicate on the "low" field.
+func LowNEQ(v int64) predicate.Price {
+	return predicate.Price(sql.FieldNEQ(FieldLow, v))
+}
+
+// LowIn applies the In predicate on the "low" field.
+func LowIn(vs ...int64) predicate.Price {
+	return predicate.Price(sql.FieldIn(FieldLow, vs...))
+}
+
+// LowNotIn applies the NotIn predicate on the "low" field.
+func LowNotIn(vs ...int64) predicate.Price {
+	return predicate.Price(sql.FieldNotIn(FieldLow, vs...))
+}
+
+// LowGT applies the GT predicate on the "low" field.
+func LowGT(v int64) predicate.Price {
+	return predicate.Price(sql.FieldGT(FieldLow, v))
+}
+
+// LowGTE applies the GTE predicate on the "low" field.
+func LowGTE(v int64) predicate.Price {
+	return predicate.Price(sql.FieldGTE(FieldLow, v))
+}
+
+// LowLT applies the LT predicate on the "low" field.
+func LowLT(v int64) predicate.Price {
+	return predicate.Price(sql.FieldLT(FieldLow, v))
+}
+
+// LowLTE applies the LTE predicate on the "low" field.
+func LowLTE(v int64) predicate.Price {
+	return predicate.Price(sql.FieldLTE(FieldLow, v))
+}
+
+// LowIsNil applies the IsNil predicate on the "low" field.
+func LowIsNil() predicate.Price {
+	return predicate.Price(sql.FieldIsNull(FieldLow))
+}
+
+// LowNotNil applies the NotNil predicate on the "low" field.
+func LowNotNil() predicate.Price {
+	return predicate.Price(sql.FieldNotNull(FieldLow))
+}
+
+// CloseEQ applies the EQ predicate on the "close" field.
+func CloseEQ(v int64) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldClose, v))
+}
+
+// CloseNEQ applies the NEQ predicate on the "close" field.
+func CloseNEQ(v int64) predicate.Price {
+	return predicate.Price(sql.FieldNEQ(FieldClose, v))
+}
+
+// CloseIn applies the In predicate on the "close" field.
+func CloseIn(vs ...int64) predicate.Price {
+	return predicate.Price(sql.FieldIn(FieldClose, vs...))
+}
+
+// CloseNotIn applies the NotIn predicate on the "close" field.
+func CloseNotIn(vs ...int64) predicate.Price {
+	return predicate.Price(sql.FieldNotIn(FieldClose, vs...))
+}
+
+// CloseGT applies the GT predicate on the "close" field.
+func CloseGT(v int64) predicate.Price {
+	return predicate.Price(sql.FieldGT(FieldClose, v))
+}
+
+// CloseGTE applies the GTE predicate on the "close" field.
+func CloseGTE(v int64) predicate.Price {
+	return predicate.Price(sql.FieldGTE(FieldClose, v))
+}
+
+// CloseLT applies the LT predicate on the "close" field.
+func CloseLT(v int64) predicate.Price {
+	return predicate.Price(sql.FieldLT(FieldClose, v))
+}
+
+// CloseLTE applies the LTE predicate on the "close" field.
+func CloseLTE(v int64) predicate.Price {
+	return predicate.Price(sql.FieldLTE(FieldClose, v))
+}
+
+// CloseIsNil applies the IsNil predicate on the "close" field.
+func CloseIsNil() predicate.Price {
+	return predicate.Price(sql.FieldIsNull(FieldClose))
+}
+
+// CloseNotNil applies the NotNil predicate on the "close" field.
+func CloseNotNil() predicate.Price {
+	return predicate.Price(sql.FieldNotNull(FieldClose))
+}
+
+// VolumeEQ applies the EQ predicate on the "volume" field.
+func VolumeEQ(v int64) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldVolume, v))
+}
+
+// VolumeNEQ applies the NEQ predicate on the "volume" field.
+func VolumeNEQ(v int64) predicate.Price {
+	return predicate.Price(sql.FieldNEQ(FieldVolume, v))
+}
+
+// VolumeIn applies the In predicate on the "volume" field.
+func VolumeIn(vs ...int64) predicate.Price {
+	return predicate.Price(sql.FieldIn(FieldVolume, vs...))
+}
+
+// VolumeNotIn applies the NotIn predicate on the "volume" field.
+func VolumeNotIn(vs ...int64) predicate.Price {
+	return predicate.Price(sql.FieldNotIn(FieldVolume, vs...))
+}
+
+// VolumeGT applies the GT predicate on the "volume" field.
+func VolumeGT(v int64) predicate.Price {
+	return predicate.Price(sql.FieldGT(FieldVolume, v))
+}
+
+// VolumeGTE applies the GTE predicate on the "volume" field.
+func VolumeGTE(v int64) predicate.Price {
+	return predicate.Price(sql.FieldGTE(FieldVolume, v))
+}
+
+// VolumeLT applies the LT predicate on the "volume" field.
+func VolumeLT(v int64) predicate.Price {
+	return predicate.Price(sql.FieldLT(FieldVolume, v))
+}
+
+// VolumeLTE applies the LTE predicate on the "volume" field.
+func VolumeLTE(v int64) predicate.Price {
+	return predicate.Price(sql.FieldLTE(FieldVolume, v))
+}
+
+// VolumeIsNil applies the IsNil predicate on the "volume" field.
+func VolumeIsNil() predicate.Price {
+	return predicate.Price(sql.FieldIsNull(FieldVolume))
+}
+
+// VolumeNotNil applies the NotNil predicate on the "volume" field.
+func VolumeNotNil() predicate.Price {
+	return predicate.Price(sql.FieldNotNull(FieldVolume))
+}
+
+// CreatedAtEQ applies the EQ predicate on the "created_at" field.
+func CreatedAtEQ(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldCreatedAt, v))
+}
+
+// CreatedAtNEQ applies the NEQ predicate on the "created_at" field.
+func CreatedAtNEQ(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldNEQ(FieldCreatedAt, v))
+}
+
+// CreatedAtIn applies the In predicate on the "created_at" field.
+func CreatedAtIn(vs ...time.Time) predicate.Price {
+	return predicate.Price(sql.FieldIn(FieldCreatedAt, vs...))
+}
+
+// CreatedAtNotIn applies the NotIn predicate on the "created_at" field.
+func CreatedAtNotIn(vs ...time.Time) predicate.Price {
+	return predicate.Price(sql.FieldNotIn(FieldCreatedAt, vs...))
+}
+
+// CreatedAtGT applies the GT predicate on the "created_at" field.
+func CreatedAtGT(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldGT(FieldCreatedAt, v))
+}
+
+// CreatedAtGTE applies the GTE predicate on the "created_at" field.
+func CreatedAtGTE(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldGTE(FieldCreatedAt, v))
+}
+
+// CreatedAtLT applies the LT predicate on the "created_at" field.
+func CreatedAtLT(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldLT(FieldCreatedAt, v))
+}
+
+// CreatedAtLTE applies the LTE predicate on the "created_at" field.
+func CreatedAtLTE(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldLTE(FieldCreatedAt, v))
+}
+
+// UpdatedAtEQ applies the EQ predicate on the "updated_at" field.
+func UpdatedAtEQ(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldUpdatedAt, v))
+}
+
+// UpdatedAtNEQ applies the NEQ predicate on the "updated_at" field.
+func UpdatedAtNEQ(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldNEQ(FieldUpdatedAt, v))
+}
+
+// UpdatedAtIn applies the In predicate on the "updated_at" field.
+func UpdatedAtIn(vs ...time.Time) predicate.Price {
+	return predicate.Price(sql.FieldIn(FieldUpdatedAt, vs...))
+}
+
+// UpdatedAtNotIn applies the NotIn predicate on the "updated_at" field.
+func UpdatedAtNotIn(vs ...time.Time) predicate.Price {
+	return predicate.Price(sql.FieldNotIn(FieldUpdatedAt, vs...))
+}
+
+// UpdatedAtGT applies the GT predicate on the "updated_at" field.
+func UpdatedAtGT(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldGT(FieldUpdatedAt, v))
+}
+
+// UpdatedAtGTE applies the GTE predicate on the "updated_at" field.
+func UpdatedAtGTE(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldGTE(FieldUpdatedAt, v))
+}
+
+// UpdatedAtLT applies the LT predicate on the "updated_at" field.
+func UpdatedAtLT(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldLT(FieldUpdatedAt, v))
+}
+
+// UpdatedAtLTE applies the LTE predicate on the "updated_at" field.
+func UpdatedAtLTE(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldLTE(FieldUpdatedAt, v))
+}
+
+// HasAsset applies the HasEdge predicate on the "asset" edge.
+func HasAsset() predicate.Price {
+	return predicate.Price(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, AssetTable, AssetColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasAssetWith applies the HasEdge predicate on the "asset" edge with a given conditions (other predicates).
+func HasAssetWith(preds ...predicate.Asset) predicate.Price {
+	return predicate.Price(func(s *sql.Selector) {
+		step := newAssetStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
 }
 
 // HasBaseAsset applies the HasEdge predicate on the "base_asset" edge.
@@ -311,7 +724,7 @@ func HasBaseAsset() predicate.Price {
 	return predicate.Price(func(s *sql.Selector) {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, false, BaseAssetTable, BaseAssetColumn),
+			sqlgraph.Edge(sqlgraph.O2M, false, BaseAssetTable, BaseAssetColumn),
 		)
 		sqlgraph.HasNeighbors(s, step)
 	})
@@ -321,29 +734,6 @@ func HasBaseAsset() predicate.Price {
 func HasBaseAssetWith(preds ...predicate.Asset) predicate.Price {
 	return predicate.Price(func(s *sql.Selector) {
 		step := newBaseAssetStep()
-		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
-			for _, p := range preds {
-				p(s)
-			}
-		})
-	})
-}
-
-// HasQuoteAsset applies the HasEdge predicate on the "quote_asset" edge.
-func HasQuoteAsset() predicate.Price {
-	return predicate.Price(func(s *sql.Selector) {
-		step := sqlgraph.NewStep(
-			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, false, QuoteAssetTable, QuoteAssetColumn),
-		)
-		sqlgraph.HasNeighbors(s, step)
-	})
-}
-
-// HasQuoteAssetWith applies the HasEdge predicate on the "quote_asset" edge with a given conditions (other predicates).
-func HasQuoteAssetWith(preds ...predicate.Asset) predicate.Price {
-	return predicate.Price(func(s *sql.Selector) {
-		step := newQuoteAssetStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

@@ -6,14 +6,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/foxcool/greedy-eye/pkg/ent/account"
-	"github.com/foxcool/greedy-eye/pkg/ent/asset"
-	"github.com/foxcool/greedy-eye/pkg/ent/holding"
-	"github.com/foxcool/greedy-eye/pkg/ent/portfolio"
-	"github.com/shopspring/decimal"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/account"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/portfolio"
+	"github.com/google/uuid"
 )
 
 // HoldingCreate is the builder for creating a Holding entity.
@@ -23,23 +24,63 @@ type HoldingCreate struct {
 	hooks    []Hook
 }
 
+// SetUUID sets the "uuid" field.
+func (hc *HoldingCreate) SetUUID(u uuid.UUID) *HoldingCreate {
+	hc.mutation.SetUUID(u)
+	return hc
+}
+
+// SetNillableUUID sets the "uuid" field if the given value is not nil.
+func (hc *HoldingCreate) SetNillableUUID(u *uuid.UUID) *HoldingCreate {
+	if u != nil {
+		hc.SetUUID(*u)
+	}
+	return hc
+}
+
 // SetAmount sets the "amount" field.
-func (hc *HoldingCreate) SetAmount(d decimal.Decimal) *HoldingCreate {
-	hc.mutation.SetAmount(d)
+func (hc *HoldingCreate) SetAmount(i int64) *HoldingCreate {
+	hc.mutation.SetAmount(i)
+	return hc
+}
+
+// SetPrecision sets the "precision" field.
+func (hc *HoldingCreate) SetPrecision(u uint32) *HoldingCreate {
+	hc.mutation.SetPrecision(u)
+	return hc
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (hc *HoldingCreate) SetCreatedAt(t time.Time) *HoldingCreate {
+	hc.mutation.SetCreatedAt(t)
+	return hc
+}
+
+// SetNillableCreatedAt sets the "created_at" field if the given value is not nil.
+func (hc *HoldingCreate) SetNillableCreatedAt(t *time.Time) *HoldingCreate {
+	if t != nil {
+		hc.SetCreatedAt(*t)
+	}
+	return hc
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (hc *HoldingCreate) SetUpdatedAt(t time.Time) *HoldingCreate {
+	hc.mutation.SetUpdatedAt(t)
+	return hc
+}
+
+// SetNillableUpdatedAt sets the "updated_at" field if the given value is not nil.
+func (hc *HoldingCreate) SetNillableUpdatedAt(t *time.Time) *HoldingCreate {
+	if t != nil {
+		hc.SetUpdatedAt(*t)
+	}
 	return hc
 }
 
 // SetAssetID sets the "asset" edge to the Asset entity by ID.
 func (hc *HoldingCreate) SetAssetID(id int) *HoldingCreate {
 	hc.mutation.SetAssetID(id)
-	return hc
-}
-
-// SetNillableAssetID sets the "asset" edge to the Asset entity by ID if the given value is not nil.
-func (hc *HoldingCreate) SetNillableAssetID(id *int) *HoldingCreate {
-	if id != nil {
-		hc = hc.SetAssetID(*id)
-	}
 	return hc
 }
 
@@ -51,14 +92,6 @@ func (hc *HoldingCreate) SetAsset(a *Asset) *HoldingCreate {
 // SetPortfolioID sets the "portfolio" edge to the Portfolio entity by ID.
 func (hc *HoldingCreate) SetPortfolioID(id int) *HoldingCreate {
 	hc.mutation.SetPortfolioID(id)
-	return hc
-}
-
-// SetNillablePortfolioID sets the "portfolio" edge to the Portfolio entity by ID if the given value is not nil.
-func (hc *HoldingCreate) SetNillablePortfolioID(id *int) *HoldingCreate {
-	if id != nil {
-		hc = hc.SetPortfolioID(*id)
-	}
 	return hc
 }
 
@@ -93,6 +126,7 @@ func (hc *HoldingCreate) Mutation() *HoldingMutation {
 
 // Save creates the Holding in the database.
 func (hc *HoldingCreate) Save(ctx context.Context) (*Holding, error) {
+	hc.defaults()
 	return withHooks(ctx, hc.sqlSave, hc.mutation, hc.hooks)
 }
 
@@ -118,10 +152,44 @@ func (hc *HoldingCreate) ExecX(ctx context.Context) {
 	}
 }
 
+// defaults sets the default values of the builder before save.
+func (hc *HoldingCreate) defaults() {
+	if _, ok := hc.mutation.UUID(); !ok {
+		v := holding.DefaultUUID()
+		hc.mutation.SetUUID(v)
+	}
+	if _, ok := hc.mutation.CreatedAt(); !ok {
+		v := holding.DefaultCreatedAt()
+		hc.mutation.SetCreatedAt(v)
+	}
+	if _, ok := hc.mutation.UpdatedAt(); !ok {
+		v := holding.DefaultUpdatedAt()
+		hc.mutation.SetUpdatedAt(v)
+	}
+}
+
 // check runs all checks and user-defined validators on the builder.
 func (hc *HoldingCreate) check() error {
+	if _, ok := hc.mutation.UUID(); !ok {
+		return &ValidationError{Name: "uuid", err: errors.New(`ent: missing required field "Holding.uuid"`)}
+	}
 	if _, ok := hc.mutation.Amount(); !ok {
 		return &ValidationError{Name: "amount", err: errors.New(`ent: missing required field "Holding.amount"`)}
+	}
+	if _, ok := hc.mutation.Precision(); !ok {
+		return &ValidationError{Name: "precision", err: errors.New(`ent: missing required field "Holding.precision"`)}
+	}
+	if _, ok := hc.mutation.CreatedAt(); !ok {
+		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Holding.created_at"`)}
+	}
+	if _, ok := hc.mutation.UpdatedAt(); !ok {
+		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Holding.updated_at"`)}
+	}
+	if len(hc.mutation.AssetIDs()) == 0 {
+		return &ValidationError{Name: "asset", err: errors.New(`ent: missing required edge "Holding.asset"`)}
+	}
+	if len(hc.mutation.PortfolioIDs()) == 0 {
+		return &ValidationError{Name: "portfolio", err: errors.New(`ent: missing required edge "Holding.portfolio"`)}
 	}
 	return nil
 }
@@ -149,14 +217,30 @@ func (hc *HoldingCreate) createSpec() (*Holding, *sqlgraph.CreateSpec) {
 		_node = &Holding{config: hc.config}
 		_spec = sqlgraph.NewCreateSpec(holding.Table, sqlgraph.NewFieldSpec(holding.FieldID, field.TypeInt))
 	)
+	if value, ok := hc.mutation.UUID(); ok {
+		_spec.SetField(holding.FieldUUID, field.TypeUUID, value)
+		_node.UUID = value
+	}
 	if value, ok := hc.mutation.Amount(); ok {
-		_spec.SetField(holding.FieldAmount, field.TypeFloat64, value)
+		_spec.SetField(holding.FieldAmount, field.TypeInt64, value)
 		_node.Amount = value
+	}
+	if value, ok := hc.mutation.Precision(); ok {
+		_spec.SetField(holding.FieldPrecision, field.TypeUint32, value)
+		_node.Precision = value
+	}
+	if value, ok := hc.mutation.CreatedAt(); ok {
+		_spec.SetField(holding.FieldCreatedAt, field.TypeTime, value)
+		_node.CreatedAt = value
+	}
+	if value, ok := hc.mutation.UpdatedAt(); ok {
+		_spec.SetField(holding.FieldUpdatedAt, field.TypeTime, value)
+		_node.UpdatedAt = value
 	}
 	if nodes := hc.mutation.AssetIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
-			Inverse: false,
+			Inverse: true,
 			Table:   holding.AssetTable,
 			Columns: []string{holding.AssetColumn},
 			Bidi:    false,
@@ -167,7 +251,7 @@ func (hc *HoldingCreate) createSpec() (*Holding, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_node.holding_asset = &nodes[0]
+		_node.asset_holdings = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := hc.mutation.PortfolioIDs(); len(nodes) > 0 {
@@ -225,6 +309,7 @@ func (hcb *HoldingCreateBulk) Save(ctx context.Context) ([]*Holding, error) {
 	for i := range hcb.builders {
 		func(i int, root context.Context) {
 			builder := hcb.builders[i]
+			builder.defaults()
 			var mut Mutator = MutateFunc(func(ctx context.Context, m Mutation) (Value, error) {
 				mutation, ok := m.(*HoldingMutation)
 				if !ok {

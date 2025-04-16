@@ -11,11 +11,11 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/foxcool/greedy-eye/pkg/ent/account"
-	"github.com/foxcool/greedy-eye/pkg/ent/asset"
-	"github.com/foxcool/greedy-eye/pkg/ent/holding"
-	"github.com/foxcool/greedy-eye/pkg/ent/portfolio"
-	"github.com/foxcool/greedy-eye/pkg/ent/predicate"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/account"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/portfolio"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/predicate"
 )
 
 // HoldingQuery is the builder for querying Holding entities.
@@ -79,7 +79,7 @@ func (hq *HoldingQuery) QueryAsset() *AssetQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(holding.Table, holding.FieldID, selector),
 			sqlgraph.To(asset.Table, asset.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, false, holding.AssetTable, holding.AssetColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, holding.AssetTable, holding.AssetColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(hq.driver.Dialect(), step)
 		return fromU, nil
@@ -371,12 +371,12 @@ func (hq *HoldingQuery) WithAccount(opts ...func(*AccountQuery)) *HoldingQuery {
 // Example:
 //
 //	var v []struct {
-//		Amount decimal.Decimal `json:"amount,omitempty"`
+//		UUID uuid.UUID `json:"uuid,omitempty"`
 //		Count int `json:"count,omitempty"`
 //	}
 //
 //	client.Holding.Query().
-//		GroupBy(holding.FieldAmount).
+//		GroupBy(holding.FieldUUID).
 //		Aggregate(ent.Count()).
 //		Scan(ctx, &v)
 func (hq *HoldingQuery) GroupBy(field string, fields ...string) *HoldingGroupBy {
@@ -394,11 +394,11 @@ func (hq *HoldingQuery) GroupBy(field string, fields ...string) *HoldingGroupBy 
 // Example:
 //
 //	var v []struct {
-//		Amount decimal.Decimal `json:"amount,omitempty"`
+//		UUID uuid.UUID `json:"uuid,omitempty"`
 //	}
 //
 //	client.Holding.Query().
-//		Select(holding.FieldAmount).
+//		Select(holding.FieldUUID).
 //		Scan(ctx, &v)
 func (hq *HoldingQuery) Select(fields ...string) *HoldingSelect {
 	hq.ctx.Fields = append(hq.ctx.Fields, fields...)
@@ -499,10 +499,10 @@ func (hq *HoldingQuery) loadAsset(ctx context.Context, query *AssetQuery, nodes 
 	ids := make([]int, 0, len(nodes))
 	nodeids := make(map[int][]*Holding)
 	for i := range nodes {
-		if nodes[i].holding_asset == nil {
+		if nodes[i].asset_holdings == nil {
 			continue
 		}
-		fk := *nodes[i].holding_asset
+		fk := *nodes[i].asset_holdings
 		if _, ok := nodeids[fk]; !ok {
 			ids = append(ids, fk)
 		}
@@ -519,7 +519,7 @@ func (hq *HoldingQuery) loadAsset(ctx context.Context, query *AssetQuery, nodes 
 	for _, n := range neighbors {
 		nodes, ok := nodeids[n.ID]
 		if !ok {
-			return fmt.Errorf(`unexpected foreign-key "holding_asset" returned %v`, n.ID)
+			return fmt.Errorf(`unexpected foreign-key "asset_holdings" returned %v`, n.ID)
 		}
 		for i := range nodes {
 			assign(nodes[i], n)

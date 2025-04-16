@@ -10,7 +10,6 @@ import (
 	models "github.com/foxcool/greedy-eye/internal/api/models"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	_ "google.golang.org/protobuf/types/known/emptypb"
 	fieldmaskpb "google.golang.org/protobuf/types/known/fieldmaskpb"
 	reflect "reflect"
 	sync "sync"
@@ -88,7 +87,7 @@ var File_api_services_user_service_proto protoreflect.FileDescriptor
 
 const file_api_services_user_service_proto_rawDesc = "" +
 	"\n" +
-	"\x1fapi/services/user_service.proto\x12\bservices\x1a\x1bgoogle/protobuf/empty.proto\x1a google/protobuf/field_mask.proto\x1a\x15api/models/user.proto\x1a\x18api/models/account.proto\x1a\"api/services/storage_service.proto\"\xb1\x02\n" +
+	"\x1fapi/services/user_service.proto\x12\bservices\x1a google/protobuf/field_mask.proto\x1a\x15api/models/user.proto\"\xb1\x02\n" +
 	"\x1cUpdateUserPreferencesRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12s\n" +
 	"\x15preferences_to_update\x18\x02 \x03(\v2?.services.UpdateUserPreferencesRequest.PreferencesToUpdateEntryR\x13preferencesToUpdate\x12;\n" +
@@ -136,7 +135,6 @@ func file_api_services_user_service_proto_init() {
 	if File_api_services_user_service_proto != nil {
 		return
 	}
-	file_api_services_storage_service_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -5,12 +5,12 @@ package enttest
 import (
 	"context"
 
-	"github.com/foxcool/greedy-eye/pkg/ent"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent"
 	// required by schema hooks.
-	_ "github.com/foxcool/greedy-eye/pkg/ent/runtime"
+	_ "github.com/foxcool/greedy-eye/internal/services/storage/ent/runtime"
 
 	"entgo.io/ent/dialect/sql/schema"
-	"github.com/foxcool/greedy-eye/pkg/ent/migrate"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/migrate"
 )
 
 type (

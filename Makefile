@@ -23,11 +23,10 @@ endif
 	$(shell find api -name "*.proto")
 	@echo "Protobuf files generated in internal/"
 
-# Generate other code (e.g., ent)
+# Generate other code
 generate:
-	@ echo "generate: This command is temporarily disabled"
-	# @echo "Generating code..."
-	# go generate ./... # ToDo: uncomment when adding go:generate directives (e.g., for Ent)
+	@echo "Generating code..."
+	go generate ./...
 
 # Run default/development profile services in detached mode
 up:

@@ -22,10 +22,8 @@ type Tx struct {
 	Portfolio *PortfolioClient
 	// Price is the client for interacting with the Price builders.
 	Price *PriceClient
-	// Setting is the client for interacting with the Setting builders.
-	Setting *SettingClient
-	// Tag is the client for interacting with the Tag builders.
-	Tag *TagClient
+	// Transaction is the client for interacting with the Transaction builders.
+	Transaction *TransactionClient
 	// User is the client for interacting with the User builders.
 	User *UserClient
 
@@ -164,8 +162,7 @@ func (tx *Tx) init() {
 	tx.Holding = NewHoldingClient(tx.config)
 	tx.Portfolio = NewPortfolioClient(tx.config)
 	tx.Price = NewPriceClient(tx.config)
-	tx.Setting = NewSettingClient(tx.config)
-	tx.Tag = NewTagClient(tx.config)
+	tx.Transaction = NewTransactionClient(tx.config)
 	tx.User = NewUserClient(tx.config)
 }
 

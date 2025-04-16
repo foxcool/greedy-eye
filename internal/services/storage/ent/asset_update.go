@@ -9,11 +9,12 @@ import (
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
-	"github.com/foxcool/greedy-eye/pkg/ent/asset"
-	"github.com/foxcool/greedy-eye/pkg/ent/holding"
-	"github.com/foxcool/greedy-eye/pkg/ent/predicate"
-	"github.com/foxcool/greedy-eye/pkg/ent/tag"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/predicate"
+	"github.com/google/uuid"
 )
 
 // AssetUpdate is the builder for updating Asset entities.
@@ -26,6 +27,74 @@ type AssetUpdate struct {
 // Where appends a list predicates to the AssetUpdate builder.
 func (au *AssetUpdate) Where(ps ...predicate.Asset) *AssetUpdate {
 	au.mutation.Where(ps...)
+	return au
+}
+
+// SetUUID sets the "uuid" field.
+func (au *AssetUpdate) SetUUID(u uuid.UUID) *AssetUpdate {
+	au.mutation.SetUUID(u)
+	return au
+}
+
+// SetNillableUUID sets the "uuid" field if the given value is not nil.
+func (au *AssetUpdate) SetNillableUUID(u *uuid.UUID) *AssetUpdate {
+	if u != nil {
+		au.SetUUID(*u)
+	}
+	return au
+}
+
+// SetSymbol sets the "symbol" field.
+func (au *AssetUpdate) SetSymbol(s string) *AssetUpdate {
+	au.mutation.SetSymbol(s)
+	return au
+}
+
+// SetNillableSymbol sets the "symbol" field if the given value is not nil.
+func (au *AssetUpdate) SetNillableSymbol(s *string) *AssetUpdate {
+	if s != nil {
+		au.SetSymbol(*s)
+	}
+	return au
+}
+
+// SetName sets the "name" field.
+func (au *AssetUpdate) SetName(s string) *AssetUpdate {
+	au.mutation.SetName(s)
+	return au
+}
+
+// SetNillableName sets the "name" field if the given value is not nil.
+func (au *AssetUpdate) SetNillableName(s *string) *AssetUpdate {
+	if s != nil {
+		au.SetName(*s)
+	}
+	return au
+}
+
+// SetType sets the "type" field.
+func (au *AssetUpdate) SetType(a asset.Type) *AssetUpdate {
+	au.mutation.SetType(a)
+	return au
+}
+
+// SetNillableType sets the "type" field if the given value is not nil.
+func (au *AssetUpdate) SetNillableType(a *asset.Type) *AssetUpdate {
+	if a != nil {
+		au.SetType(*a)
+	}
+	return au
+}
+
+// SetTags sets the "tags" field.
+func (au *AssetUpdate) SetTags(s []string) *AssetUpdate {
+	au.mutation.SetTags(s)
+	return au
+}
+
+// AppendTags appends s to the "tags" field.
+func (au *AssetUpdate) AppendTags(s []string) *AssetUpdate {
+	au.mutation.AppendTags(s)
 	return au
 }
 
@@ -42,21 +111,6 @@ func (au *AssetUpdate) AddHoldings(h ...*Holding) *AssetUpdate {
 		ids[i] = h[i].ID
 	}
 	return au.AddHoldingIDs(ids...)
-}
-
-// AddTagIDs adds the "tags" edge to the Tag entity by IDs.
-func (au *AssetUpdate) AddTagIDs(ids ...int) *AssetUpdate {
-	au.mutation.AddTagIDs(ids...)
-	return au
-}
-
-// AddTags adds the "tags" edges to the Tag entity.
-func (au *AssetUpdate) AddTags(t ...*Tag) *AssetUpdate {
-	ids := make([]int, len(t))
-	for i := range t {
-		ids[i] = t[i].ID
-	}
-	return au.AddTagIDs(ids...)
 }
 
 // Mutation returns the AssetMutation object of the builder.
@@ -83,27 +137,6 @@ func (au *AssetUpdate) RemoveHoldings(h ...*Holding) *AssetUpdate {
 		ids[i] = h[i].ID
 	}
 	return au.RemoveHoldingIDs(ids...)
-}
-
-// ClearTags clears all "tags" edges to the Tag entity.
-func (au *AssetUpdate) ClearTags() *AssetUpdate {
-	au.mutation.ClearTags()
-	return au
-}
-
-// RemoveTagIDs removes the "tags" edge to Tag entities by IDs.
-func (au *AssetUpdate) RemoveTagIDs(ids ...int) *AssetUpdate {
-	au.mutation.RemoveTagIDs(ids...)
-	return au
-}
-
-// RemoveTags removes "tags" edges to Tag entities.
-func (au *AssetUpdate) RemoveTags(t ...*Tag) *AssetUpdate {
-	ids := make([]int, len(t))
-	for i := range t {
-		ids[i] = t[i].ID
-	}
-	return au.RemoveTagIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -133,7 +166,20 @@ func (au *AssetUpdate) ExecX(ctx context.Context) {
 	}
 }
 
+// check runs all checks and user-defined validators on the builder.
+func (au *AssetUpdate) check() error {
+	if v, ok := au.mutation.GetType(); ok {
+		if err := asset.TypeValidator(v); err != nil {
+			return &ValidationError{Name: "type", err: fmt.Errorf(`ent: validator failed for field "Asset.type": %w`, err)}
+		}
+	}
+	return nil
+}
+
 func (au *AssetUpdate) sqlSave(ctx context.Context) (n int, err error) {
+	if err := au.check(); err != nil {
+		return n, err
+	}
 	_spec := sqlgraph.NewUpdateSpec(asset.Table, asset.Columns, sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt))
 	if ps := au.mutation.predicates; len(ps) > 0 {
 		_spec.Predicate = func(selector *sql.Selector) {
@@ -142,10 +188,30 @@ func (au *AssetUpdate) sqlSave(ctx context.Context) (n int, err error) {
 			}
 		}
 	}
+	if value, ok := au.mutation.UUID(); ok {
+		_spec.SetField(asset.FieldUUID, field.TypeUUID, value)
+	}
+	if value, ok := au.mutation.Symbol(); ok {
+		_spec.SetField(asset.FieldSymbol, field.TypeString, value)
+	}
+	if value, ok := au.mutation.Name(); ok {
+		_spec.SetField(asset.FieldName, field.TypeString, value)
+	}
+	if value, ok := au.mutation.GetType(); ok {
+		_spec.SetField(asset.FieldType, field.TypeEnum, value)
+	}
+	if value, ok := au.mutation.Tags(); ok {
+		_spec.SetField(asset.FieldTags, field.TypeJSON, value)
+	}
+	if value, ok := au.mutation.AppendedTags(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, asset.FieldTags, value)
+		})
+	}
 	if au.mutation.HoldingsCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
-			Inverse: true,
+			Inverse: false,
 			Table:   asset.HoldingsTable,
 			Columns: []string{asset.HoldingsColumn},
 			Bidi:    false,
@@ -158,7 +224,7 @@ func (au *AssetUpdate) sqlSave(ctx context.Context) (n int, err error) {
 	if nodes := au.mutation.RemovedHoldingsIDs(); len(nodes) > 0 && !au.mutation.HoldingsCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
-			Inverse: true,
+			Inverse: false,
 			Table:   asset.HoldingsTable,
 			Columns: []string{asset.HoldingsColumn},
 			Bidi:    false,
@@ -174,57 +240,12 @@ func (au *AssetUpdate) sqlSave(ctx context.Context) (n int, err error) {
 	if nodes := au.mutation.HoldingsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
-			Inverse: true,
+			Inverse: false,
 			Table:   asset.HoldingsTable,
 			Columns: []string{asset.HoldingsColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(holding.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if au.mutation.TagsCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: true,
-			Table:   asset.TagsTable,
-			Columns: asset.TagsPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(tag.FieldID, field.TypeInt),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := au.mutation.RemovedTagsIDs(); len(nodes) > 0 && !au.mutation.TagsCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: true,
-			Table:   asset.TagsTable,
-			Columns: asset.TagsPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(tag.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := au.mutation.TagsIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: true,
-			Table:   asset.TagsTable,
-			Columns: asset.TagsPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(tag.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -252,6 +273,74 @@ type AssetUpdateOne struct {
 	mutation *AssetMutation
 }
 
+// SetUUID sets the "uuid" field.
+func (auo *AssetUpdateOne) SetUUID(u uuid.UUID) *AssetUpdateOne {
+	auo.mutation.SetUUID(u)
+	return auo
+}
+
+// SetNillableUUID sets the "uuid" field if the given value is not nil.
+func (auo *AssetUpdateOne) SetNillableUUID(u *uuid.UUID) *AssetUpdateOne {
+	if u != nil {
+		auo.SetUUID(*u)
+	}
+	return auo
+}
+
+// SetSymbol sets the "symbol" field.
+func (auo *AssetUpdateOne) SetSymbol(s string) *AssetUpdateOne {
+	auo.mutation.SetSymbol(s)
+	return auo
+}
+
+// SetNillableSymbol sets the "symbol" field if the given value is not nil.
+func (auo *AssetUpdateOne) SetNillableSymbol(s *string) *AssetUpdateOne {
+	if s != nil {
+		auo.SetSymbol(*s)
+	}
+	return auo
+}
+
+// SetName sets the "name" field.
+func (auo *AssetUpdateOne) SetName(s string) *AssetUpdateOne {
+	auo.mutation.SetName(s)
+	return auo
+}
+
+// SetNillableName sets the "name" field if the given value is not nil.
+func (auo *AssetUpdateOne) SetNillableName(s *string) *AssetUpdateOne {
+	if s != nil {
+		auo.SetName(*s)
+	}
+	return auo
+}
+
+// SetType sets the "type" field.
+func (auo *AssetUpdateOne) SetType(a asset.Type) *AssetUpdateOne {
+	auo.mutation.SetType(a)
+	return auo
+}
+
+// SetNillableType sets the "type" field if the given value is not nil.
+func (auo *AssetUpdateOne) SetNillableType(a *asset.Type) *AssetUpdateOne {
+	if a != nil {
+		auo.SetType(*a)
+	}
+	return auo
+}
+
+// SetTags sets the "tags" field.
+func (auo *AssetUpdateOne) SetTags(s []string) *AssetUpdateOne {
+	auo.mutation.SetTags(s)
+	return auo
+}
+
+// AppendTags appends s to the "tags" field.
+func (auo *AssetUpdateOne) AppendTags(s []string) *AssetUpdateOne {
+	auo.mutation.AppendTags(s)
+	return auo
+}
+
 // AddHoldingIDs adds the "holdings" edge to the Holding entity by IDs.
 func (auo *AssetUpdateOne) AddHoldingIDs(ids ...int) *AssetUpdateOne {
 	auo.mutation.AddHoldingIDs(ids...)
@@ -265,21 +354,6 @@ func (auo *AssetUpdateOne) AddHoldings(h ...*Holding) *AssetUpdateOne {
 		ids[i] = h[i].ID
 	}
 	return auo.AddHoldingIDs(ids...)
-}
-
-// AddTagIDs adds the "tags" edge to the Tag entity by IDs.
-func (auo *AssetUpdateOne) AddTagIDs(ids ...int) *AssetUpdateOne {
-	auo.mutation.AddTagIDs(ids...)
-	return auo
-}
-
-// AddTags adds the "tags" edges to the Tag entity.
-func (auo *AssetUpdateOne) AddTags(t ...*Tag) *AssetUpdateOne {
-	ids := make([]int, len(t))
-	for i := range t {
-		ids[i] = t[i].ID
-	}
-	return auo.AddTagIDs(ids...)
 }
 
 // Mutation returns the AssetMutation object of the builder.
@@ -306,27 +380,6 @@ func (auo *AssetUpdateOne) RemoveHoldings(h ...*Holding) *AssetUpdateOne {
 		ids[i] = h[i].ID
 	}
 	return auo.RemoveHoldingIDs(ids...)
-}
-
-// ClearTags clears all "tags" edges to the Tag entity.
-func (auo *AssetUpdateOne) ClearTags() *AssetUpdateOne {
-	auo.mutation.ClearTags()
-	return auo
-}
-
-// RemoveTagIDs removes the "tags" edge to Tag entities by IDs.
-func (auo *AssetUpdateOne) RemoveTagIDs(ids ...int) *AssetUpdateOne {
-	auo.mutation.RemoveTagIDs(ids...)
-	return auo
-}
-
-// RemoveTags removes "tags" edges to Tag entities.
-func (auo *AssetUpdateOne) RemoveTags(t ...*Tag) *AssetUpdateOne {
-	ids := make([]int, len(t))
-	for i := range t {
-		ids[i] = t[i].ID
-	}
-	return auo.RemoveTagIDs(ids...)
 }
 
 // Where appends a list predicates to the AssetUpdate builder.
@@ -369,7 +422,20 @@ func (auo *AssetUpdateOne) ExecX(ctx context.Context) {
 	}
 }
 
+// check runs all checks and user-defined validators on the builder.
+func (auo *AssetUpdateOne) check() error {
+	if v, ok := auo.mutation.GetType(); ok {
+		if err := asset.TypeValidator(v); err != nil {
+			return &ValidationError{Name: "type", err: fmt.Errorf(`ent: validator failed for field "Asset.type": %w`, err)}
+		}
+	}
+	return nil
+}
+
 func (auo *AssetUpdateOne) sqlSave(ctx context.Context) (_node *Asset, err error) {
+	if err := auo.check(); err != nil {
+		return _node, err
+	}
 	_spec := sqlgraph.NewUpdateSpec(asset.Table, asset.Columns, sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt))
 	id, ok := auo.mutation.ID()
 	if !ok {
@@ -395,10 +461,30 @@ func (auo *AssetUpdateOne) sqlSave(ctx context.Context) (_node *Asset, err error
 			}
 		}
 	}
+	if value, ok := auo.mutation.UUID(); ok {
+		_spec.SetField(asset.FieldUUID, field.TypeUUID, value)
+	}
+	if value, ok := auo.mutation.Symbol(); ok {
+		_spec.SetField(asset.FieldSymbol, field.TypeString, value)
+	}
+	if value, ok := auo.mutation.Name(); ok {
+		_spec.SetField(asset.FieldName, field.TypeString, value)
+	}
+	if value, ok := auo.mutation.GetType(); ok {
+		_spec.SetField(asset.FieldType, field.TypeEnum, value)
+	}
+	if value, ok := auo.mutation.Tags(); ok {
+		_spec.SetField(asset.FieldTags, field.TypeJSON, value)
+	}
+	if value, ok := auo.mutation.AppendedTags(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, asset.FieldTags, value)
+		})
+	}
 	if auo.mutation.HoldingsCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
-			Inverse: true,
+			Inverse: false,
 			Table:   asset.HoldingsTable,
 			Columns: []string{asset.HoldingsColumn},
 			Bidi:    false,
@@ -411,7 +497,7 @@ func (auo *AssetUpdateOne) sqlSave(ctx context.Context) (_node *Asset, err error
 	if nodes := auo.mutation.RemovedHoldingsIDs(); len(nodes) > 0 && !auo.mutation.HoldingsCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
-			Inverse: true,
+			Inverse: false,
 			Table:   asset.HoldingsTable,
 			Columns: []string{asset.HoldingsColumn},
 			Bidi:    false,
@@ -427,57 +513,12 @@ func (auo *AssetUpdateOne) sqlSave(ctx context.Context) (_node *Asset, err error
 	if nodes := auo.mutation.HoldingsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
-			Inverse: true,
+			Inverse: false,
 			Table:   asset.HoldingsTable,
 			Columns: []string{asset.HoldingsColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(holding.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if auo.mutation.TagsCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: true,
-			Table:   asset.TagsTable,
-			Columns: asset.TagsPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(tag.FieldID, field.TypeInt),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := auo.mutation.RemovedTagsIDs(); len(nodes) > 0 && !auo.mutation.TagsCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: true,
-			Table:   asset.TagsTable,
-			Columns: asset.TagsPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(tag.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := auo.mutation.TagsIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2M,
-			Inverse: true,
-			Table:   asset.TagsTable,
-			Columns: asset.TagsPrimaryKey,
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(tag.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

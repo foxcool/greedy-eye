@@ -9,20 +9,19 @@ import (
 	"log"
 	"reflect"
 
-	"github.com/foxcool/greedy-eye/pkg/ent/migrate"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/migrate"
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
-	"github.com/foxcool/greedy-eye/pkg/ent/account"
-	"github.com/foxcool/greedy-eye/pkg/ent/asset"
-	"github.com/foxcool/greedy-eye/pkg/ent/holding"
-	"github.com/foxcool/greedy-eye/pkg/ent/portfolio"
-	"github.com/foxcool/greedy-eye/pkg/ent/price"
-	"github.com/foxcool/greedy-eye/pkg/ent/setting"
-	"github.com/foxcool/greedy-eye/pkg/ent/tag"
-	"github.com/foxcool/greedy-eye/pkg/ent/user"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/account"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/portfolio"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/price"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/transaction"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/user"
 )
 
 // Client is the client that holds all ent builders.
@@ -40,10 +39,8 @@ type Client struct {
 	Portfolio *PortfolioClient
 	// Price is the client for interacting with the Price builders.
 	Price *PriceClient
-	// Setting is the client for interacting with the Setting builders.
-	Setting *SettingClient
-	// Tag is the client for interacting with the Tag builders.
-	Tag *TagClient
+	// Transaction is the client for interacting with the Transaction builders.
+	Transaction *TransactionClient
 	// User is the client for interacting with the User builders.
 	User *UserClient
 }
@@ -62,8 +59,7 @@ func (c *Client) init() {
 	c.Holding = NewHoldingClient(c.config)
 	c.Portfolio = NewPortfolioClient(c.config)
 	c.Price = NewPriceClient(c.config)
-	c.Setting = NewSettingClient(c.config)
-	c.Tag = NewTagClient(c.config)
+	c.Transaction = NewTransactionClient(c.config)
 	c.User = NewUserClient(c.config)
 }
 
@@ -155,16 +151,15 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 	cfg := c.config
 	cfg.driver = tx
 	return &Tx{
-		ctx:       ctx,
-		config:    cfg,
-		Account:   NewAccountClient(cfg),
-		Asset:     NewAssetClient(cfg),
-		Holding:   NewHoldingClient(cfg),
-		Portfolio: NewPortfolioClient(cfg),
-		Price:     NewPriceClient(cfg),
-		Setting:   NewSettingClient(cfg),
-		Tag:       NewTagClient(cfg),
-		User:      NewUserClient(cfg),
+		ctx:         ctx,
+		config:      cfg,
+		Account:     NewAccountClient(cfg),
+		Asset:       NewAssetClient(cfg),
+		Holding:     NewHoldingClient(cfg),
+		Portfolio:   NewPortfolioClient(cfg),
+		Price:       NewPriceClient(cfg),
+		Transaction: NewTransactionClient(cfg),
+		User:        NewUserClient(cfg),
 	}, nil
 }
 
@@ -182,16 +177,15 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 	cfg := c.config
 	cfg.driver = &txDriver{tx: tx, drv: c.driver}
 	return &Tx{
-		ctx:       ctx,
-		config:    cfg,
-		Account:   NewAccountClient(cfg),
-		Asset:     NewAssetClient(cfg),
-		Holding:   NewHoldingClient(cfg),
-		Portfolio: NewPortfolioClient(cfg),
-		Price:     NewPriceClient(cfg),
-		Setting:   NewSettingClient(cfg),
-		Tag:       NewTagClient(cfg),
-		User:      NewUserClient(cfg),
+		ctx:         ctx,
+		config:      cfg,
+		Account:     NewAccountClient(cfg),
+		Asset:       NewAssetClient(cfg),
+		Holding:     NewHoldingClient(cfg),
+		Portfolio:   NewPortfolioClient(cfg),
+		Price:       NewPriceClient(cfg),
+		Transaction: NewTransactionClient(cfg),
+		User:        NewUserClient(cfg),
 	}, nil
 }
 
@@ -221,7 +215,7 @@ func (c *Client) Close() error {
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
-		c.Account, c.Asset, c.Holding, c.Portfolio, c.Price, c.Setting, c.Tag, c.User,
+		c.Account, c.Asset, c.Holding, c.Portfolio, c.Price, c.Transaction, c.User,
 	} {
 		n.Use(hooks...)
 	}
@@ -231,7 +225,7 @@ func (c *Client) Use(hooks ...Hook) {
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
-		c.Account, c.Asset, c.Holding, c.Portfolio, c.Price, c.Setting, c.Tag, c.User,
+		c.Account, c.Asset, c.Holding, c.Portfolio, c.Price, c.Transaction, c.User,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -250,10 +244,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.Portfolio.mutate(ctx, m)
 	case *PriceMutation:
 		return c.Price.mutate(ctx, m)
-	case *SettingMutation:
-		return c.Setting.mutate(ctx, m)
-	case *TagMutation:
-		return c.Tag.mutate(ctx, m)
+	case *TransactionMutation:
+		return c.Transaction.mutate(ctx, m)
 	case *UserMutation:
 		return c.User.mutate(ctx, m)
 	default:
@@ -369,15 +361,15 @@ func (c *AccountClient) GetX(ctx context.Context, id int) *Account {
 	return obj
 }
 
-// QueryOwner queries the owner edge of a Account.
-func (c *AccountClient) QueryOwner(a *Account) *UserQuery {
+// QueryUser queries the user edge of a Account.
+func (c *AccountClient) QueryUser(a *Account) *UserQuery {
 	query := (&UserClient{config: c.config}).Query()
 	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
 		id := a.ID
 		step := sqlgraph.NewStep(
 			sqlgraph.From(account.Table, account.FieldID, id),
 			sqlgraph.To(user.Table, user.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, account.OwnerTable, account.OwnerColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, account.UserTable, account.UserColumn),
 		)
 		fromV = sqlgraph.Neighbors(a.driver.Dialect(), step)
 		return fromV, nil
@@ -542,23 +534,7 @@ func (c *AssetClient) QueryHoldings(a *Asset) *HoldingQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(asset.Table, asset.FieldID, id),
 			sqlgraph.To(holding.Table, holding.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, true, asset.HoldingsTable, asset.HoldingsColumn),
-		)
-		fromV = sqlgraph.Neighbors(a.driver.Dialect(), step)
-		return fromV, nil
-	}
-	return query
-}
-
-// QueryTags queries the tags edge of a Asset.
-func (c *AssetClient) QueryTags(a *Asset) *TagQuery {
-	query := (&TagClient{config: c.config}).Query()
-	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
-		id := a.ID
-		step := sqlgraph.NewStep(
-			sqlgraph.From(asset.Table, asset.FieldID, id),
-			sqlgraph.To(tag.Table, tag.FieldID),
-			sqlgraph.Edge(sqlgraph.M2M, true, asset.TagsTable, asset.TagsPrimaryKey...),
+			sqlgraph.Edge(sqlgraph.O2M, false, asset.HoldingsTable, asset.HoldingsColumn),
 		)
 		fromV = sqlgraph.Neighbors(a.driver.Dialect(), step)
 		return fromV, nil
@@ -707,7 +683,7 @@ func (c *HoldingClient) QueryAsset(h *Holding) *AssetQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(holding.Table, holding.FieldID, id),
 			sqlgraph.To(asset.Table, asset.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, false, holding.AssetTable, holding.AssetColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, holding.AssetTable, holding.AssetColumn),
 		)
 		fromV = sqlgraph.Neighbors(h.driver.Dialect(), step)
 		return fromV, nil
@@ -880,15 +856,15 @@ func (c *PortfolioClient) GetX(ctx context.Context, id int) *Portfolio {
 	return obj
 }
 
-// QueryOwners queries the owners edge of a Portfolio.
-func (c *PortfolioClient) QueryOwners(po *Portfolio) *UserQuery {
+// QueryUser queries the user edge of a Portfolio.
+func (c *PortfolioClient) QueryUser(po *Portfolio) *UserQuery {
 	query := (&UserClient{config: c.config}).Query()
 	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
 		id := po.ID
 		step := sqlgraph.NewStep(
 			sqlgraph.From(portfolio.Table, portfolio.FieldID, id),
 			sqlgraph.To(user.Table, user.FieldID),
-			sqlgraph.Edge(sqlgraph.M2M, true, portfolio.OwnersTable, portfolio.OwnersPrimaryKey...),
+			sqlgraph.Edge(sqlgraph.M2O, true, portfolio.UserTable, portfolio.UserColumn),
 		)
 		fromV = sqlgraph.Neighbors(po.driver.Dialect(), step)
 		return fromV, nil
@@ -905,22 +881,6 @@ func (c *PortfolioClient) QueryHoldings(po *Portfolio) *HoldingQuery {
 			sqlgraph.From(portfolio.Table, portfolio.FieldID, id),
 			sqlgraph.To(holding.Table, holding.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, portfolio.HoldingsTable, portfolio.HoldingsColumn),
-		)
-		fromV = sqlgraph.Neighbors(po.driver.Dialect(), step)
-		return fromV, nil
-	}
-	return query
-}
-
-// QueryTags queries the tags edge of a Portfolio.
-func (c *PortfolioClient) QueryTags(po *Portfolio) *TagQuery {
-	query := (&TagClient{config: c.config}).Query()
-	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
-		id := po.ID
-		step := sqlgraph.NewStep(
-			sqlgraph.From(portfolio.Table, portfolio.FieldID, id),
-			sqlgraph.To(tag.Table, tag.FieldID),
-			sqlgraph.Edge(sqlgraph.M2M, true, portfolio.TagsTable, portfolio.TagsPrimaryKey...),
 		)
 		fromV = sqlgraph.Neighbors(po.driver.Dialect(), step)
 		return fromV, nil
@@ -1061,6 +1021,22 @@ func (c *PriceClient) GetX(ctx context.Context, id int) *Price {
 	return obj
 }
 
+// QueryAsset queries the asset edge of a Price.
+func (c *PriceClient) QueryAsset(pr *Price) *AssetQuery {
+	query := (&AssetClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := pr.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(price.Table, price.FieldID, id),
+			sqlgraph.To(asset.Table, asset.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, price.AssetTable, price.AssetColumn),
+		)
+		fromV = sqlgraph.Neighbors(pr.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryBaseAsset queries the base_asset edge of a Price.
 func (c *PriceClient) QueryBaseAsset(pr *Price) *AssetQuery {
 	query := (&AssetClient{config: c.config}).Query()
@@ -1069,23 +1045,7 @@ func (c *PriceClient) QueryBaseAsset(pr *Price) *AssetQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(price.Table, price.FieldID, id),
 			sqlgraph.To(asset.Table, asset.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, false, price.BaseAssetTable, price.BaseAssetColumn),
-		)
-		fromV = sqlgraph.Neighbors(pr.driver.Dialect(), step)
-		return fromV, nil
-	}
-	return query
-}
-
-// QueryQuoteAsset queries the quote_asset edge of a Price.
-func (c *PriceClient) QueryQuoteAsset(pr *Price) *AssetQuery {
-	query := (&AssetClient{config: c.config}).Query()
-	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
-		id := pr.ID
-		step := sqlgraph.NewStep(
-			sqlgraph.From(price.Table, price.FieldID, id),
-			sqlgraph.To(asset.Table, asset.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, false, price.QuoteAssetTable, price.QuoteAssetColumn),
+			sqlgraph.Edge(sqlgraph.O2M, false, price.BaseAssetTable, price.BaseAssetColumn),
 		)
 		fromV = sqlgraph.Neighbors(pr.driver.Dialect(), step)
 		return fromV, nil
@@ -1118,256 +1078,107 @@ func (c *PriceClient) mutate(ctx context.Context, m *PriceMutation) (Value, erro
 	}
 }
 
-// SettingClient is a client for the Setting schema.
-type SettingClient struct {
+// TransactionClient is a client for the Transaction schema.
+type TransactionClient struct {
 	config
 }
 
-// NewSettingClient returns a client for the Setting from the given config.
-func NewSettingClient(c config) *SettingClient {
-	return &SettingClient{config: c}
+// NewTransactionClient returns a client for the Transaction from the given config.
+func NewTransactionClient(c config) *TransactionClient {
+	return &TransactionClient{config: c}
 }
 
 // Use adds a list of mutation hooks to the hooks stack.
-// A call to `Use(f, g, h)` equals to `setting.Hooks(f(g(h())))`.
-func (c *SettingClient) Use(hooks ...Hook) {
-	c.hooks.Setting = append(c.hooks.Setting, hooks...)
+// A call to `Use(f, g, h)` equals to `transaction.Hooks(f(g(h())))`.
+func (c *TransactionClient) Use(hooks ...Hook) {
+	c.hooks.Transaction = append(c.hooks.Transaction, hooks...)
 }
 
 // Intercept adds a list of query interceptors to the interceptors stack.
-// A call to `Intercept(f, g, h)` equals to `setting.Intercept(f(g(h())))`.
-func (c *SettingClient) Intercept(interceptors ...Interceptor) {
-	c.inters.Setting = append(c.inters.Setting, interceptors...)
+// A call to `Intercept(f, g, h)` equals to `transaction.Intercept(f(g(h())))`.
+func (c *TransactionClient) Intercept(interceptors ...Interceptor) {
+	c.inters.Transaction = append(c.inters.Transaction, interceptors...)
 }
 
-// Create returns a builder for creating a Setting entity.
-func (c *SettingClient) Create() *SettingCreate {
-	mutation := newSettingMutation(c.config, OpCreate)
-	return &SettingCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+// Create returns a builder for creating a Transaction entity.
+func (c *TransactionClient) Create() *TransactionCreate {
+	mutation := newTransactionMutation(c.config, OpCreate)
+	return &TransactionCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
 }
 
-// CreateBulk returns a builder for creating a bulk of Setting entities.
-func (c *SettingClient) CreateBulk(builders ...*SettingCreate) *SettingCreateBulk {
-	return &SettingCreateBulk{config: c.config, builders: builders}
+// CreateBulk returns a builder for creating a bulk of Transaction entities.
+func (c *TransactionClient) CreateBulk(builders ...*TransactionCreate) *TransactionCreateBulk {
+	return &TransactionCreateBulk{config: c.config, builders: builders}
 }
 
 // MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
 // a builder and applies setFunc on it.
-func (c *SettingClient) MapCreateBulk(slice any, setFunc func(*SettingCreate, int)) *SettingCreateBulk {
+func (c *TransactionClient) MapCreateBulk(slice any, setFunc func(*TransactionCreate, int)) *TransactionCreateBulk {
 	rv := reflect.ValueOf(slice)
 	if rv.Kind() != reflect.Slice {
-		return &SettingCreateBulk{err: fmt.Errorf("calling to SettingClient.MapCreateBulk with wrong type %T, need slice", slice)}
+		return &TransactionCreateBulk{err: fmt.Errorf("calling to TransactionClient.MapCreateBulk with wrong type %T, need slice", slice)}
 	}
-	builders := make([]*SettingCreate, rv.Len())
+	builders := make([]*TransactionCreate, rv.Len())
 	for i := 0; i < rv.Len(); i++ {
 		builders[i] = c.Create()
 		setFunc(builders[i], i)
 	}
-	return &SettingCreateBulk{config: c.config, builders: builders}
+	return &TransactionCreateBulk{config: c.config, builders: builders}
 }
 
-// Update returns an update builder for Setting.
-func (c *SettingClient) Update() *SettingUpdate {
-	mutation := newSettingMutation(c.config, OpUpdate)
-	return &SettingUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// UpdateOne returns an update builder for the given entity.
-func (c *SettingClient) UpdateOne(s *Setting) *SettingUpdateOne {
-	mutation := newSettingMutation(c.config, OpUpdateOne, withSetting(s))
-	return &SettingUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// UpdateOneID returns an update builder for the given id.
-func (c *SettingClient) UpdateOneID(id int) *SettingUpdateOne {
-	mutation := newSettingMutation(c.config, OpUpdateOne, withSettingID(id))
-	return &SettingUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// Delete returns a delete builder for Setting.
-func (c *SettingClient) Delete() *SettingDelete {
-	mutation := newSettingMutation(c.config, OpDelete)
-	return &SettingDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// DeleteOne returns a builder for deleting the given entity.
-func (c *SettingClient) DeleteOne(s *Setting) *SettingDeleteOne {
-	return c.DeleteOneID(s.ID)
-}
-
-// DeleteOneID returns a builder for deleting the given entity by its id.
-func (c *SettingClient) DeleteOneID(id int) *SettingDeleteOne {
-	builder := c.Delete().Where(setting.ID(id))
-	builder.mutation.id = &id
-	builder.mutation.op = OpDeleteOne
-	return &SettingDeleteOne{builder}
-}
-
-// Query returns a query builder for Setting.
-func (c *SettingClient) Query() *SettingQuery {
-	return &SettingQuery{
-		config: c.config,
-		ctx:    &QueryContext{Type: TypeSetting},
-		inters: c.Interceptors(),
-	}
-}
-
-// Get returns a Setting entity by its id.
-func (c *SettingClient) Get(ctx context.Context, id int) (*Setting, error) {
-	return c.Query().Where(setting.ID(id)).Only(ctx)
-}
-
-// GetX is like Get, but panics if an error occurs.
-func (c *SettingClient) GetX(ctx context.Context, id int) *Setting {
-	obj, err := c.Get(ctx, id)
-	if err != nil {
-		panic(err)
-	}
-	return obj
-}
-
-// QueryUser queries the user edge of a Setting.
-func (c *SettingClient) QueryUser(s *Setting) *UserQuery {
-	query := (&UserClient{config: c.config}).Query()
-	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
-		id := s.ID
-		step := sqlgraph.NewStep(
-			sqlgraph.From(setting.Table, setting.FieldID, id),
-			sqlgraph.To(user.Table, user.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, setting.UserTable, setting.UserColumn),
-		)
-		fromV = sqlgraph.Neighbors(s.driver.Dialect(), step)
-		return fromV, nil
-	}
-	return query
-}
-
-// Hooks returns the client hooks.
-func (c *SettingClient) Hooks() []Hook {
-	return c.hooks.Setting
-}
-
-// Interceptors returns the client interceptors.
-func (c *SettingClient) Interceptors() []Interceptor {
-	return c.inters.Setting
-}
-
-func (c *SettingClient) mutate(ctx context.Context, m *SettingMutation) (Value, error) {
-	switch m.Op() {
-	case OpCreate:
-		return (&SettingCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpUpdate:
-		return (&SettingUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpUpdateOne:
-		return (&SettingUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
-	case OpDelete, OpDeleteOne:
-		return (&SettingDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
-	default:
-		return nil, fmt.Errorf("ent: unknown Setting mutation op: %q", m.Op())
-	}
-}
-
-// TagClient is a client for the Tag schema.
-type TagClient struct {
-	config
-}
-
-// NewTagClient returns a client for the Tag from the given config.
-func NewTagClient(c config) *TagClient {
-	return &TagClient{config: c}
-}
-
-// Use adds a list of mutation hooks to the hooks stack.
-// A call to `Use(f, g, h)` equals to `tag.Hooks(f(g(h())))`.
-func (c *TagClient) Use(hooks ...Hook) {
-	c.hooks.Tag = append(c.hooks.Tag, hooks...)
-}
-
-// Intercept adds a list of query interceptors to the interceptors stack.
-// A call to `Intercept(f, g, h)` equals to `tag.Intercept(f(g(h())))`.
-func (c *TagClient) Intercept(interceptors ...Interceptor) {
-	c.inters.Tag = append(c.inters.Tag, interceptors...)
-}
-
-// Create returns a builder for creating a Tag entity.
-func (c *TagClient) Create() *TagCreate {
-	mutation := newTagMutation(c.config, OpCreate)
-	return &TagCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
-}
-
-// CreateBulk returns a builder for creating a bulk of Tag entities.
-func (c *TagClient) CreateBulk(builders ...*TagCreate) *TagCreateBulk {
-	return &TagCreateBulk{config: c.config, builders: builders}
-}
-
-// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
-// a builder and applies setFunc on it.
-func (c *TagClient) MapCreateBulk(slice any, setFunc func(*TagCreate, int)) *TagCreateBulk {
-	rv := reflect.ValueOf(slice)
-	if rv.Kind() != reflect.Slice {
-		return &TagCreateBulk{err: fmt.Errorf("calling to TagClient.MapCreateBulk with wrong type %T, need slice", slice)}
-	}
-	builders := make([]*TagCreate, rv.Len())
-	for i := 0; i < rv.Len(); i++ {
-		builders[i] = c.Create()
-		setFunc(builders[i], i)
-	}
-	return &TagCreateBulk{config: c.config, builders: builders}
-}
-
-// Update returns an update builder for Tag.
-func (c *TagClient) Update() *TagUpdate {
-	mutation := newTagMutation(c.config, OpUpdate)
-	return &TagUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+// Update returns an update builder for Transaction.
+func (c *TransactionClient) Update() *TransactionUpdate {
+	mutation := newTransactionMutation(c.config, OpUpdate)
+	return &TransactionUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
 }
 
 // UpdateOne returns an update builder for the given entity.
-func (c *TagClient) UpdateOne(t *Tag) *TagUpdateOne {
-	mutation := newTagMutation(c.config, OpUpdateOne, withTag(t))
-	return &TagUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+func (c *TransactionClient) UpdateOne(t *Transaction) *TransactionUpdateOne {
+	mutation := newTransactionMutation(c.config, OpUpdateOne, withTransaction(t))
+	return &TransactionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
 }
 
 // UpdateOneID returns an update builder for the given id.
-func (c *TagClient) UpdateOneID(id int) *TagUpdateOne {
-	mutation := newTagMutation(c.config, OpUpdateOne, withTagID(id))
-	return &TagUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+func (c *TransactionClient) UpdateOneID(id int) *TransactionUpdateOne {
+	mutation := newTransactionMutation(c.config, OpUpdateOne, withTransactionID(id))
+	return &TransactionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
 }
 
-// Delete returns a delete builder for Tag.
-func (c *TagClient) Delete() *TagDelete {
-	mutation := newTagMutation(c.config, OpDelete)
-	return &TagDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+// Delete returns a delete builder for Transaction.
+func (c *TransactionClient) Delete() *TransactionDelete {
+	mutation := newTransactionMutation(c.config, OpDelete)
+	return &TransactionDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
 }
 
 // DeleteOne returns a builder for deleting the given entity.
-func (c *TagClient) DeleteOne(t *Tag) *TagDeleteOne {
+func (c *TransactionClient) DeleteOne(t *Transaction) *TransactionDeleteOne {
 	return c.DeleteOneID(t.ID)
 }
 
 // DeleteOneID returns a builder for deleting the given entity by its id.
-func (c *TagClient) DeleteOneID(id int) *TagDeleteOne {
-	builder := c.Delete().Where(tag.ID(id))
+func (c *TransactionClient) DeleteOneID(id int) *TransactionDeleteOne {
+	builder := c.Delete().Where(transaction.ID(id))
 	builder.mutation.id = &id
 	builder.mutation.op = OpDeleteOne
-	return &TagDeleteOne{builder}
+	return &TransactionDeleteOne{builder}
 }
 
-// Query returns a query builder for Tag.
-func (c *TagClient) Query() *TagQuery {
-	return &TagQuery{
+// Query returns a query builder for Transaction.
+func (c *TransactionClient) Query() *TransactionQuery {
+	return &TransactionQuery{
 		config: c.config,
-		ctx:    &QueryContext{Type: TypeTag},
+		ctx:    &QueryContext{Type: TypeTransaction},
 		inters: c.Interceptors(),
 	}
 }
 
-// Get returns a Tag entity by its id.
-func (c *TagClient) Get(ctx context.Context, id int) (*Tag, error) {
-	return c.Query().Where(tag.ID(id)).Only(ctx)
+// Get returns a Transaction entity by its id.
+func (c *TransactionClient) Get(ctx context.Context, id int) (*Transaction, error) {
+	return c.Query().Where(transaction.ID(id)).Only(ctx)
 }
 
 // GetX is like Get, but panics if an error occurs.
-func (c *TagClient) GetX(ctx context.Context, id int) *Tag {
+func (c *TransactionClient) GetX(ctx context.Context, id int) *Transaction {
 	obj, err := c.Get(ctx, id)
 	if err != nil {
 		panic(err)
@@ -1375,15 +1186,15 @@ func (c *TagClient) GetX(ctx context.Context, id int) *Tag {
 	return obj
 }
 
-// QueryAssets queries the assets edge of a Tag.
-func (c *TagClient) QueryAssets(t *Tag) *AssetQuery {
-	query := (&AssetClient{config: c.config}).Query()
+// QueryPortfolio queries the portfolio edge of a Transaction.
+func (c *TransactionClient) QueryPortfolio(t *Transaction) *PortfolioQuery {
+	query := (&PortfolioClient{config: c.config}).Query()
 	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
 		id := t.ID
 		step := sqlgraph.NewStep(
-			sqlgraph.From(tag.Table, tag.FieldID, id),
-			sqlgraph.To(asset.Table, asset.FieldID),
-			sqlgraph.Edge(sqlgraph.M2M, false, tag.AssetsTable, tag.AssetsPrimaryKey...),
+			sqlgraph.From(transaction.Table, transaction.FieldID, id),
+			sqlgraph.To(portfolio.Table, portfolio.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, transaction.PortfolioTable, transaction.PortfolioColumn),
 		)
 		fromV = sqlgraph.Neighbors(t.driver.Dialect(), step)
 		return fromV, nil
@@ -1391,15 +1202,47 @@ func (c *TagClient) QueryAssets(t *Tag) *AssetQuery {
 	return query
 }
 
-// QueryPortfolios queries the portfolios edge of a Tag.
-func (c *TagClient) QueryPortfolios(t *Tag) *PortfolioQuery {
-	query := (&PortfolioClient{config: c.config}).Query()
+// QueryAccount queries the account edge of a Transaction.
+func (c *TransactionClient) QueryAccount(t *Transaction) *AccountQuery {
+	query := (&AccountClient{config: c.config}).Query()
 	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
 		id := t.ID
 		step := sqlgraph.NewStep(
-			sqlgraph.From(tag.Table, tag.FieldID, id),
-			sqlgraph.To(portfolio.Table, portfolio.FieldID),
-			sqlgraph.Edge(sqlgraph.M2M, false, tag.PortfoliosTable, tag.PortfoliosPrimaryKey...),
+			sqlgraph.From(transaction.Table, transaction.FieldID, id),
+			sqlgraph.To(account.Table, account.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, transaction.AccountTable, transaction.AccountColumn),
+		)
+		fromV = sqlgraph.Neighbors(t.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryAsset queries the asset edge of a Transaction.
+func (c *TransactionClient) QueryAsset(t *Transaction) *AssetQuery {
+	query := (&AssetClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := t.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(transaction.Table, transaction.FieldID, id),
+			sqlgraph.To(asset.Table, asset.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, transaction.AssetTable, transaction.AssetColumn),
+		)
+		fromV = sqlgraph.Neighbors(t.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryFeeAsset queries the fee_asset edge of a Transaction.
+func (c *TransactionClient) QueryFeeAsset(t *Transaction) *AssetQuery {
+	query := (&AssetClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := t.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(transaction.Table, transaction.FieldID, id),
+			sqlgraph.To(asset.Table, asset.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, transaction.FeeAssetTable, transaction.FeeAssetColumn),
 		)
 		fromV = sqlgraph.Neighbors(t.driver.Dialect(), step)
 		return fromV, nil
@@ -1408,27 +1251,27 @@ func (c *TagClient) QueryPortfolios(t *Tag) *PortfolioQuery {
 }
 
 // Hooks returns the client hooks.
-func (c *TagClient) Hooks() []Hook {
-	return c.hooks.Tag
+func (c *TransactionClient) Hooks() []Hook {
+	return c.hooks.Transaction
 }
 
 // Interceptors returns the client interceptors.
-func (c *TagClient) Interceptors() []Interceptor {
-	return c.inters.Tag
+func (c *TransactionClient) Interceptors() []Interceptor {
+	return c.inters.Transaction
 }
 
-func (c *TagClient) mutate(ctx context.Context, m *TagMutation) (Value, error) {
+func (c *TransactionClient) mutate(ctx context.Context, m *TransactionMutation) (Value, error) {
 	switch m.Op() {
 	case OpCreate:
-		return (&TagCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+		return (&TransactionCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
 	case OpUpdate:
-		return (&TagUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+		return (&TransactionUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
 	case OpUpdateOne:
-		return (&TagUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+		return (&TransactionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
 	case OpDelete, OpDeleteOne:
-		return (&TagDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+		return (&TransactionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
-		return nil, fmt.Errorf("ent: unknown Tag mutation op: %q", m.Op())
+		return nil, fmt.Errorf("ent: unknown Transaction mutation op: %q", m.Op())
 	}
 }
 
@@ -1564,23 +1407,7 @@ func (c *UserClient) QueryPortfolios(u *User) *PortfolioQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(user.Table, user.FieldID, id),
 			sqlgraph.To(portfolio.Table, portfolio.FieldID),
-			sqlgraph.Edge(sqlgraph.M2M, false, user.PortfoliosTable, user.PortfoliosPrimaryKey...),
-		)
-		fromV = sqlgraph.Neighbors(u.driver.Dialect(), step)
-		return fromV, nil
-	}
-	return query
-}
-
-// QuerySettings queries the settings edge of a User.
-func (c *UserClient) QuerySettings(u *User) *SettingQuery {
-	query := (&SettingClient{config: c.config}).Query()
-	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
-		id := u.ID
-		step := sqlgraph.NewStep(
-			sqlgraph.From(user.Table, user.FieldID, id),
-			sqlgraph.To(setting.Table, setting.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, user.SettingsTable, user.SettingsColumn),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.PortfoliosTable, user.PortfoliosColumn),
 		)
 		fromV = sqlgraph.Neighbors(u.driver.Dialect(), step)
 		return fromV, nil
@@ -1616,9 +1443,9 @@ func (c *UserClient) mutate(ctx context.Context, m *UserMutation) (Value, error)
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		Account, Asset, Holding, Portfolio, Price, Setting, Tag, User []ent.Hook
+		Account, Asset, Holding, Portfolio, Price, Transaction, User []ent.Hook
 	}
 	inters struct {
-		Account, Asset, Holding, Portfolio, Price, Setting, Tag, User []ent.Interceptor
+		Account, Asset, Holding, Portfolio, Price, Transaction, User []ent.Interceptor
 	}
 )

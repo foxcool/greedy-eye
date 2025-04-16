@@ -14,6 +14,8 @@ import (
 	"github.com/foxcool/greedy-eye/internal/services/asset"
 	"github.com/foxcool/greedy-eye/internal/services/portfolio"
 	"github.com/foxcool/greedy-eye/internal/services/price"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/migrate"
 	"github.com/foxcool/greedy-eye/internal/services/user"
 	"github.com/getsentry/sentry-go"
 	"go.uber.org/zap"
@@ -49,18 +51,57 @@ func main() {
 			panic(err)
 		}
 	}
-	defer sentry.Flush(2 * time.Second)
+
+	// Initialize database client
+	if config.DB.URL == "" {
+		log.Fatal("Database URL cannot be empty")
+	}
+	client, err := ent.Open("postgres", config.DB.URL)
+	if err != nil {
+		log.Fatal("Failed opening connection to postgres", zap.Error(err))
+	}
+
+	defer func() {
+		log.Info("Closing DB connection, flushing Sentry events, syncing logger...")
+		if err := client.Close(); err != nil {
+			log.Error("Failed closing ent client", zap.Error(err))
+		} else {
+			log.Info("Ent client closed successfully")
+		}
+		sentry.Flush(2 * time.Second)
+		log.Info("Bye")
+		_ = log.Sync()
+	}()
+
+	// ToDo: Only for dev stage of project -> use Atlas migration tool
+	log.Info("Running auto migration...")
+	if err := client.Schema.Create(
+		context.Background(),
+		migrate.WithDropIndex(true),
+		migrate.WithDropColumn(true),
+	); err != nil {
+		log.Fatal("Failed creating schema resources", zap.Error(err))
+	}
+	log.Info("Schema migration completed.")
+
+	log.Info("Ensuring prices table is a hypertable...")
+	_, err = client.DB().ExecContext(context.Background(), "SELECT create_hypertable('prices', 'timestamp', if_not_exists => TRUE);")
+	if err != nil {
+		log.Error("Failed to ensure prices table is a hypertable", zap.Error(err))
+	} else {
+		log.Info("Prices table is now a hypertable (or already was).")
+	}
 
 	// Start subservices and gRPC server
 	server := registerServices(config.Services)
 	go func() {
 		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", config.GRPC.Port))
 		if err != nil {
-			log.Fatal("failed to listen gRPC", zap.Error(err))
+			log.Fatal("Failed to listen gRPC", zap.Error(err))
 		}
 		log.Info("gRPC server started", zap.String("address", listener.Addr().String()), zap.Int("port", config.GRPC.Port))
 		if err := server.Serve(listener); err != nil && err != grpc.ErrServerStopped {
-			log.Fatal("failed to serve gRPC", zap.Error(err))
+			log.Fatal("Failed to serve gRPC", zap.Error(err))
 		}
 	}()
 
@@ -87,16 +128,6 @@ func main() {
 	case <-stopped:
 		log.Info("gRPC server stopped gracefully")
 	}
-
-	// TODO: Close database connection
-
-	// Sentry flush и log sync
-	log.Info("Flushing Sentry events...")
-	sentry.Flush(2 * time.Second)
-	log.Info("Syncing logger...")
-	_ = log.Sync()
-
-	log.Info("Application shut down gracefully.")
 }
 
 func createLogger(level string) (*zap.Logger, error) {
@@ -140,7 +171,7 @@ func registerServices(serviceConfigs []ServiceConfig) *grpc.Server {
 				pricingService := price.NewService()
 				services.RegisterPriceServiceServer(server, pricingService)
 			default:
-				log.Fatal("unknown service type", zap.String("type", service.Type))
+				log.Fatal("Unknown service type", zap.String("type", service.Type))
 			}
 		}
 	}

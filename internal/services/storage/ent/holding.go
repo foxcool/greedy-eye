@@ -5,14 +5,15 @@ package ent
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/foxcool/greedy-eye/pkg/ent/account"
-	"github.com/foxcool/greedy-eye/pkg/ent/asset"
-	"github.com/foxcool/greedy-eye/pkg/ent/holding"
-	"github.com/foxcool/greedy-eye/pkg/ent/portfolio"
-	"github.com/shopspring/decimal"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/account"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/portfolio"
+	"github.com/google/uuid"
 )
 
 // Holding is the model entity for the Holding schema.
@@ -20,13 +21,21 @@ type Holding struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// UUID holds the value of the "uuid" field.
+	UUID uuid.UUID `json:"uuid,omitempty"`
 	// Amount holds the value of the "amount" field.
-	Amount decimal.Decimal `json:"amount,omitempty"`
+	Amount int64 `json:"amount,omitempty"`
+	// Precision holds the value of the "precision" field.
+	Precision uint32 `json:"precision,omitempty"`
+	// CreatedAt holds the value of the "created_at" field.
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	// UpdatedAt holds the value of the "updated_at" field.
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the HoldingQuery when eager-loading is set.
 	Edges              HoldingEdges `json:"edges"`
 	account_holdings   *int
-	holding_asset      *int
+	asset_holdings     *int
 	portfolio_holdings *int
 	selectValues       sql.SelectValues
 }
@@ -82,13 +91,15 @@ func (*Holding) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case holding.FieldAmount:
-			values[i] = new(decimal.Decimal)
-		case holding.FieldID:
+		case holding.FieldID, holding.FieldAmount, holding.FieldPrecision:
 			values[i] = new(sql.NullInt64)
+		case holding.FieldCreatedAt, holding.FieldUpdatedAt:
+			values[i] = new(sql.NullTime)
+		case holding.FieldUUID:
+			values[i] = new(uuid.UUID)
 		case holding.ForeignKeys[0]: // account_holdings
 			values[i] = new(sql.NullInt64)
-		case holding.ForeignKeys[1]: // holding_asset
+		case holding.ForeignKeys[1]: // asset_holdings
 			values[i] = new(sql.NullInt64)
 		case holding.ForeignKeys[2]: // portfolio_holdings
 			values[i] = new(sql.NullInt64)
@@ -113,11 +124,35 @@ func (h *Holding) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			h.ID = int(value.Int64)
-		case holding.FieldAmount:
-			if value, ok := values[i].(*decimal.Decimal); !ok {
-				return fmt.Errorf("unexpected type %T for field amount", values[i])
+		case holding.FieldUUID:
+			if value, ok := values[i].(*uuid.UUID); !ok {
+				return fmt.Errorf("unexpected type %T for field uuid", values[i])
 			} else if value != nil {
-				h.Amount = *value
+				h.UUID = *value
+			}
+		case holding.FieldAmount:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field amount", values[i])
+			} else if value.Valid {
+				h.Amount = value.Int64
+			}
+		case holding.FieldPrecision:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field precision", values[i])
+			} else if value.Valid {
+				h.Precision = uint32(value.Int64)
+			}
+		case holding.FieldCreatedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field created_at", values[i])
+			} else if value.Valid {
+				h.CreatedAt = value.Time
+			}
+		case holding.FieldUpdatedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field updated_at", values[i])
+			} else if value.Valid {
+				h.UpdatedAt = value.Time
 			}
 		case holding.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -128,10 +163,10 @@ func (h *Holding) assignValues(columns []string, values []any) error {
 			}
 		case holding.ForeignKeys[1]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for edge-field holding_asset", value)
+				return fmt.Errorf("unexpected type %T for edge-field asset_holdings", value)
 			} else if value.Valid {
-				h.holding_asset = new(int)
-				*h.holding_asset = int(value.Int64)
+				h.asset_holdings = new(int)
+				*h.asset_holdings = int(value.Int64)
 			}
 		case holding.ForeignKeys[2]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -191,8 +226,20 @@ func (h *Holding) String() string {
 	var builder strings.Builder
 	builder.WriteString("Holding(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", h.ID))
+	builder.WriteString("uuid=")
+	builder.WriteString(fmt.Sprintf("%v", h.UUID))
+	builder.WriteString(", ")
 	builder.WriteString("amount=")
 	builder.WriteString(fmt.Sprintf("%v", h.Amount))
+	builder.WriteString(", ")
+	builder.WriteString("precision=")
+	builder.WriteString(fmt.Sprintf("%v", h.Precision))
+	builder.WriteString(", ")
+	builder.WriteString("created_at=")
+	builder.WriteString(h.CreatedAt.Format(time.ANSIC))
+	builder.WriteString(", ")
+	builder.WriteString("updated_at=")
+	builder.WriteString(h.UpdatedAt.Format(time.ANSIC))
 	builder.WriteByte(')')
 	return builder.String()
 }

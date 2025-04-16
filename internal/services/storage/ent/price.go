@@ -9,9 +9,8 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/foxcool/greedy-eye/pkg/ent/asset"
-	"github.com/foxcool/greedy-eye/pkg/ent/price"
-	"github.com/shopspring/decimal"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/price"
+	"github.com/google/uuid"
 )
 
 // Price is the model entity for the Price schema.
@@ -19,55 +18,63 @@ type Price struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
-	// Source holds the value of the "source" field.
-	Source string `json:"source,omitempty"`
-	// LastPrice holds the value of the "last_price" field.
-	LastPrice decimal.Decimal `json:"last_price,omitempty"`
-	// Ask holds the value of the "ask" field.
-	Ask decimal.Decimal `json:"ask,omitempty"`
-	// Bid holds the value of the "bid" field.
-	Bid decimal.Decimal `json:"bid,omitempty"`
-	// Time holds the value of the "time" field.
-	Time time.Time `json:"time,omitempty"`
+	// UUID holds the value of the "uuid" field.
+	UUID uuid.UUID `json:"uuid,omitempty"`
+	// SourceID holds the value of the "source_id" field.
+	SourceID string `json:"source_id,omitempty"`
+	// Interval holds the value of the "interval" field.
+	Interval string `json:"interval,omitempty"`
+	// Amount holds the value of the "amount" field.
+	Amount int64 `json:"amount,omitempty"`
+	// Precision holds the value of the "precision" field.
+	Precision uint32 `json:"precision,omitempty"`
+	// Open holds the value of the "open" field.
+	Open int64 `json:"open,omitempty"`
+	// High holds the value of the "high" field.
+	High int64 `json:"high,omitempty"`
+	// Low holds the value of the "low" field.
+	Low int64 `json:"low,omitempty"`
+	// Close holds the value of the "close" field.
+	Close int64 `json:"close,omitempty"`
+	// Volume holds the value of the "volume" field.
+	Volume int64 `json:"volume,omitempty"`
+	// CreatedAt holds the value of the "created_at" field.
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	// UpdatedAt holds the value of the "updated_at" field.
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the PriceQuery when eager-loading is set.
-	Edges             PriceEdges `json:"edges"`
-	price_base_asset  *int
-	price_quote_asset *int
-	selectValues      sql.SelectValues
+	Edges        PriceEdges `json:"edges"`
+	selectValues sql.SelectValues
 }
 
 // PriceEdges holds the relations/edges for other nodes in the graph.
 type PriceEdges struct {
+	// Asset holds the value of the asset edge.
+	Asset []*Asset `json:"asset,omitempty"`
 	// BaseAsset holds the value of the base_asset edge.
-	BaseAsset *Asset `json:"base_asset,omitempty"`
-	// QuoteAsset holds the value of the quote_asset edge.
-	QuoteAsset *Asset `json:"quote_asset,omitempty"`
+	BaseAsset []*Asset `json:"base_asset,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
 	loadedTypes [2]bool
 }
 
-// BaseAssetOrErr returns the BaseAsset value or an error if the edge
-// was not loaded in eager-loading, or loaded but was not found.
-func (e PriceEdges) BaseAssetOrErr() (*Asset, error) {
-	if e.BaseAsset != nil {
-		return e.BaseAsset, nil
-	} else if e.loadedTypes[0] {
-		return nil, &NotFoundError{label: asset.Label}
+// AssetOrErr returns the Asset value or an error if the edge
+// was not loaded in eager-loading.
+func (e PriceEdges) AssetOrErr() ([]*Asset, error) {
+	if e.loadedTypes[0] {
+		return e.Asset, nil
 	}
-	return nil, &NotLoadedError{edge: "base_asset"}
+	return nil, &NotLoadedError{edge: "asset"}
 }
 
-// QuoteAssetOrErr returns the QuoteAsset value or an error if the edge
-// was not loaded in eager-loading, or loaded but was not found.
-func (e PriceEdges) QuoteAssetOrErr() (*Asset, error) {
-	if e.QuoteAsset != nil {
-		return e.QuoteAsset, nil
-	} else if e.loadedTypes[1] {
-		return nil, &NotFoundError{label: asset.Label}
+// BaseAssetOrErr returns the BaseAsset value or an error if the edge
+// was not loaded in eager-loading.
+func (e PriceEdges) BaseAssetOrErr() ([]*Asset, error) {
+	if e.loadedTypes[1] {
+		return e.BaseAsset, nil
 	}
-	return nil, &NotLoadedError{edge: "quote_asset"}
+	return nil, &NotLoadedError{edge: "base_asset"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -75,18 +82,14 @@ func (*Price) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case price.FieldLastPrice, price.FieldAsk, price.FieldBid:
-			values[i] = new(decimal.Decimal)
-		case price.FieldID:
+		case price.FieldID, price.FieldAmount, price.FieldPrecision, price.FieldOpen, price.FieldHigh, price.FieldLow, price.FieldClose, price.FieldVolume:
 			values[i] = new(sql.NullInt64)
-		case price.FieldSource:
+		case price.FieldSourceID, price.FieldInterval:
 			values[i] = new(sql.NullString)
-		case price.FieldTime:
+		case price.FieldCreatedAt, price.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
-		case price.ForeignKeys[0]: // price_base_asset
-			values[i] = new(sql.NullInt64)
-		case price.ForeignKeys[1]: // price_quote_asset
-			values[i] = new(sql.NullInt64)
+		case price.FieldUUID:
+			values[i] = new(uuid.UUID)
 		default:
 			values[i] = new(sql.UnknownType)
 		}
@@ -108,49 +111,77 @@ func (pr *Price) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			pr.ID = int(value.Int64)
-		case price.FieldSource:
+		case price.FieldUUID:
+			if value, ok := values[i].(*uuid.UUID); !ok {
+				return fmt.Errorf("unexpected type %T for field uuid", values[i])
+			} else if value != nil {
+				pr.UUID = *value
+			}
+		case price.FieldSourceID:
 			if value, ok := values[i].(*sql.NullString); !ok {
-				return fmt.Errorf("unexpected type %T for field source", values[i])
+				return fmt.Errorf("unexpected type %T for field source_id", values[i])
 			} else if value.Valid {
-				pr.Source = value.String
+				pr.SourceID = value.String
 			}
-		case price.FieldLastPrice:
-			if value, ok := values[i].(*decimal.Decimal); !ok {
-				return fmt.Errorf("unexpected type %T for field last_price", values[i])
-			} else if value != nil {
-				pr.LastPrice = *value
+		case price.FieldInterval:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field interval", values[i])
+			} else if value.Valid {
+				pr.Interval = value.String
 			}
-		case price.FieldAsk:
-			if value, ok := values[i].(*decimal.Decimal); !ok {
-				return fmt.Errorf("unexpected type %T for field ask", values[i])
-			} else if value != nil {
-				pr.Ask = *value
+		case price.FieldAmount:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field amount", values[i])
+			} else if value.Valid {
+				pr.Amount = value.Int64
 			}
-		case price.FieldBid:
-			if value, ok := values[i].(*decimal.Decimal); !ok {
-				return fmt.Errorf("unexpected type %T for field bid", values[i])
-			} else if value != nil {
-				pr.Bid = *value
+		case price.FieldPrecision:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field precision", values[i])
+			} else if value.Valid {
+				pr.Precision = uint32(value.Int64)
 			}
-		case price.FieldTime:
+		case price.FieldOpen:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field open", values[i])
+			} else if value.Valid {
+				pr.Open = value.Int64
+			}
+		case price.FieldHigh:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field high", values[i])
+			} else if value.Valid {
+				pr.High = value.Int64
+			}
+		case price.FieldLow:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field low", values[i])
+			} else if value.Valid {
+				pr.Low = value.Int64
+			}
+		case price.FieldClose:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field close", values[i])
+			} else if value.Valid {
+				pr.Close = value.Int64
+			}
+		case price.FieldVolume:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field volume", values[i])
+			} else if value.Valid {
+				pr.Volume = value.Int64
+			}
+		case price.FieldCreatedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
-				return fmt.Errorf("unexpected type %T for field time", values[i])
+				return fmt.Errorf("unexpected type %T for field created_at", values[i])
 			} else if value.Valid {
-				pr.Time = value.Time
+				pr.CreatedAt = value.Time
 			}
-		case price.ForeignKeys[0]:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for edge-field price_base_asset", value)
+		case price.FieldUpdatedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field updated_at", values[i])
 			} else if value.Valid {
-				pr.price_base_asset = new(int)
-				*pr.price_base_asset = int(value.Int64)
-			}
-		case price.ForeignKeys[1]:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for edge-field price_quote_asset", value)
-			} else if value.Valid {
-				pr.price_quote_asset = new(int)
-				*pr.price_quote_asset = int(value.Int64)
+				pr.UpdatedAt = value.Time
 			}
 		default:
 			pr.selectValues.Set(columns[i], values[i])
@@ -165,14 +196,14 @@ func (pr *Price) Value(name string) (ent.Value, error) {
 	return pr.selectValues.Get(name)
 }
 
+// QueryAsset queries the "asset" edge of the Price entity.
+func (pr *Price) QueryAsset() *AssetQuery {
+	return NewPriceClient(pr.config).QueryAsset(pr)
+}
+
 // QueryBaseAsset queries the "base_asset" edge of the Price entity.
 func (pr *Price) QueryBaseAsset() *AssetQuery {
 	return NewPriceClient(pr.config).QueryBaseAsset(pr)
-}
-
-// QueryQuoteAsset queries the "quote_asset" edge of the Price entity.
-func (pr *Price) QueryQuoteAsset() *AssetQuery {
-	return NewPriceClient(pr.config).QueryQuoteAsset(pr)
 }
 
 // Update returns a builder for updating this Price.
@@ -198,20 +229,41 @@ func (pr *Price) String() string {
 	var builder strings.Builder
 	builder.WriteString("Price(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", pr.ID))
-	builder.WriteString("source=")
-	builder.WriteString(pr.Source)
+	builder.WriteString("uuid=")
+	builder.WriteString(fmt.Sprintf("%v", pr.UUID))
 	builder.WriteString(", ")
-	builder.WriteString("last_price=")
-	builder.WriteString(fmt.Sprintf("%v", pr.LastPrice))
+	builder.WriteString("source_id=")
+	builder.WriteString(pr.SourceID)
 	builder.WriteString(", ")
-	builder.WriteString("ask=")
-	builder.WriteString(fmt.Sprintf("%v", pr.Ask))
+	builder.WriteString("interval=")
+	builder.WriteString(pr.Interval)
 	builder.WriteString(", ")
-	builder.WriteString("bid=")
-	builder.WriteString(fmt.Sprintf("%v", pr.Bid))
+	builder.WriteString("amount=")
+	builder.WriteString(fmt.Sprintf("%v", pr.Amount))
 	builder.WriteString(", ")
-	builder.WriteString("time=")
-	builder.WriteString(pr.Time.Format(time.ANSIC))
+	builder.WriteString("precision=")
+	builder.WriteString(fmt.Sprintf("%v", pr.Precision))
+	builder.WriteString(", ")
+	builder.WriteString("open=")
+	builder.WriteString(fmt.Sprintf("%v", pr.Open))
+	builder.WriteString(", ")
+	builder.WriteString("high=")
+	builder.WriteString(fmt.Sprintf("%v", pr.High))
+	builder.WriteString(", ")
+	builder.WriteString("low=")
+	builder.WriteString(fmt.Sprintf("%v", pr.Low))
+	builder.WriteString(", ")
+	builder.WriteString("close=")
+	builder.WriteString(fmt.Sprintf("%v", pr.Close))
+	builder.WriteString(", ")
+	builder.WriteString("volume=")
+	builder.WriteString(fmt.Sprintf("%v", pr.Volume))
+	builder.WriteString(", ")
+	builder.WriteString("created_at=")
+	builder.WriteString(pr.CreatedAt.Format(time.ANSIC))
+	builder.WriteString(", ")
+	builder.WriteString("updated_at=")
+	builder.WriteString(pr.UpdatedAt.Format(time.ANSIC))
 	builder.WriteByte(')')
 	return builder.String()
 }

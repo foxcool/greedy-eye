@@ -12,14 +12,13 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
-	"github.com/foxcool/greedy-eye/pkg/ent/account"
-	"github.com/foxcool/greedy-eye/pkg/ent/asset"
-	"github.com/foxcool/greedy-eye/pkg/ent/holding"
-	"github.com/foxcool/greedy-eye/pkg/ent/portfolio"
-	"github.com/foxcool/greedy-eye/pkg/ent/price"
-	"github.com/foxcool/greedy-eye/pkg/ent/setting"
-	"github.com/foxcool/greedy-eye/pkg/ent/tag"
-	"github.com/foxcool/greedy-eye/pkg/ent/user"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/account"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/portfolio"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/price"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/transaction"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/user"
 )
 
 // ent aliases to avoid import conflicts in user's code.
@@ -80,14 +79,13 @@ var (
 func checkColumn(table, column string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
-			account.Table:   account.ValidColumn,
-			asset.Table:     asset.ValidColumn,
-			holding.Table:   holding.ValidColumn,
-			portfolio.Table: portfolio.ValidColumn,
-			price.Table:     price.ValidColumn,
-			setting.Table:   setting.ValidColumn,
-			tag.Table:       tag.ValidColumn,
-			user.Table:      user.ValidColumn,
+			account.Table:     account.ValidColumn,
+			asset.Table:       asset.ValidColumn,
+			holding.Table:     holding.ValidColumn,
+			portfolio.Table:   portfolio.ValidColumn,
+			price.Table:       price.ValidColumn,
+			transaction.Table: transaction.ValidColumn,
+			user.Table:        user.ValidColumn,
 		})
 	})
 	return columnCheck(table, column)

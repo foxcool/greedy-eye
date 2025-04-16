@@ -3,34 +3,53 @@
 package ent
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/foxcool/greedy-eye/pkg/ent/asset"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
+	"github.com/google/uuid"
 )
 
 // Asset is the model entity for the Asset schema.
 type Asset struct {
-	config
+	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// UUID holds the value of the "uuid" field.
+	UUID uuid.UUID `json:"uuid,omitempty"`
+	// Symbol holds the value of the "symbol" field.
+	Symbol string `json:"symbol,omitempty"`
+	// Name holds the value of the "name" field.
+	Name string `json:"name,omitempty"`
+	// Type holds the value of the "type" field.
+	Type asset.Type `json:"type,omitempty"`
+	// Tags holds the value of the "tags" field.
+	Tags []string `json:"tags,omitempty"`
+	// CreatedAt holds the value of the "created_at" field.
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	// UpdatedAt holds the value of the "updated_at" field.
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the AssetQuery when eager-loading is set.
-	Edges        AssetEdges `json:"edges"`
-	selectValues sql.SelectValues
+	Edges                 AssetEdges `json:"edges"`
+	price_asset           *int
+	price_base_asset      *int
+	transaction_asset     *int
+	transaction_fee_asset *int
+	selectValues          sql.SelectValues
 }
 
 // AssetEdges holds the relations/edges for other nodes in the graph.
 type AssetEdges struct {
 	// Holdings holds the value of the holdings edge.
 	Holdings []*Holding `json:"holdings,omitempty"`
-	// Tags holds the value of the tags edge.
-	Tags []*Tag `json:"tags,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [1]bool
 }
 
 // HoldingsOrErr returns the Holdings value or an error if the edge
@@ -42,21 +61,28 @@ func (e AssetEdges) HoldingsOrErr() ([]*Holding, error) {
 	return nil, &NotLoadedError{edge: "holdings"}
 }
 
-// TagsOrErr returns the Tags value or an error if the edge
-// was not loaded in eager-loading.
-func (e AssetEdges) TagsOrErr() ([]*Tag, error) {
-	if e.loadedTypes[1] {
-		return e.Tags, nil
-	}
-	return nil, &NotLoadedError{edge: "tags"}
-}
-
 // scanValues returns the types for scanning values from sql.Rows.
 func (*Asset) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
+		case asset.FieldTags:
+			values[i] = new([]byte)
 		case asset.FieldID:
+			values[i] = new(sql.NullInt64)
+		case asset.FieldSymbol, asset.FieldName, asset.FieldType:
+			values[i] = new(sql.NullString)
+		case asset.FieldCreatedAt, asset.FieldUpdatedAt:
+			values[i] = new(sql.NullTime)
+		case asset.FieldUUID:
+			values[i] = new(uuid.UUID)
+		case asset.ForeignKeys[0]: // price_asset
+			values[i] = new(sql.NullInt64)
+		case asset.ForeignKeys[1]: // price_base_asset
+			values[i] = new(sql.NullInt64)
+		case asset.ForeignKeys[2]: // transaction_asset
+			values[i] = new(sql.NullInt64)
+		case asset.ForeignKeys[3]: // transaction_fee_asset
 			values[i] = new(sql.NullInt64)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -79,6 +105,78 @@ func (a *Asset) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			a.ID = int(value.Int64)
+		case asset.FieldUUID:
+			if value, ok := values[i].(*uuid.UUID); !ok {
+				return fmt.Errorf("unexpected type %T for field uuid", values[i])
+			} else if value != nil {
+				a.UUID = *value
+			}
+		case asset.FieldSymbol:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field symbol", values[i])
+			} else if value.Valid {
+				a.Symbol = value.String
+			}
+		case asset.FieldName:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field name", values[i])
+			} else if value.Valid {
+				a.Name = value.String
+			}
+		case asset.FieldType:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field type", values[i])
+			} else if value.Valid {
+				a.Type = asset.Type(value.String)
+			}
+		case asset.FieldTags:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field tags", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &a.Tags); err != nil {
+					return fmt.Errorf("unmarshal field tags: %w", err)
+				}
+			}
+		case asset.FieldCreatedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field created_at", values[i])
+			} else if value.Valid {
+				a.CreatedAt = value.Time
+			}
+		case asset.FieldUpdatedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field updated_at", values[i])
+			} else if value.Valid {
+				a.UpdatedAt = value.Time
+			}
+		case asset.ForeignKeys[0]:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for edge-field price_asset", value)
+			} else if value.Valid {
+				a.price_asset = new(int)
+				*a.price_asset = int(value.Int64)
+			}
+		case asset.ForeignKeys[1]:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for edge-field price_base_asset", value)
+			} else if value.Valid {
+				a.price_base_asset = new(int)
+				*a.price_base_asset = int(value.Int64)
+			}
+		case asset.ForeignKeys[2]:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for edge-field transaction_asset", value)
+			} else if value.Valid {
+				a.transaction_asset = new(int)
+				*a.transaction_asset = int(value.Int64)
+			}
+		case asset.ForeignKeys[3]:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for edge-field transaction_fee_asset", value)
+			} else if value.Valid {
+				a.transaction_fee_asset = new(int)
+				*a.transaction_fee_asset = int(value.Int64)
+			}
 		default:
 			a.selectValues.Set(columns[i], values[i])
 		}
@@ -95,11 +193,6 @@ func (a *Asset) Value(name string) (ent.Value, error) {
 // QueryHoldings queries the "holdings" edge of the Asset entity.
 func (a *Asset) QueryHoldings() *HoldingQuery {
 	return NewAssetClient(a.config).QueryHoldings(a)
-}
-
-// QueryTags queries the "tags" edge of the Asset entity.
-func (a *Asset) QueryTags() *TagQuery {
-	return NewAssetClient(a.config).QueryTags(a)
 }
 
 // Update returns a builder for updating this Asset.
@@ -124,7 +217,27 @@ func (a *Asset) Unwrap() *Asset {
 func (a *Asset) String() string {
 	var builder strings.Builder
 	builder.WriteString("Asset(")
-	builder.WriteString(fmt.Sprintf("id=%v", a.ID))
+	builder.WriteString(fmt.Sprintf("id=%v, ", a.ID))
+	builder.WriteString("uuid=")
+	builder.WriteString(fmt.Sprintf("%v", a.UUID))
+	builder.WriteString(", ")
+	builder.WriteString("symbol=")
+	builder.WriteString(a.Symbol)
+	builder.WriteString(", ")
+	builder.WriteString("name=")
+	builder.WriteString(a.Name)
+	builder.WriteString(", ")
+	builder.WriteString("type=")
+	builder.WriteString(fmt.Sprintf("%v", a.Type))
+	builder.WriteString(", ")
+	builder.WriteString("tags=")
+	builder.WriteString(fmt.Sprintf("%v", a.Tags))
+	builder.WriteString(", ")
+	builder.WriteString("created_at=")
+	builder.WriteString(a.CreatedAt.Format(time.ANSIC))
+	builder.WriteString(", ")
+	builder.WriteString("updated_at=")
+	builder.WriteString(a.UpdatedAt.Format(time.ANSIC))
 	builder.WriteByte(')')
 	return builder.String()
 }

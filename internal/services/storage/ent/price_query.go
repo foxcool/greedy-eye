@@ -4,6 +4,7 @@ package ent
 
 import (
 	"context"
+	"database/sql/driver"
 	"fmt"
 	"math"
 
@@ -11,21 +12,20 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/foxcool/greedy-eye/pkg/ent/asset"
-	"github.com/foxcool/greedy-eye/pkg/ent/predicate"
-	"github.com/foxcool/greedy-eye/pkg/ent/price"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/predicate"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/price"
 )
 
 // PriceQuery is the builder for querying Price entities.
 type PriceQuery struct {
 	config
-	ctx            *QueryContext
-	order          []price.OrderOption
-	inters         []Interceptor
-	predicates     []predicate.Price
-	withBaseAsset  *AssetQuery
-	withQuoteAsset *AssetQuery
-	withFKs        bool
+	ctx           *QueryContext
+	order         []price.OrderOption
+	inters        []Interceptor
+	predicates    []predicate.Price
+	withAsset     *AssetQuery
+	withBaseAsset *AssetQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -62,6 +62,28 @@ func (pq *PriceQuery) Order(o ...price.OrderOption) *PriceQuery {
 	return pq
 }
 
+// QueryAsset chains the current query on the "asset" edge.
+func (pq *PriceQuery) QueryAsset() *AssetQuery {
+	query := (&AssetClient{config: pq.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := pq.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := pq.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(price.Table, price.FieldID, selector),
+			sqlgraph.To(asset.Table, asset.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, price.AssetTable, price.AssetColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(pq.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
 // QueryBaseAsset chains the current query on the "base_asset" edge.
 func (pq *PriceQuery) QueryBaseAsset() *AssetQuery {
 	query := (&AssetClient{config: pq.config}).Query()
@@ -76,29 +98,7 @@ func (pq *PriceQuery) QueryBaseAsset() *AssetQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(price.Table, price.FieldID, selector),
 			sqlgraph.To(asset.Table, asset.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, false, price.BaseAssetTable, price.BaseAssetColumn),
-		)
-		fromU = sqlgraph.SetNeighbors(pq.driver.Dialect(), step)
-		return fromU, nil
-	}
-	return query
-}
-
-// QueryQuoteAsset chains the current query on the "quote_asset" edge.
-func (pq *PriceQuery) QueryQuoteAsset() *AssetQuery {
-	query := (&AssetClient{config: pq.config}).Query()
-	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
-		if err := pq.prepareQuery(ctx); err != nil {
-			return nil, err
-		}
-		selector := pq.sqlQuery(ctx)
-		if err := selector.Err(); err != nil {
-			return nil, err
-		}
-		step := sqlgraph.NewStep(
-			sqlgraph.From(price.Table, price.FieldID, selector),
-			sqlgraph.To(asset.Table, asset.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, false, price.QuoteAssetTable, price.QuoteAssetColumn),
+			sqlgraph.Edge(sqlgraph.O2M, false, price.BaseAssetTable, price.BaseAssetColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(pq.driver.Dialect(), step)
 		return fromU, nil
@@ -293,17 +293,28 @@ func (pq *PriceQuery) Clone() *PriceQuery {
 		return nil
 	}
 	return &PriceQuery{
-		config:         pq.config,
-		ctx:            pq.ctx.Clone(),
-		order:          append([]price.OrderOption{}, pq.order...),
-		inters:         append([]Interceptor{}, pq.inters...),
-		predicates:     append([]predicate.Price{}, pq.predicates...),
-		withBaseAsset:  pq.withBaseAsset.Clone(),
-		withQuoteAsset: pq.withQuoteAsset.Clone(),
+		config:        pq.config,
+		ctx:           pq.ctx.Clone(),
+		order:         append([]price.OrderOption{}, pq.order...),
+		inters:        append([]Interceptor{}, pq.inters...),
+		predicates:    append([]predicate.Price{}, pq.predicates...),
+		withAsset:     pq.withAsset.Clone(),
+		withBaseAsset: pq.withBaseAsset.Clone(),
 		// clone intermediate query.
 		sql:  pq.sql.Clone(),
 		path: pq.path,
 	}
+}
+
+// WithAsset tells the query-builder to eager-load the nodes that are connected to
+// the "asset" edge. The optional arguments are used to configure the query builder of the edge.
+func (pq *PriceQuery) WithAsset(opts ...func(*AssetQuery)) *PriceQuery {
+	query := (&AssetClient{config: pq.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	pq.withAsset = query
+	return pq
 }
 
 // WithBaseAsset tells the query-builder to eager-load the nodes that are connected to
@@ -317,29 +328,18 @@ func (pq *PriceQuery) WithBaseAsset(opts ...func(*AssetQuery)) *PriceQuery {
 	return pq
 }
 
-// WithQuoteAsset tells the query-builder to eager-load the nodes that are connected to
-// the "quote_asset" edge. The optional arguments are used to configure the query builder of the edge.
-func (pq *PriceQuery) WithQuoteAsset(opts ...func(*AssetQuery)) *PriceQuery {
-	query := (&AssetClient{config: pq.config}).Query()
-	for _, opt := range opts {
-		opt(query)
-	}
-	pq.withQuoteAsset = query
-	return pq
-}
-
 // GroupBy is used to group vertices by one or more fields/columns.
 // It is often used with aggregate functions, like: count, max, mean, min, sum.
 //
 // Example:
 //
 //	var v []struct {
-//		Source string `json:"source,omitempty"`
+//		UUID uuid.UUID `json:"uuid,omitempty"`
 //		Count int `json:"count,omitempty"`
 //	}
 //
 //	client.Price.Query().
-//		GroupBy(price.FieldSource).
+//		GroupBy(price.FieldUUID).
 //		Aggregate(ent.Count()).
 //		Scan(ctx, &v)
 func (pq *PriceQuery) GroupBy(field string, fields ...string) *PriceGroupBy {
@@ -357,11 +357,11 @@ func (pq *PriceQuery) GroupBy(field string, fields ...string) *PriceGroupBy {
 // Example:
 //
 //	var v []struct {
-//		Source string `json:"source,omitempty"`
+//		UUID uuid.UUID `json:"uuid,omitempty"`
 //	}
 //
 //	client.Price.Query().
-//		Select(price.FieldSource).
+//		Select(price.FieldUUID).
 //		Scan(ctx, &v)
 func (pq *PriceQuery) Select(fields ...string) *PriceSelect {
 	pq.ctx.Fields = append(pq.ctx.Fields, fields...)
@@ -405,19 +405,12 @@ func (pq *PriceQuery) prepareQuery(ctx context.Context) error {
 func (pq *PriceQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Price, error) {
 	var (
 		nodes       = []*Price{}
-		withFKs     = pq.withFKs
 		_spec       = pq.querySpec()
 		loadedTypes = [2]bool{
+			pq.withAsset != nil,
 			pq.withBaseAsset != nil,
-			pq.withQuoteAsset != nil,
 		}
 	)
-	if pq.withBaseAsset != nil || pq.withQuoteAsset != nil {
-		withFKs = true
-	}
-	if withFKs {
-		_spec.Node.Columns = append(_spec.Node.Columns, price.ForeignKeys...)
-	}
 	_spec.ScanValues = func(columns []string) ([]any, error) {
 		return (*Price).scanValues(nil, columns)
 	}
@@ -436,82 +429,82 @@ func (pq *PriceQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Price,
 	if len(nodes) == 0 {
 		return nodes, nil
 	}
-	if query := pq.withBaseAsset; query != nil {
-		if err := pq.loadBaseAsset(ctx, query, nodes, nil,
-			func(n *Price, e *Asset) { n.Edges.BaseAsset = e }); err != nil {
+	if query := pq.withAsset; query != nil {
+		if err := pq.loadAsset(ctx, query, nodes,
+			func(n *Price) { n.Edges.Asset = []*Asset{} },
+			func(n *Price, e *Asset) { n.Edges.Asset = append(n.Edges.Asset, e) }); err != nil {
 			return nil, err
 		}
 	}
-	if query := pq.withQuoteAsset; query != nil {
-		if err := pq.loadQuoteAsset(ctx, query, nodes, nil,
-			func(n *Price, e *Asset) { n.Edges.QuoteAsset = e }); err != nil {
+	if query := pq.withBaseAsset; query != nil {
+		if err := pq.loadBaseAsset(ctx, query, nodes,
+			func(n *Price) { n.Edges.BaseAsset = []*Asset{} },
+			func(n *Price, e *Asset) { n.Edges.BaseAsset = append(n.Edges.BaseAsset, e) }); err != nil {
 			return nil, err
 		}
 	}
 	return nodes, nil
 }
 
-func (pq *PriceQuery) loadBaseAsset(ctx context.Context, query *AssetQuery, nodes []*Price, init func(*Price), assign func(*Price, *Asset)) error {
-	ids := make([]int, 0, len(nodes))
-	nodeids := make(map[int][]*Price)
+func (pq *PriceQuery) loadAsset(ctx context.Context, query *AssetQuery, nodes []*Price, init func(*Price), assign func(*Price, *Asset)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Price)
 	for i := range nodes {
-		if nodes[i].price_base_asset == nil {
-			continue
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
 		}
-		fk := *nodes[i].price_base_asset
-		if _, ok := nodeids[fk]; !ok {
-			ids = append(ids, fk)
-		}
-		nodeids[fk] = append(nodeids[fk], nodes[i])
 	}
-	if len(ids) == 0 {
-		return nil
-	}
-	query.Where(asset.IDIn(ids...))
+	query.withFKs = true
+	query.Where(predicate.Asset(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(price.AssetColumn), fks...))
+	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {
 		return err
 	}
 	for _, n := range neighbors {
-		nodes, ok := nodeids[n.ID]
+		fk := n.price_asset
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "price_asset" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
 		if !ok {
-			return fmt.Errorf(`unexpected foreign-key "price_base_asset" returned %v`, n.ID)
+			return fmt.Errorf(`unexpected referenced foreign-key "price_asset" returned %v for node %v`, *fk, n.ID)
 		}
-		for i := range nodes {
-			assign(nodes[i], n)
-		}
+		assign(node, n)
 	}
 	return nil
 }
-func (pq *PriceQuery) loadQuoteAsset(ctx context.Context, query *AssetQuery, nodes []*Price, init func(*Price), assign func(*Price, *Asset)) error {
-	ids := make([]int, 0, len(nodes))
-	nodeids := make(map[int][]*Price)
+func (pq *PriceQuery) loadBaseAsset(ctx context.Context, query *AssetQuery, nodes []*Price, init func(*Price), assign func(*Price, *Asset)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Price)
 	for i := range nodes {
-		if nodes[i].price_quote_asset == nil {
-			continue
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
 		}
-		fk := *nodes[i].price_quote_asset
-		if _, ok := nodeids[fk]; !ok {
-			ids = append(ids, fk)
-		}
-		nodeids[fk] = append(nodeids[fk], nodes[i])
 	}
-	if len(ids) == 0 {
-		return nil
-	}
-	query.Where(asset.IDIn(ids...))
+	query.withFKs = true
+	query.Where(predicate.Asset(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(price.BaseAssetColumn), fks...))
+	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {
 		return err
 	}
 	for _, n := range neighbors {
-		nodes, ok := nodeids[n.ID]
+		fk := n.price_base_asset
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "price_base_asset" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
 		if !ok {
-			return fmt.Errorf(`unexpected foreign-key "price_quote_asset" returned %v`, n.ID)
+			return fmt.Errorf(`unexpected referenced foreign-key "price_base_asset" returned %v for node %v`, *fk, n.ID)
 		}
-		for i := range nodes {
-			assign(nodes[i], n)
-		}
+		assign(node, n)
 	}
 	return nil
 }

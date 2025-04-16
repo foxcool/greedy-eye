@@ -6,7 +6,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/foxcool/greedy-eye/pkg/ent"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent"
 )
 
 // The AccountFunc type is an adapter to allow the use of ordinary
@@ -69,28 +69,16 @@ func (f PriceFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.PriceMutation", m)
 }
 
-// The SettingFunc type is an adapter to allow the use of ordinary
-// function as Setting mutator.
-type SettingFunc func(context.Context, *ent.SettingMutation) (ent.Value, error)
+// The TransactionFunc type is an adapter to allow the use of ordinary
+// function as Transaction mutator.
+type TransactionFunc func(context.Context, *ent.TransactionMutation) (ent.Value, error)
 
 // Mutate calls f(ctx, m).
-func (f SettingFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
-	if mv, ok := m.(*ent.SettingMutation); ok {
+func (f TransactionFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.TransactionMutation); ok {
 		return f(ctx, mv)
 	}
-	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.SettingMutation", m)
-}
-
-// The TagFunc type is an adapter to allow the use of ordinary
-// function as Tag mutator.
-type TagFunc func(context.Context, *ent.TagMutation) (ent.Value, error)
-
-// Mutate calls f(ctx, m).
-func (f TagFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
-	if mv, ok := m.(*ent.TagMutation); ok {
-		return f(ctx, mv)
-	}
-	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.TagMutation", m)
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.TransactionMutation", m)
 }
 
 // The UserFunc type is an adapter to allow the use of ordinary
