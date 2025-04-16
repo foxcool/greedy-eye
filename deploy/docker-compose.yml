@@ -24,6 +24,7 @@ services:
     working_dir: /go/src/github.com/Foxcool/greedy-eye
     # Use air for running the application.
     command: ["air", "-c", ".air.toml"]
+    env_file: secrets.env
     environment:
       EYE_LOGGING_LEVEL: INFO
       EYE_SENTRY_ENVIRONMENT: "development"
@@ -48,6 +49,7 @@ services:
       - ..:/go/src/github.com/Foxcool/greedy-eye
       - go_modules:/go/pkg/mod
     working_dir: /go/src/github.com/Foxcool/greedy-eye
+    env_file: secrets.env
     environment:
       EYE_LOGGING_LEVEL: DEBUG
       EYE_SENTRY_ENVIRONMENT: "debug"
@@ -87,28 +89,49 @@ services:
   # Redash main service container
   redash:
     profiles: ["analytics"]
-    image: redash/redash:latest
+    image: redash/redash
+    command: server
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
     ports:
-      - "5000:5000"
+      - "55000:5000"
+    env_file: secrets.env
     environment:
-      REDASH_DATABASE_URL: postgresql://greedy_eye:password@postgres:5432/redash
+      REDASH_DATABASE_URL: postgresql://greedy_eye:password@postgres:5432/postgres
       REDASH_REDIS_URL: redis://redis:6379/0
+      REDASH_WEB_WORKERS: 4
 
-  # Redash worker service container
-  redash-worker:
+  # Redash scheduler service container
+  redash-scheduler:
     profiles: ["analytics"]
-    image: redash/redash:latest
+    image: redash/redash
+    command: scheduler
     depends_on:
       redis:
         condition: service_started
       postgres:
         condition: service_healthy
+    env_file: secrets.env
     environment:
-      REDASH_DATABASE_URL: postgresql://greedy_eye:password@postgres:5432/redash
+      REDASH_DATABASE_URL: postgresql://greedy_eye:password@postgres:5432/postgres
       REDASH_REDIS_URL: redis://redis:6379/0
-    command: scheduler
+
+  # Redash worker service container
+  redash-worker:
+    profiles: ["analytics"]
+    image: redash/redash
+    command: worker
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    env_file: secrets.env
+    environment:
+      REDASH_DATABASE_URL: postgresql://greedy_eye:password@postgres:5432/postgres
+      REDASH_REDIS_URL: redis://redis:6379/0
+      QUEUES: "periodic,emails,default,queries,scheduled_queries,schemas,celery"
+      WORKERS_COUNT: 1

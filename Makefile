@@ -43,15 +43,23 @@ analytics:
 	@echo "Starting Docker Compose (analytics profile)..."
 	$(COMPOSE) -f $(COMPOSE_FILE) --profile analytics up --build -d --remove-orphans
 
+analytics-db:
+	@echo "Run redash create_db..."
+	$(COMPOSE) -f $(COMPOSE_FILE) run --rm redash create_db
+
+stop:
+	@echo "Stopping services..."
+	$(COMPOSE) -f $(COMPOSE_FILE) --profile analytics stop
+	$(COMPOSE) -f $(COMPOSE_FILE) --profile dev stop
+
 # Stop and remove containers, networks, volumes defined in compose
-down:
-	@echo "Stopping Docker Compose..."
+down: stop
 	$(COMPOSE) -f $(COMPOSE_FILE) down --remove-orphans
 
 # Stop and remove containers, networks, AND remove volumes (use with caution!)
 clean: down
 	@echo "Cleaning up Docker Compose (removing volumes)..."
-	$(COMPOSE) -f $(COMPOSE_FILE) down -v
+	$(COMPOSE) -f $(COMPOSE_FILE) down -v --remove-orphans
 
 # Follow logs for a eye service
 logs:
