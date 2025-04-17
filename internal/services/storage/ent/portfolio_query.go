@@ -25,7 +25,7 @@ type PortfolioQuery struct {
 	order        []portfolio.OrderOption
 	inters       []Interceptor
 	predicates   []predicate.Portfolio
-	withUser     *UserQuery
+	withUsers    *UserQuery
 	withHoldings *HoldingQuery
 	withFKs      bool
 	// intermediate query (i.e. traversal path).
@@ -64,8 +64,8 @@ func (pq *PortfolioQuery) Order(o ...portfolio.OrderOption) *PortfolioQuery {
 	return pq
 }
 
-// QueryUser chains the current query on the "user" edge.
-func (pq *PortfolioQuery) QueryUser() *UserQuery {
+// QueryUsers chains the current query on the "users" edge.
+func (pq *PortfolioQuery) QueryUsers() *UserQuery {
 	query := (&UserClient{config: pq.config}).Query()
 	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
 		if err := pq.prepareQuery(ctx); err != nil {
@@ -78,7 +78,7 @@ func (pq *PortfolioQuery) QueryUser() *UserQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(portfolio.Table, portfolio.FieldID, selector),
 			sqlgraph.To(user.Table, user.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, portfolio.UserTable, portfolio.UserColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, portfolio.UsersTable, portfolio.UsersColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(pq.driver.Dialect(), step)
 		return fromU, nil
@@ -300,7 +300,7 @@ func (pq *PortfolioQuery) Clone() *PortfolioQuery {
 		order:        append([]portfolio.OrderOption{}, pq.order...),
 		inters:       append([]Interceptor{}, pq.inters...),
 		predicates:   append([]predicate.Portfolio{}, pq.predicates...),
-		withUser:     pq.withUser.Clone(),
+		withUsers:    pq.withUsers.Clone(),
 		withHoldings: pq.withHoldings.Clone(),
 		// clone intermediate query.
 		sql:  pq.sql.Clone(),
@@ -308,14 +308,14 @@ func (pq *PortfolioQuery) Clone() *PortfolioQuery {
 	}
 }
 
-// WithUser tells the query-builder to eager-load the nodes that are connected to
-// the "user" edge. The optional arguments are used to configure the query builder of the edge.
-func (pq *PortfolioQuery) WithUser(opts ...func(*UserQuery)) *PortfolioQuery {
+// WithUsers tells the query-builder to eager-load the nodes that are connected to
+// the "users" edge. The optional arguments are used to configure the query builder of the edge.
+func (pq *PortfolioQuery) WithUsers(opts ...func(*UserQuery)) *PortfolioQuery {
 	query := (&UserClient{config: pq.config}).Query()
 	for _, opt := range opts {
 		opt(query)
 	}
-	pq.withUser = query
+	pq.withUsers = query
 	return pq
 }
 
@@ -410,13 +410,10 @@ func (pq *PortfolioQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Po
 		withFKs     = pq.withFKs
 		_spec       = pq.querySpec()
 		loadedTypes = [2]bool{
-			pq.withUser != nil,
+			pq.withUsers != nil,
 			pq.withHoldings != nil,
 		}
 	)
-	if pq.withUser != nil {
-		withFKs = true
-	}
 	if withFKs {
 		_spec.Node.Columns = append(_spec.Node.Columns, portfolio.ForeignKeys...)
 	}
@@ -438,9 +435,9 @@ func (pq *PortfolioQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Po
 	if len(nodes) == 0 {
 		return nodes, nil
 	}
-	if query := pq.withUser; query != nil {
-		if err := pq.loadUser(ctx, query, nodes, nil,
-			func(n *Portfolio, e *User) { n.Edges.User = e }); err != nil {
+	if query := pq.withUsers; query != nil {
+		if err := pq.loadUsers(ctx, query, nodes, nil,
+			func(n *Portfolio, e *User) { n.Edges.Users = e }); err != nil {
 			return nil, err
 		}
 	}
@@ -454,14 +451,11 @@ func (pq *PortfolioQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Po
 	return nodes, nil
 }
 
-func (pq *PortfolioQuery) loadUser(ctx context.Context, query *UserQuery, nodes []*Portfolio, init func(*Portfolio), assign func(*Portfolio, *User)) error {
+func (pq *PortfolioQuery) loadUsers(ctx context.Context, query *UserQuery, nodes []*Portfolio, init func(*Portfolio), assign func(*Portfolio, *User)) error {
 	ids := make([]int, 0, len(nodes))
 	nodeids := make(map[int][]*Portfolio)
 	for i := range nodes {
-		if nodes[i].user_portfolios == nil {
-			continue
-		}
-		fk := *nodes[i].user_portfolios
+		fk := nodes[i].UserID
 		if _, ok := nodeids[fk]; !ok {
 			ids = append(ids, fk)
 		}
@@ -478,7 +472,7 @@ func (pq *PortfolioQuery) loadUser(ctx context.Context, query *UserQuery, nodes 
 	for _, n := range neighbors {
 		nodes, ok := nodeids[n.ID]
 		if !ok {
-			return fmt.Errorf(`unexpected foreign-key "user_portfolios" returned %v`, n.ID)
+			return fmt.Errorf(`unexpected foreign-key "user_id" returned %v`, n.ID)
 		}
 		for i := range nodes {
 			assign(nodes[i], n)
@@ -496,7 +490,9 @@ func (pq *PortfolioQuery) loadHoldings(ctx context.Context, query *HoldingQuery,
 			init(nodes[i])
 		}
 	}
-	query.withFKs = true
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(holding.FieldPortfolioID)
+	}
 	query.Where(predicate.Holding(func(s *sql.Selector) {
 		s.Where(sql.InValues(s.C(portfolio.HoldingsColumn), fks...))
 	}))
@@ -505,13 +501,10 @@ func (pq *PortfolioQuery) loadHoldings(ctx context.Context, query *HoldingQuery,
 		return err
 	}
 	for _, n := range neighbors {
-		fk := n.portfolio_holdings
-		if fk == nil {
-			return fmt.Errorf(`foreign-key "portfolio_holdings" is nil for node %v`, n.ID)
-		}
-		node, ok := nodeids[*fk]
+		fk := n.PortfolioID
+		node, ok := nodeids[fk]
 		if !ok {
-			return fmt.Errorf(`unexpected referenced foreign-key "portfolio_holdings" returned %v for node %v`, *fk, n.ID)
+			return fmt.Errorf(`unexpected referenced foreign-key "portfolio_id" returned %v for node %v`, fk, n.ID)
 		}
 		assign(node, n)
 	}
@@ -542,6 +535,9 @@ func (pq *PortfolioQuery) querySpec() *sqlgraph.QuerySpec {
 			if fields[i] != portfolio.FieldID {
 				_spec.Node.Columns = append(_spec.Node.Columns, fields[i])
 			}
+		}
+		if pq.withUsers != nil {
+			_spec.Node.AddColumnOnce(portfolio.FieldUserID)
 		}
 	}
 	if ps := pq.predicates; len(ps) > 0 {

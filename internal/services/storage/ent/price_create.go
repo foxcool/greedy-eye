@@ -42,6 +42,18 @@ func (pc *PriceCreate) SetSourceID(s string) *PriceCreate {
 	return pc
 }
 
+// SetAssetID sets the "asset_id" field.
+func (pc *PriceCreate) SetAssetID(i int) *PriceCreate {
+	pc.mutation.SetAssetID(i)
+	return pc
+}
+
+// SetBaseAssetID sets the "base_asset_id" field.
+func (pc *PriceCreate) SetBaseAssetID(i int) *PriceCreate {
+	pc.mutation.SetBaseAssetID(i)
+	return pc
+}
+
 // SetInterval sets the "interval" field.
 func (pc *PriceCreate) SetInterval(s string) *PriceCreate {
 	pc.mutation.SetInterval(s)
@@ -158,34 +170,14 @@ func (pc *PriceCreate) SetNillableUpdatedAt(t *time.Time) *PriceCreate {
 	return pc
 }
 
-// AddAssetIDs adds the "asset" edge to the Asset entity by IDs.
-func (pc *PriceCreate) AddAssetIDs(ids ...int) *PriceCreate {
-	pc.mutation.AddAssetIDs(ids...)
-	return pc
+// SetAsset sets the "asset" edge to the Asset entity.
+func (pc *PriceCreate) SetAsset(a *Asset) *PriceCreate {
+	return pc.SetAssetID(a.ID)
 }
 
-// AddAsset adds the "asset" edges to the Asset entity.
-func (pc *PriceCreate) AddAsset(a ...*Asset) *PriceCreate {
-	ids := make([]int, len(a))
-	for i := range a {
-		ids[i] = a[i].ID
-	}
-	return pc.AddAssetIDs(ids...)
-}
-
-// AddBaseAssetIDs adds the "base_asset" edge to the Asset entity by IDs.
-func (pc *PriceCreate) AddBaseAssetIDs(ids ...int) *PriceCreate {
-	pc.mutation.AddBaseAssetIDs(ids...)
-	return pc
-}
-
-// AddBaseAsset adds the "base_asset" edges to the Asset entity.
-func (pc *PriceCreate) AddBaseAsset(a ...*Asset) *PriceCreate {
-	ids := make([]int, len(a))
-	for i := range a {
-		ids[i] = a[i].ID
-	}
-	return pc.AddBaseAssetIDs(ids...)
+// SetBaseAsset sets the "base_asset" edge to the Asset entity.
+func (pc *PriceCreate) SetBaseAsset(a *Asset) *PriceCreate {
+	return pc.SetBaseAssetID(a.ID)
 }
 
 // Mutation returns the PriceMutation object of the builder.
@@ -245,6 +237,12 @@ func (pc *PriceCreate) check() error {
 	if _, ok := pc.mutation.SourceID(); !ok {
 		return &ValidationError{Name: "source_id", err: errors.New(`ent: missing required field "Price.source_id"`)}
 	}
+	if _, ok := pc.mutation.AssetID(); !ok {
+		return &ValidationError{Name: "asset_id", err: errors.New(`ent: missing required field "Price.asset_id"`)}
+	}
+	if _, ok := pc.mutation.BaseAssetID(); !ok {
+		return &ValidationError{Name: "base_asset_id", err: errors.New(`ent: missing required field "Price.base_asset_id"`)}
+	}
 	if _, ok := pc.mutation.Interval(); !ok {
 		return &ValidationError{Name: "interval", err: errors.New(`ent: missing required field "Price.interval"`)}
 	}
@@ -259,6 +257,12 @@ func (pc *PriceCreate) check() error {
 	}
 	if _, ok := pc.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Price.updated_at"`)}
+	}
+	if len(pc.mutation.AssetIDs()) == 0 {
+		return &ValidationError{Name: "asset", err: errors.New(`ent: missing required edge "Price.asset"`)}
+	}
+	if len(pc.mutation.BaseAssetIDs()) == 0 {
+		return &ValidationError{Name: "base_asset", err: errors.New(`ent: missing required edge "Price.base_asset"`)}
 	}
 	return nil
 }
@@ -336,8 +340,8 @@ func (pc *PriceCreate) createSpec() (*Price, *sqlgraph.CreateSpec) {
 	}
 	if nodes := pc.mutation.AssetIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   price.AssetTable,
 			Columns: []string{price.AssetColumn},
 			Bidi:    false,
@@ -348,12 +352,13 @@ func (pc *PriceCreate) createSpec() (*Price, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
+		_node.AssetID = nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := pc.mutation.BaseAssetIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   price.BaseAssetTable,
 			Columns: []string{price.BaseAssetColumn},
 			Bidi:    false,
@@ -364,6 +369,7 @@ func (pc *PriceCreate) createSpec() (*Price, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
+		_node.BaseAssetID = nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec

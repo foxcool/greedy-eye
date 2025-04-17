@@ -38,6 +38,24 @@ func (hc *HoldingCreate) SetNillableUUID(u *uuid.UUID) *HoldingCreate {
 	return hc
 }
 
+// SetAssetID sets the "asset_id" field.
+func (hc *HoldingCreate) SetAssetID(i int) *HoldingCreate {
+	hc.mutation.SetAssetID(i)
+	return hc
+}
+
+// SetPortfolioID sets the "portfolio_id" field.
+func (hc *HoldingCreate) SetPortfolioID(i int) *HoldingCreate {
+	hc.mutation.SetPortfolioID(i)
+	return hc
+}
+
+// SetAccountID sets the "account_id" field.
+func (hc *HoldingCreate) SetAccountID(i int) *HoldingCreate {
+	hc.mutation.SetAccountID(i)
+	return hc
+}
+
 // SetAmount sets the "amount" field.
 func (hc *HoldingCreate) SetAmount(i int64) *HoldingCreate {
 	hc.mutation.SetAmount(i)
@@ -78,40 +96,14 @@ func (hc *HoldingCreate) SetNillableUpdatedAt(t *time.Time) *HoldingCreate {
 	return hc
 }
 
-// SetAssetID sets the "asset" edge to the Asset entity by ID.
-func (hc *HoldingCreate) SetAssetID(id int) *HoldingCreate {
-	hc.mutation.SetAssetID(id)
-	return hc
-}
-
 // SetAsset sets the "asset" edge to the Asset entity.
 func (hc *HoldingCreate) SetAsset(a *Asset) *HoldingCreate {
 	return hc.SetAssetID(a.ID)
 }
 
-// SetPortfolioID sets the "portfolio" edge to the Portfolio entity by ID.
-func (hc *HoldingCreate) SetPortfolioID(id int) *HoldingCreate {
-	hc.mutation.SetPortfolioID(id)
-	return hc
-}
-
 // SetPortfolio sets the "portfolio" edge to the Portfolio entity.
 func (hc *HoldingCreate) SetPortfolio(p *Portfolio) *HoldingCreate {
 	return hc.SetPortfolioID(p.ID)
-}
-
-// SetAccountID sets the "account" edge to the Account entity by ID.
-func (hc *HoldingCreate) SetAccountID(id int) *HoldingCreate {
-	hc.mutation.SetAccountID(id)
-	return hc
-}
-
-// SetNillableAccountID sets the "account" edge to the Account entity by ID if the given value is not nil.
-func (hc *HoldingCreate) SetNillableAccountID(id *int) *HoldingCreate {
-	if id != nil {
-		hc = hc.SetAccountID(*id)
-	}
-	return hc
 }
 
 // SetAccount sets the "account" edge to the Account entity.
@@ -173,6 +165,15 @@ func (hc *HoldingCreate) check() error {
 	if _, ok := hc.mutation.UUID(); !ok {
 		return &ValidationError{Name: "uuid", err: errors.New(`ent: missing required field "Holding.uuid"`)}
 	}
+	if _, ok := hc.mutation.AssetID(); !ok {
+		return &ValidationError{Name: "asset_id", err: errors.New(`ent: missing required field "Holding.asset_id"`)}
+	}
+	if _, ok := hc.mutation.PortfolioID(); !ok {
+		return &ValidationError{Name: "portfolio_id", err: errors.New(`ent: missing required field "Holding.portfolio_id"`)}
+	}
+	if _, ok := hc.mutation.AccountID(); !ok {
+		return &ValidationError{Name: "account_id", err: errors.New(`ent: missing required field "Holding.account_id"`)}
+	}
 	if _, ok := hc.mutation.Amount(); !ok {
 		return &ValidationError{Name: "amount", err: errors.New(`ent: missing required field "Holding.amount"`)}
 	}
@@ -190,6 +191,9 @@ func (hc *HoldingCreate) check() error {
 	}
 	if len(hc.mutation.PortfolioIDs()) == 0 {
 		return &ValidationError{Name: "portfolio", err: errors.New(`ent: missing required edge "Holding.portfolio"`)}
+	}
+	if len(hc.mutation.AccountIDs()) == 0 {
+		return &ValidationError{Name: "account", err: errors.New(`ent: missing required edge "Holding.account"`)}
 	}
 	return nil
 }
@@ -251,7 +255,7 @@ func (hc *HoldingCreate) createSpec() (*Holding, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_node.asset_holdings = &nodes[0]
+		_node.AssetID = nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := hc.mutation.PortfolioIDs(); len(nodes) > 0 {
@@ -268,7 +272,7 @@ func (hc *HoldingCreate) createSpec() (*Holding, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_node.portfolio_holdings = &nodes[0]
+		_node.PortfolioID = nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := hc.mutation.AccountIDs(); len(nodes) > 0 {
@@ -285,7 +289,7 @@ func (hc *HoldingCreate) createSpec() (*Holding, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_node.account_holdings = &nodes[0]
+		_node.AccountID = nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec

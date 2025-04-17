@@ -32,6 +32,12 @@ const (
 	FieldUpdatedAt = "updated_at"
 	// EdgeHoldings holds the string denoting the holdings edge name in mutations.
 	EdgeHoldings = "holdings"
+	// EdgePrices holds the string denoting the prices edge name in mutations.
+	EdgePrices = "prices"
+	// EdgePricesBase holds the string denoting the prices_base edge name in mutations.
+	EdgePricesBase = "prices_base"
+	// EdgeTransactions holds the string denoting the transactions edge name in mutations.
+	EdgeTransactions = "transactions"
 	// Table holds the table name of the asset in the database.
 	Table = "assets"
 	// HoldingsTable is the table that holds the holdings relation/edge.
@@ -40,7 +46,28 @@ const (
 	// It exists in this package in order to avoid circular dependency with the "holding" package.
 	HoldingsInverseTable = "holdings"
 	// HoldingsColumn is the table column denoting the holdings relation/edge.
-	HoldingsColumn = "asset_holdings"
+	HoldingsColumn = "asset_id"
+	// PricesTable is the table that holds the prices relation/edge.
+	PricesTable = "prices"
+	// PricesInverseTable is the table name for the Price entity.
+	// It exists in this package in order to avoid circular dependency with the "price" package.
+	PricesInverseTable = "prices"
+	// PricesColumn is the table column denoting the prices relation/edge.
+	PricesColumn = "asset_id"
+	// PricesBaseTable is the table that holds the prices_base relation/edge.
+	PricesBaseTable = "prices"
+	// PricesBaseInverseTable is the table name for the Price entity.
+	// It exists in this package in order to avoid circular dependency with the "price" package.
+	PricesBaseInverseTable = "prices"
+	// PricesBaseColumn is the table column denoting the prices_base relation/edge.
+	PricesBaseColumn = "base_asset_id"
+	// TransactionsTable is the table that holds the transactions relation/edge.
+	TransactionsTable = "transactions"
+	// TransactionsInverseTable is the table name for the Transaction entity.
+	// It exists in this package in order to avoid circular dependency with the "transaction" package.
+	TransactionsInverseTable = "transactions"
+	// TransactionsColumn is the table column denoting the transactions relation/edge.
+	TransactionsColumn = "asset_id"
 )
 
 // Columns holds all SQL columns for asset fields.
@@ -55,24 +82,10 @@ var Columns = []string{
 	FieldUpdatedAt,
 }
 
-// ForeignKeys holds the SQL foreign-keys that are owned by the "assets"
-// table and are not defined as standalone fields in the schema.
-var ForeignKeys = []string{
-	"price_asset",
-	"price_base_asset",
-	"transaction_asset",
-	"transaction_fee_asset",
-}
-
 // ValidColumn reports if the column name is valid (part of the table columns).
 func ValidColumn(column string) bool {
 	for i := range Columns {
 		if column == Columns[i] {
-			return true
-		}
-	}
-	for i := range ForeignKeys {
-		if column == ForeignKeys[i] {
 			return true
 		}
 	}
@@ -167,10 +180,73 @@ func ByHoldings(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newHoldingsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByPricesCount orders the results by prices count.
+func ByPricesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newPricesStep(), opts...)
+	}
+}
+
+// ByPrices orders the results by prices terms.
+func ByPrices(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newPricesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByPricesBaseCount orders the results by prices_base count.
+func ByPricesBaseCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newPricesBaseStep(), opts...)
+	}
+}
+
+// ByPricesBase orders the results by prices_base terms.
+func ByPricesBase(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newPricesBaseStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByTransactionsCount orders the results by transactions count.
+func ByTransactionsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newTransactionsStep(), opts...)
+	}
+}
+
+// ByTransactions orders the results by transactions terms.
+func ByTransactions(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newTransactionsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newHoldingsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(HoldingsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, HoldingsTable, HoldingsColumn),
+	)
+}
+func newPricesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(PricesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, PricesTable, PricesColumn),
+	)
+}
+func newPricesBaseStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(PricesBaseInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, PricesBaseTable, PricesBaseColumn),
+	)
+}
+func newTransactionsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(TransactionsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, TransactionsTable, TransactionsColumn),
 	)
 }

@@ -45,6 +45,20 @@ func (au *AccountUpdate) SetNillableUUID(u *uuid.UUID) *AccountUpdate {
 	return au
 }
 
+// SetUserID sets the "user_id" field.
+func (au *AccountUpdate) SetUserID(i int) *AccountUpdate {
+	au.mutation.SetUserID(i)
+	return au
+}
+
+// SetNillableUserID sets the "user_id" field if the given value is not nil.
+func (au *AccountUpdate) SetNillableUserID(i *int) *AccountUpdate {
+	if i != nil {
+		au.SetUserID(*i)
+	}
+	return au
+}
+
 // SetName sets the "name" field.
 func (au *AccountUpdate) SetName(s string) *AccountUpdate {
 	au.mutation.SetName(s)
@@ -123,20 +137,6 @@ func (au *AccountUpdate) SetUpdatedAt(t time.Time) *AccountUpdate {
 func (au *AccountUpdate) SetNillableUpdatedAt(t *time.Time) *AccountUpdate {
 	if t != nil {
 		au.SetUpdatedAt(*t)
-	}
-	return au
-}
-
-// SetUserID sets the "user" edge to the User entity by ID.
-func (au *AccountUpdate) SetUserID(id int) *AccountUpdate {
-	au.mutation.SetUserID(id)
-	return au
-}
-
-// SetNillableUserID sets the "user" edge to the User entity by ID if the given value is not nil.
-func (au *AccountUpdate) SetNillableUserID(id *int) *AccountUpdate {
-	if id != nil {
-		au = au.SetUserID(*id)
 	}
 	return au
 }
@@ -226,6 +226,9 @@ func (au *AccountUpdate) check() error {
 		if err := account.TypeValidator(v); err != nil {
 			return &ValidationError{Name: "type", err: fmt.Errorf(`ent: validator failed for field "Account.type": %w`, err)}
 		}
+	}
+	if au.mutation.UserCleared() && len(au.mutation.UserIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "Account.user"`)
 	}
 	return nil
 }
@@ -374,6 +377,20 @@ func (auo *AccountUpdateOne) SetNillableUUID(u *uuid.UUID) *AccountUpdateOne {
 	return auo
 }
 
+// SetUserID sets the "user_id" field.
+func (auo *AccountUpdateOne) SetUserID(i int) *AccountUpdateOne {
+	auo.mutation.SetUserID(i)
+	return auo
+}
+
+// SetNillableUserID sets the "user_id" field if the given value is not nil.
+func (auo *AccountUpdateOne) SetNillableUserID(i *int) *AccountUpdateOne {
+	if i != nil {
+		auo.SetUserID(*i)
+	}
+	return auo
+}
+
 // SetName sets the "name" field.
 func (auo *AccountUpdateOne) SetName(s string) *AccountUpdateOne {
 	auo.mutation.SetName(s)
@@ -452,20 +469,6 @@ func (auo *AccountUpdateOne) SetUpdatedAt(t time.Time) *AccountUpdateOne {
 func (auo *AccountUpdateOne) SetNillableUpdatedAt(t *time.Time) *AccountUpdateOne {
 	if t != nil {
 		auo.SetUpdatedAt(*t)
-	}
-	return auo
-}
-
-// SetUserID sets the "user" edge to the User entity by ID.
-func (auo *AccountUpdateOne) SetUserID(id int) *AccountUpdateOne {
-	auo.mutation.SetUserID(id)
-	return auo
-}
-
-// SetNillableUserID sets the "user" edge to the User entity by ID if the given value is not nil.
-func (auo *AccountUpdateOne) SetNillableUserID(id *int) *AccountUpdateOne {
-	if id != nil {
-		auo = auo.SetUserID(*id)
 	}
 	return auo
 }
@@ -568,6 +571,9 @@ func (auo *AccountUpdateOne) check() error {
 		if err := account.TypeValidator(v); err != nil {
 			return &ValidationError{Name: "type", err: fmt.Errorf(`ent: validator failed for field "Account.type": %w`, err)}
 		}
+	}
+	if auo.mutation.UserCleared() && len(auo.mutation.UserIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "Account.user"`)
 	}
 	return nil
 }

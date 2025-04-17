@@ -6,6 +6,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
+	"entgo.io/ent/schema/index"
 	"github.com/google/uuid"
 )
 
@@ -19,7 +20,9 @@ func (Price) Fields() []ent.Field {
 	fields := []ent.Field{
 		field.UUID("uuid", uuid.UUID{}).
 			Default(uuid.New),
-		field.String("source_id").Unique(),
+		field.String("source_id"),
+		field.Int("asset_id"),
+		field.Int("base_asset_id"),
 		field.String("interval"),
 		field.Int64("amount"),
 		field.Uint32("precision"),
@@ -41,8 +44,24 @@ func (Price) Fields() []ent.Field {
 // Edges of the Price.
 func (Price) Edges() []ent.Edge {
 	edges := []ent.Edge{
-		edge.To("asset", Asset.Type),
-		edge.To("base_asset", Asset.Type),
+		edge.From("asset", Asset.Type).
+			Ref("prices").
+			Field("asset_id").
+			Unique().
+			Required(),
+		edge.From("base_asset", Asset.Type).
+			Ref("prices_base").
+			Field("base_asset_id").
+			Unique().
+			Required(),
 	}
 	return edges
+}
+
+// Indexes of the Price entity.
+func (Price) Indexes() []ent.Index {
+	return []ent.Index{
+		// Создаем составной уникальный индекс, включающий партиционную колонку
+		index.Fields("asset_id", "created_at").Unique(),
+	}
 }

@@ -4,7 +4,6 @@ package ent
 
 import (
 	"context"
-	"database/sql/driver"
 	"fmt"
 	"math"
 
@@ -76,7 +75,7 @@ func (pq *PriceQuery) QueryAsset() *AssetQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(price.Table, price.FieldID, selector),
 			sqlgraph.To(asset.Table, asset.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, price.AssetTable, price.AssetColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, price.AssetTable, price.AssetColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(pq.driver.Dialect(), step)
 		return fromU, nil
@@ -98,7 +97,7 @@ func (pq *PriceQuery) QueryBaseAsset() *AssetQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(price.Table, price.FieldID, selector),
 			sqlgraph.To(asset.Table, asset.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, price.BaseAssetTable, price.BaseAssetColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, price.BaseAssetTable, price.BaseAssetColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(pq.driver.Dialect(), step)
 		return fromU, nil
@@ -430,16 +429,14 @@ func (pq *PriceQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Price,
 		return nodes, nil
 	}
 	if query := pq.withAsset; query != nil {
-		if err := pq.loadAsset(ctx, query, nodes,
-			func(n *Price) { n.Edges.Asset = []*Asset{} },
-			func(n *Price, e *Asset) { n.Edges.Asset = append(n.Edges.Asset, e) }); err != nil {
+		if err := pq.loadAsset(ctx, query, nodes, nil,
+			func(n *Price, e *Asset) { n.Edges.Asset = e }); err != nil {
 			return nil, err
 		}
 	}
 	if query := pq.withBaseAsset; query != nil {
-		if err := pq.loadBaseAsset(ctx, query, nodes,
-			func(n *Price) { n.Edges.BaseAsset = []*Asset{} },
-			func(n *Price, e *Asset) { n.Edges.BaseAsset = append(n.Edges.BaseAsset, e) }); err != nil {
+		if err := pq.loadBaseAsset(ctx, query, nodes, nil,
+			func(n *Price, e *Asset) { n.Edges.BaseAsset = e }); err != nil {
 			return nil, err
 		}
 	}
@@ -447,64 +444,60 @@ func (pq *PriceQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Price,
 }
 
 func (pq *PriceQuery) loadAsset(ctx context.Context, query *AssetQuery, nodes []*Price, init func(*Price), assign func(*Price, *Asset)) error {
-	fks := make([]driver.Value, 0, len(nodes))
-	nodeids := make(map[int]*Price)
+	ids := make([]int, 0, len(nodes))
+	nodeids := make(map[int][]*Price)
 	for i := range nodes {
-		fks = append(fks, nodes[i].ID)
-		nodeids[nodes[i].ID] = nodes[i]
-		if init != nil {
-			init(nodes[i])
+		fk := nodes[i].AssetID
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
 		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
 	}
-	query.withFKs = true
-	query.Where(predicate.Asset(func(s *sql.Selector) {
-		s.Where(sql.InValues(s.C(price.AssetColumn), fks...))
-	}))
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(asset.IDIn(ids...))
 	neighbors, err := query.All(ctx)
 	if err != nil {
 		return err
 	}
 	for _, n := range neighbors {
-		fk := n.price_asset
-		if fk == nil {
-			return fmt.Errorf(`foreign-key "price_asset" is nil for node %v`, n.ID)
-		}
-		node, ok := nodeids[*fk]
+		nodes, ok := nodeids[n.ID]
 		if !ok {
-			return fmt.Errorf(`unexpected referenced foreign-key "price_asset" returned %v for node %v`, *fk, n.ID)
+			return fmt.Errorf(`unexpected foreign-key "asset_id" returned %v`, n.ID)
 		}
-		assign(node, n)
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
 	}
 	return nil
 }
 func (pq *PriceQuery) loadBaseAsset(ctx context.Context, query *AssetQuery, nodes []*Price, init func(*Price), assign func(*Price, *Asset)) error {
-	fks := make([]driver.Value, 0, len(nodes))
-	nodeids := make(map[int]*Price)
+	ids := make([]int, 0, len(nodes))
+	nodeids := make(map[int][]*Price)
 	for i := range nodes {
-		fks = append(fks, nodes[i].ID)
-		nodeids[nodes[i].ID] = nodes[i]
-		if init != nil {
-			init(nodes[i])
+		fk := nodes[i].BaseAssetID
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
 		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
 	}
-	query.withFKs = true
-	query.Where(predicate.Asset(func(s *sql.Selector) {
-		s.Where(sql.InValues(s.C(price.BaseAssetColumn), fks...))
-	}))
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(asset.IDIn(ids...))
 	neighbors, err := query.All(ctx)
 	if err != nil {
 		return err
 	}
 	for _, n := range neighbors {
-		fk := n.price_base_asset
-		if fk == nil {
-			return fmt.Errorf(`foreign-key "price_base_asset" is nil for node %v`, n.ID)
-		}
-		node, ok := nodeids[*fk]
+		nodes, ok := nodeids[n.ID]
 		if !ok {
-			return fmt.Errorf(`unexpected referenced foreign-key "price_base_asset" returned %v for node %v`, *fk, n.ID)
+			return fmt.Errorf(`unexpected foreign-key "base_asset_id" returned %v`, n.ID)
 		}
-		assign(node, n)
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
 	}
 	return nil
 }
@@ -533,6 +526,12 @@ func (pq *PriceQuery) querySpec() *sqlgraph.QuerySpec {
 			if fields[i] != price.FieldID {
 				_spec.Node.Columns = append(_spec.Node.Columns, fields[i])
 			}
+		}
+		if pq.withAsset != nil {
+			_spec.Node.AddColumnOnce(price.FieldAssetID)
+		}
+		if pq.withBaseAsset != nil {
+			_spec.Node.AddColumnOnce(price.FieldBaseAssetID)
 		}
 	}
 	if ps := pq.predicates; len(ps) > 0 {

@@ -19,7 +19,7 @@ var (
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
 		{Name: "transaction_account", Type: field.TypeInt, Nullable: true},
-		{Name: "user_accounts", Type: field.TypeInt, Nullable: true},
+		{Name: "user_id", Type: field.TypeInt},
 	}
 	// AccountsTable holds the schema information for the "accounts" table.
 	AccountsTable = &schema.Table{
@@ -37,7 +37,7 @@ var (
 				Symbol:     "accounts_users_accounts",
 				Columns:    []*schema.Column{AccountsColumns[9]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
-				OnDelete:   schema.SetNull,
+				OnDelete:   schema.NoAction,
 			},
 		},
 	}
@@ -51,42 +51,12 @@ var (
 		{Name: "tags", Type: field.TypeJSON},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
-		{Name: "price_asset", Type: field.TypeInt, Nullable: true},
-		{Name: "price_base_asset", Type: field.TypeInt, Nullable: true},
-		{Name: "transaction_asset", Type: field.TypeInt, Nullable: true},
-		{Name: "transaction_fee_asset", Type: field.TypeInt, Nullable: true},
 	}
 	// AssetsTable holds the schema information for the "assets" table.
 	AssetsTable = &schema.Table{
 		Name:       "assets",
 		Columns:    AssetsColumns,
 		PrimaryKey: []*schema.Column{AssetsColumns[0]},
-		ForeignKeys: []*schema.ForeignKey{
-			{
-				Symbol:     "assets_prices_asset",
-				Columns:    []*schema.Column{AssetsColumns[8]},
-				RefColumns: []*schema.Column{PricesColumns[0]},
-				OnDelete:   schema.SetNull,
-			},
-			{
-				Symbol:     "assets_prices_base_asset",
-				Columns:    []*schema.Column{AssetsColumns[9]},
-				RefColumns: []*schema.Column{PricesColumns[0]},
-				OnDelete:   schema.SetNull,
-			},
-			{
-				Symbol:     "assets_transactions_asset",
-				Columns:    []*schema.Column{AssetsColumns[10]},
-				RefColumns: []*schema.Column{TransactionsColumns[0]},
-				OnDelete:   schema.SetNull,
-			},
-			{
-				Symbol:     "assets_transactions_fee_asset",
-				Columns:    []*schema.Column{AssetsColumns[11]},
-				RefColumns: []*schema.Column{TransactionsColumns[0]},
-				OnDelete:   schema.SetNull,
-			},
-		},
 	}
 	// HoldingsColumns holds the columns for the "holdings" table.
 	HoldingsColumns = []*schema.Column{
@@ -96,9 +66,9 @@ var (
 		{Name: "precision", Type: field.TypeUint32},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
-		{Name: "account_holdings", Type: field.TypeInt, Nullable: true},
-		{Name: "asset_holdings", Type: field.TypeInt},
-		{Name: "portfolio_holdings", Type: field.TypeInt},
+		{Name: "account_id", Type: field.TypeInt},
+		{Name: "asset_id", Type: field.TypeInt},
+		{Name: "portfolio_id", Type: field.TypeInt},
 	}
 	// HoldingsTable holds the schema information for the "holdings" table.
 	HoldingsTable = &schema.Table{
@@ -110,7 +80,7 @@ var (
 				Symbol:     "holdings_accounts_holdings",
 				Columns:    []*schema.Column{HoldingsColumns[6]},
 				RefColumns: []*schema.Column{AccountsColumns[0]},
-				OnDelete:   schema.SetNull,
+				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "holdings_assets_holdings",
@@ -135,7 +105,7 @@ var (
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
 		{Name: "transaction_portfolio", Type: field.TypeInt, Nullable: true},
-		{Name: "user_portfolios", Type: field.TypeInt, Nullable: true},
+		{Name: "user_id", Type: field.TypeInt},
 	}
 	// PortfoliosTable holds the schema information for the "portfolios" table.
 	PortfoliosTable = &schema.Table{
@@ -153,7 +123,7 @@ var (
 				Symbol:     "portfolios_users_portfolios",
 				Columns:    []*schema.Column{PortfoliosColumns[7]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
-				OnDelete:   schema.SetNull,
+				OnDelete:   schema.NoAction,
 			},
 		},
 	}
@@ -161,7 +131,7 @@ var (
 	PricesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "uuid", Type: field.TypeUUID},
-		{Name: "source_id", Type: field.TypeString, Unique: true},
+		{Name: "source_id", Type: field.TypeString},
 		{Name: "interval", Type: field.TypeString},
 		{Name: "amount", Type: field.TypeInt64},
 		{Name: "precision", Type: field.TypeUint32},
@@ -172,12 +142,35 @@ var (
 		{Name: "volume", Type: field.TypeInt64, Nullable: true},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "asset_id", Type: field.TypeInt},
+		{Name: "base_asset_id", Type: field.TypeInt},
 	}
 	// PricesTable holds the schema information for the "prices" table.
 	PricesTable = &schema.Table{
 		Name:       "prices",
 		Columns:    PricesColumns,
 		PrimaryKey: []*schema.Column{PricesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "prices_assets_prices",
+				Columns:    []*schema.Column{PricesColumns[13]},
+				RefColumns: []*schema.Column{AssetsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "prices_assets_prices_base",
+				Columns:    []*schema.Column{PricesColumns[14]},
+				RefColumns: []*schema.Column{AssetsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "price_asset_id_created_at",
+				Unique:  true,
+				Columns: []*schema.Column{PricesColumns[13], PricesColumns[11]},
+			},
+		},
 	}
 	// TransactionsColumns holds the columns for the "transactions" table.
 	TransactionsColumns = []*schema.Column{
@@ -191,12 +184,21 @@ var (
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
 		{Name: "metadata", Type: field.TypeJSON},
+		{Name: "asset_id", Type: field.TypeInt},
 	}
 	// TransactionsTable holds the schema information for the "transactions" table.
 	TransactionsTable = &schema.Table{
 		Name:       "transactions",
 		Columns:    TransactionsColumns,
 		PrimaryKey: []*schema.Column{TransactionsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "transactions_assets_transactions",
+				Columns:    []*schema.Column{TransactionsColumns[10]},
+				RefColumns: []*schema.Column{AssetsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
 	}
 	// UsersColumns holds the columns for the "users" table.
 	UsersColumns = []*schema.Column{
@@ -229,13 +231,12 @@ var (
 func init() {
 	AccountsTable.ForeignKeys[0].RefTable = TransactionsTable
 	AccountsTable.ForeignKeys[1].RefTable = UsersTable
-	AssetsTable.ForeignKeys[0].RefTable = PricesTable
-	AssetsTable.ForeignKeys[1].RefTable = PricesTable
-	AssetsTable.ForeignKeys[2].RefTable = TransactionsTable
-	AssetsTable.ForeignKeys[3].RefTable = TransactionsTable
 	HoldingsTable.ForeignKeys[0].RefTable = AccountsTable
 	HoldingsTable.ForeignKeys[1].RefTable = AssetsTable
 	HoldingsTable.ForeignKeys[2].RefTable = PortfoliosTable
 	PortfoliosTable.ForeignKeys[0].RefTable = TransactionsTable
 	PortfoliosTable.ForeignKeys[1].RefTable = UsersTable
+	PricesTable.ForeignKeys[0].RefTable = AssetsTable
+	PricesTable.ForeignKeys[1].RefTable = AssetsTable
+	TransactionsTable.ForeignKeys[0].RefTable = AssetsTable
 }

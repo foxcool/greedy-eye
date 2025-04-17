@@ -66,6 +66,16 @@ func SourceID(v string) predicate.Price {
 	return predicate.Price(sql.FieldEQ(FieldSourceID, v))
 }
 
+// AssetID applies equality check predicate on the "asset_id" field. It's identical to AssetIDEQ.
+func AssetID(v int) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldAssetID, v))
+}
+
+// BaseAssetID applies equality check predicate on the "base_asset_id" field. It's identical to BaseAssetIDEQ.
+func BaseAssetID(v int) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldBaseAssetID, v))
+}
+
 // Interval applies equality check predicate on the "interval" field. It's identical to IntervalEQ.
 func Interval(v string) predicate.Price {
 	return predicate.Price(sql.FieldEQ(FieldInterval, v))
@@ -219,6 +229,46 @@ func SourceIDEqualFold(v string) predicate.Price {
 // SourceIDContainsFold applies the ContainsFold predicate on the "source_id" field.
 func SourceIDContainsFold(v string) predicate.Price {
 	return predicate.Price(sql.FieldContainsFold(FieldSourceID, v))
+}
+
+// AssetIDEQ applies the EQ predicate on the "asset_id" field.
+func AssetIDEQ(v int) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldAssetID, v))
+}
+
+// AssetIDNEQ applies the NEQ predicate on the "asset_id" field.
+func AssetIDNEQ(v int) predicate.Price {
+	return predicate.Price(sql.FieldNEQ(FieldAssetID, v))
+}
+
+// AssetIDIn applies the In predicate on the "asset_id" field.
+func AssetIDIn(vs ...int) predicate.Price {
+	return predicate.Price(sql.FieldIn(FieldAssetID, vs...))
+}
+
+// AssetIDNotIn applies the NotIn predicate on the "asset_id" field.
+func AssetIDNotIn(vs ...int) predicate.Price {
+	return predicate.Price(sql.FieldNotIn(FieldAssetID, vs...))
+}
+
+// BaseAssetIDEQ applies the EQ predicate on the "base_asset_id" field.
+func BaseAssetIDEQ(v int) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldBaseAssetID, v))
+}
+
+// BaseAssetIDNEQ applies the NEQ predicate on the "base_asset_id" field.
+func BaseAssetIDNEQ(v int) predicate.Price {
+	return predicate.Price(sql.FieldNEQ(FieldBaseAssetID, v))
+}
+
+// BaseAssetIDIn applies the In predicate on the "base_asset_id" field.
+func BaseAssetIDIn(vs ...int) predicate.Price {
+	return predicate.Price(sql.FieldIn(FieldBaseAssetID, vs...))
+}
+
+// BaseAssetIDNotIn applies the NotIn predicate on the "base_asset_id" field.
+func BaseAssetIDNotIn(vs ...int) predicate.Price {
+	return predicate.Price(sql.FieldNotIn(FieldBaseAssetID, vs...))
 }
 
 // IntervalEQ applies the EQ predicate on the "interval" field.
@@ -701,7 +751,7 @@ func HasAsset() predicate.Price {
 	return predicate.Price(func(s *sql.Selector) {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, AssetTable, AssetColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, AssetTable, AssetColumn),
 		)
 		sqlgraph.HasNeighbors(s, step)
 	})
@@ -724,7 +774,7 @@ func HasBaseAsset() predicate.Price {
 	return predicate.Price(func(s *sql.Selector) {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, BaseAssetTable, BaseAssetColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, BaseAssetTable, BaseAssetColumn),
 		)
 		sqlgraph.HasNeighbors(s, step)
 	})

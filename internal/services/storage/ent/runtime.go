@@ -47,11 +47,11 @@ func init() {
 	// holding.DefaultUUID holds the default value on creation for the uuid field.
 	holding.DefaultUUID = holdingDescUUID.Default.(func() uuid.UUID)
 	// holdingDescCreatedAt is the schema descriptor for created_at field.
-	holdingDescCreatedAt := holdingFields[3].Descriptor()
+	holdingDescCreatedAt := holdingFields[6].Descriptor()
 	// holding.DefaultCreatedAt holds the default value on creation for the created_at field.
 	holding.DefaultCreatedAt = holdingDescCreatedAt.Default.(func() time.Time)
 	// holdingDescUpdatedAt is the schema descriptor for updated_at field.
-	holdingDescUpdatedAt := holdingFields[4].Descriptor()
+	holdingDescUpdatedAt := holdingFields[7].Descriptor()
 	// holding.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	holding.DefaultUpdatedAt = holdingDescUpdatedAt.Default.(func() time.Time)
 	// holding.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
@@ -63,11 +63,11 @@ func init() {
 	// portfolio.DefaultUUID holds the default value on creation for the uuid field.
 	portfolio.DefaultUUID = portfolioDescUUID.Default.(func() uuid.UUID)
 	// portfolioDescCreatedAt is the schema descriptor for created_at field.
-	portfolioDescCreatedAt := portfolioFields[3].Descriptor()
+	portfolioDescCreatedAt := portfolioFields[4].Descriptor()
 	// portfolio.DefaultCreatedAt holds the default value on creation for the created_at field.
 	portfolio.DefaultCreatedAt = portfolioDescCreatedAt.Default.(func() time.Time)
 	// portfolioDescUpdatedAt is the schema descriptor for updated_at field.
-	portfolioDescUpdatedAt := portfolioFields[4].Descriptor()
+	portfolioDescUpdatedAt := portfolioFields[5].Descriptor()
 	// portfolio.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	portfolio.DefaultUpdatedAt = portfolioDescUpdatedAt.Default.(func() time.Time)
 	// portfolio.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
@@ -79,11 +79,11 @@ func init() {
 	// price.DefaultUUID holds the default value on creation for the uuid field.
 	price.DefaultUUID = priceDescUUID.Default.(func() uuid.UUID)
 	// priceDescCreatedAt is the schema descriptor for created_at field.
-	priceDescCreatedAt := priceFields[10].Descriptor()
+	priceDescCreatedAt := priceFields[12].Descriptor()
 	// price.DefaultCreatedAt holds the default value on creation for the created_at field.
 	price.DefaultCreatedAt = priceDescCreatedAt.Default.(func() time.Time)
 	// priceDescUpdatedAt is the schema descriptor for updated_at field.
-	priceDescUpdatedAt := priceFields[11].Descriptor()
+	priceDescUpdatedAt := priceFields[13].Descriptor()
 	// price.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	price.DefaultUpdatedAt = priceDescUpdatedAt.Default.(func() time.Time)
 	// price.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
@@ -95,17 +95,17 @@ func init() {
 	// transaction.DefaultUUID holds the default value on creation for the uuid field.
 	transaction.DefaultUUID = transactionDescUUID.Default.(func() uuid.UUID)
 	// transactionDescCreatedAt is the schema descriptor for created_at field.
-	transactionDescCreatedAt := transactionFields[6].Descriptor()
+	transactionDescCreatedAt := transactionFields[7].Descriptor()
 	// transaction.DefaultCreatedAt holds the default value on creation for the created_at field.
 	transaction.DefaultCreatedAt = transactionDescCreatedAt.Default.(func() time.Time)
 	// transactionDescUpdatedAt is the schema descriptor for updated_at field.
-	transactionDescUpdatedAt := transactionFields[7].Descriptor()
+	transactionDescUpdatedAt := transactionFields[8].Descriptor()
 	// transaction.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	transaction.DefaultUpdatedAt = transactionDescUpdatedAt.Default.(func() time.Time)
 	// transaction.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	transaction.UpdateDefaultUpdatedAt = transactionDescUpdatedAt.UpdateDefault.(func() time.Time)
 	// transactionDescMetadata is the schema descriptor for metadata field.
-	transactionDescMetadata := transactionFields[8].Descriptor()
+	transactionDescMetadata := transactionFields[9].Descriptor()
 	// transaction.DefaultMetadata holds the default value on creation for the metadata field.
 	transaction.DefaultMetadata = transactionDescMetadata.Default.(map[string]string)
 	userFields := schema.User{}.Fields()

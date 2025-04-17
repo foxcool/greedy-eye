@@ -15,9 +15,9 @@ import (
 	"github.com/foxcool/greedy-eye/internal/services/portfolio"
 	"github.com/foxcool/greedy-eye/internal/services/price"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent"
-	"github.com/foxcool/greedy-eye/internal/services/storage/ent/migrate"
 	"github.com/foxcool/greedy-eye/internal/services/user"
 	"github.com/getsentry/sentry-go"
+	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
@@ -72,25 +72,6 @@ func main() {
 		log.Info("Bye")
 		_ = log.Sync()
 	}()
-
-	// ToDo: Only for dev stage of project -> use Atlas migration tool
-	log.Info("Running auto migration...")
-	if err := client.Schema.Create(
-		context.Background(),
-		migrate.WithDropIndex(true),
-		migrate.WithDropColumn(true),
-	); err != nil {
-		log.Fatal("Failed creating schema resources", zap.Error(err))
-	}
-	log.Info("Schema migration completed.")
-
-	log.Info("Ensuring prices table is a hypertable...")
-	_, err = client.DB().ExecContext(context.Background(), "SELECT create_hypertable('prices', 'timestamp', if_not_exists => TRUE);")
-	if err != nil {
-		log.Error("Failed to ensure prices table is a hypertable", zap.Error(err))
-	} else {
-		log.Info("Prices table is now a hypertable (or already was).")
-	}
 
 	// Start subservices and gRPC server
 	server := registerServices(config.Services)

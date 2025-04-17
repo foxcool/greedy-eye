@@ -46,6 +46,48 @@ func (hu *HoldingUpdate) SetNillableUUID(u *uuid.UUID) *HoldingUpdate {
 	return hu
 }
 
+// SetAssetID sets the "asset_id" field.
+func (hu *HoldingUpdate) SetAssetID(i int) *HoldingUpdate {
+	hu.mutation.SetAssetID(i)
+	return hu
+}
+
+// SetNillableAssetID sets the "asset_id" field if the given value is not nil.
+func (hu *HoldingUpdate) SetNillableAssetID(i *int) *HoldingUpdate {
+	if i != nil {
+		hu.SetAssetID(*i)
+	}
+	return hu
+}
+
+// SetPortfolioID sets the "portfolio_id" field.
+func (hu *HoldingUpdate) SetPortfolioID(i int) *HoldingUpdate {
+	hu.mutation.SetPortfolioID(i)
+	return hu
+}
+
+// SetNillablePortfolioID sets the "portfolio_id" field if the given value is not nil.
+func (hu *HoldingUpdate) SetNillablePortfolioID(i *int) *HoldingUpdate {
+	if i != nil {
+		hu.SetPortfolioID(*i)
+	}
+	return hu
+}
+
+// SetAccountID sets the "account_id" field.
+func (hu *HoldingUpdate) SetAccountID(i int) *HoldingUpdate {
+	hu.mutation.SetAccountID(i)
+	return hu
+}
+
+// SetNillableAccountID sets the "account_id" field if the given value is not nil.
+func (hu *HoldingUpdate) SetNillableAccountID(i *int) *HoldingUpdate {
+	if i != nil {
+		hu.SetAccountID(*i)
+	}
+	return hu
+}
+
 // SetAmount sets the "amount" field.
 func (hu *HoldingUpdate) SetAmount(i int64) *HoldingUpdate {
 	hu.mutation.ResetAmount()
@@ -94,40 +136,14 @@ func (hu *HoldingUpdate) SetUpdatedAt(t time.Time) *HoldingUpdate {
 	return hu
 }
 
-// SetAssetID sets the "asset" edge to the Asset entity by ID.
-func (hu *HoldingUpdate) SetAssetID(id int) *HoldingUpdate {
-	hu.mutation.SetAssetID(id)
-	return hu
-}
-
 // SetAsset sets the "asset" edge to the Asset entity.
 func (hu *HoldingUpdate) SetAsset(a *Asset) *HoldingUpdate {
 	return hu.SetAssetID(a.ID)
 }
 
-// SetPortfolioID sets the "portfolio" edge to the Portfolio entity by ID.
-func (hu *HoldingUpdate) SetPortfolioID(id int) *HoldingUpdate {
-	hu.mutation.SetPortfolioID(id)
-	return hu
-}
-
 // SetPortfolio sets the "portfolio" edge to the Portfolio entity.
 func (hu *HoldingUpdate) SetPortfolio(p *Portfolio) *HoldingUpdate {
 	return hu.SetPortfolioID(p.ID)
-}
-
-// SetAccountID sets the "account" edge to the Account entity by ID.
-func (hu *HoldingUpdate) SetAccountID(id int) *HoldingUpdate {
-	hu.mutation.SetAccountID(id)
-	return hu
-}
-
-// SetNillableAccountID sets the "account" edge to the Account entity by ID if the given value is not nil.
-func (hu *HoldingUpdate) SetNillableAccountID(id *int) *HoldingUpdate {
-	if id != nil {
-		hu = hu.SetAccountID(*id)
-	}
-	return hu
 }
 
 // SetAccount sets the "account" edge to the Account entity.
@@ -201,6 +217,9 @@ func (hu *HoldingUpdate) check() error {
 	}
 	if hu.mutation.PortfolioCleared() && len(hu.mutation.PortfolioIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "Holding.portfolio"`)
+	}
+	if hu.mutation.AccountCleared() && len(hu.mutation.AccountIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "Holding.account"`)
 	}
 	return nil
 }
@@ -356,6 +375,48 @@ func (huo *HoldingUpdateOne) SetNillableUUID(u *uuid.UUID) *HoldingUpdateOne {
 	return huo
 }
 
+// SetAssetID sets the "asset_id" field.
+func (huo *HoldingUpdateOne) SetAssetID(i int) *HoldingUpdateOne {
+	huo.mutation.SetAssetID(i)
+	return huo
+}
+
+// SetNillableAssetID sets the "asset_id" field if the given value is not nil.
+func (huo *HoldingUpdateOne) SetNillableAssetID(i *int) *HoldingUpdateOne {
+	if i != nil {
+		huo.SetAssetID(*i)
+	}
+	return huo
+}
+
+// SetPortfolioID sets the "portfolio_id" field.
+func (huo *HoldingUpdateOne) SetPortfolioID(i int) *HoldingUpdateOne {
+	huo.mutation.SetPortfolioID(i)
+	return huo
+}
+
+// SetNillablePortfolioID sets the "portfolio_id" field if the given value is not nil.
+func (huo *HoldingUpdateOne) SetNillablePortfolioID(i *int) *HoldingUpdateOne {
+	if i != nil {
+		huo.SetPortfolioID(*i)
+	}
+	return huo
+}
+
+// SetAccountID sets the "account_id" field.
+func (huo *HoldingUpdateOne) SetAccountID(i int) *HoldingUpdateOne {
+	huo.mutation.SetAccountID(i)
+	return huo
+}
+
+// SetNillableAccountID sets the "account_id" field if the given value is not nil.
+func (huo *HoldingUpdateOne) SetNillableAccountID(i *int) *HoldingUpdateOne {
+	if i != nil {
+		huo.SetAccountID(*i)
+	}
+	return huo
+}
+
 // SetAmount sets the "amount" field.
 func (huo *HoldingUpdateOne) SetAmount(i int64) *HoldingUpdateOne {
 	huo.mutation.ResetAmount()
@@ -404,40 +465,14 @@ func (huo *HoldingUpdateOne) SetUpdatedAt(t time.Time) *HoldingUpdateOne {
 	return huo
 }
 
-// SetAssetID sets the "asset" edge to the Asset entity by ID.
-func (huo *HoldingUpdateOne) SetAssetID(id int) *HoldingUpdateOne {
-	huo.mutation.SetAssetID(id)
-	return huo
-}
-
 // SetAsset sets the "asset" edge to the Asset entity.
 func (huo *HoldingUpdateOne) SetAsset(a *Asset) *HoldingUpdateOne {
 	return huo.SetAssetID(a.ID)
 }
 
-// SetPortfolioID sets the "portfolio" edge to the Portfolio entity by ID.
-func (huo *HoldingUpdateOne) SetPortfolioID(id int) *HoldingUpdateOne {
-	huo.mutation.SetPortfolioID(id)
-	return huo
-}
-
 // SetPortfolio sets the "portfolio" edge to the Portfolio entity.
 func (huo *HoldingUpdateOne) SetPortfolio(p *Portfolio) *HoldingUpdateOne {
 	return huo.SetPortfolioID(p.ID)
-}
-
-// SetAccountID sets the "account" edge to the Account entity by ID.
-func (huo *HoldingUpdateOne) SetAccountID(id int) *HoldingUpdateOne {
-	huo.mutation.SetAccountID(id)
-	return huo
-}
-
-// SetNillableAccountID sets the "account" edge to the Account entity by ID if the given value is not nil.
-func (huo *HoldingUpdateOne) SetNillableAccountID(id *int) *HoldingUpdateOne {
-	if id != nil {
-		huo = huo.SetAccountID(*id)
-	}
-	return huo
 }
 
 // SetAccount sets the "account" edge to the Account entity.
@@ -524,6 +559,9 @@ func (huo *HoldingUpdateOne) check() error {
 	}
 	if huo.mutation.PortfolioCleared() && len(huo.mutation.PortfolioIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "Holding.portfolio"`)
+	}
+	if huo.mutation.AccountCleared() && len(huo.mutation.AccountIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "Holding.account"`)
 	}
 	return nil
 }

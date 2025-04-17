@@ -17,6 +17,12 @@ const (
 	FieldID = "id"
 	// FieldUUID holds the string denoting the uuid field in the database.
 	FieldUUID = "uuid"
+	// FieldAssetID holds the string denoting the asset_id field in the database.
+	FieldAssetID = "asset_id"
+	// FieldPortfolioID holds the string denoting the portfolio_id field in the database.
+	FieldPortfolioID = "portfolio_id"
+	// FieldAccountID holds the string denoting the account_id field in the database.
+	FieldAccountID = "account_id"
 	// FieldAmount holds the string denoting the amount field in the database.
 	FieldAmount = "amount"
 	// FieldPrecision holds the string denoting the precision field in the database.
@@ -39,50 +45,40 @@ const (
 	// It exists in this package in order to avoid circular dependency with the "asset" package.
 	AssetInverseTable = "assets"
 	// AssetColumn is the table column denoting the asset relation/edge.
-	AssetColumn = "asset_holdings"
+	AssetColumn = "asset_id"
 	// PortfolioTable is the table that holds the portfolio relation/edge.
 	PortfolioTable = "holdings"
 	// PortfolioInverseTable is the table name for the Portfolio entity.
 	// It exists in this package in order to avoid circular dependency with the "portfolio" package.
 	PortfolioInverseTable = "portfolios"
 	// PortfolioColumn is the table column denoting the portfolio relation/edge.
-	PortfolioColumn = "portfolio_holdings"
+	PortfolioColumn = "portfolio_id"
 	// AccountTable is the table that holds the account relation/edge.
 	AccountTable = "holdings"
 	// AccountInverseTable is the table name for the Account entity.
 	// It exists in this package in order to avoid circular dependency with the "account" package.
 	AccountInverseTable = "accounts"
 	// AccountColumn is the table column denoting the account relation/edge.
-	AccountColumn = "account_holdings"
+	AccountColumn = "account_id"
 )
 
 // Columns holds all SQL columns for holding fields.
 var Columns = []string{
 	FieldID,
 	FieldUUID,
+	FieldAssetID,
+	FieldPortfolioID,
+	FieldAccountID,
 	FieldAmount,
 	FieldPrecision,
 	FieldCreatedAt,
 	FieldUpdatedAt,
 }
 
-// ForeignKeys holds the SQL foreign-keys that are owned by the "holdings"
-// table and are not defined as standalone fields in the schema.
-var ForeignKeys = []string{
-	"account_holdings",
-	"asset_holdings",
-	"portfolio_holdings",
-}
-
 // ValidColumn reports if the column name is valid (part of the table columns).
 func ValidColumn(column string) bool {
 	for i := range Columns {
 		if column == Columns[i] {
-			return true
-		}
-	}
-	for i := range ForeignKeys {
-		if column == ForeignKeys[i] {
 			return true
 		}
 	}
@@ -111,6 +107,21 @@ func ByID(opts ...sql.OrderTermOption) OrderOption {
 // ByUUID orders the results by the uuid field.
 func ByUUID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUUID, opts...).ToFunc()
+}
+
+// ByAssetID orders the results by the asset_id field.
+func ByAssetID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAssetID, opts...).ToFunc()
+}
+
+// ByPortfolioID orders the results by the portfolio_id field.
+func ByPortfolioID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPortfolioID, opts...).ToFunc()
+}
+
+// ByAccountID orders the results by the account_id field.
+func ByAccountID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAccountID, opts...).ToFunc()
 }
 
 // ByAmount orders the results by the amount field.

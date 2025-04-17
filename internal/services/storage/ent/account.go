@@ -22,6 +22,8 @@ type Account struct {
 	ID int `json:"id,omitempty"`
 	// UUID holds the value of the "uuid" field.
 	UUID uuid.UUID `json:"uuid,omitempty"`
+	// UserID holds the value of the "user_id" field.
+	UserID int `json:"user_id,omitempty"`
 	// Name holds the value of the "name" field.
 	Name string `json:"name,omitempty"`
 	// Description holds the value of the "description" field.
@@ -38,7 +40,6 @@ type Account struct {
 	// The values are being populated by the AccountQuery when eager-loading is set.
 	Edges               AccountEdges `json:"edges"`
 	transaction_account *int
-	user_accounts       *int
 	selectValues        sql.SelectValues
 }
 
@@ -80,7 +81,7 @@ func (*Account) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case account.FieldData:
 			values[i] = new([]byte)
-		case account.FieldID:
+		case account.FieldID, account.FieldUserID:
 			values[i] = new(sql.NullInt64)
 		case account.FieldName, account.FieldDescription, account.FieldType:
 			values[i] = new(sql.NullString)
@@ -89,8 +90,6 @@ func (*Account) scanValues(columns []string) ([]any, error) {
 		case account.FieldUUID:
 			values[i] = new(uuid.UUID)
 		case account.ForeignKeys[0]: // transaction_account
-			values[i] = new(sql.NullInt64)
-		case account.ForeignKeys[1]: // user_accounts
 			values[i] = new(sql.NullInt64)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -118,6 +117,12 @@ func (a *Account) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field uuid", values[i])
 			} else if value != nil {
 				a.UUID = *value
+			}
+		case account.FieldUserID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field user_id", values[i])
+			} else if value.Valid {
+				a.UserID = int(value.Int64)
 			}
 		case account.FieldName:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -163,13 +168,6 @@ func (a *Account) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				a.transaction_account = new(int)
 				*a.transaction_account = int(value.Int64)
-			}
-		case account.ForeignKeys[1]:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for edge-field user_accounts", value)
-			} else if value.Valid {
-				a.user_accounts = new(int)
-				*a.user_accounts = int(value.Int64)
 			}
 		default:
 			a.selectValues.Set(columns[i], values[i])
@@ -219,6 +217,9 @@ func (a *Account) String() string {
 	builder.WriteString(fmt.Sprintf("id=%v, ", a.ID))
 	builder.WriteString("uuid=")
 	builder.WriteString(fmt.Sprintf("%v", a.UUID))
+	builder.WriteString(", ")
+	builder.WriteString("user_id=")
+	builder.WriteString(fmt.Sprintf("%v", a.UserID))
 	builder.WriteString(", ")
 	builder.WriteString("name=")
 	builder.WriteString(a.Name)

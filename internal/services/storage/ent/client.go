@@ -542,6 +542,54 @@ func (c *AssetClient) QueryHoldings(a *Asset) *HoldingQuery {
 	return query
 }
 
+// QueryPrices queries the prices edge of a Asset.
+func (c *AssetClient) QueryPrices(a *Asset) *PriceQuery {
+	query := (&PriceClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := a.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(asset.Table, asset.FieldID, id),
+			sqlgraph.To(price.Table, price.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, asset.PricesTable, asset.PricesColumn),
+		)
+		fromV = sqlgraph.Neighbors(a.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryPricesBase queries the prices_base edge of a Asset.
+func (c *AssetClient) QueryPricesBase(a *Asset) *PriceQuery {
+	query := (&PriceClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := a.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(asset.Table, asset.FieldID, id),
+			sqlgraph.To(price.Table, price.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, asset.PricesBaseTable, asset.PricesBaseColumn),
+		)
+		fromV = sqlgraph.Neighbors(a.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryTransactions queries the transactions edge of a Asset.
+func (c *AssetClient) QueryTransactions(a *Asset) *TransactionQuery {
+	query := (&TransactionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := a.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(asset.Table, asset.FieldID, id),
+			sqlgraph.To(transaction.Table, transaction.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, asset.TransactionsTable, asset.TransactionsColumn),
+		)
+		fromV = sqlgraph.Neighbors(a.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *AssetClient) Hooks() []Hook {
 	return c.hooks.Asset
@@ -856,15 +904,15 @@ func (c *PortfolioClient) GetX(ctx context.Context, id int) *Portfolio {
 	return obj
 }
 
-// QueryUser queries the user edge of a Portfolio.
-func (c *PortfolioClient) QueryUser(po *Portfolio) *UserQuery {
+// QueryUsers queries the users edge of a Portfolio.
+func (c *PortfolioClient) QueryUsers(po *Portfolio) *UserQuery {
 	query := (&UserClient{config: c.config}).Query()
 	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
 		id := po.ID
 		step := sqlgraph.NewStep(
 			sqlgraph.From(portfolio.Table, portfolio.FieldID, id),
 			sqlgraph.To(user.Table, user.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, portfolio.UserTable, portfolio.UserColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, portfolio.UsersTable, portfolio.UsersColumn),
 		)
 		fromV = sqlgraph.Neighbors(po.driver.Dialect(), step)
 		return fromV, nil
@@ -1029,7 +1077,7 @@ func (c *PriceClient) QueryAsset(pr *Price) *AssetQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(price.Table, price.FieldID, id),
 			sqlgraph.To(asset.Table, asset.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, price.AssetTable, price.AssetColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, price.AssetTable, price.AssetColumn),
 		)
 		fromV = sqlgraph.Neighbors(pr.driver.Dialect(), step)
 		return fromV, nil
@@ -1045,7 +1093,7 @@ func (c *PriceClient) QueryBaseAsset(pr *Price) *AssetQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(price.Table, price.FieldID, id),
 			sqlgraph.To(asset.Table, asset.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, price.BaseAssetTable, price.BaseAssetColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, price.BaseAssetTable, price.BaseAssetColumn),
 		)
 		fromV = sqlgraph.Neighbors(pr.driver.Dialect(), step)
 		return fromV, nil
@@ -1226,23 +1274,7 @@ func (c *TransactionClient) QueryAsset(t *Transaction) *AssetQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(transaction.Table, transaction.FieldID, id),
 			sqlgraph.To(asset.Table, asset.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, transaction.AssetTable, transaction.AssetColumn),
-		)
-		fromV = sqlgraph.Neighbors(t.driver.Dialect(), step)
-		return fromV, nil
-	}
-	return query
-}
-
-// QueryFeeAsset queries the fee_asset edge of a Transaction.
-func (c *TransactionClient) QueryFeeAsset(t *Transaction) *AssetQuery {
-	query := (&AssetClient{config: c.config}).Query()
-	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
-		id := t.ID
-		step := sqlgraph.NewStep(
-			sqlgraph.From(transaction.Table, transaction.FieldID, id),
-			sqlgraph.To(asset.Table, asset.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, transaction.FeeAssetTable, transaction.FeeAssetColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, transaction.AssetTable, transaction.AssetColumn),
 		)
 		fromV = sqlgraph.Neighbors(t.driver.Dialect(), step)
 		return fromV, nil

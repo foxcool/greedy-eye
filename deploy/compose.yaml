@@ -28,7 +28,7 @@ services:
     environment:
       EYE_LOGGING_LEVEL: INFO
       EYE_SENTRY_ENVIRONMENT: "development"
-      EYE_DATABASE_URL: "postgresql://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
+      EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
     depends_on:
       postgres:
         condition: service_healthy
@@ -53,14 +53,14 @@ services:
     environment:
       EYE_LOGGING_LEVEL: DEBUG
       EYE_SENTRY_ENVIRONMENT: "debug"
-      EYE_DATABASE_URL: "postgresql://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
+      EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
     depends_on:
       postgres:
         condition: service_healthy
 
   # Database needed by the eye application for storing data
   postgres:
-    image: timescale/timescaledb:latest-pg14
+    image: postgres:17
     environment:
       POSTGRES_USER: greedy_eye
       POSTGRES_PASSWORD: password
@@ -69,9 +69,22 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./postgres-init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U greedy_eye -d greedy_eye"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # Atlas CLI for database migration
+  atlas-cli:
+    profiles: ["tools"]
+    image: arigaio/atlas
+    stdin_open: true
+    tty: true
+    volumes:
+      - ../:/greedy-eye/
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"

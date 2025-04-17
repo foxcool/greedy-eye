@@ -58,6 +58,34 @@ func (pu *PriceUpdate) SetNillableSourceID(s *string) *PriceUpdate {
 	return pu
 }
 
+// SetAssetID sets the "asset_id" field.
+func (pu *PriceUpdate) SetAssetID(i int) *PriceUpdate {
+	pu.mutation.SetAssetID(i)
+	return pu
+}
+
+// SetNillableAssetID sets the "asset_id" field if the given value is not nil.
+func (pu *PriceUpdate) SetNillableAssetID(i *int) *PriceUpdate {
+	if i != nil {
+		pu.SetAssetID(*i)
+	}
+	return pu
+}
+
+// SetBaseAssetID sets the "base_asset_id" field.
+func (pu *PriceUpdate) SetBaseAssetID(i int) *PriceUpdate {
+	pu.mutation.SetBaseAssetID(i)
+	return pu
+}
+
+// SetNillableBaseAssetID sets the "base_asset_id" field if the given value is not nil.
+func (pu *PriceUpdate) SetNillableBaseAssetID(i *int) *PriceUpdate {
+	if i != nil {
+		pu.SetBaseAssetID(*i)
+	}
+	return pu
+}
+
 // SetInterval sets the "interval" field.
 func (pu *PriceUpdate) SetInterval(s string) *PriceUpdate {
 	pu.mutation.SetInterval(s)
@@ -255,34 +283,14 @@ func (pu *PriceUpdate) SetUpdatedAt(t time.Time) *PriceUpdate {
 	return pu
 }
 
-// AddAssetIDs adds the "asset" edge to the Asset entity by IDs.
-func (pu *PriceUpdate) AddAssetIDs(ids ...int) *PriceUpdate {
-	pu.mutation.AddAssetIDs(ids...)
-	return pu
+// SetAsset sets the "asset" edge to the Asset entity.
+func (pu *PriceUpdate) SetAsset(a *Asset) *PriceUpdate {
+	return pu.SetAssetID(a.ID)
 }
 
-// AddAsset adds the "asset" edges to the Asset entity.
-func (pu *PriceUpdate) AddAsset(a ...*Asset) *PriceUpdate {
-	ids := make([]int, len(a))
-	for i := range a {
-		ids[i] = a[i].ID
-	}
-	return pu.AddAssetIDs(ids...)
-}
-
-// AddBaseAssetIDs adds the "base_asset" edge to the Asset entity by IDs.
-func (pu *PriceUpdate) AddBaseAssetIDs(ids ...int) *PriceUpdate {
-	pu.mutation.AddBaseAssetIDs(ids...)
-	return pu
-}
-
-// AddBaseAsset adds the "base_asset" edges to the Asset entity.
-func (pu *PriceUpdate) AddBaseAsset(a ...*Asset) *PriceUpdate {
-	ids := make([]int, len(a))
-	for i := range a {
-		ids[i] = a[i].ID
-	}
-	return pu.AddBaseAssetIDs(ids...)
+// SetBaseAsset sets the "base_asset" edge to the Asset entity.
+func (pu *PriceUpdate) SetBaseAsset(a *Asset) *PriceUpdate {
+	return pu.SetBaseAssetID(a.ID)
 }
 
 // Mutation returns the PriceMutation object of the builder.
@@ -290,46 +298,16 @@ func (pu *PriceUpdate) Mutation() *PriceMutation {
 	return pu.mutation
 }
 
-// ClearAsset clears all "asset" edges to the Asset entity.
+// ClearAsset clears the "asset" edge to the Asset entity.
 func (pu *PriceUpdate) ClearAsset() *PriceUpdate {
 	pu.mutation.ClearAsset()
 	return pu
 }
 
-// RemoveAssetIDs removes the "asset" edge to Asset entities by IDs.
-func (pu *PriceUpdate) RemoveAssetIDs(ids ...int) *PriceUpdate {
-	pu.mutation.RemoveAssetIDs(ids...)
-	return pu
-}
-
-// RemoveAsset removes "asset" edges to Asset entities.
-func (pu *PriceUpdate) RemoveAsset(a ...*Asset) *PriceUpdate {
-	ids := make([]int, len(a))
-	for i := range a {
-		ids[i] = a[i].ID
-	}
-	return pu.RemoveAssetIDs(ids...)
-}
-
-// ClearBaseAsset clears all "base_asset" edges to the Asset entity.
+// ClearBaseAsset clears the "base_asset" edge to the Asset entity.
 func (pu *PriceUpdate) ClearBaseAsset() *PriceUpdate {
 	pu.mutation.ClearBaseAsset()
 	return pu
-}
-
-// RemoveBaseAssetIDs removes the "base_asset" edge to Asset entities by IDs.
-func (pu *PriceUpdate) RemoveBaseAssetIDs(ids ...int) *PriceUpdate {
-	pu.mutation.RemoveBaseAssetIDs(ids...)
-	return pu
-}
-
-// RemoveBaseAsset removes "base_asset" edges to Asset entities.
-func (pu *PriceUpdate) RemoveBaseAsset(a ...*Asset) *PriceUpdate {
-	ids := make([]int, len(a))
-	for i := range a {
-		ids[i] = a[i].ID
-	}
-	return pu.RemoveBaseAssetIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -368,7 +346,21 @@ func (pu *PriceUpdate) defaults() {
 	}
 }
 
+// check runs all checks and user-defined validators on the builder.
+func (pu *PriceUpdate) check() error {
+	if pu.mutation.AssetCleared() && len(pu.mutation.AssetIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "Price.asset"`)
+	}
+	if pu.mutation.BaseAssetCleared() && len(pu.mutation.BaseAssetIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "Price.base_asset"`)
+	}
+	return nil
+}
+
 func (pu *PriceUpdate) sqlSave(ctx context.Context) (n int, err error) {
+	if err := pu.check(); err != nil {
+		return n, err
+	}
 	_spec := sqlgraph.NewUpdateSpec(price.Table, price.Columns, sqlgraph.NewFieldSpec(price.FieldID, field.TypeInt))
 	if ps := pu.mutation.predicates; len(ps) > 0 {
 		_spec.Predicate = func(selector *sql.Selector) {
@@ -448,37 +440,21 @@ func (pu *PriceUpdate) sqlSave(ctx context.Context) (n int, err error) {
 	}
 	if pu.mutation.AssetCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   price.AssetTable,
 			Columns: []string{price.AssetColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
 			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := pu.mutation.RemovedAssetIDs(); len(nodes) > 0 && !pu.mutation.AssetCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   price.AssetTable,
-			Columns: []string{price.AssetColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
 	if nodes := pu.mutation.AssetIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   price.AssetTable,
 			Columns: []string{price.AssetColumn},
 			Bidi:    false,
@@ -493,37 +469,21 @@ func (pu *PriceUpdate) sqlSave(ctx context.Context) (n int, err error) {
 	}
 	if pu.mutation.BaseAssetCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   price.BaseAssetTable,
 			Columns: []string{price.BaseAssetColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
 			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := pu.mutation.RemovedBaseAssetIDs(); len(nodes) > 0 && !pu.mutation.BaseAssetCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   price.BaseAssetTable,
-			Columns: []string{price.BaseAssetColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
 	if nodes := pu.mutation.BaseAssetIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   price.BaseAssetTable,
 			Columns: []string{price.BaseAssetColumn},
 			Bidi:    false,
@@ -580,6 +540,34 @@ func (puo *PriceUpdateOne) SetSourceID(s string) *PriceUpdateOne {
 func (puo *PriceUpdateOne) SetNillableSourceID(s *string) *PriceUpdateOne {
 	if s != nil {
 		puo.SetSourceID(*s)
+	}
+	return puo
+}
+
+// SetAssetID sets the "asset_id" field.
+func (puo *PriceUpdateOne) SetAssetID(i int) *PriceUpdateOne {
+	puo.mutation.SetAssetID(i)
+	return puo
+}
+
+// SetNillableAssetID sets the "asset_id" field if the given value is not nil.
+func (puo *PriceUpdateOne) SetNillableAssetID(i *int) *PriceUpdateOne {
+	if i != nil {
+		puo.SetAssetID(*i)
+	}
+	return puo
+}
+
+// SetBaseAssetID sets the "base_asset_id" field.
+func (puo *PriceUpdateOne) SetBaseAssetID(i int) *PriceUpdateOne {
+	puo.mutation.SetBaseAssetID(i)
+	return puo
+}
+
+// SetNillableBaseAssetID sets the "base_asset_id" field if the given value is not nil.
+func (puo *PriceUpdateOne) SetNillableBaseAssetID(i *int) *PriceUpdateOne {
+	if i != nil {
+		puo.SetBaseAssetID(*i)
 	}
 	return puo
 }
@@ -781,34 +769,14 @@ func (puo *PriceUpdateOne) SetUpdatedAt(t time.Time) *PriceUpdateOne {
 	return puo
 }
 
-// AddAssetIDs adds the "asset" edge to the Asset entity by IDs.
-func (puo *PriceUpdateOne) AddAssetIDs(ids ...int) *PriceUpdateOne {
-	puo.mutation.AddAssetIDs(ids...)
-	return puo
+// SetAsset sets the "asset" edge to the Asset entity.
+func (puo *PriceUpdateOne) SetAsset(a *Asset) *PriceUpdateOne {
+	return puo.SetAssetID(a.ID)
 }
 
-// AddAsset adds the "asset" edges to the Asset entity.
-func (puo *PriceUpdateOne) AddAsset(a ...*Asset) *PriceUpdateOne {
-	ids := make([]int, len(a))
-	for i := range a {
-		ids[i] = a[i].ID
-	}
-	return puo.AddAssetIDs(ids...)
-}
-
-// AddBaseAssetIDs adds the "base_asset" edge to the Asset entity by IDs.
-func (puo *PriceUpdateOne) AddBaseAssetIDs(ids ...int) *PriceUpdateOne {
-	puo.mutation.AddBaseAssetIDs(ids...)
-	return puo
-}
-
-// AddBaseAsset adds the "base_asset" edges to the Asset entity.
-func (puo *PriceUpdateOne) AddBaseAsset(a ...*Asset) *PriceUpdateOne {
-	ids := make([]int, len(a))
-	for i := range a {
-		ids[i] = a[i].ID
-	}
-	return puo.AddBaseAssetIDs(ids...)
+// SetBaseAsset sets the "base_asset" edge to the Asset entity.
+func (puo *PriceUpdateOne) SetBaseAsset(a *Asset) *PriceUpdateOne {
+	return puo.SetBaseAssetID(a.ID)
 }
 
 // Mutation returns the PriceMutation object of the builder.
@@ -816,46 +784,16 @@ func (puo *PriceUpdateOne) Mutation() *PriceMutation {
 	return puo.mutation
 }
 
-// ClearAsset clears all "asset" edges to the Asset entity.
+// ClearAsset clears the "asset" edge to the Asset entity.
 func (puo *PriceUpdateOne) ClearAsset() *PriceUpdateOne {
 	puo.mutation.ClearAsset()
 	return puo
 }
 
-// RemoveAssetIDs removes the "asset" edge to Asset entities by IDs.
-func (puo *PriceUpdateOne) RemoveAssetIDs(ids ...int) *PriceUpdateOne {
-	puo.mutation.RemoveAssetIDs(ids...)
-	return puo
-}
-
-// RemoveAsset removes "asset" edges to Asset entities.
-func (puo *PriceUpdateOne) RemoveAsset(a ...*Asset) *PriceUpdateOne {
-	ids := make([]int, len(a))
-	for i := range a {
-		ids[i] = a[i].ID
-	}
-	return puo.RemoveAssetIDs(ids...)
-}
-
-// ClearBaseAsset clears all "base_asset" edges to the Asset entity.
+// ClearBaseAsset clears the "base_asset" edge to the Asset entity.
 func (puo *PriceUpdateOne) ClearBaseAsset() *PriceUpdateOne {
 	puo.mutation.ClearBaseAsset()
 	return puo
-}
-
-// RemoveBaseAssetIDs removes the "base_asset" edge to Asset entities by IDs.
-func (puo *PriceUpdateOne) RemoveBaseAssetIDs(ids ...int) *PriceUpdateOne {
-	puo.mutation.RemoveBaseAssetIDs(ids...)
-	return puo
-}
-
-// RemoveBaseAsset removes "base_asset" edges to Asset entities.
-func (puo *PriceUpdateOne) RemoveBaseAsset(a ...*Asset) *PriceUpdateOne {
-	ids := make([]int, len(a))
-	for i := range a {
-		ids[i] = a[i].ID
-	}
-	return puo.RemoveBaseAssetIDs(ids...)
 }
 
 // Where appends a list predicates to the PriceUpdate builder.
@@ -907,7 +845,21 @@ func (puo *PriceUpdateOne) defaults() {
 	}
 }
 
+// check runs all checks and user-defined validators on the builder.
+func (puo *PriceUpdateOne) check() error {
+	if puo.mutation.AssetCleared() && len(puo.mutation.AssetIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "Price.asset"`)
+	}
+	if puo.mutation.BaseAssetCleared() && len(puo.mutation.BaseAssetIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "Price.base_asset"`)
+	}
+	return nil
+}
+
 func (puo *PriceUpdateOne) sqlSave(ctx context.Context) (_node *Price, err error) {
+	if err := puo.check(); err != nil {
+		return _node, err
+	}
 	_spec := sqlgraph.NewUpdateSpec(price.Table, price.Columns, sqlgraph.NewFieldSpec(price.FieldID, field.TypeInt))
 	id, ok := puo.mutation.ID()
 	if !ok {
@@ -1004,37 +956,21 @@ func (puo *PriceUpdateOne) sqlSave(ctx context.Context) (_node *Price, err error
 	}
 	if puo.mutation.AssetCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   price.AssetTable,
 			Columns: []string{price.AssetColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
 			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := puo.mutation.RemovedAssetIDs(); len(nodes) > 0 && !puo.mutation.AssetCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   price.AssetTable,
-			Columns: []string{price.AssetColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
 	if nodes := puo.mutation.AssetIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   price.AssetTable,
 			Columns: []string{price.AssetColumn},
 			Bidi:    false,
@@ -1049,37 +985,21 @@ func (puo *PriceUpdateOne) sqlSave(ctx context.Context) (_node *Price, err error
 	}
 	if puo.mutation.BaseAssetCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   price.BaseAssetTable,
 			Columns: []string{price.BaseAssetColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
 			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := puo.mutation.RemovedBaseAssetIDs(); len(nodes) > 0 && !puo.mutation.BaseAssetCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   price.BaseAssetTable,
-			Columns: []string{price.BaseAssetColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
 	if nodes := puo.mutation.BaseAssetIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   price.BaseAssetTable,
 			Columns: []string{price.BaseAssetColumn},
 			Bidi:    false,

@@ -19,6 +19,7 @@ func (Portfolio) Fields() []ent.Field {
 	fields := []ent.Field{
 		field.UUID("uuid", uuid.UUID{}).
 			Default(uuid.New),
+		field.Int("user_id"),
 		field.String("name"),
 		field.String("description").Optional(),
 		field.Time("created_at").Default(time.Now),
@@ -30,8 +31,11 @@ func (Portfolio) Fields() []ent.Field {
 // Edges of the Portfolio.
 func (Portfolio) Edges() []ent.Edge {
 	return []ent.Edge{
-		edge.From("userы", User.Type).
-			Ref("portfolios"),
+		edge.From("users", User.Type).
+			Ref("portfolios").
+			Field("user_id").
+			Unique().
+			Required(),
 		edge.To("holdings", Holding.Type),
 	}
 }

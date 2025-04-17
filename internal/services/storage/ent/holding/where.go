@@ -61,6 +61,21 @@ func UUID(v uuid.UUID) predicate.Holding {
 	return predicate.Holding(sql.FieldEQ(FieldUUID, v))
 }
 
+// AssetID applies equality check predicate on the "asset_id" field. It's identical to AssetIDEQ.
+func AssetID(v int) predicate.Holding {
+	return predicate.Holding(sql.FieldEQ(FieldAssetID, v))
+}
+
+// PortfolioID applies equality check predicate on the "portfolio_id" field. It's identical to PortfolioIDEQ.
+func PortfolioID(v int) predicate.Holding {
+	return predicate.Holding(sql.FieldEQ(FieldPortfolioID, v))
+}
+
+// AccountID applies equality check predicate on the "account_id" field. It's identical to AccountIDEQ.
+func AccountID(v int) predicate.Holding {
+	return predicate.Holding(sql.FieldEQ(FieldAccountID, v))
+}
+
 // Amount applies equality check predicate on the "amount" field. It's identical to AmountEQ.
 func Amount(v int64) predicate.Holding {
 	return predicate.Holding(sql.FieldEQ(FieldAmount, v))
@@ -119,6 +134,66 @@ func UUIDLT(v uuid.UUID) predicate.Holding {
 // UUIDLTE applies the LTE predicate on the "uuid" field.
 func UUIDLTE(v uuid.UUID) predicate.Holding {
 	return predicate.Holding(sql.FieldLTE(FieldUUID, v))
+}
+
+// AssetIDEQ applies the EQ predicate on the "asset_id" field.
+func AssetIDEQ(v int) predicate.Holding {
+	return predicate.Holding(sql.FieldEQ(FieldAssetID, v))
+}
+
+// AssetIDNEQ applies the NEQ predicate on the "asset_id" field.
+func AssetIDNEQ(v int) predicate.Holding {
+	return predicate.Holding(sql.FieldNEQ(FieldAssetID, v))
+}
+
+// AssetIDIn applies the In predicate on the "asset_id" field.
+func AssetIDIn(vs ...int) predicate.Holding {
+	return predicate.Holding(sql.FieldIn(FieldAssetID, vs...))
+}
+
+// AssetIDNotIn applies the NotIn predicate on the "asset_id" field.
+func AssetIDNotIn(vs ...int) predicate.Holding {
+	return predicate.Holding(sql.FieldNotIn(FieldAssetID, vs...))
+}
+
+// PortfolioIDEQ applies the EQ predicate on the "portfolio_id" field.
+func PortfolioIDEQ(v int) predicate.Holding {
+	return predicate.Holding(sql.FieldEQ(FieldPortfolioID, v))
+}
+
+// PortfolioIDNEQ applies the NEQ predicate on the "portfolio_id" field.
+func PortfolioIDNEQ(v int) predicate.Holding {
+	return predicate.Holding(sql.FieldNEQ(FieldPortfolioID, v))
+}
+
+// PortfolioIDIn applies the In predicate on the "portfolio_id" field.
+func PortfolioIDIn(vs ...int) predicate.Holding {
+	return predicate.Holding(sql.FieldIn(FieldPortfolioID, vs...))
+}
+
+// PortfolioIDNotIn applies the NotIn predicate on the "portfolio_id" field.
+func PortfolioIDNotIn(vs ...int) predicate.Holding {
+	return predicate.Holding(sql.FieldNotIn(FieldPortfolioID, vs...))
+}
+
+// AccountIDEQ applies the EQ predicate on the "account_id" field.
+func AccountIDEQ(v int) predicate.Holding {
+	return predicate.Holding(sql.FieldEQ(FieldAccountID, v))
+}
+
+// AccountIDNEQ applies the NEQ predicate on the "account_id" field.
+func AccountIDNEQ(v int) predicate.Holding {
+	return predicate.Holding(sql.FieldNEQ(FieldAccountID, v))
+}
+
+// AccountIDIn applies the In predicate on the "account_id" field.
+func AccountIDIn(vs ...int) predicate.Holding {
+	return predicate.Holding(sql.FieldIn(FieldAccountID, vs...))
+}
+
+// AccountIDNotIn applies the NotIn predicate on the "account_id" field.
+func AccountIDNotIn(vs ...int) predicate.Holding {
+	return predicate.Holding(sql.FieldNotIn(FieldAccountID, vs...))
 }
 
 // AmountEQ applies the EQ predicate on the "amount" field.

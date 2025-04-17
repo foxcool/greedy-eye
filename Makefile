@@ -3,12 +3,12 @@ PROTOC_GEN_GO=$(shell which protoc-gen-go)
 # Use docker compose instead of docker-compose
 COMPOSE=docker compose -p eye
 # Path to the compose file
-COMPOSE_FILE=deploy/docker-compose.yml
+COMPOSE_FILE=deploy/compose.yaml
 
-.PHONY: all protoc generate up debug down logs clean
+.PHONY: gen protoc go-gen migrations migrate-apply up debug down logs clean
 
 # Generate all code
-all: protoc generate
+gen: protoc go-gen migrations
 
 # Generate Go files from .proto sources
 protoc:
@@ -23,10 +23,23 @@ endif
 	$(shell find api -name "*.proto")
 	@echo "Protobuf files generated in internal/"
 
-# Generate other code
-generate:
-	@echo "Generating code..."
+# Generate go code
+go-gen:
+	@echo "Generating go code..."
 	go generate ./...
+
+# Generate migrations
+migrations:
+	@echo "📝 Generating diff against ephemeral DB…"
+	atlas migrate diff \
+	   -c file://deploy/migrations/atlas.hcl --env docker
+
+migrate-apply:
+	@echo "Applying migrations using compose run..."
+	$(COMPOSE) -f $(COMPOSE_FILE) run --rm atlas-cli migrate apply \
+		--config "file:///greedy-eye/deploy/migrations/atlas.hcl" \
+		--dir "file:///greedy-eye/deploy/migrations" \
+		--env docker
 
 # Run default/development profile services in detached mode
 up:

@@ -61,6 +61,11 @@ func UUID(v uuid.UUID) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldUUID, v))
 }
 
+// UserID applies equality check predicate on the "user_id" field. It's identical to UserIDEQ.
+func UserID(v int) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldUserID, v))
+}
+
 // Name applies equality check predicate on the "name" field. It's identical to NameEQ.
 func Name(v string) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldName, v))
@@ -119,6 +124,26 @@ func UUIDLT(v uuid.UUID) predicate.Account {
 // UUIDLTE applies the LTE predicate on the "uuid" field.
 func UUIDLTE(v uuid.UUID) predicate.Account {
 	return predicate.Account(sql.FieldLTE(FieldUUID, v))
+}
+
+// UserIDEQ applies the EQ predicate on the "user_id" field.
+func UserIDEQ(v int) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldUserID, v))
+}
+
+// UserIDNEQ applies the NEQ predicate on the "user_id" field.
+func UserIDNEQ(v int) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldUserID, v))
+}
+
+// UserIDIn applies the In predicate on the "user_id" field.
+func UserIDIn(vs ...int) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldUserID, vs...))
+}
+
+// UserIDNotIn applies the NotIn predicate on the "user_id" field.
+func UserIDNotIn(vs ...int) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldUserID, vs...))
 }
 
 // NameEQ applies the EQ predicate on the "name" field.

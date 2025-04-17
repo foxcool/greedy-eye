@@ -61,6 +61,11 @@ func UUID(v uuid.UUID) predicate.Transaction {
 	return predicate.Transaction(sql.FieldEQ(FieldUUID, v))
 }
 
+// AssetID applies equality check predicate on the "asset_id" field. It's identical to AssetIDEQ.
+func AssetID(v int) predicate.Transaction {
+	return predicate.Transaction(sql.FieldEQ(FieldAssetID, v))
+}
+
 // Amount applies equality check predicate on the "amount" field. It's identical to AmountEQ.
 func Amount(v int64) predicate.Transaction {
 	return predicate.Transaction(sql.FieldEQ(FieldAmount, v))
@@ -124,6 +129,26 @@ func UUIDLT(v uuid.UUID) predicate.Transaction {
 // UUIDLTE applies the LTE predicate on the "uuid" field.
 func UUIDLTE(v uuid.UUID) predicate.Transaction {
 	return predicate.Transaction(sql.FieldLTE(FieldUUID, v))
+}
+
+// AssetIDEQ applies the EQ predicate on the "asset_id" field.
+func AssetIDEQ(v int) predicate.Transaction {
+	return predicate.Transaction(sql.FieldEQ(FieldAssetID, v))
+}
+
+// AssetIDNEQ applies the NEQ predicate on the "asset_id" field.
+func AssetIDNEQ(v int) predicate.Transaction {
+	return predicate.Transaction(sql.FieldNEQ(FieldAssetID, v))
+}
+
+// AssetIDIn applies the In predicate on the "asset_id" field.
+func AssetIDIn(vs ...int) predicate.Transaction {
+	return predicate.Transaction(sql.FieldIn(FieldAssetID, vs...))
+}
+
+// AssetIDNotIn applies the NotIn predicate on the "asset_id" field.
+func AssetIDNotIn(vs ...int) predicate.Transaction {
+	return predicate.Transaction(sql.FieldNotIn(FieldAssetID, vs...))
 }
 
 // AmountEQ applies the EQ predicate on the "amount" field.
@@ -417,7 +442,7 @@ func HasAsset() predicate.Transaction {
 	return predicate.Transaction(func(s *sql.Selector) {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, AssetTable, AssetColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, AssetTable, AssetColumn),
 		)
 		sqlgraph.HasNeighbors(s, step)
 	})
@@ -427,29 +452,6 @@ func HasAsset() predicate.Transaction {
 func HasAssetWith(preds ...predicate.Asset) predicate.Transaction {
 	return predicate.Transaction(func(s *sql.Selector) {
 		step := newAssetStep()
-		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
-			for _, p := range preds {
-				p(s)
-			}
-		})
-	})
-}
-
-// HasFeeAsset applies the HasEdge predicate on the "fee_asset" edge.
-func HasFeeAsset() predicate.Transaction {
-	return predicate.Transaction(func(s *sql.Selector) {
-		step := sqlgraph.NewStep(
-			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, FeeAssetTable, FeeAssetColumn),
-		)
-		sqlgraph.HasNeighbors(s, step)
-	})
-}
-
-// HasFeeAssetWith applies the HasEdge predicate on the "fee_asset" edge with a given conditions (other predicates).
-func HasFeeAssetWith(preds ...predicate.Asset) predicate.Transaction {
-	return predicate.Transaction(func(s *sql.Selector) {
-		step := newFeeAssetStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

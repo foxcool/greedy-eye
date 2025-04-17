@@ -29,7 +29,6 @@ type TransactionQuery struct {
 	withPortfolio *PortfolioQuery
 	withAccount   *AccountQuery
 	withAsset     *AssetQuery
-	withFeeAsset  *AssetQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -124,29 +123,7 @@ func (tq *TransactionQuery) QueryAsset() *AssetQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(transaction.Table, transaction.FieldID, selector),
 			sqlgraph.To(asset.Table, asset.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, transaction.AssetTable, transaction.AssetColumn),
-		)
-		fromU = sqlgraph.SetNeighbors(tq.driver.Dialect(), step)
-		return fromU, nil
-	}
-	return query
-}
-
-// QueryFeeAsset chains the current query on the "fee_asset" edge.
-func (tq *TransactionQuery) QueryFeeAsset() *AssetQuery {
-	query := (&AssetClient{config: tq.config}).Query()
-	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
-		if err := tq.prepareQuery(ctx); err != nil {
-			return nil, err
-		}
-		selector := tq.sqlQuery(ctx)
-		if err := selector.Err(); err != nil {
-			return nil, err
-		}
-		step := sqlgraph.NewStep(
-			sqlgraph.From(transaction.Table, transaction.FieldID, selector),
-			sqlgraph.To(asset.Table, asset.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, transaction.FeeAssetTable, transaction.FeeAssetColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, transaction.AssetTable, transaction.AssetColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(tq.driver.Dialect(), step)
 		return fromU, nil
@@ -349,7 +326,6 @@ func (tq *TransactionQuery) Clone() *TransactionQuery {
 		withPortfolio: tq.withPortfolio.Clone(),
 		withAccount:   tq.withAccount.Clone(),
 		withAsset:     tq.withAsset.Clone(),
-		withFeeAsset:  tq.withFeeAsset.Clone(),
 		// clone intermediate query.
 		sql:  tq.sql.Clone(),
 		path: tq.path,
@@ -386,17 +362,6 @@ func (tq *TransactionQuery) WithAsset(opts ...func(*AssetQuery)) *TransactionQue
 		opt(query)
 	}
 	tq.withAsset = query
-	return tq
-}
-
-// WithFeeAsset tells the query-builder to eager-load the nodes that are connected to
-// the "fee_asset" edge. The optional arguments are used to configure the query builder of the edge.
-func (tq *TransactionQuery) WithFeeAsset(opts ...func(*AssetQuery)) *TransactionQuery {
-	query := (&AssetClient{config: tq.config}).Query()
-	for _, opt := range opts {
-		opt(query)
-	}
-	tq.withFeeAsset = query
 	return tq
 }
 
@@ -478,11 +443,10 @@ func (tq *TransactionQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*
 	var (
 		nodes       = []*Transaction{}
 		_spec       = tq.querySpec()
-		loadedTypes = [4]bool{
+		loadedTypes = [3]bool{
 			tq.withPortfolio != nil,
 			tq.withAccount != nil,
 			tq.withAsset != nil,
-			tq.withFeeAsset != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -518,16 +482,8 @@ func (tq *TransactionQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*
 		}
 	}
 	if query := tq.withAsset; query != nil {
-		if err := tq.loadAsset(ctx, query, nodes,
-			func(n *Transaction) { n.Edges.Asset = []*Asset{} },
-			func(n *Transaction, e *Asset) { n.Edges.Asset = append(n.Edges.Asset, e) }); err != nil {
-			return nil, err
-		}
-	}
-	if query := tq.withFeeAsset; query != nil {
-		if err := tq.loadFeeAsset(ctx, query, nodes,
-			func(n *Transaction) { n.Edges.FeeAsset = []*Asset{} },
-			func(n *Transaction, e *Asset) { n.Edges.FeeAsset = append(n.Edges.FeeAsset, e) }); err != nil {
+		if err := tq.loadAsset(ctx, query, nodes, nil,
+			func(n *Transaction, e *Asset) { n.Edges.Asset = e }); err != nil {
 			return nil, err
 		}
 	}
@@ -597,64 +553,31 @@ func (tq *TransactionQuery) loadAccount(ctx context.Context, query *AccountQuery
 	return nil
 }
 func (tq *TransactionQuery) loadAsset(ctx context.Context, query *AssetQuery, nodes []*Transaction, init func(*Transaction), assign func(*Transaction, *Asset)) error {
-	fks := make([]driver.Value, 0, len(nodes))
-	nodeids := make(map[int]*Transaction)
+	ids := make([]int, 0, len(nodes))
+	nodeids := make(map[int][]*Transaction)
 	for i := range nodes {
-		fks = append(fks, nodes[i].ID)
-		nodeids[nodes[i].ID] = nodes[i]
-		if init != nil {
-			init(nodes[i])
+		fk := nodes[i].AssetID
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
 		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
 	}
-	query.withFKs = true
-	query.Where(predicate.Asset(func(s *sql.Selector) {
-		s.Where(sql.InValues(s.C(transaction.AssetColumn), fks...))
-	}))
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(asset.IDIn(ids...))
 	neighbors, err := query.All(ctx)
 	if err != nil {
 		return err
 	}
 	for _, n := range neighbors {
-		fk := n.transaction_asset
-		if fk == nil {
-			return fmt.Errorf(`foreign-key "transaction_asset" is nil for node %v`, n.ID)
-		}
-		node, ok := nodeids[*fk]
+		nodes, ok := nodeids[n.ID]
 		if !ok {
-			return fmt.Errorf(`unexpected referenced foreign-key "transaction_asset" returned %v for node %v`, *fk, n.ID)
+			return fmt.Errorf(`unexpected foreign-key "asset_id" returned %v`, n.ID)
 		}
-		assign(node, n)
-	}
-	return nil
-}
-func (tq *TransactionQuery) loadFeeAsset(ctx context.Context, query *AssetQuery, nodes []*Transaction, init func(*Transaction), assign func(*Transaction, *Asset)) error {
-	fks := make([]driver.Value, 0, len(nodes))
-	nodeids := make(map[int]*Transaction)
-	for i := range nodes {
-		fks = append(fks, nodes[i].ID)
-		nodeids[nodes[i].ID] = nodes[i]
-		if init != nil {
-			init(nodes[i])
+		for i := range nodes {
+			assign(nodes[i], n)
 		}
-	}
-	query.withFKs = true
-	query.Where(predicate.Asset(func(s *sql.Selector) {
-		s.Where(sql.InValues(s.C(transaction.FeeAssetColumn), fks...))
-	}))
-	neighbors, err := query.All(ctx)
-	if err != nil {
-		return err
-	}
-	for _, n := range neighbors {
-		fk := n.transaction_fee_asset
-		if fk == nil {
-			return fmt.Errorf(`foreign-key "transaction_fee_asset" is nil for node %v`, n.ID)
-		}
-		node, ok := nodeids[*fk]
-		if !ok {
-			return fmt.Errorf(`unexpected referenced foreign-key "transaction_fee_asset" returned %v for node %v`, *fk, n.ID)
-		}
-		assign(node, n)
 	}
 	return nil
 }
@@ -683,6 +606,9 @@ func (tq *TransactionQuery) querySpec() *sqlgraph.QuerySpec {
 			if fields[i] != transaction.FieldID {
 				_spec.Node.Columns = append(_spec.Node.Columns, fields[i])
 			}
+		}
+		if tq.withAsset != nil {
+			_spec.Node.AddColumnOnce(transaction.FieldAssetID)
 		}
 	}
 	if ps := tq.predicates; len(ps) > 0 {

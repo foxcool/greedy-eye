@@ -38,6 +38,12 @@ func (tc *TransactionCreate) SetNillableUUID(u *uuid.UUID) *TransactionCreate {
 	return tc
 }
 
+// SetAssetID sets the "asset_id" field.
+func (tc *TransactionCreate) SetAssetID(i int) *TransactionCreate {
+	tc.mutation.SetAssetID(i)
+	return tc
+}
+
 // SetAmount sets the "amount" field.
 func (tc *TransactionCreate) SetAmount(i int64) *TransactionCreate {
 	tc.mutation.SetAmount(i)
@@ -132,34 +138,9 @@ func (tc *TransactionCreate) AddAccount(a ...*Account) *TransactionCreate {
 	return tc.AddAccountIDs(ids...)
 }
 
-// AddAssetIDs adds the "asset" edge to the Asset entity by IDs.
-func (tc *TransactionCreate) AddAssetIDs(ids ...int) *TransactionCreate {
-	tc.mutation.AddAssetIDs(ids...)
-	return tc
-}
-
-// AddAsset adds the "asset" edges to the Asset entity.
-func (tc *TransactionCreate) AddAsset(a ...*Asset) *TransactionCreate {
-	ids := make([]int, len(a))
-	for i := range a {
-		ids[i] = a[i].ID
-	}
-	return tc.AddAssetIDs(ids...)
-}
-
-// AddFeeAssetIDs adds the "fee_asset" edge to the Asset entity by IDs.
-func (tc *TransactionCreate) AddFeeAssetIDs(ids ...int) *TransactionCreate {
-	tc.mutation.AddFeeAssetIDs(ids...)
-	return tc
-}
-
-// AddFeeAsset adds the "fee_asset" edges to the Asset entity.
-func (tc *TransactionCreate) AddFeeAsset(a ...*Asset) *TransactionCreate {
-	ids := make([]int, len(a))
-	for i := range a {
-		ids[i] = a[i].ID
-	}
-	return tc.AddFeeAssetIDs(ids...)
+// SetAsset sets the "asset" edge to the Asset entity.
+func (tc *TransactionCreate) SetAsset(a *Asset) *TransactionCreate {
+	return tc.SetAssetID(a.ID)
 }
 
 // Mutation returns the TransactionMutation object of the builder.
@@ -220,6 +201,9 @@ func (tc *TransactionCreate) check() error {
 	if _, ok := tc.mutation.UUID(); !ok {
 		return &ValidationError{Name: "uuid", err: errors.New(`ent: missing required field "Transaction.uuid"`)}
 	}
+	if _, ok := tc.mutation.AssetID(); !ok {
+		return &ValidationError{Name: "asset_id", err: errors.New(`ent: missing required field "Transaction.asset_id"`)}
+	}
 	if _, ok := tc.mutation.Amount(); !ok {
 		return &ValidationError{Name: "amount", err: errors.New(`ent: missing required field "Transaction.amount"`)}
 	}
@@ -253,6 +237,9 @@ func (tc *TransactionCreate) check() error {
 	}
 	if _, ok := tc.mutation.Metadata(); !ok {
 		return &ValidationError{Name: "metadata", err: errors.New(`ent: missing required field "Transaction.metadata"`)}
+	}
+	if len(tc.mutation.AssetIDs()) == 0 {
+		return &ValidationError{Name: "asset", err: errors.New(`ent: missing required edge "Transaction.asset"`)}
 	}
 	return nil
 }
@@ -350,8 +337,8 @@ func (tc *TransactionCreate) createSpec() (*Transaction, *sqlgraph.CreateSpec) {
 	}
 	if nodes := tc.mutation.AssetIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   transaction.AssetTable,
 			Columns: []string{transaction.AssetColumn},
 			Bidi:    false,
@@ -362,22 +349,7 @@ func (tc *TransactionCreate) createSpec() (*Transaction, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_spec.Edges = append(_spec.Edges, edge)
-	}
-	if nodes := tc.mutation.FeeAssetIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   transaction.FeeAssetTable,
-			Columns: []string{transaction.FeeAssetColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
+		_node.AssetID = nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec

@@ -17,6 +17,8 @@ const (
 	FieldID = "id"
 	// FieldUUID holds the string denoting the uuid field in the database.
 	FieldUUID = "uuid"
+	// FieldUserID holds the string denoting the user_id field in the database.
+	FieldUserID = "user_id"
 	// FieldName holds the string denoting the name field in the database.
 	FieldName = "name"
 	// FieldDescription holds the string denoting the description field in the database.
@@ -41,20 +43,21 @@ const (
 	// It exists in this package in order to avoid circular dependency with the "user" package.
 	UserInverseTable = "users"
 	// UserColumn is the table column denoting the user relation/edge.
-	UserColumn = "user_accounts"
+	UserColumn = "user_id"
 	// HoldingsTable is the table that holds the holdings relation/edge.
 	HoldingsTable = "holdings"
 	// HoldingsInverseTable is the table name for the Holding entity.
 	// It exists in this package in order to avoid circular dependency with the "holding" package.
 	HoldingsInverseTable = "holdings"
 	// HoldingsColumn is the table column denoting the holdings relation/edge.
-	HoldingsColumn = "account_holdings"
+	HoldingsColumn = "account_id"
 )
 
 // Columns holds all SQL columns for account fields.
 var Columns = []string{
 	FieldID,
 	FieldUUID,
+	FieldUserID,
 	FieldName,
 	FieldDescription,
 	FieldType,
@@ -67,7 +70,6 @@ var Columns = []string{
 // table and are not defined as standalone fields in the schema.
 var ForeignKeys = []string{
 	"transaction_account",
-	"user_accounts",
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -127,6 +129,11 @@ func ByID(opts ...sql.OrderTermOption) OrderOption {
 // ByUUID orders the results by the uuid field.
 func ByUUID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUUID, opts...).ToFunc()
+}
+
+// ByUserID orders the results by the user_id field.
+func ByUserID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUserID, opts...).ToFunc()
 }
 
 // ByName orders the results by the name field.

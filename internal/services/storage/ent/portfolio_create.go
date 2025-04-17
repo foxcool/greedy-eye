@@ -37,6 +37,12 @@ func (pc *PortfolioCreate) SetNillableUUID(u *uuid.UUID) *PortfolioCreate {
 	return pc
 }
 
+// SetUserID sets the "user_id" field.
+func (pc *PortfolioCreate) SetUserID(i int) *PortfolioCreate {
+	pc.mutation.SetUserID(i)
+	return pc
+}
+
 // SetName sets the "name" field.
 func (pc *PortfolioCreate) SetName(s string) *PortfolioCreate {
 	pc.mutation.SetName(s)
@@ -85,23 +91,15 @@ func (pc *PortfolioCreate) SetNillableUpdatedAt(t *time.Time) *PortfolioCreate {
 	return pc
 }
 
-// SetUserID sets the "user" edge to the User entity by ID.
-func (pc *PortfolioCreate) SetUserID(id int) *PortfolioCreate {
-	pc.mutation.SetUserID(id)
+// SetUsersID sets the "users" edge to the User entity by ID.
+func (pc *PortfolioCreate) SetUsersID(id int) *PortfolioCreate {
+	pc.mutation.SetUsersID(id)
 	return pc
 }
 
-// SetNillableUserID sets the "user" edge to the User entity by ID if the given value is not nil.
-func (pc *PortfolioCreate) SetNillableUserID(id *int) *PortfolioCreate {
-	if id != nil {
-		pc = pc.SetUserID(*id)
-	}
-	return pc
-}
-
-// SetUser sets the "user" edge to the User entity.
-func (pc *PortfolioCreate) SetUser(u *User) *PortfolioCreate {
-	return pc.SetUserID(u.ID)
+// SetUsers sets the "users" edge to the User entity.
+func (pc *PortfolioCreate) SetUsers(u *User) *PortfolioCreate {
+	return pc.SetUsersID(u.ID)
 }
 
 // AddHoldingIDs adds the "holdings" edge to the Holding entity by IDs.
@@ -173,6 +171,9 @@ func (pc *PortfolioCreate) check() error {
 	if _, ok := pc.mutation.UUID(); !ok {
 		return &ValidationError{Name: "uuid", err: errors.New(`ent: missing required field "Portfolio.uuid"`)}
 	}
+	if _, ok := pc.mutation.UserID(); !ok {
+		return &ValidationError{Name: "user_id", err: errors.New(`ent: missing required field "Portfolio.user_id"`)}
+	}
 	if _, ok := pc.mutation.Name(); !ok {
 		return &ValidationError{Name: "name", err: errors.New(`ent: missing required field "Portfolio.name"`)}
 	}
@@ -181,6 +182,9 @@ func (pc *PortfolioCreate) check() error {
 	}
 	if _, ok := pc.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Portfolio.updated_at"`)}
+	}
+	if len(pc.mutation.UsersIDs()) == 0 {
+		return &ValidationError{Name: "users", err: errors.New(`ent: missing required edge "Portfolio.users"`)}
 	}
 	return nil
 }
@@ -228,12 +232,12 @@ func (pc *PortfolioCreate) createSpec() (*Portfolio, *sqlgraph.CreateSpec) {
 		_spec.SetField(portfolio.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
 	}
-	if nodes := pc.mutation.UserIDs(); len(nodes) > 0 {
+	if nodes := pc.mutation.UsersIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   portfolio.UserTable,
-			Columns: []string{portfolio.UserColumn},
+			Table:   portfolio.UsersTable,
+			Columns: []string{portfolio.UsersColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
@@ -242,7 +246,7 @@ func (pc *PortfolioCreate) createSpec() (*Portfolio, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_node.user_portfolios = &nodes[0]
+		_node.UserID = nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := pc.mutation.HoldingsIDs(); len(nodes) > 0 {

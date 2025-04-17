@@ -14,6 +14,8 @@ import (
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/predicate"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/price"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/transaction"
 	"github.com/google/uuid"
 )
 
@@ -113,6 +115,51 @@ func (au *AssetUpdate) AddHoldings(h ...*Holding) *AssetUpdate {
 	return au.AddHoldingIDs(ids...)
 }
 
+// AddPriceIDs adds the "prices" edge to the Price entity by IDs.
+func (au *AssetUpdate) AddPriceIDs(ids ...int) *AssetUpdate {
+	au.mutation.AddPriceIDs(ids...)
+	return au
+}
+
+// AddPrices adds the "prices" edges to the Price entity.
+func (au *AssetUpdate) AddPrices(p ...*Price) *AssetUpdate {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return au.AddPriceIDs(ids...)
+}
+
+// AddPricesBaseIDs adds the "prices_base" edge to the Price entity by IDs.
+func (au *AssetUpdate) AddPricesBaseIDs(ids ...int) *AssetUpdate {
+	au.mutation.AddPricesBaseIDs(ids...)
+	return au
+}
+
+// AddPricesBase adds the "prices_base" edges to the Price entity.
+func (au *AssetUpdate) AddPricesBase(p ...*Price) *AssetUpdate {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return au.AddPricesBaseIDs(ids...)
+}
+
+// AddTransactionIDs adds the "transactions" edge to the Transaction entity by IDs.
+func (au *AssetUpdate) AddTransactionIDs(ids ...int) *AssetUpdate {
+	au.mutation.AddTransactionIDs(ids...)
+	return au
+}
+
+// AddTransactions adds the "transactions" edges to the Transaction entity.
+func (au *AssetUpdate) AddTransactions(t ...*Transaction) *AssetUpdate {
+	ids := make([]int, len(t))
+	for i := range t {
+		ids[i] = t[i].ID
+	}
+	return au.AddTransactionIDs(ids...)
+}
+
 // Mutation returns the AssetMutation object of the builder.
 func (au *AssetUpdate) Mutation() *AssetMutation {
 	return au.mutation
@@ -137,6 +184,69 @@ func (au *AssetUpdate) RemoveHoldings(h ...*Holding) *AssetUpdate {
 		ids[i] = h[i].ID
 	}
 	return au.RemoveHoldingIDs(ids...)
+}
+
+// ClearPrices clears all "prices" edges to the Price entity.
+func (au *AssetUpdate) ClearPrices() *AssetUpdate {
+	au.mutation.ClearPrices()
+	return au
+}
+
+// RemovePriceIDs removes the "prices" edge to Price entities by IDs.
+func (au *AssetUpdate) RemovePriceIDs(ids ...int) *AssetUpdate {
+	au.mutation.RemovePriceIDs(ids...)
+	return au
+}
+
+// RemovePrices removes "prices" edges to Price entities.
+func (au *AssetUpdate) RemovePrices(p ...*Price) *AssetUpdate {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return au.RemovePriceIDs(ids...)
+}
+
+// ClearPricesBase clears all "prices_base" edges to the Price entity.
+func (au *AssetUpdate) ClearPricesBase() *AssetUpdate {
+	au.mutation.ClearPricesBase()
+	return au
+}
+
+// RemovePricesBaseIDs removes the "prices_base" edge to Price entities by IDs.
+func (au *AssetUpdate) RemovePricesBaseIDs(ids ...int) *AssetUpdate {
+	au.mutation.RemovePricesBaseIDs(ids...)
+	return au
+}
+
+// RemovePricesBase removes "prices_base" edges to Price entities.
+func (au *AssetUpdate) RemovePricesBase(p ...*Price) *AssetUpdate {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return au.RemovePricesBaseIDs(ids...)
+}
+
+// ClearTransactions clears all "transactions" edges to the Transaction entity.
+func (au *AssetUpdate) ClearTransactions() *AssetUpdate {
+	au.mutation.ClearTransactions()
+	return au
+}
+
+// RemoveTransactionIDs removes the "transactions" edge to Transaction entities by IDs.
+func (au *AssetUpdate) RemoveTransactionIDs(ids ...int) *AssetUpdate {
+	au.mutation.RemoveTransactionIDs(ids...)
+	return au
+}
+
+// RemoveTransactions removes "transactions" edges to Transaction entities.
+func (au *AssetUpdate) RemoveTransactions(t ...*Transaction) *AssetUpdate {
+	ids := make([]int, len(t))
+	for i := range t {
+		ids[i] = t[i].ID
+	}
+	return au.RemoveTransactionIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -253,6 +363,141 @@ func (au *AssetUpdate) sqlSave(ctx context.Context) (n int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if au.mutation.PricesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.PricesTable,
+			Columns: []string{asset.PricesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(price.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := au.mutation.RemovedPricesIDs(); len(nodes) > 0 && !au.mutation.PricesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.PricesTable,
+			Columns: []string{asset.PricesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(price.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := au.mutation.PricesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.PricesTable,
+			Columns: []string{asset.PricesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(price.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if au.mutation.PricesBaseCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.PricesBaseTable,
+			Columns: []string{asset.PricesBaseColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(price.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := au.mutation.RemovedPricesBaseIDs(); len(nodes) > 0 && !au.mutation.PricesBaseCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.PricesBaseTable,
+			Columns: []string{asset.PricesBaseColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(price.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := au.mutation.PricesBaseIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.PricesBaseTable,
+			Columns: []string{asset.PricesBaseColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(price.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if au.mutation.TransactionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.TransactionsTable,
+			Columns: []string{asset.TransactionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(transaction.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := au.mutation.RemovedTransactionsIDs(); len(nodes) > 0 && !au.mutation.TransactionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.TransactionsTable,
+			Columns: []string{asset.TransactionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(transaction.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := au.mutation.TransactionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.TransactionsTable,
+			Columns: []string{asset.TransactionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(transaction.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if n, err = sqlgraph.UpdateNodes(ctx, au.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{asset.Label}
@@ -356,6 +601,51 @@ func (auo *AssetUpdateOne) AddHoldings(h ...*Holding) *AssetUpdateOne {
 	return auo.AddHoldingIDs(ids...)
 }
 
+// AddPriceIDs adds the "prices" edge to the Price entity by IDs.
+func (auo *AssetUpdateOne) AddPriceIDs(ids ...int) *AssetUpdateOne {
+	auo.mutation.AddPriceIDs(ids...)
+	return auo
+}
+
+// AddPrices adds the "prices" edges to the Price entity.
+func (auo *AssetUpdateOne) AddPrices(p ...*Price) *AssetUpdateOne {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return auo.AddPriceIDs(ids...)
+}
+
+// AddPricesBaseIDs adds the "prices_base" edge to the Price entity by IDs.
+func (auo *AssetUpdateOne) AddPricesBaseIDs(ids ...int) *AssetUpdateOne {
+	auo.mutation.AddPricesBaseIDs(ids...)
+	return auo
+}
+
+// AddPricesBase adds the "prices_base" edges to the Price entity.
+func (auo *AssetUpdateOne) AddPricesBase(p ...*Price) *AssetUpdateOne {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return auo.AddPricesBaseIDs(ids...)
+}
+
+// AddTransactionIDs adds the "transactions" edge to the Transaction entity by IDs.
+func (auo *AssetUpdateOne) AddTransactionIDs(ids ...int) *AssetUpdateOne {
+	auo.mutation.AddTransactionIDs(ids...)
+	return auo
+}
+
+// AddTransactions adds the "transactions" edges to the Transaction entity.
+func (auo *AssetUpdateOne) AddTransactions(t ...*Transaction) *AssetUpdateOne {
+	ids := make([]int, len(t))
+	for i := range t {
+		ids[i] = t[i].ID
+	}
+	return auo.AddTransactionIDs(ids...)
+}
+
 // Mutation returns the AssetMutation object of the builder.
 func (auo *AssetUpdateOne) Mutation() *AssetMutation {
 	return auo.mutation
@@ -380,6 +670,69 @@ func (auo *AssetUpdateOne) RemoveHoldings(h ...*Holding) *AssetUpdateOne {
 		ids[i] = h[i].ID
 	}
 	return auo.RemoveHoldingIDs(ids...)
+}
+
+// ClearPrices clears all "prices" edges to the Price entity.
+func (auo *AssetUpdateOne) ClearPrices() *AssetUpdateOne {
+	auo.mutation.ClearPrices()
+	return auo
+}
+
+// RemovePriceIDs removes the "prices" edge to Price entities by IDs.
+func (auo *AssetUpdateOne) RemovePriceIDs(ids ...int) *AssetUpdateOne {
+	auo.mutation.RemovePriceIDs(ids...)
+	return auo
+}
+
+// RemovePrices removes "prices" edges to Price entities.
+func (auo *AssetUpdateOne) RemovePrices(p ...*Price) *AssetUpdateOne {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return auo.RemovePriceIDs(ids...)
+}
+
+// ClearPricesBase clears all "prices_base" edges to the Price entity.
+func (auo *AssetUpdateOne) ClearPricesBase() *AssetUpdateOne {
+	auo.mutation.ClearPricesBase()
+	return auo
+}
+
+// RemovePricesBaseIDs removes the "prices_base" edge to Price entities by IDs.
+func (auo *AssetUpdateOne) RemovePricesBaseIDs(ids ...int) *AssetUpdateOne {
+	auo.mutation.RemovePricesBaseIDs(ids...)
+	return auo
+}
+
+// RemovePricesBase removes "prices_base" edges to Price entities.
+func (auo *AssetUpdateOne) RemovePricesBase(p ...*Price) *AssetUpdateOne {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return auo.RemovePricesBaseIDs(ids...)
+}
+
+// ClearTransactions clears all "transactions" edges to the Transaction entity.
+func (auo *AssetUpdateOne) ClearTransactions() *AssetUpdateOne {
+	auo.mutation.ClearTransactions()
+	return auo
+}
+
+// RemoveTransactionIDs removes the "transactions" edge to Transaction entities by IDs.
+func (auo *AssetUpdateOne) RemoveTransactionIDs(ids ...int) *AssetUpdateOne {
+	auo.mutation.RemoveTransactionIDs(ids...)
+	return auo
+}
+
+// RemoveTransactions removes "transactions" edges to Transaction entities.
+func (auo *AssetUpdateOne) RemoveTransactions(t ...*Transaction) *AssetUpdateOne {
+	ids := make([]int, len(t))
+	for i := range t {
+		ids[i] = t[i].ID
+	}
+	return auo.RemoveTransactionIDs(ids...)
 }
 
 // Where appends a list predicates to the AssetUpdate builder.
@@ -519,6 +872,141 @@ func (auo *AssetUpdateOne) sqlSave(ctx context.Context) (_node *Asset, err error
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(holding.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if auo.mutation.PricesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.PricesTable,
+			Columns: []string{asset.PricesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(price.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := auo.mutation.RemovedPricesIDs(); len(nodes) > 0 && !auo.mutation.PricesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.PricesTable,
+			Columns: []string{asset.PricesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(price.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := auo.mutation.PricesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.PricesTable,
+			Columns: []string{asset.PricesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(price.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if auo.mutation.PricesBaseCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.PricesBaseTable,
+			Columns: []string{asset.PricesBaseColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(price.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := auo.mutation.RemovedPricesBaseIDs(); len(nodes) > 0 && !auo.mutation.PricesBaseCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.PricesBaseTable,
+			Columns: []string{asset.PricesBaseColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(price.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := auo.mutation.PricesBaseIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.PricesBaseTable,
+			Columns: []string{asset.PricesBaseColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(price.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if auo.mutation.TransactionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.TransactionsTable,
+			Columns: []string{asset.TransactionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(transaction.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := auo.mutation.RemovedTransactionsIDs(); len(nodes) > 0 && !auo.mutation.TransactionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.TransactionsTable,
+			Columns: []string{asset.TransactionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(transaction.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := auo.mutation.TransactionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.TransactionsTable,
+			Columns: []string{asset.TransactionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(transaction.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

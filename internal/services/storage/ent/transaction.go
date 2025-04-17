@@ -10,6 +10,7 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/transaction"
 	"github.com/google/uuid"
 )
@@ -21,6 +22,8 @@ type Transaction struct {
 	ID int `json:"id,omitempty"`
 	// UUID holds the value of the "uuid" field.
 	UUID uuid.UUID `json:"uuid,omitempty"`
+	// AssetID holds the value of the "asset_id" field.
+	AssetID int `json:"asset_id,omitempty"`
 	// Amount holds the value of the "amount" field.
 	Amount int64 `json:"amount,omitempty"`
 	// Fee holds the value of the "fee" field.
@@ -50,12 +53,10 @@ type TransactionEdges struct {
 	// Account holds the value of the account edge.
 	Account []*Account `json:"account,omitempty"`
 	// Asset holds the value of the asset edge.
-	Asset []*Asset `json:"asset,omitempty"`
-	// FeeAsset holds the value of the fee_asset edge.
-	FeeAsset []*Asset `json:"fee_asset,omitempty"`
+	Asset *Asset `json:"asset,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [4]bool
+	loadedTypes [3]bool
 }
 
 // PortfolioOrErr returns the Portfolio value or an error if the edge
@@ -77,21 +78,14 @@ func (e TransactionEdges) AccountOrErr() ([]*Account, error) {
 }
 
 // AssetOrErr returns the Asset value or an error if the edge
-// was not loaded in eager-loading.
-func (e TransactionEdges) AssetOrErr() ([]*Asset, error) {
-	if e.loadedTypes[2] {
+// was not loaded in eager-loading, or loaded but was not found.
+func (e TransactionEdges) AssetOrErr() (*Asset, error) {
+	if e.Asset != nil {
 		return e.Asset, nil
+	} else if e.loadedTypes[2] {
+		return nil, &NotFoundError{label: asset.Label}
 	}
 	return nil, &NotLoadedError{edge: "asset"}
-}
-
-// FeeAssetOrErr returns the FeeAsset value or an error if the edge
-// was not loaded in eager-loading.
-func (e TransactionEdges) FeeAssetOrErr() ([]*Asset, error) {
-	if e.loadedTypes[3] {
-		return e.FeeAsset, nil
-	}
-	return nil, &NotLoadedError{edge: "fee_asset"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -101,7 +95,7 @@ func (*Transaction) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case transaction.FieldMetadata:
 			values[i] = new([]byte)
-		case transaction.FieldID, transaction.FieldAmount, transaction.FieldFee, transaction.FieldPrecision:
+		case transaction.FieldID, transaction.FieldAssetID, transaction.FieldAmount, transaction.FieldFee, transaction.FieldPrecision:
 			values[i] = new(sql.NullInt64)
 		case transaction.FieldType, transaction.FieldStatus:
 			values[i] = new(sql.NullString)
@@ -135,6 +129,12 @@ func (t *Transaction) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field uuid", values[i])
 			} else if value != nil {
 				t.UUID = *value
+			}
+		case transaction.FieldAssetID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field asset_id", values[i])
+			} else if value.Valid {
+				t.AssetID = int(value.Int64)
 			}
 		case transaction.FieldAmount:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -214,11 +214,6 @@ func (t *Transaction) QueryAsset() *AssetQuery {
 	return NewTransactionClient(t.config).QueryAsset(t)
 }
 
-// QueryFeeAsset queries the "fee_asset" edge of the Transaction entity.
-func (t *Transaction) QueryFeeAsset() *AssetQuery {
-	return NewTransactionClient(t.config).QueryFeeAsset(t)
-}
-
 // Update returns a builder for updating this Transaction.
 // Note that you need to call Transaction.Unwrap() before calling this method if this Transaction
 // was returned from a transaction, and the transaction was committed or rolled back.
@@ -244,6 +239,9 @@ func (t *Transaction) String() string {
 	builder.WriteString(fmt.Sprintf("id=%v, ", t.ID))
 	builder.WriteString("uuid=")
 	builder.WriteString(fmt.Sprintf("%v", t.UUID))
+	builder.WriteString(", ")
+	builder.WriteString("asset_id=")
+	builder.WriteString(fmt.Sprintf("%v", t.AssetID))
 	builder.WriteString(", ")
 	builder.WriteString("amount=")
 	builder.WriteString(fmt.Sprintf("%v", t.Amount))

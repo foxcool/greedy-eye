@@ -35,21 +35,23 @@ type Asset struct {
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the AssetQuery when eager-loading is set.
-	Edges                 AssetEdges `json:"edges"`
-	price_asset           *int
-	price_base_asset      *int
-	transaction_asset     *int
-	transaction_fee_asset *int
-	selectValues          sql.SelectValues
+	Edges        AssetEdges `json:"edges"`
+	selectValues sql.SelectValues
 }
 
 // AssetEdges holds the relations/edges for other nodes in the graph.
 type AssetEdges struct {
 	// Holdings holds the value of the holdings edge.
 	Holdings []*Holding `json:"holdings,omitempty"`
+	// Prices holds the value of the prices edge.
+	Prices []*Price `json:"prices,omitempty"`
+	// PricesBase holds the value of the prices_base edge.
+	PricesBase []*Price `json:"prices_base,omitempty"`
+	// Transactions holds the value of the transactions edge.
+	Transactions []*Transaction `json:"transactions,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [1]bool
+	loadedTypes [4]bool
 }
 
 // HoldingsOrErr returns the Holdings value or an error if the edge
@@ -59,6 +61,33 @@ func (e AssetEdges) HoldingsOrErr() ([]*Holding, error) {
 		return e.Holdings, nil
 	}
 	return nil, &NotLoadedError{edge: "holdings"}
+}
+
+// PricesOrErr returns the Prices value or an error if the edge
+// was not loaded in eager-loading.
+func (e AssetEdges) PricesOrErr() ([]*Price, error) {
+	if e.loadedTypes[1] {
+		return e.Prices, nil
+	}
+	return nil, &NotLoadedError{edge: "prices"}
+}
+
+// PricesBaseOrErr returns the PricesBase value or an error if the edge
+// was not loaded in eager-loading.
+func (e AssetEdges) PricesBaseOrErr() ([]*Price, error) {
+	if e.loadedTypes[2] {
+		return e.PricesBase, nil
+	}
+	return nil, &NotLoadedError{edge: "prices_base"}
+}
+
+// TransactionsOrErr returns the Transactions value or an error if the edge
+// was not loaded in eager-loading.
+func (e AssetEdges) TransactionsOrErr() ([]*Transaction, error) {
+	if e.loadedTypes[3] {
+		return e.Transactions, nil
+	}
+	return nil, &NotLoadedError{edge: "transactions"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -76,14 +105,6 @@ func (*Asset) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullTime)
 		case asset.FieldUUID:
 			values[i] = new(uuid.UUID)
-		case asset.ForeignKeys[0]: // price_asset
-			values[i] = new(sql.NullInt64)
-		case asset.ForeignKeys[1]: // price_base_asset
-			values[i] = new(sql.NullInt64)
-		case asset.ForeignKeys[2]: // transaction_asset
-			values[i] = new(sql.NullInt64)
-		case asset.ForeignKeys[3]: // transaction_fee_asset
-			values[i] = new(sql.NullInt64)
 		default:
 			values[i] = new(sql.UnknownType)
 		}
@@ -149,34 +170,6 @@ func (a *Asset) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				a.UpdatedAt = value.Time
 			}
-		case asset.ForeignKeys[0]:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for edge-field price_asset", value)
-			} else if value.Valid {
-				a.price_asset = new(int)
-				*a.price_asset = int(value.Int64)
-			}
-		case asset.ForeignKeys[1]:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for edge-field price_base_asset", value)
-			} else if value.Valid {
-				a.price_base_asset = new(int)
-				*a.price_base_asset = int(value.Int64)
-			}
-		case asset.ForeignKeys[2]:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for edge-field transaction_asset", value)
-			} else if value.Valid {
-				a.transaction_asset = new(int)
-				*a.transaction_asset = int(value.Int64)
-			}
-		case asset.ForeignKeys[3]:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for edge-field transaction_fee_asset", value)
-			} else if value.Valid {
-				a.transaction_fee_asset = new(int)
-				*a.transaction_fee_asset = int(value.Int64)
-			}
 		default:
 			a.selectValues.Set(columns[i], values[i])
 		}
@@ -193,6 +186,21 @@ func (a *Asset) Value(name string) (ent.Value, error) {
 // QueryHoldings queries the "holdings" edge of the Asset entity.
 func (a *Asset) QueryHoldings() *HoldingQuery {
 	return NewAssetClient(a.config).QueryHoldings(a)
+}
+
+// QueryPrices queries the "prices" edge of the Asset entity.
+func (a *Asset) QueryPrices() *PriceQuery {
+	return NewAssetClient(a.config).QueryPrices(a)
+}
+
+// QueryPricesBase queries the "prices_base" edge of the Asset entity.
+func (a *Asset) QueryPricesBase() *PriceQuery {
+	return NewAssetClient(a.config).QueryPricesBase(a)
+}
+
+// QueryTransactions queries the "transactions" edge of the Asset entity.
+func (a *Asset) QueryTransactions() *TransactionQuery {
+	return NewAssetClient(a.config).QueryTransactions(a)
 }
 
 // Update returns a builder for updating this Asset.

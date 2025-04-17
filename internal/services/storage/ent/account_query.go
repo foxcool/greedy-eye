@@ -414,9 +414,6 @@ func (aq *AccountQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Acco
 			aq.withHoldings != nil,
 		}
 	)
-	if aq.withUser != nil {
-		withFKs = true
-	}
 	if withFKs {
 		_spec.Node.Columns = append(_spec.Node.Columns, account.ForeignKeys...)
 	}
@@ -458,10 +455,7 @@ func (aq *AccountQuery) loadUser(ctx context.Context, query *UserQuery, nodes []
 	ids := make([]int, 0, len(nodes))
 	nodeids := make(map[int][]*Account)
 	for i := range nodes {
-		if nodes[i].user_accounts == nil {
-			continue
-		}
-		fk := *nodes[i].user_accounts
+		fk := nodes[i].UserID
 		if _, ok := nodeids[fk]; !ok {
 			ids = append(ids, fk)
 		}
@@ -478,7 +472,7 @@ func (aq *AccountQuery) loadUser(ctx context.Context, query *UserQuery, nodes []
 	for _, n := range neighbors {
 		nodes, ok := nodeids[n.ID]
 		if !ok {
-			return fmt.Errorf(`unexpected foreign-key "user_accounts" returned %v`, n.ID)
+			return fmt.Errorf(`unexpected foreign-key "user_id" returned %v`, n.ID)
 		}
 		for i := range nodes {
 			assign(nodes[i], n)
@@ -496,7 +490,9 @@ func (aq *AccountQuery) loadHoldings(ctx context.Context, query *HoldingQuery, n
 			init(nodes[i])
 		}
 	}
-	query.withFKs = true
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(holding.FieldAccountID)
+	}
 	query.Where(predicate.Holding(func(s *sql.Selector) {
 		s.Where(sql.InValues(s.C(account.HoldingsColumn), fks...))
 	}))
@@ -505,13 +501,10 @@ func (aq *AccountQuery) loadHoldings(ctx context.Context, query *HoldingQuery, n
 		return err
 	}
 	for _, n := range neighbors {
-		fk := n.account_holdings
-		if fk == nil {
-			return fmt.Errorf(`foreign-key "account_holdings" is nil for node %v`, n.ID)
-		}
-		node, ok := nodeids[*fk]
+		fk := n.AccountID
+		node, ok := nodeids[fk]
 		if !ok {
-			return fmt.Errorf(`unexpected referenced foreign-key "account_holdings" returned %v for node %v`, *fk, n.ID)
+			return fmt.Errorf(`unexpected referenced foreign-key "account_id" returned %v for node %v`, fk, n.ID)
 		}
 		assign(node, n)
 	}
@@ -542,6 +535,9 @@ func (aq *AccountQuery) querySpec() *sqlgraph.QuerySpec {
 			if fields[i] != account.FieldID {
 				_spec.Node.Columns = append(_spec.Node.Columns, fields[i])
 			}
+		}
+		if aq.withUser != nil {
+			_spec.Node.AddColumnOnce(account.FieldUserID)
 		}
 	}
 	if ps := aq.predicates; len(ps) > 0 {

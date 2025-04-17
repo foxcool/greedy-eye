@@ -17,6 +17,7 @@ func (Account) Fields() []ent.Field {
 	return []ent.Field{
 		field.UUID("uuid", uuid.UUID{}).
 			Default(uuid.New),
+		field.Int("user_id"),
 		field.String("name"),
 		field.String("description").Optional(),
 		field.Enum("type").Values("unspecified", "wallet", "exchange", "bank", "broker"),
@@ -31,7 +32,9 @@ func (Account) Edges() []ent.Edge {
 	return []ent.Edge{
 		edge.From("user", User.Type).
 			Ref("accounts").
-			Unique(),
-		edge.To("holdings", Holding.Type).Required(),
+			Field("user_id").
+			Unique().
+			Required(),
+		edge.To("holdings", Holding.Type),
 	}
 }

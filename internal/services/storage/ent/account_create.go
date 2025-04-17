@@ -37,6 +37,12 @@ func (ac *AccountCreate) SetNillableUUID(u *uuid.UUID) *AccountCreate {
 	return ac
 }
 
+// SetUserID sets the "user_id" field.
+func (ac *AccountCreate) SetUserID(i int) *AccountCreate {
+	ac.mutation.SetUserID(i)
+	return ac
+}
+
 // SetName sets the "name" field.
 func (ac *AccountCreate) SetName(s string) *AccountCreate {
 	ac.mutation.SetName(s)
@@ -78,20 +84,6 @@ func (ac *AccountCreate) SetCreatedAt(t time.Time) *AccountCreate {
 // SetUpdatedAt sets the "updated_at" field.
 func (ac *AccountCreate) SetUpdatedAt(t time.Time) *AccountCreate {
 	ac.mutation.SetUpdatedAt(t)
-	return ac
-}
-
-// SetUserID sets the "user" edge to the User entity by ID.
-func (ac *AccountCreate) SetUserID(id int) *AccountCreate {
-	ac.mutation.SetUserID(id)
-	return ac
-}
-
-// SetNillableUserID sets the "user" edge to the User entity by ID if the given value is not nil.
-func (ac *AccountCreate) SetNillableUserID(id *int) *AccountCreate {
-	if id != nil {
-		ac = ac.SetUserID(*id)
-	}
 	return ac
 }
 
@@ -161,6 +153,9 @@ func (ac *AccountCreate) check() error {
 	if _, ok := ac.mutation.UUID(); !ok {
 		return &ValidationError{Name: "uuid", err: errors.New(`ent: missing required field "Account.uuid"`)}
 	}
+	if _, ok := ac.mutation.UserID(); !ok {
+		return &ValidationError{Name: "user_id", err: errors.New(`ent: missing required field "Account.user_id"`)}
+	}
 	if _, ok := ac.mutation.Name(); !ok {
 		return &ValidationError{Name: "name", err: errors.New(`ent: missing required field "Account.name"`)}
 	}
@@ -180,6 +175,9 @@ func (ac *AccountCreate) check() error {
 	}
 	if _, ok := ac.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Account.updated_at"`)}
+	}
+	if len(ac.mutation.UserIDs()) == 0 {
+		return &ValidationError{Name: "user", err: errors.New(`ent: missing required edge "Account.user"`)}
 	}
 	return nil
 }
@@ -249,7 +247,7 @@ func (ac *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_node.user_accounts = &nodes[0]
+		_node.UserID = nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := ac.mutation.HoldingsIDs(); len(nodes) > 0 {

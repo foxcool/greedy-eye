@@ -40,5 +40,8 @@ func (Asset) Fields() []ent.Field {
 func (Asset) Edges() []ent.Edge {
 	return []ent.Edge{
 		edge.To("holdings", Holding.Type),
+		edge.To("prices", Price.Type),
+		edge.To("prices_base", Price.Type),
+		edge.To("transactions", Transaction.Type),
 	}
 }

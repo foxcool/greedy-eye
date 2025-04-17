@@ -39,14 +39,14 @@ const (
 	// It exists in this package in order to avoid circular dependency with the "account" package.
 	AccountsInverseTable = "accounts"
 	// AccountsColumn is the table column denoting the accounts relation/edge.
-	AccountsColumn = "user_accounts"
+	AccountsColumn = "user_id"
 	// PortfoliosTable is the table that holds the portfolios relation/edge.
 	PortfoliosTable = "portfolios"
 	// PortfoliosInverseTable is the table name for the Portfolio entity.
 	// It exists in this package in order to avoid circular dependency with the "portfolio" package.
 	PortfoliosInverseTable = "portfolios"
 	// PortfoliosColumn is the table column denoting the portfolios relation/edge.
-	PortfoliosColumn = "user_portfolios"
+	PortfoliosColumn = "user_id"
 )
 
 // Columns holds all SQL columns for user fields.

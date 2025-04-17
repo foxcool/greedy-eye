@@ -374,6 +374,75 @@ func HasHoldingsWith(preds ...predicate.Holding) predicate.Asset {
 	})
 }
 
+// HasPrices applies the HasEdge predicate on the "prices" edge.
+func HasPrices() predicate.Asset {
+	return predicate.Asset(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, PricesTable, PricesColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasPricesWith applies the HasEdge predicate on the "prices" edge with a given conditions (other predicates).
+func HasPricesWith(preds ...predicate.Price) predicate.Asset {
+	return predicate.Asset(func(s *sql.Selector) {
+		step := newPricesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasPricesBase applies the HasEdge predicate on the "prices_base" edge.
+func HasPricesBase() predicate.Asset {
+	return predicate.Asset(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, PricesBaseTable, PricesBaseColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasPricesBaseWith applies the HasEdge predicate on the "prices_base" edge with a given conditions (other predicates).
+func HasPricesBaseWith(preds ...predicate.Price) predicate.Asset {
+	return predicate.Asset(func(s *sql.Selector) {
+		step := newPricesBaseStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasTransactions applies the HasEdge predicate on the "transactions" edge.
+func HasTransactions() predicate.Asset {
+	return predicate.Asset(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, TransactionsTable, TransactionsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasTransactionsWith applies the HasEdge predicate on the "transactions" edge with a given conditions (other predicates).
+func HasTransactionsWith(preds ...predicate.Transaction) predicate.Asset {
+	return predicate.Asset(func(s *sql.Selector) {
+		step := newTransactionsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.Asset) predicate.Asset {
 	return predicate.Asset(sql.AndPredicates(predicates...))

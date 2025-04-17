@@ -15,17 +15,21 @@ import (
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/predicate"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/price"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/transaction"
 )
 
 // AssetQuery is the builder for querying Asset entities.
 type AssetQuery struct {
 	config
-	ctx          *QueryContext
-	order        []asset.OrderOption
-	inters       []Interceptor
-	predicates   []predicate.Asset
-	withHoldings *HoldingQuery
-	withFKs      bool
+	ctx              *QueryContext
+	order            []asset.OrderOption
+	inters           []Interceptor
+	predicates       []predicate.Asset
+	withHoldings     *HoldingQuery
+	withPrices       *PriceQuery
+	withPricesBase   *PriceQuery
+	withTransactions *TransactionQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -77,6 +81,72 @@ func (aq *AssetQuery) QueryHoldings() *HoldingQuery {
 			sqlgraph.From(asset.Table, asset.FieldID, selector),
 			sqlgraph.To(holding.Table, holding.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, asset.HoldingsTable, asset.HoldingsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(aq.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryPrices chains the current query on the "prices" edge.
+func (aq *AssetQuery) QueryPrices() *PriceQuery {
+	query := (&PriceClient{config: aq.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := aq.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := aq.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(asset.Table, asset.FieldID, selector),
+			sqlgraph.To(price.Table, price.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, asset.PricesTable, asset.PricesColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(aq.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryPricesBase chains the current query on the "prices_base" edge.
+func (aq *AssetQuery) QueryPricesBase() *PriceQuery {
+	query := (&PriceClient{config: aq.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := aq.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := aq.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(asset.Table, asset.FieldID, selector),
+			sqlgraph.To(price.Table, price.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, asset.PricesBaseTable, asset.PricesBaseColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(aq.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryTransactions chains the current query on the "transactions" edge.
+func (aq *AssetQuery) QueryTransactions() *TransactionQuery {
+	query := (&TransactionClient{config: aq.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := aq.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := aq.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(asset.Table, asset.FieldID, selector),
+			sqlgraph.To(transaction.Table, transaction.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, asset.TransactionsTable, asset.TransactionsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(aq.driver.Dialect(), step)
 		return fromU, nil
@@ -271,12 +341,15 @@ func (aq *AssetQuery) Clone() *AssetQuery {
 		return nil
 	}
 	return &AssetQuery{
-		config:       aq.config,
-		ctx:          aq.ctx.Clone(),
-		order:        append([]asset.OrderOption{}, aq.order...),
-		inters:       append([]Interceptor{}, aq.inters...),
-		predicates:   append([]predicate.Asset{}, aq.predicates...),
-		withHoldings: aq.withHoldings.Clone(),
+		config:           aq.config,
+		ctx:              aq.ctx.Clone(),
+		order:            append([]asset.OrderOption{}, aq.order...),
+		inters:           append([]Interceptor{}, aq.inters...),
+		predicates:       append([]predicate.Asset{}, aq.predicates...),
+		withHoldings:     aq.withHoldings.Clone(),
+		withPrices:       aq.withPrices.Clone(),
+		withPricesBase:   aq.withPricesBase.Clone(),
+		withTransactions: aq.withTransactions.Clone(),
 		// clone intermediate query.
 		sql:  aq.sql.Clone(),
 		path: aq.path,
@@ -291,6 +364,39 @@ func (aq *AssetQuery) WithHoldings(opts ...func(*HoldingQuery)) *AssetQuery {
 		opt(query)
 	}
 	aq.withHoldings = query
+	return aq
+}
+
+// WithPrices tells the query-builder to eager-load the nodes that are connected to
+// the "prices" edge. The optional arguments are used to configure the query builder of the edge.
+func (aq *AssetQuery) WithPrices(opts ...func(*PriceQuery)) *AssetQuery {
+	query := (&PriceClient{config: aq.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	aq.withPrices = query
+	return aq
+}
+
+// WithPricesBase tells the query-builder to eager-load the nodes that are connected to
+// the "prices_base" edge. The optional arguments are used to configure the query builder of the edge.
+func (aq *AssetQuery) WithPricesBase(opts ...func(*PriceQuery)) *AssetQuery {
+	query := (&PriceClient{config: aq.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	aq.withPricesBase = query
+	return aq
+}
+
+// WithTransactions tells the query-builder to eager-load the nodes that are connected to
+// the "transactions" edge. The optional arguments are used to configure the query builder of the edge.
+func (aq *AssetQuery) WithTransactions(opts ...func(*TransactionQuery)) *AssetQuery {
+	query := (&TransactionClient{config: aq.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	aq.withTransactions = query
 	return aq
 }
 
@@ -371,15 +477,14 @@ func (aq *AssetQuery) prepareQuery(ctx context.Context) error {
 func (aq *AssetQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Asset, error) {
 	var (
 		nodes       = []*Asset{}
-		withFKs     = aq.withFKs
 		_spec       = aq.querySpec()
-		loadedTypes = [1]bool{
+		loadedTypes = [4]bool{
 			aq.withHoldings != nil,
+			aq.withPrices != nil,
+			aq.withPricesBase != nil,
+			aq.withTransactions != nil,
 		}
 	)
-	if withFKs {
-		_spec.Node.Columns = append(_spec.Node.Columns, asset.ForeignKeys...)
-	}
 	_spec.ScanValues = func(columns []string) ([]any, error) {
 		return (*Asset).scanValues(nil, columns)
 	}
@@ -405,6 +510,27 @@ func (aq *AssetQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Asset,
 			return nil, err
 		}
 	}
+	if query := aq.withPrices; query != nil {
+		if err := aq.loadPrices(ctx, query, nodes,
+			func(n *Asset) { n.Edges.Prices = []*Price{} },
+			func(n *Asset, e *Price) { n.Edges.Prices = append(n.Edges.Prices, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := aq.withPricesBase; query != nil {
+		if err := aq.loadPricesBase(ctx, query, nodes,
+			func(n *Asset) { n.Edges.PricesBase = []*Price{} },
+			func(n *Asset, e *Price) { n.Edges.PricesBase = append(n.Edges.PricesBase, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := aq.withTransactions; query != nil {
+		if err := aq.loadTransactions(ctx, query, nodes,
+			func(n *Asset) { n.Edges.Transactions = []*Transaction{} },
+			func(n *Asset, e *Transaction) { n.Edges.Transactions = append(n.Edges.Transactions, e) }); err != nil {
+			return nil, err
+		}
+	}
 	return nodes, nil
 }
 
@@ -418,7 +544,9 @@ func (aq *AssetQuery) loadHoldings(ctx context.Context, query *HoldingQuery, nod
 			init(nodes[i])
 		}
 	}
-	query.withFKs = true
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(holding.FieldAssetID)
+	}
 	query.Where(predicate.Holding(func(s *sql.Selector) {
 		s.Where(sql.InValues(s.C(asset.HoldingsColumn), fks...))
 	}))
@@ -427,13 +555,100 @@ func (aq *AssetQuery) loadHoldings(ctx context.Context, query *HoldingQuery, nod
 		return err
 	}
 	for _, n := range neighbors {
-		fk := n.asset_holdings
-		if fk == nil {
-			return fmt.Errorf(`foreign-key "asset_holdings" is nil for node %v`, n.ID)
-		}
-		node, ok := nodeids[*fk]
+		fk := n.AssetID
+		node, ok := nodeids[fk]
 		if !ok {
-			return fmt.Errorf(`unexpected referenced foreign-key "asset_holdings" returned %v for node %v`, *fk, n.ID)
+			return fmt.Errorf(`unexpected referenced foreign-key "asset_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (aq *AssetQuery) loadPrices(ctx context.Context, query *PriceQuery, nodes []*Asset, init func(*Asset), assign func(*Asset, *Price)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Asset)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(price.FieldAssetID)
+	}
+	query.Where(predicate.Price(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(asset.PricesColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.AssetID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "asset_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (aq *AssetQuery) loadPricesBase(ctx context.Context, query *PriceQuery, nodes []*Asset, init func(*Asset), assign func(*Asset, *Price)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Asset)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(price.FieldBaseAssetID)
+	}
+	query.Where(predicate.Price(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(asset.PricesBaseColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.BaseAssetID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "base_asset_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (aq *AssetQuery) loadTransactions(ctx context.Context, query *TransactionQuery, nodes []*Asset, init func(*Asset), assign func(*Asset, *Transaction)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Asset)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(transaction.FieldAssetID)
+	}
+	query.Where(predicate.Transaction(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(asset.TransactionsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.AssetID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "asset_id" returned %v for node %v`, fk, n.ID)
 		}
 		assign(node, n)
 	}

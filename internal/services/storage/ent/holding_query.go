@@ -28,7 +28,6 @@ type HoldingQuery struct {
 	withAsset     *AssetQuery
 	withPortfolio *PortfolioQuery
 	withAccount   *AccountQuery
-	withFKs       bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -442,7 +441,6 @@ func (hq *HoldingQuery) prepareQuery(ctx context.Context) error {
 func (hq *HoldingQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Holding, error) {
 	var (
 		nodes       = []*Holding{}
-		withFKs     = hq.withFKs
 		_spec       = hq.querySpec()
 		loadedTypes = [3]bool{
 			hq.withAsset != nil,
@@ -450,12 +448,6 @@ func (hq *HoldingQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Hold
 			hq.withAccount != nil,
 		}
 	)
-	if hq.withAsset != nil || hq.withPortfolio != nil || hq.withAccount != nil {
-		withFKs = true
-	}
-	if withFKs {
-		_spec.Node.Columns = append(_spec.Node.Columns, holding.ForeignKeys...)
-	}
 	_spec.ScanValues = func(columns []string) ([]any, error) {
 		return (*Holding).scanValues(nil, columns)
 	}
@@ -499,10 +491,7 @@ func (hq *HoldingQuery) loadAsset(ctx context.Context, query *AssetQuery, nodes 
 	ids := make([]int, 0, len(nodes))
 	nodeids := make(map[int][]*Holding)
 	for i := range nodes {
-		if nodes[i].asset_holdings == nil {
-			continue
-		}
-		fk := *nodes[i].asset_holdings
+		fk := nodes[i].AssetID
 		if _, ok := nodeids[fk]; !ok {
 			ids = append(ids, fk)
 		}
@@ -519,7 +508,7 @@ func (hq *HoldingQuery) loadAsset(ctx context.Context, query *AssetQuery, nodes 
 	for _, n := range neighbors {
 		nodes, ok := nodeids[n.ID]
 		if !ok {
-			return fmt.Errorf(`unexpected foreign-key "asset_holdings" returned %v`, n.ID)
+			return fmt.Errorf(`unexpected foreign-key "asset_id" returned %v`, n.ID)
 		}
 		for i := range nodes {
 			assign(nodes[i], n)
@@ -531,10 +520,7 @@ func (hq *HoldingQuery) loadPortfolio(ctx context.Context, query *PortfolioQuery
 	ids := make([]int, 0, len(nodes))
 	nodeids := make(map[int][]*Holding)
 	for i := range nodes {
-		if nodes[i].portfolio_holdings == nil {
-			continue
-		}
-		fk := *nodes[i].portfolio_holdings
+		fk := nodes[i].PortfolioID
 		if _, ok := nodeids[fk]; !ok {
 			ids = append(ids, fk)
 		}
@@ -551,7 +537,7 @@ func (hq *HoldingQuery) loadPortfolio(ctx context.Context, query *PortfolioQuery
 	for _, n := range neighbors {
 		nodes, ok := nodeids[n.ID]
 		if !ok {
-			return fmt.Errorf(`unexpected foreign-key "portfolio_holdings" returned %v`, n.ID)
+			return fmt.Errorf(`unexpected foreign-key "portfolio_id" returned %v`, n.ID)
 		}
 		for i := range nodes {
 			assign(nodes[i], n)
@@ -563,10 +549,7 @@ func (hq *HoldingQuery) loadAccount(ctx context.Context, query *AccountQuery, no
 	ids := make([]int, 0, len(nodes))
 	nodeids := make(map[int][]*Holding)
 	for i := range nodes {
-		if nodes[i].account_holdings == nil {
-			continue
-		}
-		fk := *nodes[i].account_holdings
+		fk := nodes[i].AccountID
 		if _, ok := nodeids[fk]; !ok {
 			ids = append(ids, fk)
 		}
@@ -583,7 +566,7 @@ func (hq *HoldingQuery) loadAccount(ctx context.Context, query *AccountQuery, no
 	for _, n := range neighbors {
 		nodes, ok := nodeids[n.ID]
 		if !ok {
-			return fmt.Errorf(`unexpected foreign-key "account_holdings" returned %v`, n.ID)
+			return fmt.Errorf(`unexpected foreign-key "account_id" returned %v`, n.ID)
 		}
 		for i := range nodes {
 			assign(nodes[i], n)
@@ -616,6 +599,15 @@ func (hq *HoldingQuery) querySpec() *sqlgraph.QuerySpec {
 			if fields[i] != holding.FieldID {
 				_spec.Node.Columns = append(_spec.Node.Columns, fields[i])
 			}
+		}
+		if hq.withAsset != nil {
+			_spec.Node.AddColumnOnce(holding.FieldAssetID)
+		}
+		if hq.withPortfolio != nil {
+			_spec.Node.AddColumnOnce(holding.FieldPortfolioID)
+		}
+		if hq.withAccount != nil {
+			_spec.Node.AddColumnOnce(holding.FieldAccountID)
 		}
 	}
 	if ps := hq.predicates; len(ps) > 0 {

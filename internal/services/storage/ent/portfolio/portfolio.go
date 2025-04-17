@@ -17,6 +17,8 @@ const (
 	FieldID = "id"
 	// FieldUUID holds the string denoting the uuid field in the database.
 	FieldUUID = "uuid"
+	// FieldUserID holds the string denoting the user_id field in the database.
+	FieldUserID = "user_id"
 	// FieldName holds the string denoting the name field in the database.
 	FieldName = "name"
 	// FieldDescription holds the string denoting the description field in the database.
@@ -25,32 +27,33 @@ const (
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
 	FieldUpdatedAt = "updated_at"
-	// EdgeUser holds the string denoting the user edge name in mutations.
-	EdgeUser = "user"
+	// EdgeUsers holds the string denoting the users edge name in mutations.
+	EdgeUsers = "users"
 	// EdgeHoldings holds the string denoting the holdings edge name in mutations.
 	EdgeHoldings = "holdings"
 	// Table holds the table name of the portfolio in the database.
 	Table = "portfolios"
-	// UserTable is the table that holds the user relation/edge.
-	UserTable = "portfolios"
-	// UserInverseTable is the table name for the User entity.
+	// UsersTable is the table that holds the users relation/edge.
+	UsersTable = "portfolios"
+	// UsersInverseTable is the table name for the User entity.
 	// It exists in this package in order to avoid circular dependency with the "user" package.
-	UserInverseTable = "users"
-	// UserColumn is the table column denoting the user relation/edge.
-	UserColumn = "user_portfolios"
+	UsersInverseTable = "users"
+	// UsersColumn is the table column denoting the users relation/edge.
+	UsersColumn = "user_id"
 	// HoldingsTable is the table that holds the holdings relation/edge.
 	HoldingsTable = "holdings"
 	// HoldingsInverseTable is the table name for the Holding entity.
 	// It exists in this package in order to avoid circular dependency with the "holding" package.
 	HoldingsInverseTable = "holdings"
 	// HoldingsColumn is the table column denoting the holdings relation/edge.
-	HoldingsColumn = "portfolio_holdings"
+	HoldingsColumn = "portfolio_id"
 )
 
 // Columns holds all SQL columns for portfolio fields.
 var Columns = []string{
 	FieldID,
 	FieldUUID,
+	FieldUserID,
 	FieldName,
 	FieldDescription,
 	FieldCreatedAt,
@@ -61,7 +64,6 @@ var Columns = []string{
 // table and are not defined as standalone fields in the schema.
 var ForeignKeys = []string{
 	"transaction_portfolio",
-	"user_portfolios",
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -103,6 +105,11 @@ func ByUUID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUUID, opts...).ToFunc()
 }
 
+// ByUserID orders the results by the user_id field.
+func ByUserID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUserID, opts...).ToFunc()
+}
+
 // ByName orders the results by the name field.
 func ByName(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldName, opts...).ToFunc()
@@ -123,10 +130,10 @@ func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
 }
 
-// ByUserField orders the results by user field.
-func ByUserField(field string, opts ...sql.OrderTermOption) OrderOption {
+// ByUsersField orders the results by users field.
+func ByUsersField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newUserStep(), sql.OrderByField(field, opts...))
+		sqlgraph.OrderByNeighborTerms(s, newUsersStep(), sql.OrderByField(field, opts...))
 	}
 }
 
@@ -143,11 +150,11 @@ func ByHoldings(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newHoldingsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
-func newUserStep() *sqlgraph.Step {
+func newUsersStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
-		sqlgraph.To(UserInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.M2O, true, UserTable, UserColumn),
+		sqlgraph.To(UsersInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, UsersTable, UsersColumn),
 	)
 }
 func newHoldingsStep() *sqlgraph.Step {

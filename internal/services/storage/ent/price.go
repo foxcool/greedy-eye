@@ -9,6 +9,7 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/price"
 	"github.com/google/uuid"
 )
@@ -22,6 +23,10 @@ type Price struct {
 	UUID uuid.UUID `json:"uuid,omitempty"`
 	// SourceID holds the value of the "source_id" field.
 	SourceID string `json:"source_id,omitempty"`
+	// AssetID holds the value of the "asset_id" field.
+	AssetID int `json:"asset_id,omitempty"`
+	// BaseAssetID holds the value of the "base_asset_id" field.
+	BaseAssetID int `json:"base_asset_id,omitempty"`
 	// Interval holds the value of the "interval" field.
 	Interval string `json:"interval,omitempty"`
 	// Amount holds the value of the "amount" field.
@@ -51,28 +56,32 @@ type Price struct {
 // PriceEdges holds the relations/edges for other nodes in the graph.
 type PriceEdges struct {
 	// Asset holds the value of the asset edge.
-	Asset []*Asset `json:"asset,omitempty"`
+	Asset *Asset `json:"asset,omitempty"`
 	// BaseAsset holds the value of the base_asset edge.
-	BaseAsset []*Asset `json:"base_asset,omitempty"`
+	BaseAsset *Asset `json:"base_asset,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
 	loadedTypes [2]bool
 }
 
 // AssetOrErr returns the Asset value or an error if the edge
-// was not loaded in eager-loading.
-func (e PriceEdges) AssetOrErr() ([]*Asset, error) {
-	if e.loadedTypes[0] {
+// was not loaded in eager-loading, or loaded but was not found.
+func (e PriceEdges) AssetOrErr() (*Asset, error) {
+	if e.Asset != nil {
 		return e.Asset, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: asset.Label}
 	}
 	return nil, &NotLoadedError{edge: "asset"}
 }
 
 // BaseAssetOrErr returns the BaseAsset value or an error if the edge
-// was not loaded in eager-loading.
-func (e PriceEdges) BaseAssetOrErr() ([]*Asset, error) {
-	if e.loadedTypes[1] {
+// was not loaded in eager-loading, or loaded but was not found.
+func (e PriceEdges) BaseAssetOrErr() (*Asset, error) {
+	if e.BaseAsset != nil {
 		return e.BaseAsset, nil
+	} else if e.loadedTypes[1] {
+		return nil, &NotFoundError{label: asset.Label}
 	}
 	return nil, &NotLoadedError{edge: "base_asset"}
 }
@@ -82,7 +91,7 @@ func (*Price) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case price.FieldID, price.FieldAmount, price.FieldPrecision, price.FieldOpen, price.FieldHigh, price.FieldLow, price.FieldClose, price.FieldVolume:
+		case price.FieldID, price.FieldAssetID, price.FieldBaseAssetID, price.FieldAmount, price.FieldPrecision, price.FieldOpen, price.FieldHigh, price.FieldLow, price.FieldClose, price.FieldVolume:
 			values[i] = new(sql.NullInt64)
 		case price.FieldSourceID, price.FieldInterval:
 			values[i] = new(sql.NullString)
@@ -122,6 +131,18 @@ func (pr *Price) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field source_id", values[i])
 			} else if value.Valid {
 				pr.SourceID = value.String
+			}
+		case price.FieldAssetID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field asset_id", values[i])
+			} else if value.Valid {
+				pr.AssetID = int(value.Int64)
+			}
+		case price.FieldBaseAssetID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field base_asset_id", values[i])
+			} else if value.Valid {
+				pr.BaseAssetID = int(value.Int64)
 			}
 		case price.FieldInterval:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -234,6 +255,12 @@ func (pr *Price) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("source_id=")
 	builder.WriteString(pr.SourceID)
+	builder.WriteString(", ")
+	builder.WriteString("asset_id=")
+	builder.WriteString(fmt.Sprintf("%v", pr.AssetID))
+	builder.WriteString(", ")
+	builder.WriteString("base_asset_id=")
+	builder.WriteString(fmt.Sprintf("%v", pr.BaseAssetID))
 	builder.WriteString(", ")
 	builder.WriteString("interval=")
 	builder.WriteString(pr.Interval)

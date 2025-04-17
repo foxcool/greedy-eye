@@ -12,6 +12,8 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/price"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/transaction"
 	"github.com/google/uuid"
 )
 
@@ -101,6 +103,51 @@ func (ac *AssetCreate) AddHoldings(h ...*Holding) *AssetCreate {
 		ids[i] = h[i].ID
 	}
 	return ac.AddHoldingIDs(ids...)
+}
+
+// AddPriceIDs adds the "prices" edge to the Price entity by IDs.
+func (ac *AssetCreate) AddPriceIDs(ids ...int) *AssetCreate {
+	ac.mutation.AddPriceIDs(ids...)
+	return ac
+}
+
+// AddPrices adds the "prices" edges to the Price entity.
+func (ac *AssetCreate) AddPrices(p ...*Price) *AssetCreate {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return ac.AddPriceIDs(ids...)
+}
+
+// AddPricesBaseIDs adds the "prices_base" edge to the Price entity by IDs.
+func (ac *AssetCreate) AddPricesBaseIDs(ids ...int) *AssetCreate {
+	ac.mutation.AddPricesBaseIDs(ids...)
+	return ac
+}
+
+// AddPricesBase adds the "prices_base" edges to the Price entity.
+func (ac *AssetCreate) AddPricesBase(p ...*Price) *AssetCreate {
+	ids := make([]int, len(p))
+	for i := range p {
+		ids[i] = p[i].ID
+	}
+	return ac.AddPricesBaseIDs(ids...)
+}
+
+// AddTransactionIDs adds the "transactions" edge to the Transaction entity by IDs.
+func (ac *AssetCreate) AddTransactionIDs(ids ...int) *AssetCreate {
+	ac.mutation.AddTransactionIDs(ids...)
+	return ac
+}
+
+// AddTransactions adds the "transactions" edges to the Transaction entity.
+func (ac *AssetCreate) AddTransactions(t ...*Transaction) *AssetCreate {
+	ids := make([]int, len(t))
+	for i := range t {
+		ids[i] = t[i].ID
+	}
+	return ac.AddTransactionIDs(ids...)
 }
 
 // Mutation returns the AssetMutation object of the builder.
@@ -243,6 +290,54 @@ func (ac *AssetCreate) createSpec() (*Asset, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(holding.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := ac.mutation.PricesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.PricesTable,
+			Columns: []string{asset.PricesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(price.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := ac.mutation.PricesBaseIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.PricesBaseTable,
+			Columns: []string{asset.PricesBaseColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(price.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := ac.mutation.TransactionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   asset.TransactionsTable,
+			Columns: []string{asset.TransactionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(transaction.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

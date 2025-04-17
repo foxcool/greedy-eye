@@ -18,6 +18,8 @@ const (
 	FieldID = "id"
 	// FieldUUID holds the string denoting the uuid field in the database.
 	FieldUUID = "uuid"
+	// FieldAssetID holds the string denoting the asset_id field in the database.
+	FieldAssetID = "asset_id"
 	// FieldAmount holds the string denoting the amount field in the database.
 	FieldAmount = "amount"
 	// FieldFee holds the string denoting the fee field in the database.
@@ -40,8 +42,6 @@ const (
 	EdgeAccount = "account"
 	// EdgeAsset holds the string denoting the asset edge name in mutations.
 	EdgeAsset = "asset"
-	// EdgeFeeAsset holds the string denoting the fee_asset edge name in mutations.
-	EdgeFeeAsset = "fee_asset"
 	// Table holds the table name of the transaction in the database.
 	Table = "transactions"
 	// PortfolioTable is the table that holds the portfolio relation/edge.
@@ -59,25 +59,19 @@ const (
 	// AccountColumn is the table column denoting the account relation/edge.
 	AccountColumn = "transaction_account"
 	// AssetTable is the table that holds the asset relation/edge.
-	AssetTable = "assets"
+	AssetTable = "transactions"
 	// AssetInverseTable is the table name for the Asset entity.
 	// It exists in this package in order to avoid circular dependency with the "asset" package.
 	AssetInverseTable = "assets"
 	// AssetColumn is the table column denoting the asset relation/edge.
-	AssetColumn = "transaction_asset"
-	// FeeAssetTable is the table that holds the fee_asset relation/edge.
-	FeeAssetTable = "assets"
-	// FeeAssetInverseTable is the table name for the Asset entity.
-	// It exists in this package in order to avoid circular dependency with the "asset" package.
-	FeeAssetInverseTable = "assets"
-	// FeeAssetColumn is the table column denoting the fee_asset relation/edge.
-	FeeAssetColumn = "transaction_fee_asset"
+	AssetColumn = "asset_id"
 )
 
 // Columns holds all SQL columns for transaction fields.
 var Columns = []string{
 	FieldID,
 	FieldUUID,
+	FieldAssetID,
 	FieldAmount,
 	FieldFee,
 	FieldPrecision,
@@ -177,6 +171,11 @@ func ByUUID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUUID, opts...).ToFunc()
 }
 
+// ByAssetID orders the results by the asset_id field.
+func ByAssetID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAssetID, opts...).ToFunc()
+}
+
 // ByAmount orders the results by the amount field.
 func ByAmount(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldAmount, opts...).ToFunc()
@@ -240,31 +239,10 @@ func ByAccount(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
-// ByAssetCount orders the results by asset count.
-func ByAssetCount(opts ...sql.OrderTermOption) OrderOption {
+// ByAssetField orders the results by asset field.
+func ByAssetField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborsCount(s, newAssetStep(), opts...)
-	}
-}
-
-// ByAsset orders the results by asset terms.
-func ByAsset(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newAssetStep(), append([]sql.OrderTerm{term}, terms...)...)
-	}
-}
-
-// ByFeeAssetCount orders the results by fee_asset count.
-func ByFeeAssetCount(opts ...sql.OrderTermOption) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborsCount(s, newFeeAssetStep(), opts...)
-	}
-}
-
-// ByFeeAsset orders the results by fee_asset terms.
-func ByFeeAsset(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newFeeAssetStep(), append([]sql.OrderTerm{term}, terms...)...)
+		sqlgraph.OrderByNeighborTerms(s, newAssetStep(), sql.OrderByField(field, opts...))
 	}
 }
 func newPortfolioStep() *sqlgraph.Step {
@@ -285,13 +263,6 @@ func newAssetStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(AssetInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.O2M, false, AssetTable, AssetColumn),
-	)
-}
-func newFeeAssetStep() *sqlgraph.Step {
-	return sqlgraph.NewStep(
-		sqlgraph.From(Table, FieldID),
-		sqlgraph.To(FeeAssetInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.O2M, false, FeeAssetTable, FeeAssetColumn),
+		sqlgraph.Edge(sqlgraph.M2O, true, AssetTable, AssetColumn),
 	)
 }

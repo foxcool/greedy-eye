@@ -19,6 +19,10 @@ const (
 	FieldUUID = "uuid"
 	// FieldSourceID holds the string denoting the source_id field in the database.
 	FieldSourceID = "source_id"
+	// FieldAssetID holds the string denoting the asset_id field in the database.
+	FieldAssetID = "asset_id"
+	// FieldBaseAssetID holds the string denoting the base_asset_id field in the database.
+	FieldBaseAssetID = "base_asset_id"
 	// FieldInterval holds the string denoting the interval field in the database.
 	FieldInterval = "interval"
 	// FieldAmount holds the string denoting the amount field in the database.
@@ -46,19 +50,19 @@ const (
 	// Table holds the table name of the price in the database.
 	Table = "prices"
 	// AssetTable is the table that holds the asset relation/edge.
-	AssetTable = "assets"
+	AssetTable = "prices"
 	// AssetInverseTable is the table name for the Asset entity.
 	// It exists in this package in order to avoid circular dependency with the "asset" package.
 	AssetInverseTable = "assets"
 	// AssetColumn is the table column denoting the asset relation/edge.
-	AssetColumn = "price_asset"
+	AssetColumn = "asset_id"
 	// BaseAssetTable is the table that holds the base_asset relation/edge.
-	BaseAssetTable = "assets"
+	BaseAssetTable = "prices"
 	// BaseAssetInverseTable is the table name for the Asset entity.
 	// It exists in this package in order to avoid circular dependency with the "asset" package.
 	BaseAssetInverseTable = "assets"
 	// BaseAssetColumn is the table column denoting the base_asset relation/edge.
-	BaseAssetColumn = "price_base_asset"
+	BaseAssetColumn = "base_asset_id"
 )
 
 // Columns holds all SQL columns for price fields.
@@ -66,6 +70,8 @@ var Columns = []string{
 	FieldID,
 	FieldUUID,
 	FieldSourceID,
+	FieldAssetID,
+	FieldBaseAssetID,
 	FieldInterval,
 	FieldAmount,
 	FieldPrecision,
@@ -115,6 +121,16 @@ func ByUUID(opts ...sql.OrderTermOption) OrderOption {
 // BySourceID orders the results by the source_id field.
 func BySourceID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSourceID, opts...).ToFunc()
+}
+
+// ByAssetID orders the results by the asset_id field.
+func ByAssetID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAssetID, opts...).ToFunc()
+}
+
+// ByBaseAssetID orders the results by the base_asset_id field.
+func ByBaseAssetID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBaseAssetID, opts...).ToFunc()
 }
 
 // ByInterval orders the results by the interval field.
@@ -167,44 +183,30 @@ func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
 }
 
-// ByAssetCount orders the results by asset count.
-func ByAssetCount(opts ...sql.OrderTermOption) OrderOption {
+// ByAssetField orders the results by asset field.
+func ByAssetField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborsCount(s, newAssetStep(), opts...)
+		sqlgraph.OrderByNeighborTerms(s, newAssetStep(), sql.OrderByField(field, opts...))
 	}
 }
 
-// ByAsset orders the results by asset terms.
-func ByAsset(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+// ByBaseAssetField orders the results by base_asset field.
+func ByBaseAssetField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newAssetStep(), append([]sql.OrderTerm{term}, terms...)...)
-	}
-}
-
-// ByBaseAssetCount orders the results by base_asset count.
-func ByBaseAssetCount(opts ...sql.OrderTermOption) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborsCount(s, newBaseAssetStep(), opts...)
-	}
-}
-
-// ByBaseAsset orders the results by base_asset terms.
-func ByBaseAsset(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newBaseAssetStep(), append([]sql.OrderTerm{term}, terms...)...)
+		sqlgraph.OrderByNeighborTerms(s, newBaseAssetStep(), sql.OrderByField(field, opts...))
 	}
 }
 func newAssetStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(AssetInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.O2M, false, AssetTable, AssetColumn),
+		sqlgraph.Edge(sqlgraph.M2O, true, AssetTable, AssetColumn),
 	)
 }
 func newBaseAssetStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(BaseAssetInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.O2M, false, BaseAssetTable, BaseAssetColumn),
+		sqlgraph.Edge(sqlgraph.M2O, true, BaseAssetTable, BaseAssetColumn),
 	)
 }

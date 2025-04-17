@@ -19,6 +19,7 @@ func (Transaction) Fields() []ent.Field {
 	return []ent.Field{
 		field.UUID("uuid", uuid.UUID{}).
 			Default(uuid.New),
+		field.Int("asset_id"),
 		field.Int64("amount"),
 		field.Int64("fee"),
 		field.Uint32("precision"),
@@ -35,7 +36,10 @@ func (Transaction) Edges() []ent.Edge {
 	return []ent.Edge{
 		edge.To("portfolio", Portfolio.Type),
 		edge.To("account", Account.Type),
-		edge.To("asset", Asset.Type).Required(),
-		edge.To("fee_asset", Asset.Type).Required(),
+		edge.From("asset", Asset.Type).
+			Ref("transactions").
+			Field("asset_id").
+			Unique().
+			Required(),
 	}
 }
