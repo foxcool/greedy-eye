@@ -5,7 +5,7 @@ COMPOSE=docker compose -p eye
 # Path to the compose file
 COMPOSE_FILE=deploy/docker-compose.yml
 
-.PHONY: all protoc generate up debug down logs clean analytics
+.PHONY: all protoc generate up debug down logs clean
 
 # Generate all code
 all: protoc generate
@@ -38,18 +38,8 @@ debug:
 	@echo "Starting Docker Compose (debug profile)..."
 	$(COMPOSE) -f $(COMPOSE_FILE) --profile debug up --build -d --remove-orphans
 
-# Run analytics profile services (Redash) in detached mode
-analytics:
-	@echo "Starting Docker Compose (analytics profile)..."
-	$(COMPOSE) -f $(COMPOSE_FILE) --profile analytics up --build -d --remove-orphans
-
-analytics-db:
-	@echo "Run redash create_db..."
-	$(COMPOSE) -f $(COMPOSE_FILE) run --rm redash create_db
-
 stop:
 	@echo "Stopping services..."
-	$(COMPOSE) -f $(COMPOSE_FILE) --profile analytics stop
 	$(COMPOSE) -f $(COMPOSE_FILE) --profile dev stop
 
 # Stop and remove containers, networks, volumes defined in compose
