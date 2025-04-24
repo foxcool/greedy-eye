@@ -21,8 +21,8 @@ func (User) Fields() []ent.Field {
 			Default(uuid.New),
 		field.String("email").Unique(),
 		field.String("name"),
-		field.String("password"),
-		field.Time("created_at").Default(time.Now),
+		field.JSON("preferences", map[string]string{}),
+		field.Time("created_at").Immutable().Default(time.Now),
 		field.Time("updated_at").Default(time.Now).UpdateDefault(time.Now),
 	}
 }

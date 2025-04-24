@@ -24,19 +24,14 @@ func (Price) Fields() []ent.Field {
 		field.Int("asset_id"),
 		field.Int("base_asset_id"),
 		field.String("interval"),
-		field.Int64("amount"),
-		field.Uint32("precision"),
+		field.Uint32("decimals"),
+		field.Int64("last"),
 		field.Int64("open").Optional(),
 		field.Int64("high").Optional(),
 		field.Int64("low").Optional(),
 		field.Int64("close").Optional(),
 		field.Int64("volume").Optional(),
-		field.Time("created_at").
-			Default(time.Now).
-			Immutable(),
-		field.Time("updated_at").
-			Default(time.Now).
-			UpdateDefault(time.Now),
+		field.Time("timestamp").Default(time.Now).Immutable(),
 	}
 	return fields
 }
@@ -61,7 +56,6 @@ func (Price) Edges() []ent.Edge {
 // Indexes of the Price entity.
 func (Price) Indexes() []ent.Index {
 	return []ent.Index{
-		// Создаем составной уникальный индекс, включающий партиционную колонку
-		index.Fields("asset_id", "created_at").Unique(),
+		index.Fields("asset_id", "timestamp").Unique(),
 	}
 }

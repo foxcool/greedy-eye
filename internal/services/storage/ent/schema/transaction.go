@@ -19,26 +19,21 @@ func (Transaction) Fields() []ent.Field {
 	return []ent.Field{
 		field.UUID("uuid", uuid.UUID{}).
 			Default(uuid.New),
-		field.Int("asset_id"),
-		field.Int64("amount"),
-		field.Int64("fee"),
-		field.Uint32("precision"),
-		field.Enum("type").Values("unspecified", "buy", "sell", "transfer", "deposit", "withdrawal"),
-		field.Enum("status").Values("unspecified", "pending", "completed", "failed", "cancelled"),
-		field.Time("created_at").Default(time.Now),
+		field.Enum("type").Values("unspecified", "extended", "trade", "transfer", "deposit", "withdrawal"),
+		field.Enum("status").Values("unspecified", "pending", "processing", "completed", "failed", "cancelled"),
+		field.Int("account_id"),
+		field.JSON("data", map[string]string{}).Default(map[string]string{}),
+		field.Time("created_at").Immutable().Default(time.Now),
 		field.Time("updated_at").Default(time.Now).UpdateDefault(time.Now),
-		field.JSON("metadata", map[string]string{}).Default(map[string]string{}),
 	}
 }
 
 // Edges of the Transaction.
 func (Transaction) Edges() []ent.Edge {
 	return []ent.Edge{
-		edge.To("portfolio", Portfolio.Type),
-		edge.To("account", Account.Type),
-		edge.From("asset", Asset.Type).
+		edge.From("account", Account.Type).
 			Ref("transactions").
-			Field("asset_id").
+			Field("account_id").
 			Unique().
 			Required(),
 	}

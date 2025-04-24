@@ -38,36 +38,6 @@ func (hc *HoldingCreate) SetNillableUUID(u *uuid.UUID) *HoldingCreate {
 	return hc
 }
 
-// SetAssetID sets the "asset_id" field.
-func (hc *HoldingCreate) SetAssetID(i int) *HoldingCreate {
-	hc.mutation.SetAssetID(i)
-	return hc
-}
-
-// SetPortfolioID sets the "portfolio_id" field.
-func (hc *HoldingCreate) SetPortfolioID(i int) *HoldingCreate {
-	hc.mutation.SetPortfolioID(i)
-	return hc
-}
-
-// SetAccountID sets the "account_id" field.
-func (hc *HoldingCreate) SetAccountID(i int) *HoldingCreate {
-	hc.mutation.SetAccountID(i)
-	return hc
-}
-
-// SetAmount sets the "amount" field.
-func (hc *HoldingCreate) SetAmount(i int64) *HoldingCreate {
-	hc.mutation.SetAmount(i)
-	return hc
-}
-
-// SetPrecision sets the "precision" field.
-func (hc *HoldingCreate) SetPrecision(u uint32) *HoldingCreate {
-	hc.mutation.SetPrecision(u)
-	return hc
-}
-
 // SetCreatedAt sets the "created_at" field.
 func (hc *HoldingCreate) SetCreatedAt(t time.Time) *HoldingCreate {
 	hc.mutation.SetCreatedAt(t)
@@ -93,6 +63,44 @@ func (hc *HoldingCreate) SetNillableUpdatedAt(t *time.Time) *HoldingCreate {
 	if t != nil {
 		hc.SetUpdatedAt(*t)
 	}
+	return hc
+}
+
+// SetAssetID sets the "asset_id" field.
+func (hc *HoldingCreate) SetAssetID(i int) *HoldingCreate {
+	hc.mutation.SetAssetID(i)
+	return hc
+}
+
+// SetAmount sets the "amount" field.
+func (hc *HoldingCreate) SetAmount(i int64) *HoldingCreate {
+	hc.mutation.SetAmount(i)
+	return hc
+}
+
+// SetDecimals sets the "Decimals" field.
+func (hc *HoldingCreate) SetDecimals(u uint32) *HoldingCreate {
+	hc.mutation.SetDecimals(u)
+	return hc
+}
+
+// SetPortfolioID sets the "portfolio_id" field.
+func (hc *HoldingCreate) SetPortfolioID(i int) *HoldingCreate {
+	hc.mutation.SetPortfolioID(i)
+	return hc
+}
+
+// SetNillablePortfolioID sets the "portfolio_id" field if the given value is not nil.
+func (hc *HoldingCreate) SetNillablePortfolioID(i *int) *HoldingCreate {
+	if i != nil {
+		hc.SetPortfolioID(*i)
+	}
+	return hc
+}
+
+// SetAccountID sets the "account_id" field.
+func (hc *HoldingCreate) SetAccountID(i int) *HoldingCreate {
+	hc.mutation.SetAccountID(i)
 	return hc
 }
 
@@ -165,32 +173,26 @@ func (hc *HoldingCreate) check() error {
 	if _, ok := hc.mutation.UUID(); !ok {
 		return &ValidationError{Name: "uuid", err: errors.New(`ent: missing required field "Holding.uuid"`)}
 	}
-	if _, ok := hc.mutation.AssetID(); !ok {
-		return &ValidationError{Name: "asset_id", err: errors.New(`ent: missing required field "Holding.asset_id"`)}
-	}
-	if _, ok := hc.mutation.PortfolioID(); !ok {
-		return &ValidationError{Name: "portfolio_id", err: errors.New(`ent: missing required field "Holding.portfolio_id"`)}
-	}
-	if _, ok := hc.mutation.AccountID(); !ok {
-		return &ValidationError{Name: "account_id", err: errors.New(`ent: missing required field "Holding.account_id"`)}
-	}
-	if _, ok := hc.mutation.Amount(); !ok {
-		return &ValidationError{Name: "amount", err: errors.New(`ent: missing required field "Holding.amount"`)}
-	}
-	if _, ok := hc.mutation.Precision(); !ok {
-		return &ValidationError{Name: "precision", err: errors.New(`ent: missing required field "Holding.precision"`)}
-	}
 	if _, ok := hc.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Holding.created_at"`)}
 	}
 	if _, ok := hc.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Holding.updated_at"`)}
 	}
+	if _, ok := hc.mutation.AssetID(); !ok {
+		return &ValidationError{Name: "asset_id", err: errors.New(`ent: missing required field "Holding.asset_id"`)}
+	}
+	if _, ok := hc.mutation.Amount(); !ok {
+		return &ValidationError{Name: "amount", err: errors.New(`ent: missing required field "Holding.amount"`)}
+	}
+	if _, ok := hc.mutation.Decimals(); !ok {
+		return &ValidationError{Name: "Decimals", err: errors.New(`ent: missing required field "Holding.Decimals"`)}
+	}
+	if _, ok := hc.mutation.AccountID(); !ok {
+		return &ValidationError{Name: "account_id", err: errors.New(`ent: missing required field "Holding.account_id"`)}
+	}
 	if len(hc.mutation.AssetIDs()) == 0 {
 		return &ValidationError{Name: "asset", err: errors.New(`ent: missing required edge "Holding.asset"`)}
-	}
-	if len(hc.mutation.PortfolioIDs()) == 0 {
-		return &ValidationError{Name: "portfolio", err: errors.New(`ent: missing required edge "Holding.portfolio"`)}
 	}
 	if len(hc.mutation.AccountIDs()) == 0 {
 		return &ValidationError{Name: "account", err: errors.New(`ent: missing required edge "Holding.account"`)}
@@ -225,14 +227,6 @@ func (hc *HoldingCreate) createSpec() (*Holding, *sqlgraph.CreateSpec) {
 		_spec.SetField(holding.FieldUUID, field.TypeUUID, value)
 		_node.UUID = value
 	}
-	if value, ok := hc.mutation.Amount(); ok {
-		_spec.SetField(holding.FieldAmount, field.TypeInt64, value)
-		_node.Amount = value
-	}
-	if value, ok := hc.mutation.Precision(); ok {
-		_spec.SetField(holding.FieldPrecision, field.TypeUint32, value)
-		_node.Precision = value
-	}
 	if value, ok := hc.mutation.CreatedAt(); ok {
 		_spec.SetField(holding.FieldCreatedAt, field.TypeTime, value)
 		_node.CreatedAt = value
@@ -240,6 +234,14 @@ func (hc *HoldingCreate) createSpec() (*Holding, *sqlgraph.CreateSpec) {
 	if value, ok := hc.mutation.UpdatedAt(); ok {
 		_spec.SetField(holding.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
+	}
+	if value, ok := hc.mutation.Amount(); ok {
+		_spec.SetField(holding.FieldAmount, field.TypeInt64, value)
+		_node.Amount = value
+	}
+	if value, ok := hc.mutation.Decimals(); ok {
+		_spec.SetField(holding.FieldDecimals, field.TypeUint32, value)
+		_node.Decimals = value
 	}
 	if nodes := hc.mutation.AssetIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

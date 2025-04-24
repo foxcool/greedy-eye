@@ -22,6 +22,10 @@ type Account struct {
 	ID int `json:"id,omitempty"`
 	// UUID holds the value of the "uuid" field.
 	UUID uuid.UUID `json:"uuid,omitempty"`
+	// CreatedAt holds the value of the "created_at" field.
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	// UpdatedAt holds the value of the "updated_at" field.
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
 	// UserID holds the value of the "user_id" field.
 	UserID int `json:"user_id,omitempty"`
 	// Name holds the value of the "name" field.
@@ -32,15 +36,10 @@ type Account struct {
 	Type account.Type `json:"type,omitempty"`
 	// Data holds the value of the "data" field.
 	Data map[string]string `json:"data,omitempty"`
-	// CreatedAt holds the value of the "created_at" field.
-	CreatedAt time.Time `json:"created_at,omitempty"`
-	// UpdatedAt holds the value of the "updated_at" field.
-	UpdatedAt time.Time `json:"updated_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the AccountQuery when eager-loading is set.
-	Edges               AccountEdges `json:"edges"`
-	transaction_account *int
-	selectValues        sql.SelectValues
+	Edges        AccountEdges `json:"edges"`
+	selectValues sql.SelectValues
 }
 
 // AccountEdges holds the relations/edges for other nodes in the graph.
@@ -49,9 +48,11 @@ type AccountEdges struct {
 	User *User `json:"user,omitempty"`
 	// Holdings holds the value of the holdings edge.
 	Holdings []*Holding `json:"holdings,omitempty"`
+	// Transactions holds the value of the transactions edge.
+	Transactions []*Transaction `json:"transactions,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [3]bool
 }
 
 // UserOrErr returns the User value or an error if the edge
@@ -74,6 +75,15 @@ func (e AccountEdges) HoldingsOrErr() ([]*Holding, error) {
 	return nil, &NotLoadedError{edge: "holdings"}
 }
 
+// TransactionsOrErr returns the Transactions value or an error if the edge
+// was not loaded in eager-loading.
+func (e AccountEdges) TransactionsOrErr() ([]*Transaction, error) {
+	if e.loadedTypes[2] {
+		return e.Transactions, nil
+	}
+	return nil, &NotLoadedError{edge: "transactions"}
+}
+
 // scanValues returns the types for scanning values from sql.Rows.
 func (*Account) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
@@ -89,8 +99,6 @@ func (*Account) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullTime)
 		case account.FieldUUID:
 			values[i] = new(uuid.UUID)
-		case account.ForeignKeys[0]: // transaction_account
-			values[i] = new(sql.NullInt64)
 		default:
 			values[i] = new(sql.UnknownType)
 		}
@@ -117,6 +125,18 @@ func (a *Account) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field uuid", values[i])
 			} else if value != nil {
 				a.UUID = *value
+			}
+		case account.FieldCreatedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field created_at", values[i])
+			} else if value.Valid {
+				a.CreatedAt = value.Time
+			}
+		case account.FieldUpdatedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field updated_at", values[i])
+			} else if value.Valid {
+				a.UpdatedAt = value.Time
 			}
 		case account.FieldUserID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -150,25 +170,6 @@ func (a *Account) assignValues(columns []string, values []any) error {
 					return fmt.Errorf("unmarshal field data: %w", err)
 				}
 			}
-		case account.FieldCreatedAt:
-			if value, ok := values[i].(*sql.NullTime); !ok {
-				return fmt.Errorf("unexpected type %T for field created_at", values[i])
-			} else if value.Valid {
-				a.CreatedAt = value.Time
-			}
-		case account.FieldUpdatedAt:
-			if value, ok := values[i].(*sql.NullTime); !ok {
-				return fmt.Errorf("unexpected type %T for field updated_at", values[i])
-			} else if value.Valid {
-				a.UpdatedAt = value.Time
-			}
-		case account.ForeignKeys[0]:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for edge-field transaction_account", value)
-			} else if value.Valid {
-				a.transaction_account = new(int)
-				*a.transaction_account = int(value.Int64)
-			}
 		default:
 			a.selectValues.Set(columns[i], values[i])
 		}
@@ -190,6 +191,11 @@ func (a *Account) QueryUser() *UserQuery {
 // QueryHoldings queries the "holdings" edge of the Account entity.
 func (a *Account) QueryHoldings() *HoldingQuery {
 	return NewAccountClient(a.config).QueryHoldings(a)
+}
+
+// QueryTransactions queries the "transactions" edge of the Account entity.
+func (a *Account) QueryTransactions() *TransactionQuery {
+	return NewAccountClient(a.config).QueryTransactions(a)
 }
 
 // Update returns a builder for updating this Account.
@@ -218,6 +224,12 @@ func (a *Account) String() string {
 	builder.WriteString("uuid=")
 	builder.WriteString(fmt.Sprintf("%v", a.UUID))
 	builder.WriteString(", ")
+	builder.WriteString("created_at=")
+	builder.WriteString(a.CreatedAt.Format(time.ANSIC))
+	builder.WriteString(", ")
+	builder.WriteString("updated_at=")
+	builder.WriteString(a.UpdatedAt.Format(time.ANSIC))
+	builder.WriteString(", ")
 	builder.WriteString("user_id=")
 	builder.WriteString(fmt.Sprintf("%v", a.UserID))
 	builder.WriteString(", ")
@@ -232,12 +244,6 @@ func (a *Account) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("data=")
 	builder.WriteString(fmt.Sprintf("%v", a.Data))
-	builder.WriteString(", ")
-	builder.WriteString("created_at=")
-	builder.WriteString(a.CreatedAt.Format(time.ANSIC))
-	builder.WriteString(", ")
-	builder.WriteString("updated_at=")
-	builder.WriteString(a.UpdatedAt.Format(time.ANSIC))
 	builder.WriteByte(')')
 	return builder.String()
 }

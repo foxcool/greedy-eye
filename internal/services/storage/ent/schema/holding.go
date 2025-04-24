@@ -18,19 +18,14 @@ type Holding struct {
 
 func (Holding) Fields() []ent.Field {
 	return []ent.Field{
-		field.UUID("uuid", uuid.UUID{}).
-			Default(uuid.New),
+		field.UUID("uuid", uuid.UUID{}).Default(uuid.New),
+		field.Time("created_at").Immutable().Default(time.Now),
+		field.Time("updated_at").Default(time.Now).UpdateDefault(time.Now),
 		field.Int("asset_id"),
-		field.Int("portfolio_id"),
-		field.Int("account_id"),
 		field.Int64("amount"),
-		field.Uint32("precision"),
-		field.Time("created_at").
-			Default(time.Now).
-			Immutable(),
-		field.Time("updated_at").
-			Default(time.Now).
-			UpdateDefault(time.Now),
+		field.Uint32("Decimals"),
+		field.Int("portfolio_id").Optional(),
+		field.Int("account_id"),
 	}
 }
 
@@ -45,8 +40,7 @@ func (Holding) Edges() []ent.Edge {
 		edge.From("portfolio", Portfolio.Type).
 			Ref("holdings").
 			Field("portfolio_id").
-			Unique().
-			Required(),
+			Unique(),
 		edge.From("account", Account.Type).
 			Ref("holdings").
 			Field("account_id").

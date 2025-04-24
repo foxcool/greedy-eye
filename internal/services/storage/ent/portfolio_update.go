@@ -45,6 +45,12 @@ func (pu *PortfolioUpdate) SetNillableUUID(u *uuid.UUID) *PortfolioUpdate {
 	return pu
 }
 
+// SetUpdatedAt sets the "updated_at" field.
+func (pu *PortfolioUpdate) SetUpdatedAt(t time.Time) *PortfolioUpdate {
+	pu.mutation.SetUpdatedAt(t)
+	return pu
+}
+
 // SetUserID sets the "user_id" field.
 func (pu *PortfolioUpdate) SetUserID(i int) *PortfolioUpdate {
 	pu.mutation.SetUserID(i)
@@ -93,35 +99,15 @@ func (pu *PortfolioUpdate) ClearDescription() *PortfolioUpdate {
 	return pu
 }
 
-// SetCreatedAt sets the "created_at" field.
-func (pu *PortfolioUpdate) SetCreatedAt(t time.Time) *PortfolioUpdate {
-	pu.mutation.SetCreatedAt(t)
+// SetData sets the "data" field.
+func (pu *PortfolioUpdate) SetData(m map[string]interface{}) *PortfolioUpdate {
+	pu.mutation.SetData(m)
 	return pu
 }
 
-// SetNillableCreatedAt sets the "created_at" field if the given value is not nil.
-func (pu *PortfolioUpdate) SetNillableCreatedAt(t *time.Time) *PortfolioUpdate {
-	if t != nil {
-		pu.SetCreatedAt(*t)
-	}
-	return pu
-}
-
-// SetUpdatedAt sets the "updated_at" field.
-func (pu *PortfolioUpdate) SetUpdatedAt(t time.Time) *PortfolioUpdate {
-	pu.mutation.SetUpdatedAt(t)
-	return pu
-}
-
-// SetUsersID sets the "users" edge to the User entity by ID.
-func (pu *PortfolioUpdate) SetUsersID(id int) *PortfolioUpdate {
-	pu.mutation.SetUsersID(id)
-	return pu
-}
-
-// SetUsers sets the "users" edge to the User entity.
-func (pu *PortfolioUpdate) SetUsers(u *User) *PortfolioUpdate {
-	return pu.SetUsersID(u.ID)
+// SetUser sets the "user" edge to the User entity.
+func (pu *PortfolioUpdate) SetUser(u *User) *PortfolioUpdate {
+	return pu.SetUserID(u.ID)
 }
 
 // AddHoldingIDs adds the "holdings" edge to the Holding entity by IDs.
@@ -144,9 +130,9 @@ func (pu *PortfolioUpdate) Mutation() *PortfolioMutation {
 	return pu.mutation
 }
 
-// ClearUsers clears the "users" edge to the User entity.
-func (pu *PortfolioUpdate) ClearUsers() *PortfolioUpdate {
-	pu.mutation.ClearUsers()
+// ClearUser clears the "user" edge to the User entity.
+func (pu *PortfolioUpdate) ClearUser() *PortfolioUpdate {
+	pu.mutation.ClearUser()
 	return pu
 }
 
@@ -209,8 +195,8 @@ func (pu *PortfolioUpdate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (pu *PortfolioUpdate) check() error {
-	if pu.mutation.UsersCleared() && len(pu.mutation.UsersIDs()) > 0 {
-		return errors.New(`ent: clearing a required unique edge "Portfolio.users"`)
+	if pu.mutation.UserCleared() && len(pu.mutation.UserIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "Portfolio.user"`)
 	}
 	return nil
 }
@@ -230,6 +216,9 @@ func (pu *PortfolioUpdate) sqlSave(ctx context.Context) (n int, err error) {
 	if value, ok := pu.mutation.UUID(); ok {
 		_spec.SetField(portfolio.FieldUUID, field.TypeUUID, value)
 	}
+	if value, ok := pu.mutation.UpdatedAt(); ok {
+		_spec.SetField(portfolio.FieldUpdatedAt, field.TypeTime, value)
+	}
 	if value, ok := pu.mutation.Name(); ok {
 		_spec.SetField(portfolio.FieldName, field.TypeString, value)
 	}
@@ -239,18 +228,15 @@ func (pu *PortfolioUpdate) sqlSave(ctx context.Context) (n int, err error) {
 	if pu.mutation.DescriptionCleared() {
 		_spec.ClearField(portfolio.FieldDescription, field.TypeString)
 	}
-	if value, ok := pu.mutation.CreatedAt(); ok {
-		_spec.SetField(portfolio.FieldCreatedAt, field.TypeTime, value)
+	if value, ok := pu.mutation.Data(); ok {
+		_spec.SetField(portfolio.FieldData, field.TypeJSON, value)
 	}
-	if value, ok := pu.mutation.UpdatedAt(); ok {
-		_spec.SetField(portfolio.FieldUpdatedAt, field.TypeTime, value)
-	}
-	if pu.mutation.UsersCleared() {
+	if pu.mutation.UserCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   portfolio.UsersTable,
-			Columns: []string{portfolio.UsersColumn},
+			Table:   portfolio.UserTable,
+			Columns: []string{portfolio.UserColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
@@ -258,12 +244,12 @@ func (pu *PortfolioUpdate) sqlSave(ctx context.Context) (n int, err error) {
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
-	if nodes := pu.mutation.UsersIDs(); len(nodes) > 0 {
+	if nodes := pu.mutation.UserIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   portfolio.UsersTable,
-			Columns: []string{portfolio.UsersColumn},
+			Table:   portfolio.UserTable,
+			Columns: []string{portfolio.UserColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
@@ -353,6 +339,12 @@ func (puo *PortfolioUpdateOne) SetNillableUUID(u *uuid.UUID) *PortfolioUpdateOne
 	return puo
 }
 
+// SetUpdatedAt sets the "updated_at" field.
+func (puo *PortfolioUpdateOne) SetUpdatedAt(t time.Time) *PortfolioUpdateOne {
+	puo.mutation.SetUpdatedAt(t)
+	return puo
+}
+
 // SetUserID sets the "user_id" field.
 func (puo *PortfolioUpdateOne) SetUserID(i int) *PortfolioUpdateOne {
 	puo.mutation.SetUserID(i)
@@ -401,35 +393,15 @@ func (puo *PortfolioUpdateOne) ClearDescription() *PortfolioUpdateOne {
 	return puo
 }
 
-// SetCreatedAt sets the "created_at" field.
-func (puo *PortfolioUpdateOne) SetCreatedAt(t time.Time) *PortfolioUpdateOne {
-	puo.mutation.SetCreatedAt(t)
+// SetData sets the "data" field.
+func (puo *PortfolioUpdateOne) SetData(m map[string]interface{}) *PortfolioUpdateOne {
+	puo.mutation.SetData(m)
 	return puo
 }
 
-// SetNillableCreatedAt sets the "created_at" field if the given value is not nil.
-func (puo *PortfolioUpdateOne) SetNillableCreatedAt(t *time.Time) *PortfolioUpdateOne {
-	if t != nil {
-		puo.SetCreatedAt(*t)
-	}
-	return puo
-}
-
-// SetUpdatedAt sets the "updated_at" field.
-func (puo *PortfolioUpdateOne) SetUpdatedAt(t time.Time) *PortfolioUpdateOne {
-	puo.mutation.SetUpdatedAt(t)
-	return puo
-}
-
-// SetUsersID sets the "users" edge to the User entity by ID.
-func (puo *PortfolioUpdateOne) SetUsersID(id int) *PortfolioUpdateOne {
-	puo.mutation.SetUsersID(id)
-	return puo
-}
-
-// SetUsers sets the "users" edge to the User entity.
-func (puo *PortfolioUpdateOne) SetUsers(u *User) *PortfolioUpdateOne {
-	return puo.SetUsersID(u.ID)
+// SetUser sets the "user" edge to the User entity.
+func (puo *PortfolioUpdateOne) SetUser(u *User) *PortfolioUpdateOne {
+	return puo.SetUserID(u.ID)
 }
 
 // AddHoldingIDs adds the "holdings" edge to the Holding entity by IDs.
@@ -452,9 +424,9 @@ func (puo *PortfolioUpdateOne) Mutation() *PortfolioMutation {
 	return puo.mutation
 }
 
-// ClearUsers clears the "users" edge to the User entity.
-func (puo *PortfolioUpdateOne) ClearUsers() *PortfolioUpdateOne {
-	puo.mutation.ClearUsers()
+// ClearUser clears the "user" edge to the User entity.
+func (puo *PortfolioUpdateOne) ClearUser() *PortfolioUpdateOne {
+	puo.mutation.ClearUser()
 	return puo
 }
 
@@ -530,8 +502,8 @@ func (puo *PortfolioUpdateOne) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (puo *PortfolioUpdateOne) check() error {
-	if puo.mutation.UsersCleared() && len(puo.mutation.UsersIDs()) > 0 {
-		return errors.New(`ent: clearing a required unique edge "Portfolio.users"`)
+	if puo.mutation.UserCleared() && len(puo.mutation.UserIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "Portfolio.user"`)
 	}
 	return nil
 }
@@ -568,6 +540,9 @@ func (puo *PortfolioUpdateOne) sqlSave(ctx context.Context) (_node *Portfolio, e
 	if value, ok := puo.mutation.UUID(); ok {
 		_spec.SetField(portfolio.FieldUUID, field.TypeUUID, value)
 	}
+	if value, ok := puo.mutation.UpdatedAt(); ok {
+		_spec.SetField(portfolio.FieldUpdatedAt, field.TypeTime, value)
+	}
 	if value, ok := puo.mutation.Name(); ok {
 		_spec.SetField(portfolio.FieldName, field.TypeString, value)
 	}
@@ -577,18 +552,15 @@ func (puo *PortfolioUpdateOne) sqlSave(ctx context.Context) (_node *Portfolio, e
 	if puo.mutation.DescriptionCleared() {
 		_spec.ClearField(portfolio.FieldDescription, field.TypeString)
 	}
-	if value, ok := puo.mutation.CreatedAt(); ok {
-		_spec.SetField(portfolio.FieldCreatedAt, field.TypeTime, value)
+	if value, ok := puo.mutation.Data(); ok {
+		_spec.SetField(portfolio.FieldData, field.TypeJSON, value)
 	}
-	if value, ok := puo.mutation.UpdatedAt(); ok {
-		_spec.SetField(portfolio.FieldUpdatedAt, field.TypeTime, value)
-	}
-	if puo.mutation.UsersCleared() {
+	if puo.mutation.UserCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   portfolio.UsersTable,
-			Columns: []string{portfolio.UsersColumn},
+			Table:   portfolio.UserTable,
+			Columns: []string{portfolio.UserColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
@@ -596,12 +568,12 @@ func (puo *PortfolioUpdateOne) sqlSave(ctx context.Context) (_node *Portfolio, e
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
-	if nodes := puo.mutation.UsersIDs(); len(nodes) > 0 {
+	if nodes := puo.mutation.UserIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
 			Inverse: true,
-			Table:   portfolio.UsersTable,
-			Columns: []string{portfolio.UsersColumn},
+			Table:   portfolio.UserTable,
+			Columns: []string{portfolio.UserColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),

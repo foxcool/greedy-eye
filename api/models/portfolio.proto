@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package models;
 
+import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
 option go_package = "github.com/foxcool/greedy-eye/internal/api/models";
 
@@ -12,6 +13,7 @@ message Portfolio {
   string user_id = 2; // ID of the user owning this portfolio
   string name = 3; // User-defined name (e.g., "Long Term Crypto", "Trading")
   optional string description = 4; // Optional longer description
-  google.protobuf.Timestamp created_at = 5; // Timestamp of creation
-  google.protobuf.Timestamp updated_at = 6; // Timestamp of last update
+  map<string, google.protobuf.Any> data = 5; // Additional data (e.g., strategy, notes, regulated balance of assets, etc.)
+  google.protobuf.Timestamp created_at = 6; // Timestamp of creation
+  google.protobuf.Timestamp updated_at = 7; // Timestamp of last update
 }

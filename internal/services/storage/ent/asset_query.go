@@ -634,9 +634,7 @@ func (aq *AssetQuery) loadTransactions(ctx context.Context, query *TransactionQu
 			init(nodes[i])
 		}
 	}
-	if len(query.ctx.Fields) > 0 {
-		query.ctx.AppendFieldOnce(transaction.FieldAssetID)
-	}
+	query.withFKs = true
 	query.Where(predicate.Transaction(func(s *sql.Selector) {
 		s.Where(sql.InValues(s.C(asset.TransactionsColumn), fks...))
 	}))
@@ -645,10 +643,13 @@ func (aq *AssetQuery) loadTransactions(ctx context.Context, query *TransactionQu
 		return err
 	}
 	for _, n := range neighbors {
-		fk := n.AssetID
-		node, ok := nodeids[fk]
+		fk := n.asset_transactions
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "asset_transactions" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
 		if !ok {
-			return fmt.Errorf(`unexpected referenced foreign-key "asset_id" returned %v for node %v`, fk, n.ID)
+			return fmt.Errorf(`unexpected referenced foreign-key "asset_transactions" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

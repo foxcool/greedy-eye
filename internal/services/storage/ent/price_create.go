@@ -60,15 +60,15 @@ func (pc *PriceCreate) SetInterval(s string) *PriceCreate {
 	return pc
 }
 
-// SetAmount sets the "amount" field.
-func (pc *PriceCreate) SetAmount(i int64) *PriceCreate {
-	pc.mutation.SetAmount(i)
+// SetDecimals sets the "decimals" field.
+func (pc *PriceCreate) SetDecimals(u uint32) *PriceCreate {
+	pc.mutation.SetDecimals(u)
 	return pc
 }
 
-// SetPrecision sets the "precision" field.
-func (pc *PriceCreate) SetPrecision(u uint32) *PriceCreate {
-	pc.mutation.SetPrecision(u)
+// SetLast sets the "last" field.
+func (pc *PriceCreate) SetLast(i int64) *PriceCreate {
+	pc.mutation.SetLast(i)
 	return pc
 }
 
@@ -142,30 +142,16 @@ func (pc *PriceCreate) SetNillableVolume(i *int64) *PriceCreate {
 	return pc
 }
 
-// SetCreatedAt sets the "created_at" field.
-func (pc *PriceCreate) SetCreatedAt(t time.Time) *PriceCreate {
-	pc.mutation.SetCreatedAt(t)
+// SetTimestamp sets the "timestamp" field.
+func (pc *PriceCreate) SetTimestamp(t time.Time) *PriceCreate {
+	pc.mutation.SetTimestamp(t)
 	return pc
 }
 
-// SetNillableCreatedAt sets the "created_at" field if the given value is not nil.
-func (pc *PriceCreate) SetNillableCreatedAt(t *time.Time) *PriceCreate {
+// SetNillableTimestamp sets the "timestamp" field if the given value is not nil.
+func (pc *PriceCreate) SetNillableTimestamp(t *time.Time) *PriceCreate {
 	if t != nil {
-		pc.SetCreatedAt(*t)
-	}
-	return pc
-}
-
-// SetUpdatedAt sets the "updated_at" field.
-func (pc *PriceCreate) SetUpdatedAt(t time.Time) *PriceCreate {
-	pc.mutation.SetUpdatedAt(t)
-	return pc
-}
-
-// SetNillableUpdatedAt sets the "updated_at" field if the given value is not nil.
-func (pc *PriceCreate) SetNillableUpdatedAt(t *time.Time) *PriceCreate {
-	if t != nil {
-		pc.SetUpdatedAt(*t)
+		pc.SetTimestamp(*t)
 	}
 	return pc
 }
@@ -219,13 +205,9 @@ func (pc *PriceCreate) defaults() {
 		v := price.DefaultUUID()
 		pc.mutation.SetUUID(v)
 	}
-	if _, ok := pc.mutation.CreatedAt(); !ok {
-		v := price.DefaultCreatedAt()
-		pc.mutation.SetCreatedAt(v)
-	}
-	if _, ok := pc.mutation.UpdatedAt(); !ok {
-		v := price.DefaultUpdatedAt()
-		pc.mutation.SetUpdatedAt(v)
+	if _, ok := pc.mutation.Timestamp(); !ok {
+		v := price.DefaultTimestamp()
+		pc.mutation.SetTimestamp(v)
 	}
 }
 
@@ -246,17 +228,14 @@ func (pc *PriceCreate) check() error {
 	if _, ok := pc.mutation.Interval(); !ok {
 		return &ValidationError{Name: "interval", err: errors.New(`ent: missing required field "Price.interval"`)}
 	}
-	if _, ok := pc.mutation.Amount(); !ok {
-		return &ValidationError{Name: "amount", err: errors.New(`ent: missing required field "Price.amount"`)}
+	if _, ok := pc.mutation.Decimals(); !ok {
+		return &ValidationError{Name: "decimals", err: errors.New(`ent: missing required field "Price.decimals"`)}
 	}
-	if _, ok := pc.mutation.Precision(); !ok {
-		return &ValidationError{Name: "precision", err: errors.New(`ent: missing required field "Price.precision"`)}
+	if _, ok := pc.mutation.Last(); !ok {
+		return &ValidationError{Name: "last", err: errors.New(`ent: missing required field "Price.last"`)}
 	}
-	if _, ok := pc.mutation.CreatedAt(); !ok {
-		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Price.created_at"`)}
-	}
-	if _, ok := pc.mutation.UpdatedAt(); !ok {
-		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Price.updated_at"`)}
+	if _, ok := pc.mutation.Timestamp(); !ok {
+		return &ValidationError{Name: "timestamp", err: errors.New(`ent: missing required field "Price.timestamp"`)}
 	}
 	if len(pc.mutation.AssetIDs()) == 0 {
 		return &ValidationError{Name: "asset", err: errors.New(`ent: missing required edge "Price.asset"`)}
@@ -302,13 +281,13 @@ func (pc *PriceCreate) createSpec() (*Price, *sqlgraph.CreateSpec) {
 		_spec.SetField(price.FieldInterval, field.TypeString, value)
 		_node.Interval = value
 	}
-	if value, ok := pc.mutation.Amount(); ok {
-		_spec.SetField(price.FieldAmount, field.TypeInt64, value)
-		_node.Amount = value
+	if value, ok := pc.mutation.Decimals(); ok {
+		_spec.SetField(price.FieldDecimals, field.TypeUint32, value)
+		_node.Decimals = value
 	}
-	if value, ok := pc.mutation.Precision(); ok {
-		_spec.SetField(price.FieldPrecision, field.TypeUint32, value)
-		_node.Precision = value
+	if value, ok := pc.mutation.Last(); ok {
+		_spec.SetField(price.FieldLast, field.TypeInt64, value)
+		_node.Last = value
 	}
 	if value, ok := pc.mutation.Open(); ok {
 		_spec.SetField(price.FieldOpen, field.TypeInt64, value)
@@ -330,13 +309,9 @@ func (pc *PriceCreate) createSpec() (*Price, *sqlgraph.CreateSpec) {
 		_spec.SetField(price.FieldVolume, field.TypeInt64, value)
 		_node.Volume = value
 	}
-	if value, ok := pc.mutation.CreatedAt(); ok {
-		_spec.SetField(price.FieldCreatedAt, field.TypeTime, value)
-		_node.CreatedAt = value
-	}
-	if value, ok := pc.mutation.UpdatedAt(); ok {
-		_spec.SetField(price.FieldUpdatedAt, field.TypeTime, value)
-		_node.UpdatedAt = value
+	if value, ok := pc.mutation.Timestamp(); ok {
+		_spec.SetField(price.FieldTimestamp, field.TypeTime, value)
+		_node.Timestamp = value
 	}
 	if nodes := pc.mutation.AssetIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

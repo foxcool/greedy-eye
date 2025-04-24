@@ -23,20 +23,20 @@ type Holding struct {
 	ID int `json:"id,omitempty"`
 	// UUID holds the value of the "uuid" field.
 	UUID uuid.UUID `json:"uuid,omitempty"`
-	// AssetID holds the value of the "asset_id" field.
-	AssetID int `json:"asset_id,omitempty"`
-	// PortfolioID holds the value of the "portfolio_id" field.
-	PortfolioID int `json:"portfolio_id,omitempty"`
-	// AccountID holds the value of the "account_id" field.
-	AccountID int `json:"account_id,omitempty"`
-	// Amount holds the value of the "amount" field.
-	Amount int64 `json:"amount,omitempty"`
-	// Precision holds the value of the "precision" field.
-	Precision uint32 `json:"precision,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// UpdatedAt holds the value of the "updated_at" field.
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	// AssetID holds the value of the "asset_id" field.
+	AssetID int `json:"asset_id,omitempty"`
+	// Amount holds the value of the "amount" field.
+	Amount int64 `json:"amount,omitempty"`
+	// Decimals holds the value of the "Decimals" field.
+	Decimals uint32 `json:"Decimals,omitempty"`
+	// PortfolioID holds the value of the "portfolio_id" field.
+	PortfolioID int `json:"portfolio_id,omitempty"`
+	// AccountID holds the value of the "account_id" field.
+	AccountID int `json:"account_id,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the HoldingQuery when eager-loading is set.
 	Edges        HoldingEdges `json:"edges"`
@@ -94,7 +94,7 @@ func (*Holding) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case holding.FieldID, holding.FieldAssetID, holding.FieldPortfolioID, holding.FieldAccountID, holding.FieldAmount, holding.FieldPrecision:
+		case holding.FieldID, holding.FieldAssetID, holding.FieldAmount, holding.FieldDecimals, holding.FieldPortfolioID, holding.FieldAccountID:
 			values[i] = new(sql.NullInt64)
 		case holding.FieldCreatedAt, holding.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
@@ -127,11 +127,35 @@ func (h *Holding) assignValues(columns []string, values []any) error {
 			} else if value != nil {
 				h.UUID = *value
 			}
+		case holding.FieldCreatedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field created_at", values[i])
+			} else if value.Valid {
+				h.CreatedAt = value.Time
+			}
+		case holding.FieldUpdatedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field updated_at", values[i])
+			} else if value.Valid {
+				h.UpdatedAt = value.Time
+			}
 		case holding.FieldAssetID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field asset_id", values[i])
 			} else if value.Valid {
 				h.AssetID = int(value.Int64)
+			}
+		case holding.FieldAmount:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field amount", values[i])
+			} else if value.Valid {
+				h.Amount = value.Int64
+			}
+		case holding.FieldDecimals:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field Decimals", values[i])
+			} else if value.Valid {
+				h.Decimals = uint32(value.Int64)
 			}
 		case holding.FieldPortfolioID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -144,30 +168,6 @@ func (h *Holding) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field account_id", values[i])
 			} else if value.Valid {
 				h.AccountID = int(value.Int64)
-			}
-		case holding.FieldAmount:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for field amount", values[i])
-			} else if value.Valid {
-				h.Amount = value.Int64
-			}
-		case holding.FieldPrecision:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for field precision", values[i])
-			} else if value.Valid {
-				h.Precision = uint32(value.Int64)
-			}
-		case holding.FieldCreatedAt:
-			if value, ok := values[i].(*sql.NullTime); !ok {
-				return fmt.Errorf("unexpected type %T for field created_at", values[i])
-			} else if value.Valid {
-				h.CreatedAt = value.Time
-			}
-		case holding.FieldUpdatedAt:
-			if value, ok := values[i].(*sql.NullTime); !ok {
-				return fmt.Errorf("unexpected type %T for field updated_at", values[i])
-			} else if value.Valid {
-				h.UpdatedAt = value.Time
 			}
 		default:
 			h.selectValues.Set(columns[i], values[i])
@@ -223,26 +223,26 @@ func (h *Holding) String() string {
 	builder.WriteString("uuid=")
 	builder.WriteString(fmt.Sprintf("%v", h.UUID))
 	builder.WriteString(", ")
+	builder.WriteString("created_at=")
+	builder.WriteString(h.CreatedAt.Format(time.ANSIC))
+	builder.WriteString(", ")
+	builder.WriteString("updated_at=")
+	builder.WriteString(h.UpdatedAt.Format(time.ANSIC))
+	builder.WriteString(", ")
 	builder.WriteString("asset_id=")
 	builder.WriteString(fmt.Sprintf("%v", h.AssetID))
+	builder.WriteString(", ")
+	builder.WriteString("amount=")
+	builder.WriteString(fmt.Sprintf("%v", h.Amount))
+	builder.WriteString(", ")
+	builder.WriteString("Decimals=")
+	builder.WriteString(fmt.Sprintf("%v", h.Decimals))
 	builder.WriteString(", ")
 	builder.WriteString("portfolio_id=")
 	builder.WriteString(fmt.Sprintf("%v", h.PortfolioID))
 	builder.WriteString(", ")
 	builder.WriteString("account_id=")
 	builder.WriteString(fmt.Sprintf("%v", h.AccountID))
-	builder.WriteString(", ")
-	builder.WriteString("amount=")
-	builder.WriteString(fmt.Sprintf("%v", h.Amount))
-	builder.WriteString(", ")
-	builder.WriteString("precision=")
-	builder.WriteString(fmt.Sprintf("%v", h.Precision))
-	builder.WriteString(", ")
-	builder.WriteString("created_at=")
-	builder.WriteString(h.CreatedAt.Format(time.ANSIC))
-	builder.WriteString(", ")
-	builder.WriteString("updated_at=")
-	builder.WriteString(h.UpdatedAt.Format(time.ANSIC))
 	builder.WriteByte(')')
 	return builder.String()
 }

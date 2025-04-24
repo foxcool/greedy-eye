@@ -10,7 +10,7 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/account"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/transaction"
 	"github.com/google/uuid"
 )
@@ -22,70 +22,43 @@ type Transaction struct {
 	ID int `json:"id,omitempty"`
 	// UUID holds the value of the "uuid" field.
 	UUID uuid.UUID `json:"uuid,omitempty"`
-	// AssetID holds the value of the "asset_id" field.
-	AssetID int `json:"asset_id,omitempty"`
-	// Amount holds the value of the "amount" field.
-	Amount int64 `json:"amount,omitempty"`
-	// Fee holds the value of the "fee" field.
-	Fee int64 `json:"fee,omitempty"`
-	// Precision holds the value of the "precision" field.
-	Precision uint32 `json:"precision,omitempty"`
 	// Type holds the value of the "type" field.
 	Type transaction.Type `json:"type,omitempty"`
 	// Status holds the value of the "status" field.
 	Status transaction.Status `json:"status,omitempty"`
+	// AccountID holds the value of the "account_id" field.
+	AccountID int `json:"account_id,omitempty"`
+	// Data holds the value of the "data" field.
+	Data map[string]string `json:"data,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// UpdatedAt holds the value of the "updated_at" field.
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
-	// Metadata holds the value of the "metadata" field.
-	Metadata map[string]string `json:"metadata,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the TransactionQuery when eager-loading is set.
-	Edges        TransactionEdges `json:"edges"`
-	selectValues sql.SelectValues
+	Edges              TransactionEdges `json:"edges"`
+	asset_transactions *int
+	selectValues       sql.SelectValues
 }
 
 // TransactionEdges holds the relations/edges for other nodes in the graph.
 type TransactionEdges struct {
-	// Portfolio holds the value of the portfolio edge.
-	Portfolio []*Portfolio `json:"portfolio,omitempty"`
 	// Account holds the value of the account edge.
-	Account []*Account `json:"account,omitempty"`
-	// Asset holds the value of the asset edge.
-	Asset *Asset `json:"asset,omitempty"`
+	Account *Account `json:"account,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
-}
-
-// PortfolioOrErr returns the Portfolio value or an error if the edge
-// was not loaded in eager-loading.
-func (e TransactionEdges) PortfolioOrErr() ([]*Portfolio, error) {
-	if e.loadedTypes[0] {
-		return e.Portfolio, nil
-	}
-	return nil, &NotLoadedError{edge: "portfolio"}
+	loadedTypes [1]bool
 }
 
 // AccountOrErr returns the Account value or an error if the edge
-// was not loaded in eager-loading.
-func (e TransactionEdges) AccountOrErr() ([]*Account, error) {
-	if e.loadedTypes[1] {
+// was not loaded in eager-loading, or loaded but was not found.
+func (e TransactionEdges) AccountOrErr() (*Account, error) {
+	if e.Account != nil {
 		return e.Account, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: account.Label}
 	}
 	return nil, &NotLoadedError{edge: "account"}
-}
-
-// AssetOrErr returns the Asset value or an error if the edge
-// was not loaded in eager-loading, or loaded but was not found.
-func (e TransactionEdges) AssetOrErr() (*Asset, error) {
-	if e.Asset != nil {
-		return e.Asset, nil
-	} else if e.loadedTypes[2] {
-		return nil, &NotFoundError{label: asset.Label}
-	}
-	return nil, &NotLoadedError{edge: "asset"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -93,9 +66,9 @@ func (*Transaction) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case transaction.FieldMetadata:
+		case transaction.FieldData:
 			values[i] = new([]byte)
-		case transaction.FieldID, transaction.FieldAssetID, transaction.FieldAmount, transaction.FieldFee, transaction.FieldPrecision:
+		case transaction.FieldID, transaction.FieldAccountID:
 			values[i] = new(sql.NullInt64)
 		case transaction.FieldType, transaction.FieldStatus:
 			values[i] = new(sql.NullString)
@@ -103,6 +76,8 @@ func (*Transaction) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullTime)
 		case transaction.FieldUUID:
 			values[i] = new(uuid.UUID)
+		case transaction.ForeignKeys[0]: // asset_transactions
+			values[i] = new(sql.NullInt64)
 		default:
 			values[i] = new(sql.UnknownType)
 		}
@@ -130,30 +105,6 @@ func (t *Transaction) assignValues(columns []string, values []any) error {
 			} else if value != nil {
 				t.UUID = *value
 			}
-		case transaction.FieldAssetID:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for field asset_id", values[i])
-			} else if value.Valid {
-				t.AssetID = int(value.Int64)
-			}
-		case transaction.FieldAmount:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for field amount", values[i])
-			} else if value.Valid {
-				t.Amount = value.Int64
-			}
-		case transaction.FieldFee:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for field fee", values[i])
-			} else if value.Valid {
-				t.Fee = value.Int64
-			}
-		case transaction.FieldPrecision:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for field precision", values[i])
-			} else if value.Valid {
-				t.Precision = uint32(value.Int64)
-			}
 		case transaction.FieldType:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field type", values[i])
@@ -165,6 +116,20 @@ func (t *Transaction) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field status", values[i])
 			} else if value.Valid {
 				t.Status = transaction.Status(value.String)
+			}
+		case transaction.FieldAccountID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field account_id", values[i])
+			} else if value.Valid {
+				t.AccountID = int(value.Int64)
+			}
+		case transaction.FieldData:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field data", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &t.Data); err != nil {
+					return fmt.Errorf("unmarshal field data: %w", err)
+				}
 			}
 		case transaction.FieldCreatedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -178,13 +143,12 @@ func (t *Transaction) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				t.UpdatedAt = value.Time
 			}
-		case transaction.FieldMetadata:
-			if value, ok := values[i].(*[]byte); !ok {
-				return fmt.Errorf("unexpected type %T for field metadata", values[i])
-			} else if value != nil && len(*value) > 0 {
-				if err := json.Unmarshal(*value, &t.Metadata); err != nil {
-					return fmt.Errorf("unmarshal field metadata: %w", err)
-				}
+		case transaction.ForeignKeys[0]:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for edge-field asset_transactions", value)
+			} else if value.Valid {
+				t.asset_transactions = new(int)
+				*t.asset_transactions = int(value.Int64)
 			}
 		default:
 			t.selectValues.Set(columns[i], values[i])
@@ -199,19 +163,9 @@ func (t *Transaction) Value(name string) (ent.Value, error) {
 	return t.selectValues.Get(name)
 }
 
-// QueryPortfolio queries the "portfolio" edge of the Transaction entity.
-func (t *Transaction) QueryPortfolio() *PortfolioQuery {
-	return NewTransactionClient(t.config).QueryPortfolio(t)
-}
-
 // QueryAccount queries the "account" edge of the Transaction entity.
 func (t *Transaction) QueryAccount() *AccountQuery {
 	return NewTransactionClient(t.config).QueryAccount(t)
-}
-
-// QueryAsset queries the "asset" edge of the Transaction entity.
-func (t *Transaction) QueryAsset() *AssetQuery {
-	return NewTransactionClient(t.config).QueryAsset(t)
 }
 
 // Update returns a builder for updating this Transaction.
@@ -240,32 +194,23 @@ func (t *Transaction) String() string {
 	builder.WriteString("uuid=")
 	builder.WriteString(fmt.Sprintf("%v", t.UUID))
 	builder.WriteString(", ")
-	builder.WriteString("asset_id=")
-	builder.WriteString(fmt.Sprintf("%v", t.AssetID))
-	builder.WriteString(", ")
-	builder.WriteString("amount=")
-	builder.WriteString(fmt.Sprintf("%v", t.Amount))
-	builder.WriteString(", ")
-	builder.WriteString("fee=")
-	builder.WriteString(fmt.Sprintf("%v", t.Fee))
-	builder.WriteString(", ")
-	builder.WriteString("precision=")
-	builder.WriteString(fmt.Sprintf("%v", t.Precision))
-	builder.WriteString(", ")
 	builder.WriteString("type=")
 	builder.WriteString(fmt.Sprintf("%v", t.Type))
 	builder.WriteString(", ")
 	builder.WriteString("status=")
 	builder.WriteString(fmt.Sprintf("%v", t.Status))
 	builder.WriteString(", ")
+	builder.WriteString("account_id=")
+	builder.WriteString(fmt.Sprintf("%v", t.AccountID))
+	builder.WriteString(", ")
+	builder.WriteString("data=")
+	builder.WriteString(fmt.Sprintf("%v", t.Data))
+	builder.WriteString(", ")
 	builder.WriteString("created_at=")
 	builder.WriteString(t.CreatedAt.Format(time.ANSIC))
 	builder.WriteString(", ")
 	builder.WriteString("updated_at=")
 	builder.WriteString(t.UpdatedAt.Format(time.ANSIC))
-	builder.WriteString(", ")
-	builder.WriteString("metadata=")
-	builder.WriteString(fmt.Sprintf("%v", t.Metadata))
 	builder.WriteByte(')')
 	return builder.String()
 }

@@ -23,3 +23,6 @@ secrets.env
 # Temporary files
 tmp
 tree.md
+.aider*
+.cache
+.streamlit

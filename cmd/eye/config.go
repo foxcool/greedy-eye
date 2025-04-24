@@ -94,8 +94,8 @@ func getConfig() (*Config, error) {
 	// Load ENV
 
 	err = k.Load(env.Provider(ServiceName+"_", ".", func(s string) string {
-		return strings.Replace(strings.ToLower(
-			strings.TrimPrefix(s, ServiceName+"_")), "_", ".", -1)
+		return strings.ReplaceAll(strings.ToLower(
+			strings.TrimPrefix(s, ServiceName+"_")), "_", ".")
 	}), nil)
 	if err != nil {
 		return nil, fmt.Errorf("can't load env variables: %w", err)

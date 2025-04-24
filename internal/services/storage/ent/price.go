@@ -29,10 +29,10 @@ type Price struct {
 	BaseAssetID int `json:"base_asset_id,omitempty"`
 	// Interval holds the value of the "interval" field.
 	Interval string `json:"interval,omitempty"`
-	// Amount holds the value of the "amount" field.
-	Amount int64 `json:"amount,omitempty"`
-	// Precision holds the value of the "precision" field.
-	Precision uint32 `json:"precision,omitempty"`
+	// Decimals holds the value of the "decimals" field.
+	Decimals uint32 `json:"decimals,omitempty"`
+	// Last holds the value of the "last" field.
+	Last int64 `json:"last,omitempty"`
 	// Open holds the value of the "open" field.
 	Open int64 `json:"open,omitempty"`
 	// High holds the value of the "high" field.
@@ -43,10 +43,8 @@ type Price struct {
 	Close int64 `json:"close,omitempty"`
 	// Volume holds the value of the "volume" field.
 	Volume int64 `json:"volume,omitempty"`
-	// CreatedAt holds the value of the "created_at" field.
-	CreatedAt time.Time `json:"created_at,omitempty"`
-	// UpdatedAt holds the value of the "updated_at" field.
-	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	// Timestamp holds the value of the "timestamp" field.
+	Timestamp time.Time `json:"timestamp,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the PriceQuery when eager-loading is set.
 	Edges        PriceEdges `json:"edges"`
@@ -91,11 +89,11 @@ func (*Price) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case price.FieldID, price.FieldAssetID, price.FieldBaseAssetID, price.FieldAmount, price.FieldPrecision, price.FieldOpen, price.FieldHigh, price.FieldLow, price.FieldClose, price.FieldVolume:
+		case price.FieldID, price.FieldAssetID, price.FieldBaseAssetID, price.FieldDecimals, price.FieldLast, price.FieldOpen, price.FieldHigh, price.FieldLow, price.FieldClose, price.FieldVolume:
 			values[i] = new(sql.NullInt64)
 		case price.FieldSourceID, price.FieldInterval:
 			values[i] = new(sql.NullString)
-		case price.FieldCreatedAt, price.FieldUpdatedAt:
+		case price.FieldTimestamp:
 			values[i] = new(sql.NullTime)
 		case price.FieldUUID:
 			values[i] = new(uuid.UUID)
@@ -150,17 +148,17 @@ func (pr *Price) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				pr.Interval = value.String
 			}
-		case price.FieldAmount:
+		case price.FieldDecimals:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for field amount", values[i])
+				return fmt.Errorf("unexpected type %T for field decimals", values[i])
 			} else if value.Valid {
-				pr.Amount = value.Int64
+				pr.Decimals = uint32(value.Int64)
 			}
-		case price.FieldPrecision:
+		case price.FieldLast:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for field precision", values[i])
+				return fmt.Errorf("unexpected type %T for field last", values[i])
 			} else if value.Valid {
-				pr.Precision = uint32(value.Int64)
+				pr.Last = value.Int64
 			}
 		case price.FieldOpen:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -192,17 +190,11 @@ func (pr *Price) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				pr.Volume = value.Int64
 			}
-		case price.FieldCreatedAt:
+		case price.FieldTimestamp:
 			if value, ok := values[i].(*sql.NullTime); !ok {
-				return fmt.Errorf("unexpected type %T for field created_at", values[i])
+				return fmt.Errorf("unexpected type %T for field timestamp", values[i])
 			} else if value.Valid {
-				pr.CreatedAt = value.Time
-			}
-		case price.FieldUpdatedAt:
-			if value, ok := values[i].(*sql.NullTime); !ok {
-				return fmt.Errorf("unexpected type %T for field updated_at", values[i])
-			} else if value.Valid {
-				pr.UpdatedAt = value.Time
+				pr.Timestamp = value.Time
 			}
 		default:
 			pr.selectValues.Set(columns[i], values[i])
@@ -265,11 +257,11 @@ func (pr *Price) String() string {
 	builder.WriteString("interval=")
 	builder.WriteString(pr.Interval)
 	builder.WriteString(", ")
-	builder.WriteString("amount=")
-	builder.WriteString(fmt.Sprintf("%v", pr.Amount))
+	builder.WriteString("decimals=")
+	builder.WriteString(fmt.Sprintf("%v", pr.Decimals))
 	builder.WriteString(", ")
-	builder.WriteString("precision=")
-	builder.WriteString(fmt.Sprintf("%v", pr.Precision))
+	builder.WriteString("last=")
+	builder.WriteString(fmt.Sprintf("%v", pr.Last))
 	builder.WriteString(", ")
 	builder.WriteString("open=")
 	builder.WriteString(fmt.Sprintf("%v", pr.Open))
@@ -286,11 +278,8 @@ func (pr *Price) String() string {
 	builder.WriteString("volume=")
 	builder.WriteString(fmt.Sprintf("%v", pr.Volume))
 	builder.WriteString(", ")
-	builder.WriteString("created_at=")
-	builder.WriteString(pr.CreatedAt.Format(time.ANSIC))
-	builder.WriteString(", ")
-	builder.WriteString("updated_at=")
-	builder.WriteString(pr.UpdatedAt.Format(time.ANSIC))
+	builder.WriteString("timestamp=")
+	builder.WriteString(pr.Timestamp.Format(time.ANSIC))
 	builder.WriteByte(')')
 	return builder.String()
 }

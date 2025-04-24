@@ -61,24 +61,9 @@ func UUID(v uuid.UUID) predicate.Transaction {
 	return predicate.Transaction(sql.FieldEQ(FieldUUID, v))
 }
 
-// AssetID applies equality check predicate on the "asset_id" field. It's identical to AssetIDEQ.
-func AssetID(v int) predicate.Transaction {
-	return predicate.Transaction(sql.FieldEQ(FieldAssetID, v))
-}
-
-// Amount applies equality check predicate on the "amount" field. It's identical to AmountEQ.
-func Amount(v int64) predicate.Transaction {
-	return predicate.Transaction(sql.FieldEQ(FieldAmount, v))
-}
-
-// Fee applies equality check predicate on the "fee" field. It's identical to FeeEQ.
-func Fee(v int64) predicate.Transaction {
-	return predicate.Transaction(sql.FieldEQ(FieldFee, v))
-}
-
-// Precision applies equality check predicate on the "precision" field. It's identical to PrecisionEQ.
-func Precision(v uint32) predicate.Transaction {
-	return predicate.Transaction(sql.FieldEQ(FieldPrecision, v))
+// AccountID applies equality check predicate on the "account_id" field. It's identical to AccountIDEQ.
+func AccountID(v int) predicate.Transaction {
+	return predicate.Transaction(sql.FieldEQ(FieldAccountID, v))
 }
 
 // CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
@@ -131,146 +116,6 @@ func UUIDLTE(v uuid.UUID) predicate.Transaction {
 	return predicate.Transaction(sql.FieldLTE(FieldUUID, v))
 }
 
-// AssetIDEQ applies the EQ predicate on the "asset_id" field.
-func AssetIDEQ(v int) predicate.Transaction {
-	return predicate.Transaction(sql.FieldEQ(FieldAssetID, v))
-}
-
-// AssetIDNEQ applies the NEQ predicate on the "asset_id" field.
-func AssetIDNEQ(v int) predicate.Transaction {
-	return predicate.Transaction(sql.FieldNEQ(FieldAssetID, v))
-}
-
-// AssetIDIn applies the In predicate on the "asset_id" field.
-func AssetIDIn(vs ...int) predicate.Transaction {
-	return predicate.Transaction(sql.FieldIn(FieldAssetID, vs...))
-}
-
-// AssetIDNotIn applies the NotIn predicate on the "asset_id" field.
-func AssetIDNotIn(vs ...int) predicate.Transaction {
-	return predicate.Transaction(sql.FieldNotIn(FieldAssetID, vs...))
-}
-
-// AmountEQ applies the EQ predicate on the "amount" field.
-func AmountEQ(v int64) predicate.Transaction {
-	return predicate.Transaction(sql.FieldEQ(FieldAmount, v))
-}
-
-// AmountNEQ applies the NEQ predicate on the "amount" field.
-func AmountNEQ(v int64) predicate.Transaction {
-	return predicate.Transaction(sql.FieldNEQ(FieldAmount, v))
-}
-
-// AmountIn applies the In predicate on the "amount" field.
-func AmountIn(vs ...int64) predicate.Transaction {
-	return predicate.Transaction(sql.FieldIn(FieldAmount, vs...))
-}
-
-// AmountNotIn applies the NotIn predicate on the "amount" field.
-func AmountNotIn(vs ...int64) predicate.Transaction {
-	return predicate.Transaction(sql.FieldNotIn(FieldAmount, vs...))
-}
-
-// AmountGT applies the GT predicate on the "amount" field.
-func AmountGT(v int64) predicate.Transaction {
-	return predicate.Transaction(sql.FieldGT(FieldAmount, v))
-}
-
-// AmountGTE applies the GTE predicate on the "amount" field.
-func AmountGTE(v int64) predicate.Transaction {
-	return predicate.Transaction(sql.FieldGTE(FieldAmount, v))
-}
-
-// AmountLT applies the LT predicate on the "amount" field.
-func AmountLT(v int64) predicate.Transaction {
-	return predicate.Transaction(sql.FieldLT(FieldAmount, v))
-}
-
-// AmountLTE applies the LTE predicate on the "amount" field.
-func AmountLTE(v int64) predicate.Transaction {
-	return predicate.Transaction(sql.FieldLTE(FieldAmount, v))
-}
-
-// FeeEQ applies the EQ predicate on the "fee" field.
-func FeeEQ(v int64) predicate.Transaction {
-	return predicate.Transaction(sql.FieldEQ(FieldFee, v))
-}
-
-// FeeNEQ applies the NEQ predicate on the "fee" field.
-func FeeNEQ(v int64) predicate.Transaction {
-	return predicate.Transaction(sql.FieldNEQ(FieldFee, v))
-}
-
-// FeeIn applies the In predicate on the "fee" field.
-func FeeIn(vs ...int64) predicate.Transaction {
-	return predicate.Transaction(sql.FieldIn(FieldFee, vs...))
-}
-
-// FeeNotIn applies the NotIn predicate on the "fee" field.
-func FeeNotIn(vs ...int64) predicate.Transaction {
-	return predicate.Transaction(sql.FieldNotIn(FieldFee, vs...))
-}
-
-// FeeGT applies the GT predicate on the "fee" field.
-func FeeGT(v int64) predicate.Transaction {
-	return predicate.Transaction(sql.FieldGT(FieldFee, v))
-}
-
-// FeeGTE applies the GTE predicate on the "fee" field.
-func FeeGTE(v int64) predicate.Transaction {
-	return predicate.Transaction(sql.FieldGTE(FieldFee, v))
-}
-
-// FeeLT applies the LT predicate on the "fee" field.
-func FeeLT(v int64) predicate.Transaction {
-	return predicate.Transaction(sql.FieldLT(FieldFee, v))
-}
-
-// FeeLTE applies the LTE predicate on the "fee" field.
-func FeeLTE(v int64) predicate.Transaction {
-	return predicate.Transaction(sql.FieldLTE(FieldFee, v))
-}
-
-// PrecisionEQ applies the EQ predicate on the "precision" field.
-func PrecisionEQ(v uint32) predicate.Transaction {
-	return predicate.Transaction(sql.FieldEQ(FieldPrecision, v))
-}
-
-// PrecisionNEQ applies the NEQ predicate on the "precision" field.
-func PrecisionNEQ(v uint32) predicate.Transaction {
-	return predicate.Transaction(sql.FieldNEQ(FieldPrecision, v))
-}
-
-// PrecisionIn applies the In predicate on the "precision" field.
-func PrecisionIn(vs ...uint32) predicate.Transaction {
-	return predicate.Transaction(sql.FieldIn(FieldPrecision, vs...))
-}
-
-// PrecisionNotIn applies the NotIn predicate on the "precision" field.
-func PrecisionNotIn(vs ...uint32) predicate.Transaction {
-	return predicate.Transaction(sql.FieldNotIn(FieldPrecision, vs...))
-}
-
-// PrecisionGT applies the GT predicate on the "precision" field.
-func PrecisionGT(v uint32) predicate.Transaction {
-	return predicate.Transaction(sql.FieldGT(FieldPrecision, v))
-}
-
-// PrecisionGTE applies the GTE predicate on the "precision" field.
-func PrecisionGTE(v uint32) predicate.Transaction {
-	return predicate.Transaction(sql.FieldGTE(FieldPrecision, v))
-}
-
-// PrecisionLT applies the LT predicate on the "precision" field.
-func PrecisionLT(v uint32) predicate.Transaction {
-	return predicate.Transaction(sql.FieldLT(FieldPrecision, v))
-}
-
-// PrecisionLTE applies the LTE predicate on the "precision" field.
-func PrecisionLTE(v uint32) predicate.Transaction {
-	return predicate.Transaction(sql.FieldLTE(FieldPrecision, v))
-}
-
 // TypeEQ applies the EQ predicate on the "type" field.
 func TypeEQ(v Type) predicate.Transaction {
 	return predicate.Transaction(sql.FieldEQ(FieldType, v))
@@ -309,6 +154,26 @@ func StatusIn(vs ...Status) predicate.Transaction {
 // StatusNotIn applies the NotIn predicate on the "status" field.
 func StatusNotIn(vs ...Status) predicate.Transaction {
 	return predicate.Transaction(sql.FieldNotIn(FieldStatus, vs...))
+}
+
+// AccountIDEQ applies the EQ predicate on the "account_id" field.
+func AccountIDEQ(v int) predicate.Transaction {
+	return predicate.Transaction(sql.FieldEQ(FieldAccountID, v))
+}
+
+// AccountIDNEQ applies the NEQ predicate on the "account_id" field.
+func AccountIDNEQ(v int) predicate.Transaction {
+	return predicate.Transaction(sql.FieldNEQ(FieldAccountID, v))
+}
+
+// AccountIDIn applies the In predicate on the "account_id" field.
+func AccountIDIn(vs ...int) predicate.Transaction {
+	return predicate.Transaction(sql.FieldIn(FieldAccountID, vs...))
+}
+
+// AccountIDNotIn applies the NotIn predicate on the "account_id" field.
+func AccountIDNotIn(vs ...int) predicate.Transaction {
+	return predicate.Transaction(sql.FieldNotIn(FieldAccountID, vs...))
 }
 
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
@@ -391,35 +256,12 @@ func UpdatedAtLTE(v time.Time) predicate.Transaction {
 	return predicate.Transaction(sql.FieldLTE(FieldUpdatedAt, v))
 }
 
-// HasPortfolio applies the HasEdge predicate on the "portfolio" edge.
-func HasPortfolio() predicate.Transaction {
-	return predicate.Transaction(func(s *sql.Selector) {
-		step := sqlgraph.NewStep(
-			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, PortfolioTable, PortfolioColumn),
-		)
-		sqlgraph.HasNeighbors(s, step)
-	})
-}
-
-// HasPortfolioWith applies the HasEdge predicate on the "portfolio" edge with a given conditions (other predicates).
-func HasPortfolioWith(preds ...predicate.Portfolio) predicate.Transaction {
-	return predicate.Transaction(func(s *sql.Selector) {
-		step := newPortfolioStep()
-		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
-			for _, p := range preds {
-				p(s)
-			}
-		})
-	})
-}
-
 // HasAccount applies the HasEdge predicate on the "account" edge.
 func HasAccount() predicate.Transaction {
 	return predicate.Transaction(func(s *sql.Selector) {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, AccountTable, AccountColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, AccountTable, AccountColumn),
 		)
 		sqlgraph.HasNeighbors(s, step)
 	})
@@ -429,29 +271,6 @@ func HasAccount() predicate.Transaction {
 func HasAccountWith(preds ...predicate.Account) predicate.Transaction {
 	return predicate.Transaction(func(s *sql.Selector) {
 		step := newAccountStep()
-		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
-			for _, p := range preds {
-				p(s)
-			}
-		})
-	})
-}
-
-// HasAsset applies the HasEdge predicate on the "asset" edge.
-func HasAsset() predicate.Transaction {
-	return predicate.Transaction(func(s *sql.Selector) {
-		step := sqlgraph.NewStep(
-			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, AssetTable, AssetColumn),
-		)
-		sqlgraph.HasNeighbors(s, step)
-	})
-}
-
-// HasAssetWith applies the HasEdge predicate on the "asset" edge with a given conditions (other predicates).
-func HasAssetWith(preds ...predicate.Asset) predicate.Transaction {
-	return predicate.Transaction(func(s *sql.Selector) {
-		step := newAssetStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

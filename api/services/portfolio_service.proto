@@ -29,9 +29,9 @@ message CalculatePortfolioValueRequest {
 message PortfolioValueResponse {
   string portfolio_id = 1;
   string quote_asset_id = 2;
-  // Monetary value represented by amount and precision. real_value = amount / (10^precision)
+  // Monetary value represented by amount and decimals. real_value = amount / (10^decimals)
   int64 total_value_amount = 3;
-  uint32 precision = 4;
+  uint32 decimals = 4;
   google.protobuf.Timestamp calculation_time = 5;
   // Could also include breakdown by asset
 }

@@ -4,8 +4,11 @@ import (
 	"time"
 
 	"entgo.io/ent"
+	"entgo.io/ent/dialect"
+	"entgo.io/ent/dialect/entsql"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
+	"entgo.io/ent/schema/index"
 	"github.com/google/uuid"
 )
 
@@ -19,6 +22,8 @@ func (Asset) Fields() []ent.Field {
 	return []ent.Field{
 		field.UUID("uuid", uuid.UUID{}).
 			Default(uuid.New),
+		field.Time("created_at").Immutable().Default(time.Now()),
+		field.Time("updated_at").Default(time.Now()).UpdateDefault(time.Now),
 		field.String("symbol"),
 		field.String("name"),
 		field.Enum("type").Values(
@@ -31,8 +36,6 @@ func (Asset) Fields() []ent.Field {
 			"fund",
 		),
 		field.Strings("tags"),
-		field.Time("created_at").Immutable().Default(time.Now()),
-		field.Time("updated_at").Immutable().Default(time.Now()),
 	}
 }
 
@@ -43,5 +46,17 @@ func (Asset) Edges() []ent.Edge {
 		edge.To("prices", Price.Type),
 		edge.To("prices_base", Price.Type),
 		edge.To("transactions", Transaction.Type),
+	}
+}
+
+// Indexes of the Asset.
+func (Asset) Indexes() []ent.Index {
+	return []ent.Index{
+		index.Fields("tags").
+			Annotations(
+				entsql.IndexTypes(map[string]string{
+					dialect.Postgres: "GIN",
+				}),
+			),
 	}
 }

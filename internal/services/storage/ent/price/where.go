@@ -81,14 +81,14 @@ func Interval(v string) predicate.Price {
 	return predicate.Price(sql.FieldEQ(FieldInterval, v))
 }
 
-// Amount applies equality check predicate on the "amount" field. It's identical to AmountEQ.
-func Amount(v int64) predicate.Price {
-	return predicate.Price(sql.FieldEQ(FieldAmount, v))
+// Decimals applies equality check predicate on the "decimals" field. It's identical to DecimalsEQ.
+func Decimals(v uint32) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldDecimals, v))
 }
 
-// Precision applies equality check predicate on the "precision" field. It's identical to PrecisionEQ.
-func Precision(v uint32) predicate.Price {
-	return predicate.Price(sql.FieldEQ(FieldPrecision, v))
+// Last applies equality check predicate on the "last" field. It's identical to LastEQ.
+func Last(v int64) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldLast, v))
 }
 
 // Open applies equality check predicate on the "open" field. It's identical to OpenEQ.
@@ -116,14 +116,9 @@ func Volume(v int64) predicate.Price {
 	return predicate.Price(sql.FieldEQ(FieldVolume, v))
 }
 
-// CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
-func CreatedAt(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldEQ(FieldCreatedAt, v))
-}
-
-// UpdatedAt applies equality check predicate on the "updated_at" field. It's identical to UpdatedAtEQ.
-func UpdatedAt(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldEQ(FieldUpdatedAt, v))
+// Timestamp applies equality check predicate on the "timestamp" field. It's identical to TimestampEQ.
+func Timestamp(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldTimestamp, v))
 }
 
 // UUIDEQ applies the EQ predicate on the "uuid" field.
@@ -336,84 +331,84 @@ func IntervalContainsFold(v string) predicate.Price {
 	return predicate.Price(sql.FieldContainsFold(FieldInterval, v))
 }
 
-// AmountEQ applies the EQ predicate on the "amount" field.
-func AmountEQ(v int64) predicate.Price {
-	return predicate.Price(sql.FieldEQ(FieldAmount, v))
+// DecimalsEQ applies the EQ predicate on the "decimals" field.
+func DecimalsEQ(v uint32) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldDecimals, v))
 }
 
-// AmountNEQ applies the NEQ predicate on the "amount" field.
-func AmountNEQ(v int64) predicate.Price {
-	return predicate.Price(sql.FieldNEQ(FieldAmount, v))
+// DecimalsNEQ applies the NEQ predicate on the "decimals" field.
+func DecimalsNEQ(v uint32) predicate.Price {
+	return predicate.Price(sql.FieldNEQ(FieldDecimals, v))
 }
 
-// AmountIn applies the In predicate on the "amount" field.
-func AmountIn(vs ...int64) predicate.Price {
-	return predicate.Price(sql.FieldIn(FieldAmount, vs...))
+// DecimalsIn applies the In predicate on the "decimals" field.
+func DecimalsIn(vs ...uint32) predicate.Price {
+	return predicate.Price(sql.FieldIn(FieldDecimals, vs...))
 }
 
-// AmountNotIn applies the NotIn predicate on the "amount" field.
-func AmountNotIn(vs ...int64) predicate.Price {
-	return predicate.Price(sql.FieldNotIn(FieldAmount, vs...))
+// DecimalsNotIn applies the NotIn predicate on the "decimals" field.
+func DecimalsNotIn(vs ...uint32) predicate.Price {
+	return predicate.Price(sql.FieldNotIn(FieldDecimals, vs...))
 }
 
-// AmountGT applies the GT predicate on the "amount" field.
-func AmountGT(v int64) predicate.Price {
-	return predicate.Price(sql.FieldGT(FieldAmount, v))
+// DecimalsGT applies the GT predicate on the "decimals" field.
+func DecimalsGT(v uint32) predicate.Price {
+	return predicate.Price(sql.FieldGT(FieldDecimals, v))
 }
 
-// AmountGTE applies the GTE predicate on the "amount" field.
-func AmountGTE(v int64) predicate.Price {
-	return predicate.Price(sql.FieldGTE(FieldAmount, v))
+// DecimalsGTE applies the GTE predicate on the "decimals" field.
+func DecimalsGTE(v uint32) predicate.Price {
+	return predicate.Price(sql.FieldGTE(FieldDecimals, v))
 }
 
-// AmountLT applies the LT predicate on the "amount" field.
-func AmountLT(v int64) predicate.Price {
-	return predicate.Price(sql.FieldLT(FieldAmount, v))
+// DecimalsLT applies the LT predicate on the "decimals" field.
+func DecimalsLT(v uint32) predicate.Price {
+	return predicate.Price(sql.FieldLT(FieldDecimals, v))
 }
 
-// AmountLTE applies the LTE predicate on the "amount" field.
-func AmountLTE(v int64) predicate.Price {
-	return predicate.Price(sql.FieldLTE(FieldAmount, v))
+// DecimalsLTE applies the LTE predicate on the "decimals" field.
+func DecimalsLTE(v uint32) predicate.Price {
+	return predicate.Price(sql.FieldLTE(FieldDecimals, v))
 }
 
-// PrecisionEQ applies the EQ predicate on the "precision" field.
-func PrecisionEQ(v uint32) predicate.Price {
-	return predicate.Price(sql.FieldEQ(FieldPrecision, v))
+// LastEQ applies the EQ predicate on the "last" field.
+func LastEQ(v int64) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldLast, v))
 }
 
-// PrecisionNEQ applies the NEQ predicate on the "precision" field.
-func PrecisionNEQ(v uint32) predicate.Price {
-	return predicate.Price(sql.FieldNEQ(FieldPrecision, v))
+// LastNEQ applies the NEQ predicate on the "last" field.
+func LastNEQ(v int64) predicate.Price {
+	return predicate.Price(sql.FieldNEQ(FieldLast, v))
 }
 
-// PrecisionIn applies the In predicate on the "precision" field.
-func PrecisionIn(vs ...uint32) predicate.Price {
-	return predicate.Price(sql.FieldIn(FieldPrecision, vs...))
+// LastIn applies the In predicate on the "last" field.
+func LastIn(vs ...int64) predicate.Price {
+	return predicate.Price(sql.FieldIn(FieldLast, vs...))
 }
 
-// PrecisionNotIn applies the NotIn predicate on the "precision" field.
-func PrecisionNotIn(vs ...uint32) predicate.Price {
-	return predicate.Price(sql.FieldNotIn(FieldPrecision, vs...))
+// LastNotIn applies the NotIn predicate on the "last" field.
+func LastNotIn(vs ...int64) predicate.Price {
+	return predicate.Price(sql.FieldNotIn(FieldLast, vs...))
 }
 
-// PrecisionGT applies the GT predicate on the "precision" field.
-func PrecisionGT(v uint32) predicate.Price {
-	return predicate.Price(sql.FieldGT(FieldPrecision, v))
+// LastGT applies the GT predicate on the "last" field.
+func LastGT(v int64) predicate.Price {
+	return predicate.Price(sql.FieldGT(FieldLast, v))
 }
 
-// PrecisionGTE applies the GTE predicate on the "precision" field.
-func PrecisionGTE(v uint32) predicate.Price {
-	return predicate.Price(sql.FieldGTE(FieldPrecision, v))
+// LastGTE applies the GTE predicate on the "last" field.
+func LastGTE(v int64) predicate.Price {
+	return predicate.Price(sql.FieldGTE(FieldLast, v))
 }
 
-// PrecisionLT applies the LT predicate on the "precision" field.
-func PrecisionLT(v uint32) predicate.Price {
-	return predicate.Price(sql.FieldLT(FieldPrecision, v))
+// LastLT applies the LT predicate on the "last" field.
+func LastLT(v int64) predicate.Price {
+	return predicate.Price(sql.FieldLT(FieldLast, v))
 }
 
-// PrecisionLTE applies the LTE predicate on the "precision" field.
-func PrecisionLTE(v uint32) predicate.Price {
-	return predicate.Price(sql.FieldLTE(FieldPrecision, v))
+// LastLTE applies the LTE predicate on the "last" field.
+func LastLTE(v int64) predicate.Price {
+	return predicate.Price(sql.FieldLTE(FieldLast, v))
 }
 
 // OpenEQ applies the EQ predicate on the "open" field.
@@ -666,84 +661,44 @@ func VolumeNotNil() predicate.Price {
 	return predicate.Price(sql.FieldNotNull(FieldVolume))
 }
 
-// CreatedAtEQ applies the EQ predicate on the "created_at" field.
-func CreatedAtEQ(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldEQ(FieldCreatedAt, v))
+// TimestampEQ applies the EQ predicate on the "timestamp" field.
+func TimestampEQ(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldEQ(FieldTimestamp, v))
 }
 
-// CreatedAtNEQ applies the NEQ predicate on the "created_at" field.
-func CreatedAtNEQ(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldNEQ(FieldCreatedAt, v))
+// TimestampNEQ applies the NEQ predicate on the "timestamp" field.
+func TimestampNEQ(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldNEQ(FieldTimestamp, v))
 }
 
-// CreatedAtIn applies the In predicate on the "created_at" field.
-func CreatedAtIn(vs ...time.Time) predicate.Price {
-	return predicate.Price(sql.FieldIn(FieldCreatedAt, vs...))
+// TimestampIn applies the In predicate on the "timestamp" field.
+func TimestampIn(vs ...time.Time) predicate.Price {
+	return predicate.Price(sql.FieldIn(FieldTimestamp, vs...))
 }
 
-// CreatedAtNotIn applies the NotIn predicate on the "created_at" field.
-func CreatedAtNotIn(vs ...time.Time) predicate.Price {
-	return predicate.Price(sql.FieldNotIn(FieldCreatedAt, vs...))
+// TimestampNotIn applies the NotIn predicate on the "timestamp" field.
+func TimestampNotIn(vs ...time.Time) predicate.Price {
+	return predicate.Price(sql.FieldNotIn(FieldTimestamp, vs...))
 }
 
-// CreatedAtGT applies the GT predicate on the "created_at" field.
-func CreatedAtGT(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldGT(FieldCreatedAt, v))
+// TimestampGT applies the GT predicate on the "timestamp" field.
+func TimestampGT(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldGT(FieldTimestamp, v))
 }
 
-// CreatedAtGTE applies the GTE predicate on the "created_at" field.
-func CreatedAtGTE(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldGTE(FieldCreatedAt, v))
+// TimestampGTE applies the GTE predicate on the "timestamp" field.
+func TimestampGTE(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldGTE(FieldTimestamp, v))
 }
 
-// CreatedAtLT applies the LT predicate on the "created_at" field.
-func CreatedAtLT(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldLT(FieldCreatedAt, v))
+// TimestampLT applies the LT predicate on the "timestamp" field.
+func TimestampLT(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldLT(FieldTimestamp, v))
 }
 
-// CreatedAtLTE applies the LTE predicate on the "created_at" field.
-func CreatedAtLTE(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldLTE(FieldCreatedAt, v))
-}
-
-// UpdatedAtEQ applies the EQ predicate on the "updated_at" field.
-func UpdatedAtEQ(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldEQ(FieldUpdatedAt, v))
-}
-
-// UpdatedAtNEQ applies the NEQ predicate on the "updated_at" field.
-func UpdatedAtNEQ(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldNEQ(FieldUpdatedAt, v))
-}
-
-// UpdatedAtIn applies the In predicate on the "updated_at" field.
-func UpdatedAtIn(vs ...time.Time) predicate.Price {
-	return predicate.Price(sql.FieldIn(FieldUpdatedAt, vs...))
-}
-
-// UpdatedAtNotIn applies the NotIn predicate on the "updated_at" field.
-func UpdatedAtNotIn(vs ...time.Time) predicate.Price {
-	return predicate.Price(sql.FieldNotIn(FieldUpdatedAt, vs...))
-}
-
-// UpdatedAtGT applies the GT predicate on the "updated_at" field.
-func UpdatedAtGT(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldGT(FieldUpdatedAt, v))
-}
-
-// UpdatedAtGTE applies the GTE predicate on the "updated_at" field.
-func UpdatedAtGTE(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldGTE(FieldUpdatedAt, v))
-}
-
-// UpdatedAtLT applies the LT predicate on the "updated_at" field.
-func UpdatedAtLT(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldLT(FieldUpdatedAt, v))
-}
-
-// UpdatedAtLTE applies the LTE predicate on the "updated_at" field.
-func UpdatedAtLTE(v time.Time) predicate.Price {
-	return predicate.Price(sql.FieldLTE(FieldUpdatedAt, v))
+// TimestampLTE applies the LTE predicate on the "timestamp" field.
+func TimestampLTE(v time.Time) predicate.Price {
+	return predicate.Price(sql.FieldLTE(FieldTimestamp, v))
 }
 
 // HasAsset applies the HasEdge predicate on the "asset" edge.

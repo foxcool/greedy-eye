@@ -11,8 +11,6 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/account"
-	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
-	"github.com/foxcool/greedy-eye/internal/services/storage/ent/portfolio"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/transaction"
 	"github.com/google/uuid"
 )
@@ -38,30 +36,6 @@ func (tc *TransactionCreate) SetNillableUUID(u *uuid.UUID) *TransactionCreate {
 	return tc
 }
 
-// SetAssetID sets the "asset_id" field.
-func (tc *TransactionCreate) SetAssetID(i int) *TransactionCreate {
-	tc.mutation.SetAssetID(i)
-	return tc
-}
-
-// SetAmount sets the "amount" field.
-func (tc *TransactionCreate) SetAmount(i int64) *TransactionCreate {
-	tc.mutation.SetAmount(i)
-	return tc
-}
-
-// SetFee sets the "fee" field.
-func (tc *TransactionCreate) SetFee(i int64) *TransactionCreate {
-	tc.mutation.SetFee(i)
-	return tc
-}
-
-// SetPrecision sets the "precision" field.
-func (tc *TransactionCreate) SetPrecision(u uint32) *TransactionCreate {
-	tc.mutation.SetPrecision(u)
-	return tc
-}
-
 // SetType sets the "type" field.
 func (tc *TransactionCreate) SetType(t transaction.Type) *TransactionCreate {
 	tc.mutation.SetType(t)
@@ -71,6 +45,18 @@ func (tc *TransactionCreate) SetType(t transaction.Type) *TransactionCreate {
 // SetStatus sets the "status" field.
 func (tc *TransactionCreate) SetStatus(t transaction.Status) *TransactionCreate {
 	tc.mutation.SetStatus(t)
+	return tc
+}
+
+// SetAccountID sets the "account_id" field.
+func (tc *TransactionCreate) SetAccountID(i int) *TransactionCreate {
+	tc.mutation.SetAccountID(i)
+	return tc
+}
+
+// SetData sets the "data" field.
+func (tc *TransactionCreate) SetData(m map[string]string) *TransactionCreate {
+	tc.mutation.SetData(m)
 	return tc
 }
 
@@ -102,45 +88,9 @@ func (tc *TransactionCreate) SetNillableUpdatedAt(t *time.Time) *TransactionCrea
 	return tc
 }
 
-// SetMetadata sets the "metadata" field.
-func (tc *TransactionCreate) SetMetadata(m map[string]string) *TransactionCreate {
-	tc.mutation.SetMetadata(m)
-	return tc
-}
-
-// AddPortfolioIDs adds the "portfolio" edge to the Portfolio entity by IDs.
-func (tc *TransactionCreate) AddPortfolioIDs(ids ...int) *TransactionCreate {
-	tc.mutation.AddPortfolioIDs(ids...)
-	return tc
-}
-
-// AddPortfolio adds the "portfolio" edges to the Portfolio entity.
-func (tc *TransactionCreate) AddPortfolio(p ...*Portfolio) *TransactionCreate {
-	ids := make([]int, len(p))
-	for i := range p {
-		ids[i] = p[i].ID
-	}
-	return tc.AddPortfolioIDs(ids...)
-}
-
-// AddAccountIDs adds the "account" edge to the Account entity by IDs.
-func (tc *TransactionCreate) AddAccountIDs(ids ...int) *TransactionCreate {
-	tc.mutation.AddAccountIDs(ids...)
-	return tc
-}
-
-// AddAccount adds the "account" edges to the Account entity.
-func (tc *TransactionCreate) AddAccount(a ...*Account) *TransactionCreate {
-	ids := make([]int, len(a))
-	for i := range a {
-		ids[i] = a[i].ID
-	}
-	return tc.AddAccountIDs(ids...)
-}
-
-// SetAsset sets the "asset" edge to the Asset entity.
-func (tc *TransactionCreate) SetAsset(a *Asset) *TransactionCreate {
-	return tc.SetAssetID(a.ID)
+// SetAccount sets the "account" edge to the Account entity.
+func (tc *TransactionCreate) SetAccount(a *Account) *TransactionCreate {
+	return tc.SetAccountID(a.ID)
 }
 
 // Mutation returns the TransactionMutation object of the builder.
@@ -182,6 +132,10 @@ func (tc *TransactionCreate) defaults() {
 		v := transaction.DefaultUUID()
 		tc.mutation.SetUUID(v)
 	}
+	if _, ok := tc.mutation.Data(); !ok {
+		v := transaction.DefaultData
+		tc.mutation.SetData(v)
+	}
 	if _, ok := tc.mutation.CreatedAt(); !ok {
 		v := transaction.DefaultCreatedAt()
 		tc.mutation.SetCreatedAt(v)
@@ -190,28 +144,12 @@ func (tc *TransactionCreate) defaults() {
 		v := transaction.DefaultUpdatedAt()
 		tc.mutation.SetUpdatedAt(v)
 	}
-	if _, ok := tc.mutation.Metadata(); !ok {
-		v := transaction.DefaultMetadata
-		tc.mutation.SetMetadata(v)
-	}
 }
 
 // check runs all checks and user-defined validators on the builder.
 func (tc *TransactionCreate) check() error {
 	if _, ok := tc.mutation.UUID(); !ok {
 		return &ValidationError{Name: "uuid", err: errors.New(`ent: missing required field "Transaction.uuid"`)}
-	}
-	if _, ok := tc.mutation.AssetID(); !ok {
-		return &ValidationError{Name: "asset_id", err: errors.New(`ent: missing required field "Transaction.asset_id"`)}
-	}
-	if _, ok := tc.mutation.Amount(); !ok {
-		return &ValidationError{Name: "amount", err: errors.New(`ent: missing required field "Transaction.amount"`)}
-	}
-	if _, ok := tc.mutation.Fee(); !ok {
-		return &ValidationError{Name: "fee", err: errors.New(`ent: missing required field "Transaction.fee"`)}
-	}
-	if _, ok := tc.mutation.Precision(); !ok {
-		return &ValidationError{Name: "precision", err: errors.New(`ent: missing required field "Transaction.precision"`)}
 	}
 	if _, ok := tc.mutation.GetType(); !ok {
 		return &ValidationError{Name: "type", err: errors.New(`ent: missing required field "Transaction.type"`)}
@@ -229,17 +167,20 @@ func (tc *TransactionCreate) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "Transaction.status": %w`, err)}
 		}
 	}
+	if _, ok := tc.mutation.AccountID(); !ok {
+		return &ValidationError{Name: "account_id", err: errors.New(`ent: missing required field "Transaction.account_id"`)}
+	}
+	if _, ok := tc.mutation.Data(); !ok {
+		return &ValidationError{Name: "data", err: errors.New(`ent: missing required field "Transaction.data"`)}
+	}
 	if _, ok := tc.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Transaction.created_at"`)}
 	}
 	if _, ok := tc.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Transaction.updated_at"`)}
 	}
-	if _, ok := tc.mutation.Metadata(); !ok {
-		return &ValidationError{Name: "metadata", err: errors.New(`ent: missing required field "Transaction.metadata"`)}
-	}
-	if len(tc.mutation.AssetIDs()) == 0 {
-		return &ValidationError{Name: "asset", err: errors.New(`ent: missing required edge "Transaction.asset"`)}
+	if len(tc.mutation.AccountIDs()) == 0 {
+		return &ValidationError{Name: "account", err: errors.New(`ent: missing required edge "Transaction.account"`)}
 	}
 	return nil
 }
@@ -271,18 +212,6 @@ func (tc *TransactionCreate) createSpec() (*Transaction, *sqlgraph.CreateSpec) {
 		_spec.SetField(transaction.FieldUUID, field.TypeUUID, value)
 		_node.UUID = value
 	}
-	if value, ok := tc.mutation.Amount(); ok {
-		_spec.SetField(transaction.FieldAmount, field.TypeInt64, value)
-		_node.Amount = value
-	}
-	if value, ok := tc.mutation.Fee(); ok {
-		_spec.SetField(transaction.FieldFee, field.TypeInt64, value)
-		_node.Fee = value
-	}
-	if value, ok := tc.mutation.Precision(); ok {
-		_spec.SetField(transaction.FieldPrecision, field.TypeUint32, value)
-		_node.Precision = value
-	}
 	if value, ok := tc.mutation.GetType(); ok {
 		_spec.SetField(transaction.FieldType, field.TypeEnum, value)
 		_node.Type = value
@@ -290,6 +219,10 @@ func (tc *TransactionCreate) createSpec() (*Transaction, *sqlgraph.CreateSpec) {
 	if value, ok := tc.mutation.Status(); ok {
 		_spec.SetField(transaction.FieldStatus, field.TypeEnum, value)
 		_node.Status = value
+	}
+	if value, ok := tc.mutation.Data(); ok {
+		_spec.SetField(transaction.FieldData, field.TypeJSON, value)
+		_node.Data = value
 	}
 	if value, ok := tc.mutation.CreatedAt(); ok {
 		_spec.SetField(transaction.FieldCreatedAt, field.TypeTime, value)
@@ -299,30 +232,10 @@ func (tc *TransactionCreate) createSpec() (*Transaction, *sqlgraph.CreateSpec) {
 		_spec.SetField(transaction.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
 	}
-	if value, ok := tc.mutation.Metadata(); ok {
-		_spec.SetField(transaction.FieldMetadata, field.TypeJSON, value)
-		_node.Metadata = value
-	}
-	if nodes := tc.mutation.PortfolioIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   transaction.PortfolioTable,
-			Columns: []string{transaction.PortfolioColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(portfolio.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges = append(_spec.Edges, edge)
-	}
 	if nodes := tc.mutation.AccountIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   transaction.AccountTable,
 			Columns: []string{transaction.AccountColumn},
 			Bidi:    false,
@@ -333,23 +246,7 @@ func (tc *TransactionCreate) createSpec() (*Transaction, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_spec.Edges = append(_spec.Edges, edge)
-	}
-	if nodes := tc.mutation.AssetIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: true,
-			Table:   transaction.AssetTable,
-			Columns: []string{transaction.AssetColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_node.AssetID = nodes[0]
+		_node.AccountID = nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec

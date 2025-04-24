@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
@@ -43,6 +44,12 @@ func (au *AssetUpdate) SetNillableUUID(u *uuid.UUID) *AssetUpdate {
 	if u != nil {
 		au.SetUUID(*u)
 	}
+	return au
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (au *AssetUpdate) SetUpdatedAt(t time.Time) *AssetUpdate {
+	au.mutation.SetUpdatedAt(t)
 	return au
 }
 
@@ -251,6 +258,7 @@ func (au *AssetUpdate) RemoveTransactions(t ...*Transaction) *AssetUpdate {
 
 // Save executes the query and returns the number of nodes affected by the update operation.
 func (au *AssetUpdate) Save(ctx context.Context) (int, error) {
+	au.defaults()
 	return withHooks(ctx, au.sqlSave, au.mutation, au.hooks)
 }
 
@@ -273,6 +281,14 @@ func (au *AssetUpdate) Exec(ctx context.Context) error {
 func (au *AssetUpdate) ExecX(ctx context.Context) {
 	if err := au.Exec(ctx); err != nil {
 		panic(err)
+	}
+}
+
+// defaults sets the default values of the builder before save.
+func (au *AssetUpdate) defaults() {
+	if _, ok := au.mutation.UpdatedAt(); !ok {
+		v := asset.UpdateDefaultUpdatedAt()
+		au.mutation.SetUpdatedAt(v)
 	}
 }
 
@@ -300,6 +316,9 @@ func (au *AssetUpdate) sqlSave(ctx context.Context) (n int, err error) {
 	}
 	if value, ok := au.mutation.UUID(); ok {
 		_spec.SetField(asset.FieldUUID, field.TypeUUID, value)
+	}
+	if value, ok := au.mutation.UpdatedAt(); ok {
+		_spec.SetField(asset.FieldUpdatedAt, field.TypeTime, value)
 	}
 	if value, ok := au.mutation.Symbol(); ok {
 		_spec.SetField(asset.FieldSymbol, field.TypeString, value)
@@ -532,6 +551,12 @@ func (auo *AssetUpdateOne) SetNillableUUID(u *uuid.UUID) *AssetUpdateOne {
 	return auo
 }
 
+// SetUpdatedAt sets the "updated_at" field.
+func (auo *AssetUpdateOne) SetUpdatedAt(t time.Time) *AssetUpdateOne {
+	auo.mutation.SetUpdatedAt(t)
+	return auo
+}
+
 // SetSymbol sets the "symbol" field.
 func (auo *AssetUpdateOne) SetSymbol(s string) *AssetUpdateOne {
 	auo.mutation.SetSymbol(s)
@@ -750,6 +775,7 @@ func (auo *AssetUpdateOne) Select(field string, fields ...string) *AssetUpdateOn
 
 // Save executes the query and returns the updated Asset entity.
 func (auo *AssetUpdateOne) Save(ctx context.Context) (*Asset, error) {
+	auo.defaults()
 	return withHooks(ctx, auo.sqlSave, auo.mutation, auo.hooks)
 }
 
@@ -772,6 +798,14 @@ func (auo *AssetUpdateOne) Exec(ctx context.Context) error {
 func (auo *AssetUpdateOne) ExecX(ctx context.Context) {
 	if err := auo.Exec(ctx); err != nil {
 		panic(err)
+	}
+}
+
+// defaults sets the default values of the builder before save.
+func (auo *AssetUpdateOne) defaults() {
+	if _, ok := auo.mutation.UpdatedAt(); !ok {
+		v := asset.UpdateDefaultUpdatedAt()
+		auo.mutation.SetUpdatedAt(v)
 	}
 }
 
@@ -816,6 +850,9 @@ func (auo *AssetUpdateOne) sqlSave(ctx context.Context) (_node *Asset, err error
 	}
 	if value, ok := auo.mutation.UUID(); ok {
 		_spec.SetField(asset.FieldUUID, field.TypeUUID, value)
+	}
+	if value, ok := auo.mutation.UpdatedAt(); ok {
+		_spec.SetField(asset.FieldUpdatedAt, field.TypeTime, value)
 	}
 	if value, ok := auo.mutation.Symbol(); ok {
 		_spec.SetField(asset.FieldSymbol, field.TypeString, value)

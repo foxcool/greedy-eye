@@ -12,8 +12,6 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/account"
-	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
-	"github.com/foxcool/greedy-eye/internal/services/storage/ent/portfolio"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/predicate"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/transaction"
 	"github.com/google/uuid"
@@ -46,83 +44,6 @@ func (tu *TransactionUpdate) SetNillableUUID(u *uuid.UUID) *TransactionUpdate {
 	return tu
 }
 
-// SetAssetID sets the "asset_id" field.
-func (tu *TransactionUpdate) SetAssetID(i int) *TransactionUpdate {
-	tu.mutation.SetAssetID(i)
-	return tu
-}
-
-// SetNillableAssetID sets the "asset_id" field if the given value is not nil.
-func (tu *TransactionUpdate) SetNillableAssetID(i *int) *TransactionUpdate {
-	if i != nil {
-		tu.SetAssetID(*i)
-	}
-	return tu
-}
-
-// SetAmount sets the "amount" field.
-func (tu *TransactionUpdate) SetAmount(i int64) *TransactionUpdate {
-	tu.mutation.ResetAmount()
-	tu.mutation.SetAmount(i)
-	return tu
-}
-
-// SetNillableAmount sets the "amount" field if the given value is not nil.
-func (tu *TransactionUpdate) SetNillableAmount(i *int64) *TransactionUpdate {
-	if i != nil {
-		tu.SetAmount(*i)
-	}
-	return tu
-}
-
-// AddAmount adds i to the "amount" field.
-func (tu *TransactionUpdate) AddAmount(i int64) *TransactionUpdate {
-	tu.mutation.AddAmount(i)
-	return tu
-}
-
-// SetFee sets the "fee" field.
-func (tu *TransactionUpdate) SetFee(i int64) *TransactionUpdate {
-	tu.mutation.ResetFee()
-	tu.mutation.SetFee(i)
-	return tu
-}
-
-// SetNillableFee sets the "fee" field if the given value is not nil.
-func (tu *TransactionUpdate) SetNillableFee(i *int64) *TransactionUpdate {
-	if i != nil {
-		tu.SetFee(*i)
-	}
-	return tu
-}
-
-// AddFee adds i to the "fee" field.
-func (tu *TransactionUpdate) AddFee(i int64) *TransactionUpdate {
-	tu.mutation.AddFee(i)
-	return tu
-}
-
-// SetPrecision sets the "precision" field.
-func (tu *TransactionUpdate) SetPrecision(u uint32) *TransactionUpdate {
-	tu.mutation.ResetPrecision()
-	tu.mutation.SetPrecision(u)
-	return tu
-}
-
-// SetNillablePrecision sets the "precision" field if the given value is not nil.
-func (tu *TransactionUpdate) SetNillablePrecision(u *uint32) *TransactionUpdate {
-	if u != nil {
-		tu.SetPrecision(*u)
-	}
-	return tu
-}
-
-// AddPrecision adds u to the "precision" field.
-func (tu *TransactionUpdate) AddPrecision(u int32) *TransactionUpdate {
-	tu.mutation.AddPrecision(u)
-	return tu
-}
-
 // SetType sets the "type" field.
 func (tu *TransactionUpdate) SetType(t transaction.Type) *TransactionUpdate {
 	tu.mutation.SetType(t)
@@ -151,17 +72,23 @@ func (tu *TransactionUpdate) SetNillableStatus(t *transaction.Status) *Transacti
 	return tu
 }
 
-// SetCreatedAt sets the "created_at" field.
-func (tu *TransactionUpdate) SetCreatedAt(t time.Time) *TransactionUpdate {
-	tu.mutation.SetCreatedAt(t)
+// SetAccountID sets the "account_id" field.
+func (tu *TransactionUpdate) SetAccountID(i int) *TransactionUpdate {
+	tu.mutation.SetAccountID(i)
 	return tu
 }
 
-// SetNillableCreatedAt sets the "created_at" field if the given value is not nil.
-func (tu *TransactionUpdate) SetNillableCreatedAt(t *time.Time) *TransactionUpdate {
-	if t != nil {
-		tu.SetCreatedAt(*t)
+// SetNillableAccountID sets the "account_id" field if the given value is not nil.
+func (tu *TransactionUpdate) SetNillableAccountID(i *int) *TransactionUpdate {
+	if i != nil {
+		tu.SetAccountID(*i)
 	}
+	return tu
+}
+
+// SetData sets the "data" field.
+func (tu *TransactionUpdate) SetData(m map[string]string) *TransactionUpdate {
+	tu.mutation.SetData(m)
 	return tu
 }
 
@@ -171,45 +98,9 @@ func (tu *TransactionUpdate) SetUpdatedAt(t time.Time) *TransactionUpdate {
 	return tu
 }
 
-// SetMetadata sets the "metadata" field.
-func (tu *TransactionUpdate) SetMetadata(m map[string]string) *TransactionUpdate {
-	tu.mutation.SetMetadata(m)
-	return tu
-}
-
-// AddPortfolioIDs adds the "portfolio" edge to the Portfolio entity by IDs.
-func (tu *TransactionUpdate) AddPortfolioIDs(ids ...int) *TransactionUpdate {
-	tu.mutation.AddPortfolioIDs(ids...)
-	return tu
-}
-
-// AddPortfolio adds the "portfolio" edges to the Portfolio entity.
-func (tu *TransactionUpdate) AddPortfolio(p ...*Portfolio) *TransactionUpdate {
-	ids := make([]int, len(p))
-	for i := range p {
-		ids[i] = p[i].ID
-	}
-	return tu.AddPortfolioIDs(ids...)
-}
-
-// AddAccountIDs adds the "account" edge to the Account entity by IDs.
-func (tu *TransactionUpdate) AddAccountIDs(ids ...int) *TransactionUpdate {
-	tu.mutation.AddAccountIDs(ids...)
-	return tu
-}
-
-// AddAccount adds the "account" edges to the Account entity.
-func (tu *TransactionUpdate) AddAccount(a ...*Account) *TransactionUpdate {
-	ids := make([]int, len(a))
-	for i := range a {
-		ids[i] = a[i].ID
-	}
-	return tu.AddAccountIDs(ids...)
-}
-
-// SetAsset sets the "asset" edge to the Asset entity.
-func (tu *TransactionUpdate) SetAsset(a *Asset) *TransactionUpdate {
-	return tu.SetAssetID(a.ID)
+// SetAccount sets the "account" edge to the Account entity.
+func (tu *TransactionUpdate) SetAccount(a *Account) *TransactionUpdate {
+	return tu.SetAccountID(a.ID)
 }
 
 // Mutation returns the TransactionMutation object of the builder.
@@ -217,51 +108,9 @@ func (tu *TransactionUpdate) Mutation() *TransactionMutation {
 	return tu.mutation
 }
 
-// ClearPortfolio clears all "portfolio" edges to the Portfolio entity.
-func (tu *TransactionUpdate) ClearPortfolio() *TransactionUpdate {
-	tu.mutation.ClearPortfolio()
-	return tu
-}
-
-// RemovePortfolioIDs removes the "portfolio" edge to Portfolio entities by IDs.
-func (tu *TransactionUpdate) RemovePortfolioIDs(ids ...int) *TransactionUpdate {
-	tu.mutation.RemovePortfolioIDs(ids...)
-	return tu
-}
-
-// RemovePortfolio removes "portfolio" edges to Portfolio entities.
-func (tu *TransactionUpdate) RemovePortfolio(p ...*Portfolio) *TransactionUpdate {
-	ids := make([]int, len(p))
-	for i := range p {
-		ids[i] = p[i].ID
-	}
-	return tu.RemovePortfolioIDs(ids...)
-}
-
-// ClearAccount clears all "account" edges to the Account entity.
+// ClearAccount clears the "account" edge to the Account entity.
 func (tu *TransactionUpdate) ClearAccount() *TransactionUpdate {
 	tu.mutation.ClearAccount()
-	return tu
-}
-
-// RemoveAccountIDs removes the "account" edge to Account entities by IDs.
-func (tu *TransactionUpdate) RemoveAccountIDs(ids ...int) *TransactionUpdate {
-	tu.mutation.RemoveAccountIDs(ids...)
-	return tu
-}
-
-// RemoveAccount removes "account" edges to Account entities.
-func (tu *TransactionUpdate) RemoveAccount(a ...*Account) *TransactionUpdate {
-	ids := make([]int, len(a))
-	for i := range a {
-		ids[i] = a[i].ID
-	}
-	return tu.RemoveAccountIDs(ids...)
-}
-
-// ClearAsset clears the "asset" edge to the Asset entity.
-func (tu *TransactionUpdate) ClearAsset() *TransactionUpdate {
-	tu.mutation.ClearAsset()
 	return tu
 }
 
@@ -313,8 +162,8 @@ func (tu *TransactionUpdate) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "Transaction.status": %w`, err)}
 		}
 	}
-	if tu.mutation.AssetCleared() && len(tu.mutation.AssetIDs()) > 0 {
-		return errors.New(`ent: clearing a required unique edge "Transaction.asset"`)
+	if tu.mutation.AccountCleared() && len(tu.mutation.AccountIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "Transaction.account"`)
 	}
 	return nil
 }
@@ -334,151 +183,40 @@ func (tu *TransactionUpdate) sqlSave(ctx context.Context) (n int, err error) {
 	if value, ok := tu.mutation.UUID(); ok {
 		_spec.SetField(transaction.FieldUUID, field.TypeUUID, value)
 	}
-	if value, ok := tu.mutation.Amount(); ok {
-		_spec.SetField(transaction.FieldAmount, field.TypeInt64, value)
-	}
-	if value, ok := tu.mutation.AddedAmount(); ok {
-		_spec.AddField(transaction.FieldAmount, field.TypeInt64, value)
-	}
-	if value, ok := tu.mutation.Fee(); ok {
-		_spec.SetField(transaction.FieldFee, field.TypeInt64, value)
-	}
-	if value, ok := tu.mutation.AddedFee(); ok {
-		_spec.AddField(transaction.FieldFee, field.TypeInt64, value)
-	}
-	if value, ok := tu.mutation.Precision(); ok {
-		_spec.SetField(transaction.FieldPrecision, field.TypeUint32, value)
-	}
-	if value, ok := tu.mutation.AddedPrecision(); ok {
-		_spec.AddField(transaction.FieldPrecision, field.TypeUint32, value)
-	}
 	if value, ok := tu.mutation.GetType(); ok {
 		_spec.SetField(transaction.FieldType, field.TypeEnum, value)
 	}
 	if value, ok := tu.mutation.Status(); ok {
 		_spec.SetField(transaction.FieldStatus, field.TypeEnum, value)
 	}
-	if value, ok := tu.mutation.CreatedAt(); ok {
-		_spec.SetField(transaction.FieldCreatedAt, field.TypeTime, value)
+	if value, ok := tu.mutation.Data(); ok {
+		_spec.SetField(transaction.FieldData, field.TypeJSON, value)
 	}
 	if value, ok := tu.mutation.UpdatedAt(); ok {
 		_spec.SetField(transaction.FieldUpdatedAt, field.TypeTime, value)
 	}
-	if value, ok := tu.mutation.Metadata(); ok {
-		_spec.SetField(transaction.FieldMetadata, field.TypeJSON, value)
-	}
-	if tu.mutation.PortfolioCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   transaction.PortfolioTable,
-			Columns: []string{transaction.PortfolioColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(portfolio.FieldID, field.TypeInt),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := tu.mutation.RemovedPortfolioIDs(); len(nodes) > 0 && !tu.mutation.PortfolioCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   transaction.PortfolioTable,
-			Columns: []string{transaction.PortfolioColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(portfolio.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := tu.mutation.PortfolioIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   transaction.PortfolioTable,
-			Columns: []string{transaction.PortfolioColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(portfolio.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
 	if tu.mutation.AccountCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   transaction.AccountTable,
 			Columns: []string{transaction.AccountColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt),
 			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := tu.mutation.RemovedAccountIDs(); len(nodes) > 0 && !tu.mutation.AccountCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   transaction.AccountTable,
-			Columns: []string{transaction.AccountColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
 	if nodes := tu.mutation.AccountIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   transaction.AccountTable,
 			Columns: []string{transaction.AccountColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if tu.mutation.AssetCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: true,
-			Table:   transaction.AssetTable,
-			Columns: []string{transaction.AssetColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := tu.mutation.AssetIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: true,
-			Table:   transaction.AssetTable,
-			Columns: []string{transaction.AssetColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -520,83 +258,6 @@ func (tuo *TransactionUpdateOne) SetNillableUUID(u *uuid.UUID) *TransactionUpdat
 	return tuo
 }
 
-// SetAssetID sets the "asset_id" field.
-func (tuo *TransactionUpdateOne) SetAssetID(i int) *TransactionUpdateOne {
-	tuo.mutation.SetAssetID(i)
-	return tuo
-}
-
-// SetNillableAssetID sets the "asset_id" field if the given value is not nil.
-func (tuo *TransactionUpdateOne) SetNillableAssetID(i *int) *TransactionUpdateOne {
-	if i != nil {
-		tuo.SetAssetID(*i)
-	}
-	return tuo
-}
-
-// SetAmount sets the "amount" field.
-func (tuo *TransactionUpdateOne) SetAmount(i int64) *TransactionUpdateOne {
-	tuo.mutation.ResetAmount()
-	tuo.mutation.SetAmount(i)
-	return tuo
-}
-
-// SetNillableAmount sets the "amount" field if the given value is not nil.
-func (tuo *TransactionUpdateOne) SetNillableAmount(i *int64) *TransactionUpdateOne {
-	if i != nil {
-		tuo.SetAmount(*i)
-	}
-	return tuo
-}
-
-// AddAmount adds i to the "amount" field.
-func (tuo *TransactionUpdateOne) AddAmount(i int64) *TransactionUpdateOne {
-	tuo.mutation.AddAmount(i)
-	return tuo
-}
-
-// SetFee sets the "fee" field.
-func (tuo *TransactionUpdateOne) SetFee(i int64) *TransactionUpdateOne {
-	tuo.mutation.ResetFee()
-	tuo.mutation.SetFee(i)
-	return tuo
-}
-
-// SetNillableFee sets the "fee" field if the given value is not nil.
-func (tuo *TransactionUpdateOne) SetNillableFee(i *int64) *TransactionUpdateOne {
-	if i != nil {
-		tuo.SetFee(*i)
-	}
-	return tuo
-}
-
-// AddFee adds i to the "fee" field.
-func (tuo *TransactionUpdateOne) AddFee(i int64) *TransactionUpdateOne {
-	tuo.mutation.AddFee(i)
-	return tuo
-}
-
-// SetPrecision sets the "precision" field.
-func (tuo *TransactionUpdateOne) SetPrecision(u uint32) *TransactionUpdateOne {
-	tuo.mutation.ResetPrecision()
-	tuo.mutation.SetPrecision(u)
-	return tuo
-}
-
-// SetNillablePrecision sets the "precision" field if the given value is not nil.
-func (tuo *TransactionUpdateOne) SetNillablePrecision(u *uint32) *TransactionUpdateOne {
-	if u != nil {
-		tuo.SetPrecision(*u)
-	}
-	return tuo
-}
-
-// AddPrecision adds u to the "precision" field.
-func (tuo *TransactionUpdateOne) AddPrecision(u int32) *TransactionUpdateOne {
-	tuo.mutation.AddPrecision(u)
-	return tuo
-}
-
 // SetType sets the "type" field.
 func (tuo *TransactionUpdateOne) SetType(t transaction.Type) *TransactionUpdateOne {
 	tuo.mutation.SetType(t)
@@ -625,17 +286,23 @@ func (tuo *TransactionUpdateOne) SetNillableStatus(t *transaction.Status) *Trans
 	return tuo
 }
 
-// SetCreatedAt sets the "created_at" field.
-func (tuo *TransactionUpdateOne) SetCreatedAt(t time.Time) *TransactionUpdateOne {
-	tuo.mutation.SetCreatedAt(t)
+// SetAccountID sets the "account_id" field.
+func (tuo *TransactionUpdateOne) SetAccountID(i int) *TransactionUpdateOne {
+	tuo.mutation.SetAccountID(i)
 	return tuo
 }
 
-// SetNillableCreatedAt sets the "created_at" field if the given value is not nil.
-func (tuo *TransactionUpdateOne) SetNillableCreatedAt(t *time.Time) *TransactionUpdateOne {
-	if t != nil {
-		tuo.SetCreatedAt(*t)
+// SetNillableAccountID sets the "account_id" field if the given value is not nil.
+func (tuo *TransactionUpdateOne) SetNillableAccountID(i *int) *TransactionUpdateOne {
+	if i != nil {
+		tuo.SetAccountID(*i)
 	}
+	return tuo
+}
+
+// SetData sets the "data" field.
+func (tuo *TransactionUpdateOne) SetData(m map[string]string) *TransactionUpdateOne {
+	tuo.mutation.SetData(m)
 	return tuo
 }
 
@@ -645,45 +312,9 @@ func (tuo *TransactionUpdateOne) SetUpdatedAt(t time.Time) *TransactionUpdateOne
 	return tuo
 }
 
-// SetMetadata sets the "metadata" field.
-func (tuo *TransactionUpdateOne) SetMetadata(m map[string]string) *TransactionUpdateOne {
-	tuo.mutation.SetMetadata(m)
-	return tuo
-}
-
-// AddPortfolioIDs adds the "portfolio" edge to the Portfolio entity by IDs.
-func (tuo *TransactionUpdateOne) AddPortfolioIDs(ids ...int) *TransactionUpdateOne {
-	tuo.mutation.AddPortfolioIDs(ids...)
-	return tuo
-}
-
-// AddPortfolio adds the "portfolio" edges to the Portfolio entity.
-func (tuo *TransactionUpdateOne) AddPortfolio(p ...*Portfolio) *TransactionUpdateOne {
-	ids := make([]int, len(p))
-	for i := range p {
-		ids[i] = p[i].ID
-	}
-	return tuo.AddPortfolioIDs(ids...)
-}
-
-// AddAccountIDs adds the "account" edge to the Account entity by IDs.
-func (tuo *TransactionUpdateOne) AddAccountIDs(ids ...int) *TransactionUpdateOne {
-	tuo.mutation.AddAccountIDs(ids...)
-	return tuo
-}
-
-// AddAccount adds the "account" edges to the Account entity.
-func (tuo *TransactionUpdateOne) AddAccount(a ...*Account) *TransactionUpdateOne {
-	ids := make([]int, len(a))
-	for i := range a {
-		ids[i] = a[i].ID
-	}
-	return tuo.AddAccountIDs(ids...)
-}
-
-// SetAsset sets the "asset" edge to the Asset entity.
-func (tuo *TransactionUpdateOne) SetAsset(a *Asset) *TransactionUpdateOne {
-	return tuo.SetAssetID(a.ID)
+// SetAccount sets the "account" edge to the Account entity.
+func (tuo *TransactionUpdateOne) SetAccount(a *Account) *TransactionUpdateOne {
+	return tuo.SetAccountID(a.ID)
 }
 
 // Mutation returns the TransactionMutation object of the builder.
@@ -691,51 +322,9 @@ func (tuo *TransactionUpdateOne) Mutation() *TransactionMutation {
 	return tuo.mutation
 }
 
-// ClearPortfolio clears all "portfolio" edges to the Portfolio entity.
-func (tuo *TransactionUpdateOne) ClearPortfolio() *TransactionUpdateOne {
-	tuo.mutation.ClearPortfolio()
-	return tuo
-}
-
-// RemovePortfolioIDs removes the "portfolio" edge to Portfolio entities by IDs.
-func (tuo *TransactionUpdateOne) RemovePortfolioIDs(ids ...int) *TransactionUpdateOne {
-	tuo.mutation.RemovePortfolioIDs(ids...)
-	return tuo
-}
-
-// RemovePortfolio removes "portfolio" edges to Portfolio entities.
-func (tuo *TransactionUpdateOne) RemovePortfolio(p ...*Portfolio) *TransactionUpdateOne {
-	ids := make([]int, len(p))
-	for i := range p {
-		ids[i] = p[i].ID
-	}
-	return tuo.RemovePortfolioIDs(ids...)
-}
-
-// ClearAccount clears all "account" edges to the Account entity.
+// ClearAccount clears the "account" edge to the Account entity.
 func (tuo *TransactionUpdateOne) ClearAccount() *TransactionUpdateOne {
 	tuo.mutation.ClearAccount()
-	return tuo
-}
-
-// RemoveAccountIDs removes the "account" edge to Account entities by IDs.
-func (tuo *TransactionUpdateOne) RemoveAccountIDs(ids ...int) *TransactionUpdateOne {
-	tuo.mutation.RemoveAccountIDs(ids...)
-	return tuo
-}
-
-// RemoveAccount removes "account" edges to Account entities.
-func (tuo *TransactionUpdateOne) RemoveAccount(a ...*Account) *TransactionUpdateOne {
-	ids := make([]int, len(a))
-	for i := range a {
-		ids[i] = a[i].ID
-	}
-	return tuo.RemoveAccountIDs(ids...)
-}
-
-// ClearAsset clears the "asset" edge to the Asset entity.
-func (tuo *TransactionUpdateOne) ClearAsset() *TransactionUpdateOne {
-	tuo.mutation.ClearAsset()
 	return tuo
 }
 
@@ -800,8 +389,8 @@ func (tuo *TransactionUpdateOne) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "Transaction.status": %w`, err)}
 		}
 	}
-	if tuo.mutation.AssetCleared() && len(tuo.mutation.AssetIDs()) > 0 {
-		return errors.New(`ent: clearing a required unique edge "Transaction.asset"`)
+	if tuo.mutation.AccountCleared() && len(tuo.mutation.AccountIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "Transaction.account"`)
 	}
 	return nil
 }
@@ -838,151 +427,40 @@ func (tuo *TransactionUpdateOne) sqlSave(ctx context.Context) (_node *Transactio
 	if value, ok := tuo.mutation.UUID(); ok {
 		_spec.SetField(transaction.FieldUUID, field.TypeUUID, value)
 	}
-	if value, ok := tuo.mutation.Amount(); ok {
-		_spec.SetField(transaction.FieldAmount, field.TypeInt64, value)
-	}
-	if value, ok := tuo.mutation.AddedAmount(); ok {
-		_spec.AddField(transaction.FieldAmount, field.TypeInt64, value)
-	}
-	if value, ok := tuo.mutation.Fee(); ok {
-		_spec.SetField(transaction.FieldFee, field.TypeInt64, value)
-	}
-	if value, ok := tuo.mutation.AddedFee(); ok {
-		_spec.AddField(transaction.FieldFee, field.TypeInt64, value)
-	}
-	if value, ok := tuo.mutation.Precision(); ok {
-		_spec.SetField(transaction.FieldPrecision, field.TypeUint32, value)
-	}
-	if value, ok := tuo.mutation.AddedPrecision(); ok {
-		_spec.AddField(transaction.FieldPrecision, field.TypeUint32, value)
-	}
 	if value, ok := tuo.mutation.GetType(); ok {
 		_spec.SetField(transaction.FieldType, field.TypeEnum, value)
 	}
 	if value, ok := tuo.mutation.Status(); ok {
 		_spec.SetField(transaction.FieldStatus, field.TypeEnum, value)
 	}
-	if value, ok := tuo.mutation.CreatedAt(); ok {
-		_spec.SetField(transaction.FieldCreatedAt, field.TypeTime, value)
+	if value, ok := tuo.mutation.Data(); ok {
+		_spec.SetField(transaction.FieldData, field.TypeJSON, value)
 	}
 	if value, ok := tuo.mutation.UpdatedAt(); ok {
 		_spec.SetField(transaction.FieldUpdatedAt, field.TypeTime, value)
 	}
-	if value, ok := tuo.mutation.Metadata(); ok {
-		_spec.SetField(transaction.FieldMetadata, field.TypeJSON, value)
-	}
-	if tuo.mutation.PortfolioCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   transaction.PortfolioTable,
-			Columns: []string{transaction.PortfolioColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(portfolio.FieldID, field.TypeInt),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := tuo.mutation.RemovedPortfolioIDs(); len(nodes) > 0 && !tuo.mutation.PortfolioCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   transaction.PortfolioTable,
-			Columns: []string{transaction.PortfolioColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(portfolio.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := tuo.mutation.PortfolioIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   transaction.PortfolioTable,
-			Columns: []string{transaction.PortfolioColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(portfolio.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
 	if tuo.mutation.AccountCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   transaction.AccountTable,
 			Columns: []string{transaction.AccountColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt),
 			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := tuo.mutation.RemovedAccountIDs(); len(nodes) > 0 && !tuo.mutation.AccountCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   transaction.AccountTable,
-			Columns: []string{transaction.AccountColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
 	if nodes := tuo.mutation.AccountIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   transaction.AccountTable,
 			Columns: []string{transaction.AccountColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if tuo.mutation.AssetCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: true,
-			Table:   transaction.AssetTable,
-			Columns: []string{transaction.AssetColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := tuo.mutation.AssetIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: true,
-			Table:   transaction.AssetTable,
-			Columns: []string{transaction.AssetColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(asset.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

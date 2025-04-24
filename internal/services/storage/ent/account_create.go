@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/account"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
+	"github.com/foxcool/greedy-eye/internal/services/storage/ent/transaction"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/user"
 	"github.com/google/uuid"
 )
@@ -33,6 +34,34 @@ func (ac *AccountCreate) SetUUID(u uuid.UUID) *AccountCreate {
 func (ac *AccountCreate) SetNillableUUID(u *uuid.UUID) *AccountCreate {
 	if u != nil {
 		ac.SetUUID(*u)
+	}
+	return ac
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (ac *AccountCreate) SetCreatedAt(t time.Time) *AccountCreate {
+	ac.mutation.SetCreatedAt(t)
+	return ac
+}
+
+// SetNillableCreatedAt sets the "created_at" field if the given value is not nil.
+func (ac *AccountCreate) SetNillableCreatedAt(t *time.Time) *AccountCreate {
+	if t != nil {
+		ac.SetCreatedAt(*t)
+	}
+	return ac
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (ac *AccountCreate) SetUpdatedAt(t time.Time) *AccountCreate {
+	ac.mutation.SetUpdatedAt(t)
+	return ac
+}
+
+// SetNillableUpdatedAt sets the "updated_at" field if the given value is not nil.
+func (ac *AccountCreate) SetNillableUpdatedAt(t *time.Time) *AccountCreate {
+	if t != nil {
+		ac.SetUpdatedAt(*t)
 	}
 	return ac
 }
@@ -75,18 +104,6 @@ func (ac *AccountCreate) SetData(m map[string]string) *AccountCreate {
 	return ac
 }
 
-// SetCreatedAt sets the "created_at" field.
-func (ac *AccountCreate) SetCreatedAt(t time.Time) *AccountCreate {
-	ac.mutation.SetCreatedAt(t)
-	return ac
-}
-
-// SetUpdatedAt sets the "updated_at" field.
-func (ac *AccountCreate) SetUpdatedAt(t time.Time) *AccountCreate {
-	ac.mutation.SetUpdatedAt(t)
-	return ac
-}
-
 // SetUser sets the "user" edge to the User entity.
 func (ac *AccountCreate) SetUser(u *User) *AccountCreate {
 	return ac.SetUserID(u.ID)
@@ -105,6 +122,21 @@ func (ac *AccountCreate) AddHoldings(h ...*Holding) *AccountCreate {
 		ids[i] = h[i].ID
 	}
 	return ac.AddHoldingIDs(ids...)
+}
+
+// AddTransactionIDs adds the "transactions" edge to the Transaction entity by IDs.
+func (ac *AccountCreate) AddTransactionIDs(ids ...int) *AccountCreate {
+	ac.mutation.AddTransactionIDs(ids...)
+	return ac
+}
+
+// AddTransactions adds the "transactions" edges to the Transaction entity.
+func (ac *AccountCreate) AddTransactions(t ...*Transaction) *AccountCreate {
+	ids := make([]int, len(t))
+	for i := range t {
+		ids[i] = t[i].ID
+	}
+	return ac.AddTransactionIDs(ids...)
 }
 
 // Mutation returns the AccountMutation object of the builder.
@@ -146,12 +178,30 @@ func (ac *AccountCreate) defaults() {
 		v := account.DefaultUUID()
 		ac.mutation.SetUUID(v)
 	}
+	if _, ok := ac.mutation.CreatedAt(); !ok {
+		v := account.DefaultCreatedAt()
+		ac.mutation.SetCreatedAt(v)
+	}
+	if _, ok := ac.mutation.UpdatedAt(); !ok {
+		v := account.DefaultUpdatedAt()
+		ac.mutation.SetUpdatedAt(v)
+	}
+	if _, ok := ac.mutation.Data(); !ok {
+		v := account.DefaultData
+		ac.mutation.SetData(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
 func (ac *AccountCreate) check() error {
 	if _, ok := ac.mutation.UUID(); !ok {
 		return &ValidationError{Name: "uuid", err: errors.New(`ent: missing required field "Account.uuid"`)}
+	}
+	if _, ok := ac.mutation.CreatedAt(); !ok {
+		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Account.created_at"`)}
+	}
+	if _, ok := ac.mutation.UpdatedAt(); !ok {
+		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Account.updated_at"`)}
 	}
 	if _, ok := ac.mutation.UserID(); !ok {
 		return &ValidationError{Name: "user_id", err: errors.New(`ent: missing required field "Account.user_id"`)}
@@ -169,12 +219,6 @@ func (ac *AccountCreate) check() error {
 	}
 	if _, ok := ac.mutation.Data(); !ok {
 		return &ValidationError{Name: "data", err: errors.New(`ent: missing required field "Account.data"`)}
-	}
-	if _, ok := ac.mutation.CreatedAt(); !ok {
-		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Account.created_at"`)}
-	}
-	if _, ok := ac.mutation.UpdatedAt(); !ok {
-		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Account.updated_at"`)}
 	}
 	if len(ac.mutation.UserIDs()) == 0 {
 		return &ValidationError{Name: "user", err: errors.New(`ent: missing required edge "Account.user"`)}
@@ -209,6 +253,14 @@ func (ac *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 		_spec.SetField(account.FieldUUID, field.TypeUUID, value)
 		_node.UUID = value
 	}
+	if value, ok := ac.mutation.CreatedAt(); ok {
+		_spec.SetField(account.FieldCreatedAt, field.TypeTime, value)
+		_node.CreatedAt = value
+	}
+	if value, ok := ac.mutation.UpdatedAt(); ok {
+		_spec.SetField(account.FieldUpdatedAt, field.TypeTime, value)
+		_node.UpdatedAt = value
+	}
 	if value, ok := ac.mutation.Name(); ok {
 		_spec.SetField(account.FieldName, field.TypeString, value)
 		_node.Name = value
@@ -224,14 +276,6 @@ func (ac *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 	if value, ok := ac.mutation.Data(); ok {
 		_spec.SetField(account.FieldData, field.TypeJSON, value)
 		_node.Data = value
-	}
-	if value, ok := ac.mutation.CreatedAt(); ok {
-		_spec.SetField(account.FieldCreatedAt, field.TypeTime, value)
-		_node.CreatedAt = value
-	}
-	if value, ok := ac.mutation.UpdatedAt(); ok {
-		_spec.SetField(account.FieldUpdatedAt, field.TypeTime, value)
-		_node.UpdatedAt = value
 	}
 	if nodes := ac.mutation.UserIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -259,6 +303,22 @@ func (ac *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(holding.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := ac.mutation.TransactionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   account.TransactionsTable,
+			Columns: []string{account.TransactionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(transaction.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

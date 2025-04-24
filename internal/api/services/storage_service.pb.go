@@ -72,7 +72,7 @@ func (x *CreateAssetRequest) GetAsset() *models.Asset {
 
 type GetAssetRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"` // string symbol = 2; // Consider GetAssetBySymbol if needed as separate RPC
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -212,10 +212,9 @@ func (x *DeleteAssetRequest) GetId() string {
 
 type ListAssetsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	PageSize      int32                  `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`   // Number of assets to return
-	PageToken     string                 `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"` // Token for fetching the next page
-	Tags          []string               `protobuf:"bytes,3,rep,name=tags,proto3" json:"tags,omitempty"`                            // Filter by tags
-	UserId        string                 `protobuf:"bytes,4,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`          // Optional: Filter by user_id if assets are user-specific (TBD)
+	PageSize      *int32                 `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`   // Number of assets to return
+	PageToken     *string                `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"` // Token for fetching the next page
+	Tags          []string               `protobuf:"bytes,3,rep,name=tags,proto3" json:"tags,omitempty"`                                  // Filter by tags
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -251,15 +250,15 @@ func (*ListAssetsRequest) Descriptor() ([]byte, []int) {
 }
 
 func (x *ListAssetsRequest) GetPageSize() int32 {
-	if x != nil {
-		return x.PageSize
+	if x != nil && x.PageSize != nil {
+		return *x.PageSize
 	}
 	return 0
 }
 
 func (x *ListAssetsRequest) GetPageToken() string {
-	if x != nil {
-		return x.PageToken
+	if x != nil && x.PageToken != nil {
+		return *x.PageToken
 	}
 	return ""
 }
@@ -269,13 +268,6 @@ func (x *ListAssetsRequest) GetTags() []string {
 		return x.Tags
 	}
 	return nil
-}
-
-func (x *ListAssetsRequest) GetUserId() string {
-	if x != nil {
-		return x.UserId
-	}
-	return ""
 }
 
 type ListAssetsResponse struct {
@@ -467,7 +459,7 @@ type GetLatestPriceRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AssetId       string                 `protobuf:"bytes,1,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
 	BaseAssetId   string                 `protobuf:"bytes,2,opt,name=base_asset_id,json=baseAssetId,proto3" json:"base_asset_id,omitempty"`
-	SourceId      string                 `protobuf:"bytes,3,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"` // Optional: Filter by a specific source
+	SourceId      *string                `protobuf:"bytes,3,opt,name=source_id,json=sourceId,proto3,oneof" json:"source_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -517,8 +509,8 @@ func (x *GetLatestPriceRequest) GetBaseAssetId() string {
 }
 
 func (x *GetLatestPriceRequest) GetSourceId() string {
-	if x != nil {
-		return x.SourceId
+	if x != nil && x.SourceId != nil {
+		return *x.SourceId
 	}
 	return ""
 }
@@ -527,11 +519,11 @@ type ListPriceHistoryRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AssetId       string                 `protobuf:"bytes,1,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
 	BaseAssetId   string                 `protobuf:"bytes,2,opt,name=base_asset_id,json=baseAssetId,proto3" json:"base_asset_id,omitempty"`
-	From          *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=from,proto3" json:"from,omitempty"`                          // Start of the time range
-	To            *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=to,proto3" json:"to,omitempty"`                              // End of the time range
-	SourceId      string                 `protobuf:"bytes,5,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`  // Optional: Filter by source
-	PageSize      int32                  `protobuf:"varint,6,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"` // Pagination for large history
-	PageToken     string                 `protobuf:"bytes,7,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	From          *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=from,proto3,oneof" json:"from,omitempty"`                          // Start of the time range
+	To            *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=to,proto3,oneof" json:"to,omitempty"`                              // End of the time range
+	SourceId      *string                `protobuf:"bytes,5,opt,name=source_id,json=sourceId,proto3,oneof" json:"source_id,omitempty"`  // Filter by source
+	PageSize      *int32                 `protobuf:"varint,6,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"` // Pagination for large history
+	PageToken     *string                `protobuf:"bytes,7,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -595,22 +587,22 @@ func (x *ListPriceHistoryRequest) GetTo() *timestamppb.Timestamp {
 }
 
 func (x *ListPriceHistoryRequest) GetSourceId() string {
-	if x != nil {
-		return x.SourceId
+	if x != nil && x.SourceId != nil {
+		return *x.SourceId
 	}
 	return ""
 }
 
 func (x *ListPriceHistoryRequest) GetPageSize() int32 {
-	if x != nil {
-		return x.PageSize
+	if x != nil && x.PageSize != nil {
+		return *x.PageSize
 	}
 	return 0
 }
 
 func (x *ListPriceHistoryRequest) GetPageToken() string {
-	if x != nil {
-		return x.PageToken
+	if x != nil && x.PageToken != nil {
+		return *x.PageToken
 	}
 	return ""
 }
@@ -671,10 +663,12 @@ type ListPricesByIntervalRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AssetId       string                 `protobuf:"bytes,1,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
 	BaseAssetId   string                 `protobuf:"bytes,2,opt,name=base_asset_id,json=baseAssetId,proto3" json:"base_asset_id,omitempty"`
-	From          *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=from,proto3" json:"from,omitempty"`
-	To            *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=to,proto3" json:"to,omitempty"`
-	Interval      string                 `protobuf:"bytes,5,opt,name=interval,proto3" json:"interval,omitempty"`                 // e.g., "hourly", "daily", "weekly" - specific values TBD
-	SourceId      string                 `protobuf:"bytes,6,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"` // Filter by source
+	From          *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=from,proto3,oneof" json:"from,omitempty"`
+	To            *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=to,proto3,oneof" json:"to,omitempty"`
+	Interval      string                 `protobuf:"bytes,5,opt,name=interval,proto3" json:"interval,omitempty"`                        // e.g., "hourly", "daily", "weekly" - specific values TBD
+	SourceId      *string                `protobuf:"bytes,6,opt,name=source_id,json=sourceId,proto3,oneof" json:"source_id,omitempty"`  // Filter by source
+	PageSize      *int32                 `protobuf:"varint,7,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"` // Pagination
+	PageToken     *string                `protobuf:"bytes,8,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -745,8 +739,22 @@ func (x *ListPricesByIntervalRequest) GetInterval() string {
 }
 
 func (x *ListPricesByIntervalRequest) GetSourceId() string {
-	if x != nil {
-		return x.SourceId
+	if x != nil && x.SourceId != nil {
+		return *x.SourceId
+	}
+	return ""
+}
+
+func (x *ListPricesByIntervalRequest) GetPageSize() int32 {
+	if x != nil && x.PageSize != nil {
+		return *x.PageSize
+	}
+	return 0
+}
+
+func (x *ListPricesByIntervalRequest) GetPageToken() string {
+	if x != nil && x.PageToken != nil {
+		return *x.PageToken
 	}
 	return ""
 }
@@ -797,11 +805,11 @@ func (x *DeletePriceRequest) GetId() string {
 
 type DeletePricesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	AssetId       string                 `protobuf:"bytes,1,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
-	BaseAssetId   string                 `protobuf:"bytes,2,opt,name=base_asset_id,json=baseAssetId,proto3" json:"base_asset_id,omitempty"`
-	From          *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=from,proto3" json:"from,omitempty"`
-	To            *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=to,proto3" json:"to,omitempty"`
-	SourceId      string                 `protobuf:"bytes,5,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"` // Filter by source
+	AssetId       *string                `protobuf:"bytes,1,opt,name=asset_id,json=assetId,proto3,oneof" json:"asset_id,omitempty"`
+	BaseAssetId   *string                `protobuf:"bytes,2,opt,name=base_asset_id,json=baseAssetId,proto3,oneof" json:"base_asset_id,omitempty"`
+	From          *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=from,proto3,oneof" json:"from,omitempty"`
+	To            *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=to,proto3,oneof" json:"to,omitempty"`
+	SourceId      *string                `protobuf:"bytes,5,opt,name=source_id,json=sourceId,proto3,oneof" json:"source_id,omitempty"` // Filter by source
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -837,15 +845,15 @@ func (*DeletePricesRequest) Descriptor() ([]byte, []int) {
 }
 
 func (x *DeletePricesRequest) GetAssetId() string {
-	if x != nil {
-		return x.AssetId
+	if x != nil && x.AssetId != nil {
+		return *x.AssetId
 	}
 	return ""
 }
 
 func (x *DeletePricesRequest) GetBaseAssetId() string {
-	if x != nil {
-		return x.BaseAssetId
+	if x != nil && x.BaseAssetId != nil {
+		return *x.BaseAssetId
 	}
 	return ""
 }
@@ -865,8 +873,8 @@ func (x *DeletePricesRequest) GetTo() *timestamppb.Timestamp {
 }
 
 func (x *DeletePricesRequest) GetSourceId() string {
-	if x != nil {
-		return x.SourceId
+	if x != nil && x.SourceId != nil {
+		return *x.SourceId
 	}
 	return ""
 }
@@ -1058,9 +1066,9 @@ func (x *DeletePortfolioRequest) GetId() string {
 
 type ListPortfoliosRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"` // Filter by user
-	PageSize      int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	PageToken     string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	UserId        *string                `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`
+	PageSize      *int32                 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
+	PageToken     *string                `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1096,22 +1104,22 @@ func (*ListPortfoliosRequest) Descriptor() ([]byte, []int) {
 }
 
 func (x *ListPortfoliosRequest) GetUserId() string {
-	if x != nil {
-		return x.UserId
+	if x != nil && x.UserId != nil {
+		return *x.UserId
 	}
 	return ""
 }
 
 func (x *ListPortfoliosRequest) GetPageSize() int32 {
-	if x != nil {
-		return x.PageSize
+	if x != nil && x.PageSize != nil {
+		return *x.PageSize
 	}
 	return 0
 }
 
 func (x *ListPortfoliosRequest) GetPageToken() string {
-	if x != nil {
-		return x.PageToken
+	if x != nil && x.PageToken != nil {
+		return *x.PageToken
 	}
 	return ""
 }
@@ -1171,7 +1179,7 @@ func (x *ListPortfoliosResponse) GetNextPageToken() string {
 // --- Holding Messages ---
 type CreateHoldingRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Holding       *models.Holding        `protobuf:"bytes,1,opt,name=holding,proto3" json:"holding,omitempty"` // portfolio_id, asset_id, amount, precision required. ID empty.
+	Holding       *models.Holding        `protobuf:"bytes,1,opt,name=holding,proto3" json:"holding,omitempty"` // asset_id, amount, decimals required. One of portfolio_id or account_id required. ID empty.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1309,14 +1317,13 @@ func (x *UpdateHoldingRequest) GetUpdateMask() *fieldmaskpb.FieldMask {
 	return nil
 }
 
-// message DeleteHoldingRequest { string id = 1; }
 type ListHoldingsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	PortfolioId   string                 `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"` // Filter by portfolio
-	AccountId     string                 `protobuf:"bytes,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`       // Optional: Filter by account
-	AssetId       string                 `protobuf:"bytes,3,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`             // Optional: Filter by asset
-	PageSize      int32                  `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	PageToken     string                 `protobuf:"bytes,5,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	PortfolioId   *string                `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3,oneof" json:"portfolio_id,omitempty"`
+	AccountId     *string                `protobuf:"bytes,2,opt,name=account_id,json=accountId,proto3,oneof" json:"account_id,omitempty"`
+	AssetId       *string                `protobuf:"bytes,3,opt,name=asset_id,json=assetId,proto3,oneof" json:"asset_id,omitempty"`
+	PageSize      *int32                 `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
+	PageToken     *string                `protobuf:"bytes,5,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1352,36 +1359,36 @@ func (*ListHoldingsRequest) Descriptor() ([]byte, []int) {
 }
 
 func (x *ListHoldingsRequest) GetPortfolioId() string {
-	if x != nil {
-		return x.PortfolioId
+	if x != nil && x.PortfolioId != nil {
+		return *x.PortfolioId
 	}
 	return ""
 }
 
 func (x *ListHoldingsRequest) GetAccountId() string {
-	if x != nil {
-		return x.AccountId
+	if x != nil && x.AccountId != nil {
+		return *x.AccountId
 	}
 	return ""
 }
 
 func (x *ListHoldingsRequest) GetAssetId() string {
-	if x != nil {
-		return x.AssetId
+	if x != nil && x.AssetId != nil {
+		return *x.AssetId
 	}
 	return ""
 }
 
 func (x *ListHoldingsRequest) GetPageSize() int32 {
-	if x != nil {
-		return x.PageSize
+	if x != nil && x.PageSize != nil {
+		return *x.PageSize
 	}
 	return 0
 }
 
 func (x *ListHoldingsRequest) GetPageToken() string {
-	if x != nil {
-		return x.PageToken
+	if x != nil && x.PageToken != nil {
+		return *x.PageToken
 	}
 	return ""
 }
@@ -1438,142 +1445,6 @@ func (x *ListHoldingsResponse) GetNextPageToken() string {
 	return ""
 }
 
-type ListHoldingHistoryRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	PortfolioId   string                 `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
-	AssetId       string                 `protobuf:"bytes,2,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"` // Optional: Filter by a specific asset
-	From          *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=from,proto3" json:"from,omitempty"`
-	To            *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=to,proto3" json:"to,omitempty"`
-	PageSize      int32                  `protobuf:"varint,5,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	PageToken     string                 `protobuf:"bytes,6,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ListHoldingHistoryRequest) Reset() {
-	*x = ListHoldingHistoryRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[26]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListHoldingHistoryRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListHoldingHistoryRequest) ProtoMessage() {}
-
-func (x *ListHoldingHistoryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[26]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ListHoldingHistoryRequest.ProtoReflect.Descriptor instead.
-func (*ListHoldingHistoryRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{26}
-}
-
-func (x *ListHoldingHistoryRequest) GetPortfolioId() string {
-	if x != nil {
-		return x.PortfolioId
-	}
-	return ""
-}
-
-func (x *ListHoldingHistoryRequest) GetAssetId() string {
-	if x != nil {
-		return x.AssetId
-	}
-	return ""
-}
-
-func (x *ListHoldingHistoryRequest) GetFrom() *timestamppb.Timestamp {
-	if x != nil {
-		return x.From
-	}
-	return nil
-}
-
-func (x *ListHoldingHistoryRequest) GetTo() *timestamppb.Timestamp {
-	if x != nil {
-		return x.To
-	}
-	return nil
-}
-
-func (x *ListHoldingHistoryRequest) GetPageSize() int32 {
-	if x != nil {
-		return x.PageSize
-	}
-	return 0
-}
-
-func (x *ListHoldingHistoryRequest) GetPageToken() string {
-	if x != nil {
-		return x.PageToken
-	}
-	return ""
-}
-
-type ListHoldingHistoryResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Holdings      []*models.Holding      `protobuf:"bytes,1,rep,name=holdings,proto3" json:"holdings,omitempty"` // Holdings at different points in time
-	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ListHoldingHistoryResponse) Reset() {
-	*x = ListHoldingHistoryResponse{}
-	mi := &file_api_services_storage_service_proto_msgTypes[27]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListHoldingHistoryResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListHoldingHistoryResponse) ProtoMessage() {}
-
-func (x *ListHoldingHistoryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[27]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ListHoldingHistoryResponse.ProtoReflect.Descriptor instead.
-func (*ListHoldingHistoryResponse) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{27}
-}
-
-func (x *ListHoldingHistoryResponse) GetHoldings() []*models.Holding {
-	if x != nil {
-		return x.Holdings
-	}
-	return nil
-}
-
-func (x *ListHoldingHistoryResponse) GetNextPageToken() string {
-	if x != nil {
-		return x.NextPageToken
-	}
-	return ""
-}
-
 // --- User Messages ---
 type CreateUserRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1584,7 +1455,7 @@ type CreateUserRequest struct {
 
 func (x *CreateUserRequest) Reset() {
 	*x = CreateUserRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[28]
+	mi := &file_api_services_storage_service_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1596,7 +1467,7 @@ func (x *CreateUserRequest) String() string {
 func (*CreateUserRequest) ProtoMessage() {}
 
 func (x *CreateUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[28]
+	mi := &file_api_services_storage_service_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1609,7 +1480,7 @@ func (x *CreateUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateUserRequest.ProtoReflect.Descriptor instead.
 func (*CreateUserRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{28}
+	return file_api_services_storage_service_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *CreateUserRequest) GetUser() *models.User {
@@ -1621,14 +1492,14 @@ func (x *CreateUserRequest) GetUser() *models.User {
 
 type GetUserRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"` // string email = 2; // Optional alternative lookup via GetUserByEmail RPC
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetUserRequest) Reset() {
 	*x = GetUserRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[29]
+	mi := &file_api_services_storage_service_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1640,7 +1511,7 @@ func (x *GetUserRequest) String() string {
 func (*GetUserRequest) ProtoMessage() {}
 
 func (x *GetUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[29]
+	mi := &file_api_services_storage_service_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1653,7 +1524,7 @@ func (x *GetUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUserRequest.ProtoReflect.Descriptor instead.
 func (*GetUserRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{29}
+	return file_api_services_storage_service_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *GetUserRequest) GetId() string {
@@ -1673,7 +1544,7 @@ type UpdateUserRequest struct {
 
 func (x *UpdateUserRequest) Reset() {
 	*x = UpdateUserRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[30]
+	mi := &file_api_services_storage_service_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1685,7 +1556,7 @@ func (x *UpdateUserRequest) String() string {
 func (*UpdateUserRequest) ProtoMessage() {}
 
 func (x *UpdateUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[30]
+	mi := &file_api_services_storage_service_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1698,7 +1569,7 @@ func (x *UpdateUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateUserRequest.ProtoReflect.Descriptor instead.
 func (*UpdateUserRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{30}
+	return file_api_services_storage_service_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *UpdateUserRequest) GetUser() *models.User {
@@ -1724,7 +1595,7 @@ type DeleteUserRequest struct {
 
 func (x *DeleteUserRequest) Reset() {
 	*x = DeleteUserRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[31]
+	mi := &file_api_services_storage_service_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1736,7 +1607,7 @@ func (x *DeleteUserRequest) String() string {
 func (*DeleteUserRequest) ProtoMessage() {}
 
 func (x *DeleteUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[31]
+	mi := &file_api_services_storage_service_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1749,7 +1620,7 @@ func (x *DeleteUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteUserRequest.ProtoReflect.Descriptor instead.
 func (*DeleteUserRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{31}
+	return file_api_services_storage_service_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *DeleteUserRequest) GetId() string {
@@ -1769,7 +1640,7 @@ type CreateAccountRequest struct {
 
 func (x *CreateAccountRequest) Reset() {
 	*x = CreateAccountRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[32]
+	mi := &file_api_services_storage_service_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1781,7 +1652,7 @@ func (x *CreateAccountRequest) String() string {
 func (*CreateAccountRequest) ProtoMessage() {}
 
 func (x *CreateAccountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[32]
+	mi := &file_api_services_storage_service_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1794,7 +1665,7 @@ func (x *CreateAccountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateAccountRequest.ProtoReflect.Descriptor instead.
 func (*CreateAccountRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{32}
+	return file_api_services_storage_service_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *CreateAccountRequest) GetAccount() *models.Account {
@@ -1813,7 +1684,7 @@ type GetAccountRequest struct {
 
 func (x *GetAccountRequest) Reset() {
 	*x = GetAccountRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[33]
+	mi := &file_api_services_storage_service_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1825,7 +1696,7 @@ func (x *GetAccountRequest) String() string {
 func (*GetAccountRequest) ProtoMessage() {}
 
 func (x *GetAccountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[33]
+	mi := &file_api_services_storage_service_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1838,7 +1709,7 @@ func (x *GetAccountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAccountRequest.ProtoReflect.Descriptor instead.
 func (*GetAccountRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{33}
+	return file_api_services_storage_service_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *GetAccountRequest) GetId() string {
@@ -1858,7 +1729,7 @@ type UpdateAccountRequest struct {
 
 func (x *UpdateAccountRequest) Reset() {
 	*x = UpdateAccountRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[34]
+	mi := &file_api_services_storage_service_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1870,7 +1741,7 @@ func (x *UpdateAccountRequest) String() string {
 func (*UpdateAccountRequest) ProtoMessage() {}
 
 func (x *UpdateAccountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[34]
+	mi := &file_api_services_storage_service_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1883,7 +1754,7 @@ func (x *UpdateAccountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateAccountRequest.ProtoReflect.Descriptor instead.
 func (*UpdateAccountRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{34}
+	return file_api_services_storage_service_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *UpdateAccountRequest) GetAccount() *models.Account {
@@ -1909,7 +1780,7 @@ type DeleteAccountRequest struct {
 
 func (x *DeleteAccountRequest) Reset() {
 	*x = DeleteAccountRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[35]
+	mi := &file_api_services_storage_service_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1921,7 +1792,7 @@ func (x *DeleteAccountRequest) String() string {
 func (*DeleteAccountRequest) ProtoMessage() {}
 
 func (x *DeleteAccountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[35]
+	mi := &file_api_services_storage_service_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1934,7 +1805,7 @@ func (x *DeleteAccountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteAccountRequest.ProtoReflect.Descriptor instead.
 func (*DeleteAccountRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{35}
+	return file_api_services_storage_service_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *DeleteAccountRequest) GetId() string {
@@ -1946,17 +1817,17 @@ func (x *DeleteAccountRequest) GetId() string {
 
 type ListAccountsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"` // Filter by user
-	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`                   // Optional: Filter by AccountType (use string representation or the enum number)
-	PageSize      int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	PageToken     string                 `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	UserId        *string                `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`        // Filter by user
+	Type          *models.AccountType    `protobuf:"varint,2,opt,name=type,proto3,enum=models.AccountType,oneof" json:"type,omitempty"` // Filter by AccountType
+	PageSize      *int32                 `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
+	PageToken     *string                `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListAccountsRequest) Reset() {
 	*x = ListAccountsRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[36]
+	mi := &file_api_services_storage_service_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1968,7 +1839,7 @@ func (x *ListAccountsRequest) String() string {
 func (*ListAccountsRequest) ProtoMessage() {}
 
 func (x *ListAccountsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[36]
+	mi := &file_api_services_storage_service_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1981,33 +1852,33 @@ func (x *ListAccountsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAccountsRequest.ProtoReflect.Descriptor instead.
 func (*ListAccountsRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{36}
+	return file_api_services_storage_service_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ListAccountsRequest) GetUserId() string {
-	if x != nil {
-		return x.UserId
+	if x != nil && x.UserId != nil {
+		return *x.UserId
 	}
 	return ""
 }
 
-func (x *ListAccountsRequest) GetType() string {
-	if x != nil {
-		return x.Type
+func (x *ListAccountsRequest) GetType() models.AccountType {
+	if x != nil && x.Type != nil {
+		return *x.Type
 	}
-	return ""
+	return models.AccountType(0)
 }
 
 func (x *ListAccountsRequest) GetPageSize() int32 {
-	if x != nil {
-		return x.PageSize
+	if x != nil && x.PageSize != nil {
+		return *x.PageSize
 	}
 	return 0
 }
 
 func (x *ListAccountsRequest) GetPageToken() string {
-	if x != nil {
-		return x.PageToken
+	if x != nil && x.PageToken != nil {
+		return *x.PageToken
 	}
 	return ""
 }
@@ -2022,7 +1893,7 @@ type ListAccountsResponse struct {
 
 func (x *ListAccountsResponse) Reset() {
 	*x = ListAccountsResponse{}
-	mi := &file_api_services_storage_service_proto_msgTypes[37]
+	mi := &file_api_services_storage_service_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2034,7 +1905,7 @@ func (x *ListAccountsResponse) String() string {
 func (*ListAccountsResponse) ProtoMessage() {}
 
 func (x *ListAccountsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[37]
+	mi := &file_api_services_storage_service_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2047,7 +1918,7 @@ func (x *ListAccountsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAccountsResponse.ProtoReflect.Descriptor instead.
 func (*ListAccountsResponse) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{37}
+	return file_api_services_storage_service_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ListAccountsResponse) GetAccounts() []*models.Account {
@@ -2074,7 +1945,7 @@ type CreateTransactionRequest struct {
 
 func (x *CreateTransactionRequest) Reset() {
 	*x = CreateTransactionRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[38]
+	mi := &file_api_services_storage_service_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2086,7 +1957,7 @@ func (x *CreateTransactionRequest) String() string {
 func (*CreateTransactionRequest) ProtoMessage() {}
 
 func (x *CreateTransactionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[38]
+	mi := &file_api_services_storage_service_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2099,7 +1970,7 @@ func (x *CreateTransactionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateTransactionRequest.ProtoReflect.Descriptor instead.
 func (*CreateTransactionRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{38}
+	return file_api_services_storage_service_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *CreateTransactionRequest) GetTransaction() *models.Transaction {
@@ -2118,7 +1989,7 @@ type GetTransactionRequest struct {
 
 func (x *GetTransactionRequest) Reset() {
 	*x = GetTransactionRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[39]
+	mi := &file_api_services_storage_service_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2130,7 +2001,7 @@ func (x *GetTransactionRequest) String() string {
 func (*GetTransactionRequest) ProtoMessage() {}
 
 func (x *GetTransactionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[39]
+	mi := &file_api_services_storage_service_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2143,7 +2014,7 @@ func (x *GetTransactionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTransactionRequest.ProtoReflect.Descriptor instead.
 func (*GetTransactionRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{39}
+	return file_api_services_storage_service_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *GetTransactionRequest) GetId() string {
@@ -2163,7 +2034,7 @@ type UpdateTransactionRequest struct {
 
 func (x *UpdateTransactionRequest) Reset() {
 	*x = UpdateTransactionRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[40]
+	mi := &file_api_services_storage_service_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2175,7 +2046,7 @@ func (x *UpdateTransactionRequest) String() string {
 func (*UpdateTransactionRequest) ProtoMessage() {}
 
 func (x *UpdateTransactionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[40]
+	mi := &file_api_services_storage_service_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2188,7 +2059,7 @@ func (x *UpdateTransactionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateTransactionRequest.ProtoReflect.Descriptor instead.
 func (*UpdateTransactionRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{40}
+	return file_api_services_storage_service_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *UpdateTransactionRequest) GetTransaction() *models.Transaction {
@@ -2207,23 +2078,21 @@ func (x *UpdateTransactionRequest) GetUpdateMask() *fieldmaskpb.FieldMask {
 
 // message DeleteTransactionRequest { string id = 1; }
 type ListTransactionsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	PortfolioId   string                 `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"` // Primary filter
-	AccountId     string                 `protobuf:"bytes,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`       // Optional filter
-	AssetId       string                 `protobuf:"bytes,3,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`             // Optional filter
-	Type          string                 `protobuf:"bytes,4,opt,name=type,proto3" json:"type,omitempty"`                                  // Optional: Filter by TransactionType
-	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`                              // Optional: Filter by TransactionStatus
-	From          *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=from,proto3" json:"from,omitempty"`                                  // Optional time range filter
-	To            *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=to,proto3" json:"to,omitempty"`
-	PageSize      int32                  `protobuf:"varint,8,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	PageToken     string                 `protobuf:"bytes,9,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	state         protoimpl.MessageState    `protogen:"open.v1"`
+	Type          *models.TransactionType   `protobuf:"varint,1,opt,name=type,proto3,enum=models.TransactionType,oneof" json:"type,omitempty"`
+	Status        *models.TransactionStatus `protobuf:"varint,2,opt,name=status,proto3,enum=models.TransactionStatus,oneof" json:"status,omitempty"`
+	AccountId     *string                   `protobuf:"bytes,3,opt,name=account_id,json=accountId,proto3,oneof" json:"account_id,omitempty"`
+	From          *timestamppb.Timestamp    `protobuf:"bytes,4,opt,name=from,proto3,oneof" json:"from,omitempty"`
+	To            *timestamppb.Timestamp    `protobuf:"bytes,5,opt,name=to,proto3,oneof" json:"to,omitempty"`
+	PageSize      *int32                    `protobuf:"varint,6,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
+	PageToken     *string                   `protobuf:"bytes,7,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListTransactionsRequest) Reset() {
 	*x = ListTransactionsRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[41]
+	mi := &file_api_services_storage_service_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2235,7 +2104,7 @@ func (x *ListTransactionsRequest) String() string {
 func (*ListTransactionsRequest) ProtoMessage() {}
 
 func (x *ListTransactionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[41]
+	mi := &file_api_services_storage_service_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2248,40 +2117,26 @@ func (x *ListTransactionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTransactionsRequest.ProtoReflect.Descriptor instead.
 func (*ListTransactionsRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{41}
+	return file_api_services_storage_service_proto_rawDescGZIP(), []int{39}
 }
 
-func (x *ListTransactionsRequest) GetPortfolioId() string {
-	if x != nil {
-		return x.PortfolioId
+func (x *ListTransactionsRequest) GetType() models.TransactionType {
+	if x != nil && x.Type != nil {
+		return *x.Type
 	}
-	return ""
+	return models.TransactionType(0)
+}
+
+func (x *ListTransactionsRequest) GetStatus() models.TransactionStatus {
+	if x != nil && x.Status != nil {
+		return *x.Status
+	}
+	return models.TransactionStatus(0)
 }
 
 func (x *ListTransactionsRequest) GetAccountId() string {
-	if x != nil {
-		return x.AccountId
-	}
-	return ""
-}
-
-func (x *ListTransactionsRequest) GetAssetId() string {
-	if x != nil {
-		return x.AssetId
-	}
-	return ""
-}
-
-func (x *ListTransactionsRequest) GetType() string {
-	if x != nil {
-		return x.Type
-	}
-	return ""
-}
-
-func (x *ListTransactionsRequest) GetStatus() string {
-	if x != nil {
-		return x.Status
+	if x != nil && x.AccountId != nil {
+		return *x.AccountId
 	}
 	return ""
 }
@@ -2301,15 +2156,15 @@ func (x *ListTransactionsRequest) GetTo() *timestamppb.Timestamp {
 }
 
 func (x *ListTransactionsRequest) GetPageSize() int32 {
-	if x != nil {
-		return x.PageSize
+	if x != nil && x.PageSize != nil {
+		return *x.PageSize
 	}
 	return 0
 }
 
 func (x *ListTransactionsRequest) GetPageToken() string {
-	if x != nil {
-		return x.PageToken
+	if x != nil && x.PageToken != nil {
+		return *x.PageToken
 	}
 	return ""
 }
@@ -2324,7 +2179,7 @@ type ListTransactionsResponse struct {
 
 func (x *ListTransactionsResponse) Reset() {
 	*x = ListTransactionsResponse{}
-	mi := &file_api_services_storage_service_proto_msgTypes[42]
+	mi := &file_api_services_storage_service_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2336,7 +2191,7 @@ func (x *ListTransactionsResponse) String() string {
 func (*ListTransactionsResponse) ProtoMessage() {}
 
 func (x *ListTransactionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[42]
+	mi := &file_api_services_storage_service_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2349,7 +2204,7 @@ func (x *ListTransactionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTransactionsResponse.ProtoReflect.Descriptor instead.
 func (*ListTransactionsResponse) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{42}
+	return file_api_services_storage_service_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ListTransactionsResponse) GetTransactions() []*models.Transaction {
@@ -2380,13 +2235,15 @@ const file_api_services_storage_service_proto_rawDesc = "" +
 	"\vupdate_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
 	"updateMask\"$\n" +
 	"\x12DeleteAssetRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"|\n" +
-	"\x11ListAssetsRequest\x12\x1b\n" +
-	"\tpage_size\x18\x01 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x8a\x01\n" +
+	"\x11ListAssetsRequest\x12 \n" +
+	"\tpage_size\x18\x01 \x01(\x05H\x00R\bpageSize\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"page_token\x18\x02 \x01(\tR\tpageToken\x12\x12\n" +
-	"\x04tags\x18\x03 \x03(\tR\x04tags\x12\x17\n" +
-	"\auser_id\x18\x04 \x01(\tR\x06userId\"c\n" +
+	"page_token\x18\x02 \x01(\tH\x01R\tpageToken\x88\x01\x01\x12\x12\n" +
+	"\x04tags\x18\x03 \x03(\tR\x04tagsB\f\n" +
+	"\n" +
+	"_page_sizeB\r\n" +
+	"\v_page_token\"c\n" +
 	"\x12ListAssetsResponse\x12%\n" +
 	"\x06assets\x18\x01 \x03(\v2\r.models.AssetR\x06assets\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"9\n" +
@@ -2395,38 +2252,63 @@ const file_api_services_storage_service_proto_rawDesc = "" +
 	"\x13CreatePricesRequest\x12%\n" +
 	"\x06prices\x18\x01 \x03(\v2\r.models.PriceR\x06prices\";\n" +
 	"\x14CreatePricesResponse\x12#\n" +
-	"\rcreated_count\x18\x01 \x01(\x05R\fcreatedCount\"s\n" +
+	"\rcreated_count\x18\x01 \x01(\x05R\fcreatedCount\"\x86\x01\n" +
 	"\x15GetLatestPriceRequest\x12\x19\n" +
 	"\basset_id\x18\x01 \x01(\tR\aassetId\x12\"\n" +
-	"\rbase_asset_id\x18\x02 \x01(\tR\vbaseAssetId\x12\x1b\n" +
-	"\tsource_id\x18\x03 \x01(\tR\bsourceId\"\x8d\x02\n" +
+	"\rbase_asset_id\x18\x02 \x01(\tR\vbaseAssetId\x12 \n" +
+	"\tsource_id\x18\x03 \x01(\tH\x00R\bsourceId\x88\x01\x01B\f\n" +
+	"\n" +
+	"_source_id\"\xe1\x02\n" +
 	"\x17ListPriceHistoryRequest\x12\x19\n" +
 	"\basset_id\x18\x01 \x01(\tR\aassetId\x12\"\n" +
-	"\rbase_asset_id\x18\x02 \x01(\tR\vbaseAssetId\x12.\n" +
-	"\x04from\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x04from\x12*\n" +
-	"\x02to\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x02to\x12\x1b\n" +
-	"\tsource_id\x18\x05 \x01(\tR\bsourceId\x12\x1b\n" +
-	"\tpage_size\x18\x06 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"\rbase_asset_id\x18\x02 \x01(\tR\vbaseAssetId\x123\n" +
+	"\x04from\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampH\x00R\x04from\x88\x01\x01\x12/\n" +
+	"\x02to\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampH\x01R\x02to\x88\x01\x01\x12 \n" +
+	"\tsource_id\x18\x05 \x01(\tH\x02R\bsourceId\x88\x01\x01\x12 \n" +
+	"\tpage_size\x18\x06 \x01(\x05H\x03R\bpageSize\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"page_token\x18\a \x01(\tR\tpageToken\"i\n" +
+	"page_token\x18\a \x01(\tH\x04R\tpageToken\x88\x01\x01B\a\n" +
+	"\x05_fromB\x05\n" +
+	"\x03_toB\f\n" +
+	"\n" +
+	"_source_idB\f\n" +
+	"\n" +
+	"_page_sizeB\r\n" +
+	"\v_page_token\"i\n" +
 	"\x18ListPriceHistoryResponse\x12%\n" +
 	"\x06prices\x18\x01 \x03(\v2\r.models.PriceR\x06prices\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xf1\x01\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x81\x03\n" +
 	"\x1bListPricesByIntervalRequest\x12\x19\n" +
 	"\basset_id\x18\x01 \x01(\tR\aassetId\x12\"\n" +
-	"\rbase_asset_id\x18\x02 \x01(\tR\vbaseAssetId\x12.\n" +
-	"\x04from\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x04from\x12*\n" +
-	"\x02to\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x02to\x12\x1a\n" +
-	"\binterval\x18\x05 \x01(\tR\binterval\x12\x1b\n" +
-	"\tsource_id\x18\x06 \x01(\tR\bsourceId\"$\n" +
+	"\rbase_asset_id\x18\x02 \x01(\tR\vbaseAssetId\x123\n" +
+	"\x04from\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampH\x00R\x04from\x88\x01\x01\x12/\n" +
+	"\x02to\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampH\x01R\x02to\x88\x01\x01\x12\x1a\n" +
+	"\binterval\x18\x05 \x01(\tR\binterval\x12 \n" +
+	"\tsource_id\x18\x06 \x01(\tH\x02R\bsourceId\x88\x01\x01\x12 \n" +
+	"\tpage_size\x18\a \x01(\x05H\x03R\bpageSize\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"page_token\x18\b \x01(\tH\x04R\tpageToken\x88\x01\x01B\a\n" +
+	"\x05_fromB\x05\n" +
+	"\x03_toB\f\n" +
+	"\n" +
+	"_source_idB\f\n" +
+	"\n" +
+	"_page_sizeB\r\n" +
+	"\v_page_token\"$\n" +
 	"\x12DeletePriceRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xcd\x01\n" +
-	"\x13DeletePricesRequest\x12\x19\n" +
-	"\basset_id\x18\x01 \x01(\tR\aassetId\x12\"\n" +
-	"\rbase_asset_id\x18\x02 \x01(\tR\vbaseAssetId\x12.\n" +
-	"\x04from\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x04from\x12*\n" +
-	"\x02to\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x02to\x12\x1b\n" +
-	"\tsource_id\x18\x05 \x01(\tR\bsourceId\"I\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xa3\x02\n" +
+	"\x13DeletePricesRequest\x12\x1e\n" +
+	"\basset_id\x18\x01 \x01(\tH\x00R\aassetId\x88\x01\x01\x12'\n" +
+	"\rbase_asset_id\x18\x02 \x01(\tH\x01R\vbaseAssetId\x88\x01\x01\x123\n" +
+	"\x04from\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampH\x02R\x04from\x88\x01\x01\x12/\n" +
+	"\x02to\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampH\x03R\x02to\x88\x01\x01\x12 \n" +
+	"\tsource_id\x18\x05 \x01(\tH\x04R\bsourceId\x88\x01\x01B\v\n" +
+	"\t_asset_idB\x10\n" +
+	"\x0e_base_asset_idB\a\n" +
+	"\x05_fromB\x05\n" +
+	"\x03_toB\f\n" +
+	"\n" +
+	"_source_id\"I\n" +
 	"\x16CreatePortfolioRequest\x12/\n" +
 	"\tportfolio\x18\x01 \x01(\v2\x11.models.PortfolioR\tportfolio\"%\n" +
 	"\x13GetPortfolioRequest\x12\x0e\n" +
@@ -2436,12 +2318,17 @@ const file_api_services_storage_service_proto_rawDesc = "" +
 	"\vupdate_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
 	"updateMask\"(\n" +
 	"\x16DeletePortfolioRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"l\n" +
-	"\x15ListPortfoliosRequest\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1b\n" +
-	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xa4\x01\n" +
+	"\x15ListPortfoliosRequest\x12\x1c\n" +
+	"\auser_id\x18\x01 \x01(\tH\x00R\x06userId\x88\x01\x01\x12 \n" +
+	"\tpage_size\x18\x02 \x01(\x05H\x01R\bpageSize\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"page_token\x18\x03 \x01(\tR\tpageToken\"s\n" +
+	"page_token\x18\x03 \x01(\tH\x02R\tpageToken\x88\x01\x01B\n" +
+	"\n" +
+	"\b_user_idB\f\n" +
+	"\n" +
+	"_page_sizeB\r\n" +
+	"\v_page_token\"s\n" +
 	"\x16ListPortfoliosResponse\x121\n" +
 	"\n" +
 	"portfolios\x18\x01 \x03(\v2\x11.models.PortfolioR\n" +
@@ -2454,27 +2341,22 @@ const file_api_services_storage_service_proto_rawDesc = "" +
 	"\x14UpdateHoldingRequest\x12)\n" +
 	"\aholding\x18\x01 \x01(\v2\x0f.models.HoldingR\aholding\x12;\n" +
 	"\vupdate_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
-	"updateMask\"\xae\x01\n" +
-	"\x13ListHoldingsRequest\x12!\n" +
-	"\fportfolio_id\x18\x01 \x01(\tR\vportfolioId\x12\x1d\n" +
+	"updateMask\"\x91\x02\n" +
+	"\x13ListHoldingsRequest\x12&\n" +
+	"\fportfolio_id\x18\x01 \x01(\tH\x00R\vportfolioId\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"account_id\x18\x02 \x01(\tR\taccountId\x12\x19\n" +
-	"\basset_id\x18\x03 \x01(\tR\aassetId\x12\x1b\n" +
-	"\tpage_size\x18\x04 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"account_id\x18\x02 \x01(\tH\x01R\taccountId\x88\x01\x01\x12\x1e\n" +
+	"\basset_id\x18\x03 \x01(\tH\x02R\aassetId\x88\x01\x01\x12 \n" +
+	"\tpage_size\x18\x04 \x01(\x05H\x03R\bpageSize\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"page_token\x18\x05 \x01(\tR\tpageToken\"k\n" +
+	"page_token\x18\x05 \x01(\tH\x04R\tpageToken\x88\x01\x01B\x0f\n" +
+	"\r_portfolio_idB\r\n" +
+	"\v_account_idB\v\n" +
+	"\t_asset_idB\f\n" +
+	"\n" +
+	"_page_sizeB\r\n" +
+	"\v_page_token\"k\n" +
 	"\x14ListHoldingsResponse\x12+\n" +
-	"\bholdings\x18\x01 \x03(\v2\x0f.models.HoldingR\bholdings\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xf1\x01\n" +
-	"\x19ListHoldingHistoryRequest\x12!\n" +
-	"\fportfolio_id\x18\x01 \x01(\tR\vportfolioId\x12\x19\n" +
-	"\basset_id\x18\x02 \x01(\tR\aassetId\x12.\n" +
-	"\x04from\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x04from\x12*\n" +
-	"\x02to\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x02to\x12\x1b\n" +
-	"\tpage_size\x18\x05 \x01(\x05R\bpageSize\x12\x1d\n" +
-	"\n" +
-	"page_token\x18\x06 \x01(\tR\tpageToken\"q\n" +
-	"\x1aListHoldingHistoryResponse\x12+\n" +
 	"\bholdings\x18\x01 \x03(\v2\x0f.models.HoldingR\bholdings\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"5\n" +
 	"\x11CreateUserRequest\x12 \n" +
@@ -2496,13 +2378,19 @@ const file_api_services_storage_service_proto_rawDesc = "" +
 	"\vupdate_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
 	"updateMask\"&\n" +
 	"\x14DeleteAccountRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"~\n" +
-	"\x13ListAccountsRequest\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x12\n" +
-	"\x04type\x18\x02 \x01(\tR\x04type\x12\x1b\n" +
-	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xd9\x01\n" +
+	"\x13ListAccountsRequest\x12\x1c\n" +
+	"\auser_id\x18\x01 \x01(\tH\x00R\x06userId\x88\x01\x01\x12,\n" +
+	"\x04type\x18\x02 \x01(\x0e2\x13.models.AccountTypeH\x01R\x04type\x88\x01\x01\x12 \n" +
+	"\tpage_size\x18\x03 \x01(\x05H\x02R\bpageSize\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"page_token\x18\x04 \x01(\tR\tpageToken\"k\n" +
+	"page_token\x18\x04 \x01(\tH\x03R\tpageToken\x88\x01\x01B\n" +
+	"\n" +
+	"\b_user_idB\a\n" +
+	"\x05_typeB\f\n" +
+	"\n" +
+	"_page_sizeB\r\n" +
+	"\v_page_token\"k\n" +
 	"\x14ListAccountsResponse\x12+\n" +
 	"\baccounts\x18\x01 \x03(\v2\x0f.models.AccountR\baccounts\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"Q\n" +
@@ -2513,22 +2401,28 @@ const file_api_services_storage_service_proto_rawDesc = "" +
 	"\x18UpdateTransactionRequest\x125\n" +
 	"\vtransaction\x18\x01 \x01(\v2\x13.models.TransactionR\vtransaction\x12;\n" +
 	"\vupdate_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
-	"updateMask\"\xba\x02\n" +
-	"\x17ListTransactionsRequest\x12!\n" +
-	"\fportfolio_id\x18\x01 \x01(\tR\vportfolioId\x12\x1d\n" +
+	"updateMask\"\xa3\x03\n" +
+	"\x17ListTransactionsRequest\x120\n" +
+	"\x04type\x18\x01 \x01(\x0e2\x17.models.TransactionTypeH\x00R\x04type\x88\x01\x01\x126\n" +
+	"\x06status\x18\x02 \x01(\x0e2\x19.models.TransactionStatusH\x01R\x06status\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"account_id\x18\x02 \x01(\tR\taccountId\x12\x19\n" +
-	"\basset_id\x18\x03 \x01(\tR\aassetId\x12\x12\n" +
-	"\x04type\x18\x04 \x01(\tR\x04type\x12\x16\n" +
-	"\x06status\x18\x05 \x01(\tR\x06status\x12.\n" +
-	"\x04from\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\x04from\x12*\n" +
-	"\x02to\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\x02to\x12\x1b\n" +
-	"\tpage_size\x18\b \x01(\x05R\bpageSize\x12\x1d\n" +
+	"account_id\x18\x03 \x01(\tH\x02R\taccountId\x88\x01\x01\x123\n" +
+	"\x04from\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampH\x03R\x04from\x88\x01\x01\x12/\n" +
+	"\x02to\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampH\x04R\x02to\x88\x01\x01\x12 \n" +
+	"\tpage_size\x18\x06 \x01(\x05H\x05R\bpageSize\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"page_token\x18\t \x01(\tR\tpageToken\"{\n" +
+	"page_token\x18\a \x01(\tH\x06R\tpageToken\x88\x01\x01B\a\n" +
+	"\x05_typeB\t\n" +
+	"\a_statusB\r\n" +
+	"\v_account_idB\a\n" +
+	"\x05_fromB\x05\n" +
+	"\x03_toB\f\n" +
+	"\n" +
+	"_page_sizeB\r\n" +
+	"\v_page_token\"{\n" +
 	"\x18ListTransactionsResponse\x127\n" +
 	"\ftransactions\x18\x01 \x03(\v2\x13.models.TransactionR\ftransactions\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken2\xc6\x13\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken2\xe5\x12\n" +
 	"\x0eStorageService\x12:\n" +
 	"\vCreateAsset\x12\x1c.services.CreateAssetRequest\x1a\r.models.Asset\x124\n" +
 	"\bGetAsset\x12\x19.services.GetAssetRequest\x1a\r.models.Asset\x12:\n" +
@@ -2552,8 +2446,7 @@ const file_api_services_storage_service_proto_rawDesc = "" +
 	"\n" +
 	"GetHolding\x12\x1b.services.GetHoldingRequest\x1a\x0f.models.Holding\x12@\n" +
 	"\rUpdateHolding\x12\x1e.services.UpdateHoldingRequest\x1a\x0f.models.Holding\x12M\n" +
-	"\fListHoldings\x12\x1d.services.ListHoldingsRequest\x1a\x1e.services.ListHoldingsResponse\x12_\n" +
-	"\x12ListHoldingHistory\x12#.services.ListHoldingHistoryRequest\x1a$.services.ListHoldingHistoryResponse\x127\n" +
+	"\fListHoldings\x12\x1d.services.ListHoldingsRequest\x1a\x1e.services.ListHoldingsResponse\x127\n" +
 	"\n" +
 	"CreateUser\x12\x1b.services.CreateUserRequest\x1a\f.models.User\x121\n" +
 	"\aGetUser\x12\x18.services.GetUserRequest\x1a\f.models.User\x127\n" +
@@ -2584,7 +2477,7 @@ func file_api_services_storage_service_proto_rawDescGZIP() []byte {
 	return file_api_services_storage_service_proto_rawDescData
 }
 
-var file_api_services_storage_service_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
+var file_api_services_storage_service_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
 var file_api_services_storage_service_proto_goTypes = []any{
 	(*CreateAssetRequest)(nil),          // 0: services.CreateAssetRequest
 	(*GetAssetRequest)(nil),             // 1: services.GetAssetRequest
@@ -2612,72 +2505,73 @@ var file_api_services_storage_service_proto_goTypes = []any{
 	(*UpdateHoldingRequest)(nil),        // 23: services.UpdateHoldingRequest
 	(*ListHoldingsRequest)(nil),         // 24: services.ListHoldingsRequest
 	(*ListHoldingsResponse)(nil),        // 25: services.ListHoldingsResponse
-	(*ListHoldingHistoryRequest)(nil),   // 26: services.ListHoldingHistoryRequest
-	(*ListHoldingHistoryResponse)(nil),  // 27: services.ListHoldingHistoryResponse
-	(*CreateUserRequest)(nil),           // 28: services.CreateUserRequest
-	(*GetUserRequest)(nil),              // 29: services.GetUserRequest
-	(*UpdateUserRequest)(nil),           // 30: services.UpdateUserRequest
-	(*DeleteUserRequest)(nil),           // 31: services.DeleteUserRequest
-	(*CreateAccountRequest)(nil),        // 32: services.CreateAccountRequest
-	(*GetAccountRequest)(nil),           // 33: services.GetAccountRequest
-	(*UpdateAccountRequest)(nil),        // 34: services.UpdateAccountRequest
-	(*DeleteAccountRequest)(nil),        // 35: services.DeleteAccountRequest
-	(*ListAccountsRequest)(nil),         // 36: services.ListAccountsRequest
-	(*ListAccountsResponse)(nil),        // 37: services.ListAccountsResponse
-	(*CreateTransactionRequest)(nil),    // 38: services.CreateTransactionRequest
-	(*GetTransactionRequest)(nil),       // 39: services.GetTransactionRequest
-	(*UpdateTransactionRequest)(nil),    // 40: services.UpdateTransactionRequest
-	(*ListTransactionsRequest)(nil),     // 41: services.ListTransactionsRequest
-	(*ListTransactionsResponse)(nil),    // 42: services.ListTransactionsResponse
-	(*models.Asset)(nil),                // 43: models.Asset
-	(*fieldmaskpb.FieldMask)(nil),       // 44: google.protobuf.FieldMask
-	(*models.Price)(nil),                // 45: models.Price
-	(*timestamppb.Timestamp)(nil),       // 46: google.protobuf.Timestamp
-	(*models.Portfolio)(nil),            // 47: models.Portfolio
-	(*models.Holding)(nil),              // 48: models.Holding
-	(*models.User)(nil),                 // 49: models.User
-	(*models.Account)(nil),              // 50: models.Account
-	(*models.Transaction)(nil),          // 51: models.Transaction
-	(*emptypb.Empty)(nil),               // 52: google.protobuf.Empty
+	(*CreateUserRequest)(nil),           // 26: services.CreateUserRequest
+	(*GetUserRequest)(nil),              // 27: services.GetUserRequest
+	(*UpdateUserRequest)(nil),           // 28: services.UpdateUserRequest
+	(*DeleteUserRequest)(nil),           // 29: services.DeleteUserRequest
+	(*CreateAccountRequest)(nil),        // 30: services.CreateAccountRequest
+	(*GetAccountRequest)(nil),           // 31: services.GetAccountRequest
+	(*UpdateAccountRequest)(nil),        // 32: services.UpdateAccountRequest
+	(*DeleteAccountRequest)(nil),        // 33: services.DeleteAccountRequest
+	(*ListAccountsRequest)(nil),         // 34: services.ListAccountsRequest
+	(*ListAccountsResponse)(nil),        // 35: services.ListAccountsResponse
+	(*CreateTransactionRequest)(nil),    // 36: services.CreateTransactionRequest
+	(*GetTransactionRequest)(nil),       // 37: services.GetTransactionRequest
+	(*UpdateTransactionRequest)(nil),    // 38: services.UpdateTransactionRequest
+	(*ListTransactionsRequest)(nil),     // 39: services.ListTransactionsRequest
+	(*ListTransactionsResponse)(nil),    // 40: services.ListTransactionsResponse
+	(*models.Asset)(nil),                // 41: models.Asset
+	(*fieldmaskpb.FieldMask)(nil),       // 42: google.protobuf.FieldMask
+	(*models.Price)(nil),                // 43: models.Price
+	(*timestamppb.Timestamp)(nil),       // 44: google.protobuf.Timestamp
+	(*models.Portfolio)(nil),            // 45: models.Portfolio
+	(*models.Holding)(nil),              // 46: models.Holding
+	(*models.User)(nil),                 // 47: models.User
+	(*models.Account)(nil),              // 48: models.Account
+	(models.AccountType)(0),             // 49: models.AccountType
+	(*models.Transaction)(nil),          // 50: models.Transaction
+	(models.TransactionType)(0),         // 51: models.TransactionType
+	(models.TransactionStatus)(0),       // 52: models.TransactionStatus
+	(*emptypb.Empty)(nil),               // 53: google.protobuf.Empty
 }
 var file_api_services_storage_service_proto_depIdxs = []int32{
-	43, // 0: services.CreateAssetRequest.asset:type_name -> models.Asset
-	43, // 1: services.UpdateAssetRequest.asset:type_name -> models.Asset
-	44, // 2: services.UpdateAssetRequest.update_mask:type_name -> google.protobuf.FieldMask
-	43, // 3: services.ListAssetsResponse.assets:type_name -> models.Asset
-	45, // 4: services.CreatePriceRequest.price:type_name -> models.Price
-	45, // 5: services.CreatePricesRequest.prices:type_name -> models.Price
-	46, // 6: services.ListPriceHistoryRequest.from:type_name -> google.protobuf.Timestamp
-	46, // 7: services.ListPriceHistoryRequest.to:type_name -> google.protobuf.Timestamp
-	45, // 8: services.ListPriceHistoryResponse.prices:type_name -> models.Price
-	46, // 9: services.ListPricesByIntervalRequest.from:type_name -> google.protobuf.Timestamp
-	46, // 10: services.ListPricesByIntervalRequest.to:type_name -> google.protobuf.Timestamp
-	46, // 11: services.DeletePricesRequest.from:type_name -> google.protobuf.Timestamp
-	46, // 12: services.DeletePricesRequest.to:type_name -> google.protobuf.Timestamp
-	47, // 13: services.CreatePortfolioRequest.portfolio:type_name -> models.Portfolio
-	47, // 14: services.UpdatePortfolioRequest.portfolio:type_name -> models.Portfolio
-	44, // 15: services.UpdatePortfolioRequest.update_mask:type_name -> google.protobuf.FieldMask
-	47, // 16: services.ListPortfoliosResponse.portfolios:type_name -> models.Portfolio
-	48, // 17: services.CreateHoldingRequest.holding:type_name -> models.Holding
-	48, // 18: services.UpdateHoldingRequest.holding:type_name -> models.Holding
-	44, // 19: services.UpdateHoldingRequest.update_mask:type_name -> google.protobuf.FieldMask
-	48, // 20: services.ListHoldingsResponse.holdings:type_name -> models.Holding
-	46, // 21: services.ListHoldingHistoryRequest.from:type_name -> google.protobuf.Timestamp
-	46, // 22: services.ListHoldingHistoryRequest.to:type_name -> google.protobuf.Timestamp
-	48, // 23: services.ListHoldingHistoryResponse.holdings:type_name -> models.Holding
-	49, // 24: services.CreateUserRequest.user:type_name -> models.User
-	49, // 25: services.UpdateUserRequest.user:type_name -> models.User
-	44, // 26: services.UpdateUserRequest.update_mask:type_name -> google.protobuf.FieldMask
-	50, // 27: services.CreateAccountRequest.account:type_name -> models.Account
-	50, // 28: services.UpdateAccountRequest.account:type_name -> models.Account
-	44, // 29: services.UpdateAccountRequest.update_mask:type_name -> google.protobuf.FieldMask
-	50, // 30: services.ListAccountsResponse.accounts:type_name -> models.Account
-	51, // 31: services.CreateTransactionRequest.transaction:type_name -> models.Transaction
-	51, // 32: services.UpdateTransactionRequest.transaction:type_name -> models.Transaction
-	44, // 33: services.UpdateTransactionRequest.update_mask:type_name -> google.protobuf.FieldMask
-	46, // 34: services.ListTransactionsRequest.from:type_name -> google.protobuf.Timestamp
-	46, // 35: services.ListTransactionsRequest.to:type_name -> google.protobuf.Timestamp
-	51, // 36: services.ListTransactionsResponse.transactions:type_name -> models.Transaction
+	41, // 0: services.CreateAssetRequest.asset:type_name -> models.Asset
+	41, // 1: services.UpdateAssetRequest.asset:type_name -> models.Asset
+	42, // 2: services.UpdateAssetRequest.update_mask:type_name -> google.protobuf.FieldMask
+	41, // 3: services.ListAssetsResponse.assets:type_name -> models.Asset
+	43, // 4: services.CreatePriceRequest.price:type_name -> models.Price
+	43, // 5: services.CreatePricesRequest.prices:type_name -> models.Price
+	44, // 6: services.ListPriceHistoryRequest.from:type_name -> google.protobuf.Timestamp
+	44, // 7: services.ListPriceHistoryRequest.to:type_name -> google.protobuf.Timestamp
+	43, // 8: services.ListPriceHistoryResponse.prices:type_name -> models.Price
+	44, // 9: services.ListPricesByIntervalRequest.from:type_name -> google.protobuf.Timestamp
+	44, // 10: services.ListPricesByIntervalRequest.to:type_name -> google.protobuf.Timestamp
+	44, // 11: services.DeletePricesRequest.from:type_name -> google.protobuf.Timestamp
+	44, // 12: services.DeletePricesRequest.to:type_name -> google.protobuf.Timestamp
+	45, // 13: services.CreatePortfolioRequest.portfolio:type_name -> models.Portfolio
+	45, // 14: services.UpdatePortfolioRequest.portfolio:type_name -> models.Portfolio
+	42, // 15: services.UpdatePortfolioRequest.update_mask:type_name -> google.protobuf.FieldMask
+	45, // 16: services.ListPortfoliosResponse.portfolios:type_name -> models.Portfolio
+	46, // 17: services.CreateHoldingRequest.holding:type_name -> models.Holding
+	46, // 18: services.UpdateHoldingRequest.holding:type_name -> models.Holding
+	42, // 19: services.UpdateHoldingRequest.update_mask:type_name -> google.protobuf.FieldMask
+	46, // 20: services.ListHoldingsResponse.holdings:type_name -> models.Holding
+	47, // 21: services.CreateUserRequest.user:type_name -> models.User
+	47, // 22: services.UpdateUserRequest.user:type_name -> models.User
+	42, // 23: services.UpdateUserRequest.update_mask:type_name -> google.protobuf.FieldMask
+	48, // 24: services.CreateAccountRequest.account:type_name -> models.Account
+	48, // 25: services.UpdateAccountRequest.account:type_name -> models.Account
+	42, // 26: services.UpdateAccountRequest.update_mask:type_name -> google.protobuf.FieldMask
+	49, // 27: services.ListAccountsRequest.type:type_name -> models.AccountType
+	48, // 28: services.ListAccountsResponse.accounts:type_name -> models.Account
+	50, // 29: services.CreateTransactionRequest.transaction:type_name -> models.Transaction
+	50, // 30: services.UpdateTransactionRequest.transaction:type_name -> models.Transaction
+	42, // 31: services.UpdateTransactionRequest.update_mask:type_name -> google.protobuf.FieldMask
+	51, // 32: services.ListTransactionsRequest.type:type_name -> models.TransactionType
+	52, // 33: services.ListTransactionsRequest.status:type_name -> models.TransactionStatus
+	44, // 34: services.ListTransactionsRequest.from:type_name -> google.protobuf.Timestamp
+	44, // 35: services.ListTransactionsRequest.to:type_name -> google.protobuf.Timestamp
+	50, // 36: services.ListTransactionsResponse.transactions:type_name -> models.Transaction
 	0,  // 37: services.StorageService.CreateAsset:input_type -> services.CreateAssetRequest
 	1,  // 38: services.StorageService.GetAsset:input_type -> services.GetAssetRequest
 	2,  // 39: services.StorageService.UpdateAsset:input_type -> services.UpdateAssetRequest
@@ -2699,57 +2593,55 @@ var file_api_services_storage_service_proto_depIdxs = []int32{
 	22, // 55: services.StorageService.GetHolding:input_type -> services.GetHoldingRequest
 	23, // 56: services.StorageService.UpdateHolding:input_type -> services.UpdateHoldingRequest
 	24, // 57: services.StorageService.ListHoldings:input_type -> services.ListHoldingsRequest
-	26, // 58: services.StorageService.ListHoldingHistory:input_type -> services.ListHoldingHistoryRequest
-	28, // 59: services.StorageService.CreateUser:input_type -> services.CreateUserRequest
-	29, // 60: services.StorageService.GetUser:input_type -> services.GetUserRequest
-	30, // 61: services.StorageService.UpdateUser:input_type -> services.UpdateUserRequest
-	31, // 62: services.StorageService.DeleteUser:input_type -> services.DeleteUserRequest
-	32, // 63: services.StorageService.CreateAccount:input_type -> services.CreateAccountRequest
-	33, // 64: services.StorageService.GetAccount:input_type -> services.GetAccountRequest
-	34, // 65: services.StorageService.UpdateAccount:input_type -> services.UpdateAccountRequest
-	35, // 66: services.StorageService.DeleteAccount:input_type -> services.DeleteAccountRequest
-	36, // 67: services.StorageService.ListAccounts:input_type -> services.ListAccountsRequest
-	38, // 68: services.StorageService.CreateTransaction:input_type -> services.CreateTransactionRequest
-	39, // 69: services.StorageService.GetTransaction:input_type -> services.GetTransactionRequest
-	40, // 70: services.StorageService.UpdateTransaction:input_type -> services.UpdateTransactionRequest
-	41, // 71: services.StorageService.ListTransactions:input_type -> services.ListTransactionsRequest
-	43, // 72: services.StorageService.CreateAsset:output_type -> models.Asset
-	43, // 73: services.StorageService.GetAsset:output_type -> models.Asset
-	43, // 74: services.StorageService.UpdateAsset:output_type -> models.Asset
-	52, // 75: services.StorageService.DeleteAsset:output_type -> google.protobuf.Empty
-	5,  // 76: services.StorageService.ListAssets:output_type -> services.ListAssetsResponse
-	45, // 77: services.StorageService.CreatePrice:output_type -> models.Price
-	8,  // 78: services.StorageService.CreatePrices:output_type -> services.CreatePricesResponse
-	45, // 79: services.StorageService.GetLatestPrice:output_type -> models.Price
-	11, // 80: services.StorageService.ListPriceHistory:output_type -> services.ListPriceHistoryResponse
-	11, // 81: services.StorageService.ListPricesByInterval:output_type -> services.ListPriceHistoryResponse
-	52, // 82: services.StorageService.DeletePrice:output_type -> google.protobuf.Empty
-	52, // 83: services.StorageService.DeletePrices:output_type -> google.protobuf.Empty
-	47, // 84: services.StorageService.CreatePortfolio:output_type -> models.Portfolio
-	47, // 85: services.StorageService.GetPortfolio:output_type -> models.Portfolio
-	47, // 86: services.StorageService.UpdatePortfolio:output_type -> models.Portfolio
-	52, // 87: services.StorageService.DeletePortfolio:output_type -> google.protobuf.Empty
-	20, // 88: services.StorageService.ListPortfolios:output_type -> services.ListPortfoliosResponse
-	48, // 89: services.StorageService.CreateHolding:output_type -> models.Holding
-	48, // 90: services.StorageService.GetHolding:output_type -> models.Holding
-	48, // 91: services.StorageService.UpdateHolding:output_type -> models.Holding
-	25, // 92: services.StorageService.ListHoldings:output_type -> services.ListHoldingsResponse
-	27, // 93: services.StorageService.ListHoldingHistory:output_type -> services.ListHoldingHistoryResponse
-	49, // 94: services.StorageService.CreateUser:output_type -> models.User
-	49, // 95: services.StorageService.GetUser:output_type -> models.User
-	49, // 96: services.StorageService.UpdateUser:output_type -> models.User
-	52, // 97: services.StorageService.DeleteUser:output_type -> google.protobuf.Empty
-	50, // 98: services.StorageService.CreateAccount:output_type -> models.Account
-	50, // 99: services.StorageService.GetAccount:output_type -> models.Account
-	50, // 100: services.StorageService.UpdateAccount:output_type -> models.Account
-	52, // 101: services.StorageService.DeleteAccount:output_type -> google.protobuf.Empty
-	37, // 102: services.StorageService.ListAccounts:output_type -> services.ListAccountsResponse
-	51, // 103: services.StorageService.CreateTransaction:output_type -> models.Transaction
-	51, // 104: services.StorageService.GetTransaction:output_type -> models.Transaction
-	51, // 105: services.StorageService.UpdateTransaction:output_type -> models.Transaction
-	42, // 106: services.StorageService.ListTransactions:output_type -> services.ListTransactionsResponse
-	72, // [72:107] is the sub-list for method output_type
-	37, // [37:72] is the sub-list for method input_type
+	26, // 58: services.StorageService.CreateUser:input_type -> services.CreateUserRequest
+	27, // 59: services.StorageService.GetUser:input_type -> services.GetUserRequest
+	28, // 60: services.StorageService.UpdateUser:input_type -> services.UpdateUserRequest
+	29, // 61: services.StorageService.DeleteUser:input_type -> services.DeleteUserRequest
+	30, // 62: services.StorageService.CreateAccount:input_type -> services.CreateAccountRequest
+	31, // 63: services.StorageService.GetAccount:input_type -> services.GetAccountRequest
+	32, // 64: services.StorageService.UpdateAccount:input_type -> services.UpdateAccountRequest
+	33, // 65: services.StorageService.DeleteAccount:input_type -> services.DeleteAccountRequest
+	34, // 66: services.StorageService.ListAccounts:input_type -> services.ListAccountsRequest
+	36, // 67: services.StorageService.CreateTransaction:input_type -> services.CreateTransactionRequest
+	37, // 68: services.StorageService.GetTransaction:input_type -> services.GetTransactionRequest
+	38, // 69: services.StorageService.UpdateTransaction:input_type -> services.UpdateTransactionRequest
+	39, // 70: services.StorageService.ListTransactions:input_type -> services.ListTransactionsRequest
+	41, // 71: services.StorageService.CreateAsset:output_type -> models.Asset
+	41, // 72: services.StorageService.GetAsset:output_type -> models.Asset
+	41, // 73: services.StorageService.UpdateAsset:output_type -> models.Asset
+	53, // 74: services.StorageService.DeleteAsset:output_type -> google.protobuf.Empty
+	5,  // 75: services.StorageService.ListAssets:output_type -> services.ListAssetsResponse
+	43, // 76: services.StorageService.CreatePrice:output_type -> models.Price
+	8,  // 77: services.StorageService.CreatePrices:output_type -> services.CreatePricesResponse
+	43, // 78: services.StorageService.GetLatestPrice:output_type -> models.Price
+	11, // 79: services.StorageService.ListPriceHistory:output_type -> services.ListPriceHistoryResponse
+	11, // 80: services.StorageService.ListPricesByInterval:output_type -> services.ListPriceHistoryResponse
+	53, // 81: services.StorageService.DeletePrice:output_type -> google.protobuf.Empty
+	53, // 82: services.StorageService.DeletePrices:output_type -> google.protobuf.Empty
+	45, // 83: services.StorageService.CreatePortfolio:output_type -> models.Portfolio
+	45, // 84: services.StorageService.GetPortfolio:output_type -> models.Portfolio
+	45, // 85: services.StorageService.UpdatePortfolio:output_type -> models.Portfolio
+	53, // 86: services.StorageService.DeletePortfolio:output_type -> google.protobuf.Empty
+	20, // 87: services.StorageService.ListPortfolios:output_type -> services.ListPortfoliosResponse
+	46, // 88: services.StorageService.CreateHolding:output_type -> models.Holding
+	46, // 89: services.StorageService.GetHolding:output_type -> models.Holding
+	46, // 90: services.StorageService.UpdateHolding:output_type -> models.Holding
+	25, // 91: services.StorageService.ListHoldings:output_type -> services.ListHoldingsResponse
+	47, // 92: services.StorageService.CreateUser:output_type -> models.User
+	47, // 93: services.StorageService.GetUser:output_type -> models.User
+	47, // 94: services.StorageService.UpdateUser:output_type -> models.User
+	53, // 95: services.StorageService.DeleteUser:output_type -> google.protobuf.Empty
+	48, // 96: services.StorageService.CreateAccount:output_type -> models.Account
+	48, // 97: services.StorageService.GetAccount:output_type -> models.Account
+	48, // 98: services.StorageService.UpdateAccount:output_type -> models.Account
+	53, // 99: services.StorageService.DeleteAccount:output_type -> google.protobuf.Empty
+	35, // 100: services.StorageService.ListAccounts:output_type -> services.ListAccountsResponse
+	50, // 101: services.StorageService.CreateTransaction:output_type -> models.Transaction
+	50, // 102: services.StorageService.GetTransaction:output_type -> models.Transaction
+	50, // 103: services.StorageService.UpdateTransaction:output_type -> models.Transaction
+	40, // 104: services.StorageService.ListTransactions:output_type -> services.ListTransactionsResponse
+	71, // [71:105] is the sub-list for method output_type
+	37, // [37:71] is the sub-list for method input_type
 	37, // [37:37] is the sub-list for extension type_name
 	37, // [37:37] is the sub-list for extension extendee
 	0,  // [0:37] is the sub-list for field type_name
@@ -2760,13 +2652,22 @@ func file_api_services_storage_service_proto_init() {
 	if File_api_services_storage_service_proto != nil {
 		return
 	}
+	file_api_services_storage_service_proto_msgTypes[4].OneofWrappers = []any{}
+	file_api_services_storage_service_proto_msgTypes[9].OneofWrappers = []any{}
+	file_api_services_storage_service_proto_msgTypes[10].OneofWrappers = []any{}
+	file_api_services_storage_service_proto_msgTypes[12].OneofWrappers = []any{}
+	file_api_services_storage_service_proto_msgTypes[14].OneofWrappers = []any{}
+	file_api_services_storage_service_proto_msgTypes[19].OneofWrappers = []any{}
+	file_api_services_storage_service_proto_msgTypes[24].OneofWrappers = []any{}
+	file_api_services_storage_service_proto_msgTypes[34].OneofWrappers = []any{}
+	file_api_services_storage_service_proto_msgTypes[39].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_services_storage_service_proto_rawDesc), len(file_api_services_storage_service_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   43,
+			NumMessages:   41,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

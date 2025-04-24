@@ -25,10 +25,10 @@ const (
 	FieldBaseAssetID = "base_asset_id"
 	// FieldInterval holds the string denoting the interval field in the database.
 	FieldInterval = "interval"
-	// FieldAmount holds the string denoting the amount field in the database.
-	FieldAmount = "amount"
-	// FieldPrecision holds the string denoting the precision field in the database.
-	FieldPrecision = "precision"
+	// FieldDecimals holds the string denoting the decimals field in the database.
+	FieldDecimals = "decimals"
+	// FieldLast holds the string denoting the last field in the database.
+	FieldLast = "last"
 	// FieldOpen holds the string denoting the open field in the database.
 	FieldOpen = "open"
 	// FieldHigh holds the string denoting the high field in the database.
@@ -39,10 +39,8 @@ const (
 	FieldClose = "close"
 	// FieldVolume holds the string denoting the volume field in the database.
 	FieldVolume = "volume"
-	// FieldCreatedAt holds the string denoting the created_at field in the database.
-	FieldCreatedAt = "created_at"
-	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
-	FieldUpdatedAt = "updated_at"
+	// FieldTimestamp holds the string denoting the timestamp field in the database.
+	FieldTimestamp = "timestamp"
 	// EdgeAsset holds the string denoting the asset edge name in mutations.
 	EdgeAsset = "asset"
 	// EdgeBaseAsset holds the string denoting the base_asset edge name in mutations.
@@ -73,15 +71,14 @@ var Columns = []string{
 	FieldAssetID,
 	FieldBaseAssetID,
 	FieldInterval,
-	FieldAmount,
-	FieldPrecision,
+	FieldDecimals,
+	FieldLast,
 	FieldOpen,
 	FieldHigh,
 	FieldLow,
 	FieldClose,
 	FieldVolume,
-	FieldCreatedAt,
-	FieldUpdatedAt,
+	FieldTimestamp,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -97,12 +94,8 @@ func ValidColumn(column string) bool {
 var (
 	// DefaultUUID holds the default value on creation for the "uuid" field.
 	DefaultUUID func() uuid.UUID
-	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
-	DefaultCreatedAt func() time.Time
-	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.
-	DefaultUpdatedAt func() time.Time
-	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
-	UpdateDefaultUpdatedAt func() time.Time
+	// DefaultTimestamp holds the default value on creation for the "timestamp" field.
+	DefaultTimestamp func() time.Time
 )
 
 // OrderOption defines the ordering options for the Price queries.
@@ -138,14 +131,14 @@ func ByInterval(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldInterval, opts...).ToFunc()
 }
 
-// ByAmount orders the results by the amount field.
-func ByAmount(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldAmount, opts...).ToFunc()
+// ByDecimals orders the results by the decimals field.
+func ByDecimals(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDecimals, opts...).ToFunc()
 }
 
-// ByPrecision orders the results by the precision field.
-func ByPrecision(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldPrecision, opts...).ToFunc()
+// ByLast orders the results by the last field.
+func ByLast(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldLast, opts...).ToFunc()
 }
 
 // ByOpen orders the results by the open field.
@@ -173,14 +166,9 @@ func ByVolume(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldVolume, opts...).ToFunc()
 }
 
-// ByCreatedAt orders the results by the created_at field.
-func ByCreatedAt(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldCreatedAt, opts...).ToFunc()
-}
-
-// ByUpdatedAt orders the results by the updated_at field.
-func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
+// ByTimestamp orders the results by the timestamp field.
+func ByTimestamp(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTimestamp, opts...).ToFunc()
 }
 
 // ByAssetField orders the results by asset field.

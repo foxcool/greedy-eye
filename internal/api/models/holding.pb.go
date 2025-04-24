@@ -25,16 +25,15 @@ const (
 // Holding represents a specific quantity of an Asset held within an Account
 // and associated with a Portfolio.
 type Holding struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	Id      string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`                          // Unique identifier (UUID)
-	AssetId string                 `protobuf:"bytes,2,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"` // ID of the Asset being held
-	// Monetary value represented by amount and precision. real_value = amount / (10^precision)
-	Amount        int64                  `protobuf:"varint,3,opt,name=amount,proto3" json:"amount,omitempty"`                             // Quantity of the asset held
-	Precision     uint32                 `protobuf:"varint,4,opt,name=precision,proto3" json:"precision,omitempty"`                       // Number of decimal places for the amount
-	AccountId     string                 `protobuf:"bytes,5,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`       // ID of the Account where the asset is held (optional if portfolio aggregates holdings)
-	PortfolioId   string                 `protobuf:"bytes,6,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"` // ID of the Portfolio this holding belongs to
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`       // Timestamp of creation
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`       // Timestamp of last update
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`                                            // Unique identifier (UUID)
+	Amount        int64                  `protobuf:"varint,2,opt,name=amount,proto3" json:"amount,omitempty"`                                   // Value of the asset in the smallest unit
+	Decimals      uint32                 `protobuf:"varint,3,opt,name=decimals,proto3" json:"decimals,omitempty"`                               // Number of decimal places for the amount
+	AssetId       string                 `protobuf:"bytes,4,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`                   // ID of the Asset
+	AccountId     string                 `protobuf:"bytes,5,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`             // ID of the Account where the asset is held
+	PortfolioId   *string                `protobuf:"bytes,6,opt,name=portfolio_id,json=portfolioId,proto3,oneof" json:"portfolio_id,omitempty"` // ID of the Portfolio this holding belongs to
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`             // Timestamp of creation
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`             // Timestamp of last update
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -76,13 +75,6 @@ func (x *Holding) GetId() string {
 	return ""
 }
 
-func (x *Holding) GetAssetId() string {
-	if x != nil {
-		return x.AssetId
-	}
-	return ""
-}
-
 func (x *Holding) GetAmount() int64 {
 	if x != nil {
 		return x.Amount
@@ -90,11 +82,18 @@ func (x *Holding) GetAmount() int64 {
 	return 0
 }
 
-func (x *Holding) GetPrecision() uint32 {
+func (x *Holding) GetDecimals() uint32 {
 	if x != nil {
-		return x.Precision
+		return x.Decimals
 	}
 	return 0
+}
+
+func (x *Holding) GetAssetId() string {
+	if x != nil {
+		return x.AssetId
+	}
+	return ""
 }
 
 func (x *Holding) GetAccountId() string {
@@ -105,8 +104,8 @@ func (x *Holding) GetAccountId() string {
 }
 
 func (x *Holding) GetPortfolioId() string {
-	if x != nil {
-		return x.PortfolioId
+	if x != nil && x.PortfolioId != nil {
+		return *x.PortfolioId
 	}
 	return ""
 }
@@ -129,19 +128,20 @@ var File_api_models_holding_proto protoreflect.FileDescriptor
 
 const file_api_models_holding_proto_rawDesc = "" +
 	"\n" +
-	"\x18api/models/holding.proto\x12\x06models\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa2\x02\n" +
+	"\x18api/models/holding.proto\x12\x06models\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb6\x02\n" +
 	"\aHolding\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
-	"\basset_id\x18\x02 \x01(\tR\aassetId\x12\x16\n" +
-	"\x06amount\x18\x03 \x01(\x03R\x06amount\x12\x1c\n" +
-	"\tprecision\x18\x04 \x01(\rR\tprecision\x12\x1d\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
+	"\x06amount\x18\x02 \x01(\x03R\x06amount\x12\x1a\n" +
+	"\bdecimals\x18\x03 \x01(\rR\bdecimals\x12\x19\n" +
+	"\basset_id\x18\x04 \x01(\tR\aassetId\x12\x1d\n" +
 	"\n" +
-	"account_id\x18\x05 \x01(\tR\taccountId\x12!\n" +
-	"\fportfolio_id\x18\x06 \x01(\tR\vportfolioId\x129\n" +
+	"account_id\x18\x05 \x01(\tR\taccountId\x12&\n" +
+	"\fportfolio_id\x18\x06 \x01(\tH\x00R\vportfolioId\x88\x01\x01\x129\n" +
 	"\n" +
 	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAtB3Z1github.com/foxcool/greedy-eye/internal/api/modelsb\x06proto3"
+	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAtB\x0f\n" +
+	"\r_portfolio_idB3Z1github.com/foxcool/greedy-eye/internal/api/modelsb\x06proto3"
 
 var (
 	file_api_models_holding_proto_rawDescOnce sync.Once
@@ -175,6 +175,7 @@ func file_api_models_holding_proto_init() {
 	if File_api_models_holding_proto != nil {
 		return
 	}
+	file_api_models_holding_proto_msgTypes[0].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

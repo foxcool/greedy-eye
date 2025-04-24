@@ -34,20 +34,17 @@ type Price struct {
 	// Examples: "1m", "5m", "1h", "4h", "1d", "tick", "latest".
 	// Empty or "latest" might indicate a snapshot price rather than a full candle.
 	Interval string `protobuf:"bytes,5,opt,name=interval,proto3" json:"interval,omitempty"`
-	// Monetary value represented by amount and precision. real_value = amount / (10^precision)
-	// 'amount' typically represents the closing price for candles or the last trade price for snapshots.
-	Amount    int64  `protobuf:"varint,6,opt,name=amount,proto3" json:"amount,omitempty"`
-	Precision uint32 `protobuf:"varint,7,opt,name=precision,proto3" json:"precision,omitempty"` // Precision for amount and OHLC values
+	Decimals uint32 `protobuf:"varint,6,opt,name=decimals,proto3" json:"decimals,omitempty"` // The decimals of the prices and volume
+	Last     int64  `protobuf:"varint,7,opt,name=last,proto3" json:"last,omitempty"`         // The latest price of the asset
 	// OHLCV data - applicable when 'interval' represents a standard candle type (e.g., "1m", "1h").
 	// These fields might be 0 or unset if the price represents a 'latest' snapshot or 'tick'.
-	Open      *int64                 `protobuf:"varint,8,opt,name=open,proto3,oneof" json:"open,omitempty"`
-	High      *int64                 `protobuf:"varint,9,opt,name=high,proto3,oneof" json:"high,omitempty"`
-	Low       *int64                 `protobuf:"varint,10,opt,name=low,proto3,oneof" json:"low,omitempty"`
-	Close     *int64                 `protobuf:"varint,11,opt,name=close,proto3,oneof" json:"close,omitempty"`   // Close price (often same as 'amount' for candles)
-	Volume    *int64                 `protobuf:"varint,12,opt,name=volume,proto3,oneof" json:"volume,omitempty"` // Trading volume during the interval
-	Timestamp *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=timestamp,proto3" json:"timestamp,omitempty"`  // The closing time of the interval or the time of the snapshot/tick.
-	// Renamed created_at to timestamp for clarity, especially with intervals.
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"` // Timestamp of last update in our system (e.g., if corrected)
+	Open   *int64 `protobuf:"varint,8,opt,name=open,proto3,oneof" json:"open,omitempty"`
+	High   *int64 `protobuf:"varint,9,opt,name=high,proto3,oneof" json:"high,omitempty"`
+	Low    *int64 `protobuf:"varint,10,opt,name=low,proto3,oneof" json:"low,omitempty"`
+	Close  *int64 `protobuf:"varint,11,opt,name=close,proto3,oneof" json:"close,omitempty"`
+	Volume *int64 `protobuf:"varint,12,opt,name=volume,proto3,oneof" json:"volume,omitempty"` // Trading volume during the interval
+	// The closing time of the interval or the time of the snapshot/tick.
+	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -117,16 +114,16 @@ func (x *Price) GetInterval() string {
 	return ""
 }
 
-func (x *Price) GetAmount() int64 {
+func (x *Price) GetDecimals() uint32 {
 	if x != nil {
-		return x.Amount
+		return x.Decimals
 	}
 	return 0
 }
 
-func (x *Price) GetPrecision() uint32 {
+func (x *Price) GetLast() int64 {
 	if x != nil {
-		return x.Precision
+		return x.Last
 	}
 	return 0
 }
@@ -173,35 +170,26 @@ func (x *Price) GetTimestamp() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *Price) GetUpdatedAt() *timestamppb.Timestamp {
-	if x != nil {
-		return x.UpdatedAt
-	}
-	return nil
-}
-
 var File_api_models_price_proto protoreflect.FileDescriptor
 
 const file_api_models_price_proto_rawDesc = "" +
 	"\n" +
-	"\x16api/models/price.proto\x12\x06models\x1a\x1fgoogle/protobuf/timestamp.proto\"\xea\x03\n" +
+	"\x16api/models/price.proto\x12\x06models\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa9\x03\n" +
 	"\x05Price\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tsource_id\x18\x02 \x01(\tR\bsourceId\x12\x19\n" +
 	"\basset_id\x18\x03 \x01(\tR\aassetId\x12\"\n" +
 	"\rbase_asset_id\x18\x04 \x01(\tR\vbaseAssetId\x12\x1a\n" +
-	"\binterval\x18\x05 \x01(\tR\binterval\x12\x16\n" +
-	"\x06amount\x18\x06 \x01(\x03R\x06amount\x12\x1c\n" +
-	"\tprecision\x18\a \x01(\rR\tprecision\x12\x17\n" +
+	"\binterval\x18\x05 \x01(\tR\binterval\x12\x1a\n" +
+	"\bdecimals\x18\x06 \x01(\rR\bdecimals\x12\x12\n" +
+	"\x04last\x18\a \x01(\x03R\x04last\x12\x17\n" +
 	"\x04open\x18\b \x01(\x03H\x00R\x04open\x88\x01\x01\x12\x17\n" +
 	"\x04high\x18\t \x01(\x03H\x01R\x04high\x88\x01\x01\x12\x15\n" +
 	"\x03low\x18\n" +
 	" \x01(\x03H\x02R\x03low\x88\x01\x01\x12\x19\n" +
 	"\x05close\x18\v \x01(\x03H\x03R\x05close\x88\x01\x01\x12\x1b\n" +
 	"\x06volume\x18\f \x01(\x03H\x04R\x06volume\x88\x01\x01\x128\n" +
-	"\ttimestamp\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x129\n" +
-	"\n" +
-	"updated_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAtB\a\n" +
+	"\ttimestamp\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\ttimestampB\a\n" +
 	"\x05_openB\a\n" +
 	"\x05_highB\x06\n" +
 	"\x04_lowB\b\n" +
@@ -227,12 +215,11 @@ var file_api_models_price_proto_goTypes = []any{
 }
 var file_api_models_price_proto_depIdxs = []int32{
 	1, // 0: models.Price.timestamp:type_name -> google.protobuf.Timestamp
-	1, // 1: models.Price.updated_at:type_name -> google.protobuf.Timestamp
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	1, // [1:1] is the sub-list for method output_type
+	1, // [1:1] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_api_models_price_proto_init() }
