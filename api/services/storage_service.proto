@@ -4,7 +4,7 @@ package services;
 
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
-import "google/protobuf/field_mask.proto"; // Import FieldMask
+import "google/protobuf/field_mask.proto";
 import "api/models/account.proto";
 import "api/models/asset.proto";
 import "api/models/holding.proto";
@@ -47,8 +47,6 @@ service StorageService {
   rpc GetHolding(GetHoldingRequest) returns (models.Holding);
   rpc UpdateHolding(UpdateHoldingRequest) returns (models.Holding);
   rpc ListHoldings(ListHoldingsRequest) returns (ListHoldingsResponse);
-  // History might be derived from transactions or snapshots. Let's keep it for now.
-  rpc ListHoldingHistory(ListHoldingHistoryRequest) returns (ListHoldingHistoryResponse);
 
   // --- User operations ---
   rpc CreateUser(CreateUserRequest) returns (models.User);
@@ -66,9 +64,7 @@ service StorageService {
   // --- Transaction operations ---
   rpc CreateTransaction(CreateTransactionRequest) returns (models.Transaction);
   rpc GetTransaction(GetTransactionRequest) returns (models.Transaction);
-  // Transactions are often immutable after completion. Update might only change status.
   rpc UpdateTransaction(UpdateTransactionRequest) returns (models.Transaction);
-  // rpc DeleteTransaction(DeleteTransactionRequest) returns (google.protobuf.Empty); // Optional: For admin/cleanup
   rpc ListTransactions(ListTransactionsRequest) returns (ListTransactionsResponse);
 }
 
@@ -78,7 +74,6 @@ message CreateAssetRequest {
 }
 message GetAssetRequest {
   string id = 1;
-  // string symbol = 2; // Consider GetAssetBySymbol if needed as separate RPC
 }
 message UpdateAssetRequest {
   models.Asset asset = 1; // Must include ID and fields to update
@@ -88,10 +83,9 @@ message DeleteAssetRequest {
   string id = 1;
 }
 message ListAssetsRequest {
-  int32 page_size = 1; // Number of assets to return
-  string page_token = 2; // Token for fetching the next page
+  optional int32 page_size = 1; // Number of assets to return
+  optional string page_token = 2; // Token for fetching the next page
   repeated string tags = 3; // Filter by tags
-  string user_id = 4; // Optional: Filter by user_id if assets are user-specific (TBD)
 }
 message ListAssetsResponse {
   repeated models.Asset assets = 1;
@@ -107,21 +101,20 @@ message CreatePricesRequest {
 }
 message CreatePricesResponse {
   int32 created_count = 1; // Number of prices successfully created
-  // Consider adding details about failures if needed
 }
 message GetLatestPriceRequest {
   string asset_id = 1;
   string base_asset_id = 2;
-  string source_id = 3; // Optional: Filter by a specific source
+  optional string source_id = 3;
 }
 message ListPriceHistoryRequest {
   string asset_id = 1;
   string base_asset_id = 2;
-  google.protobuf.Timestamp from = 3; // Start of the time range
-  google.protobuf.Timestamp to = 4; // End of the time range
-  string source_id = 5; // Optional: Filter by source
-  int32 page_size = 6; // Pagination for large history
-  string page_token = 7;
+  optional google.protobuf.Timestamp from = 3; // Start of the time range
+  optional google.protobuf.Timestamp to = 4; // End of the time range
+  optional string source_id = 5; // Filter by source
+  optional int32 page_size = 6; // Pagination for large history
+  optional string page_token = 7;
 }
 message ListPriceHistoryResponse {
   repeated models.Price prices = 1;
@@ -130,21 +123,22 @@ message ListPriceHistoryResponse {
 message ListPricesByIntervalRequest {
   string asset_id = 1;
   string base_asset_id = 2;
-  google.protobuf.Timestamp from = 3;
-  google.protobuf.Timestamp to = 4;
+  optional google.protobuf.Timestamp from = 3;
+  optional google.protobuf.Timestamp to = 4;
   string interval = 5; // e.g., "hourly", "daily", "weekly" - specific values TBD
-  string source_id = 6; // Filter by source
-  // Pagination might be needed depending on interval and range
+  optional string source_id = 6; // Filter by source
+  optional int32 page_size = 7; // Pagination
+  optional string page_token = 8;
 }
 message DeletePriceRequest {
     string id = 1;
 }
 message DeletePricesRequest {
-    string asset_id = 1;
-    string base_asset_id = 2;
-    google.protobuf.Timestamp from = 3;
-    google.protobuf.Timestamp to = 4;
-    string source_id = 5; // Filter by source
+    optional string asset_id = 1;
+    optional string base_asset_id = 2;
+    optional google.protobuf.Timestamp from = 3;
+    optional google.protobuf.Timestamp to = 4;
+    optional string source_id = 5; // Filter by source
 }
 
 // --- Portfolio Messages ---
@@ -162,9 +156,9 @@ message DeletePortfolioRequest {
   string id = 1;
 }
 message ListPortfoliosRequest {
-  string user_id = 1; // Filter by user
-  int32 page_size = 2;
-  string page_token = 3;
+  optional string user_id = 1;
+  optional int32 page_size = 2;
+  optional string page_token = 3;
 }
 message ListPortfoliosResponse {
   repeated models.Portfolio portfolios = 1;
@@ -173,40 +167,24 @@ message ListPortfoliosResponse {
 
 // --- Holding Messages ---
 message CreateHoldingRequest {
-  models.Holding holding = 1; // portfolio_id, asset_id, amount, precision required. ID empty.
+  models.Holding holding = 1; // asset_id, amount, decimals required. One of portfolio_id or account_id required. ID empty.
 }
 message GetHoldingRequest {
   string id = 1;
-  // Alternative lookup by portfolio+asset
-  // string portfolio_id = 2;
-  // string asset_id = 3;
 }
 message UpdateHoldingRequest {
   models.Holding holding = 1; // Must include ID and fields to update (e.g., amount)
   google.protobuf.FieldMask update_mask = 2;
 }
-// message DeleteHoldingRequest { string id = 1; }
 message ListHoldingsRequest {
-  string portfolio_id = 1; // Filter by portfolio
-  string account_id = 2; // Optional: Filter by account
-  string asset_id = 3; // Optional: Filter by asset
-  int32 page_size = 4;
-  string page_token = 5;
+  optional string portfolio_id = 1;
+  optional string account_id = 2;
+  optional string asset_id = 3;
+  optional int32 page_size = 4;
+  optional string page_token = 5;
 }
 message ListHoldingsResponse {
   repeated models.Holding holdings = 1;
-  string next_page_token = 2;
-}
-message ListHoldingHistoryRequest { // Represents snapshots of holdings over time
-  string portfolio_id = 1;
-  string asset_id = 2; // Optional: Filter by a specific asset
-  google.protobuf.Timestamp from = 3;
-  google.protobuf.Timestamp to = 4;
-  int32 page_size = 5;
-  string page_token = 6;
-}
-message ListHoldingHistoryResponse {
-  repeated models.Holding holdings = 1; // Holdings at different points in time
   string next_page_token = 2;
 }
 
@@ -216,7 +194,6 @@ message CreateUserRequest {
 }
 message GetUserRequest {
   string id = 1;
-  // string email = 2; // Optional alternative lookup via GetUserByEmail RPC
 }
 message UpdateUserRequest {
   models.User user = 1; // Must include ID and fields to update
@@ -241,10 +218,10 @@ message DeleteAccountRequest {
   string id = 1;
 }
 message ListAccountsRequest {
-  string user_id = 1; // Filter by user
-  string type = 2; // Optional: Filter by AccountType (use string representation or the enum number)
-  int32 page_size = 3;
-  string page_token = 4;
+  optional string user_id = 1; // Filter by user
+  optional models.AccountType type = 2; // Filter by AccountType
+  optional int32 page_size = 3;
+  optional string page_token = 4;
 }
 message ListAccountsResponse {
   repeated models.Account accounts = 1;
@@ -264,15 +241,13 @@ message UpdateTransactionRequest {
 }
 // message DeleteTransactionRequest { string id = 1; }
 message ListTransactionsRequest {
-  string portfolio_id = 1; // Primary filter
-  string account_id = 2; // Optional filter
-  string asset_id = 3; // Optional filter
-  string type = 4; // Optional: Filter by TransactionType
-  string status = 5; // Optional: Filter by TransactionStatus
-  google.protobuf.Timestamp from = 6; // Optional time range filter
-  google.protobuf.Timestamp to = 7;
-  int32 page_size = 8;
-  string page_token = 9;
+  optional models.TransactionType type = 1;
+  optional models.TransactionStatus status = 2;
+  optional string account_id = 3;
+  optional google.protobuf.Timestamp from = 4;
+  optional google.protobuf.Timestamp to = 5;
+  optional int32 page_size = 6;
+  optional string page_token = 7;
 }
 message ListTransactionsResponse {
   repeated models.Transaction transactions = 1;

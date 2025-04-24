@@ -46,6 +46,12 @@ func (hu *HoldingUpdate) SetNillableUUID(u *uuid.UUID) *HoldingUpdate {
 	return hu
 }
 
+// SetUpdatedAt sets the "updated_at" field.
+func (hu *HoldingUpdate) SetUpdatedAt(t time.Time) *HoldingUpdate {
+	hu.mutation.SetUpdatedAt(t)
+	return hu
+}
+
 // SetAssetID sets the "asset_id" field.
 func (hu *HoldingUpdate) SetAssetID(i int) *HoldingUpdate {
 	hu.mutation.SetAssetID(i)
@@ -56,34 +62,6 @@ func (hu *HoldingUpdate) SetAssetID(i int) *HoldingUpdate {
 func (hu *HoldingUpdate) SetNillableAssetID(i *int) *HoldingUpdate {
 	if i != nil {
 		hu.SetAssetID(*i)
-	}
-	return hu
-}
-
-// SetPortfolioID sets the "portfolio_id" field.
-func (hu *HoldingUpdate) SetPortfolioID(i int) *HoldingUpdate {
-	hu.mutation.SetPortfolioID(i)
-	return hu
-}
-
-// SetNillablePortfolioID sets the "portfolio_id" field if the given value is not nil.
-func (hu *HoldingUpdate) SetNillablePortfolioID(i *int) *HoldingUpdate {
-	if i != nil {
-		hu.SetPortfolioID(*i)
-	}
-	return hu
-}
-
-// SetAccountID sets the "account_id" field.
-func (hu *HoldingUpdate) SetAccountID(i int) *HoldingUpdate {
-	hu.mutation.SetAccountID(i)
-	return hu
-}
-
-// SetNillableAccountID sets the "account_id" field if the given value is not nil.
-func (hu *HoldingUpdate) SetNillableAccountID(i *int) *HoldingUpdate {
-	if i != nil {
-		hu.SetAccountID(*i)
 	}
 	return hu
 }
@@ -109,30 +87,58 @@ func (hu *HoldingUpdate) AddAmount(i int64) *HoldingUpdate {
 	return hu
 }
 
-// SetPrecision sets the "precision" field.
-func (hu *HoldingUpdate) SetPrecision(u uint32) *HoldingUpdate {
-	hu.mutation.ResetPrecision()
-	hu.mutation.SetPrecision(u)
+// SetDecimals sets the "Decimals" field.
+func (hu *HoldingUpdate) SetDecimals(u uint32) *HoldingUpdate {
+	hu.mutation.ResetDecimals()
+	hu.mutation.SetDecimals(u)
 	return hu
 }
 
-// SetNillablePrecision sets the "precision" field if the given value is not nil.
-func (hu *HoldingUpdate) SetNillablePrecision(u *uint32) *HoldingUpdate {
+// SetNillableDecimals sets the "Decimals" field if the given value is not nil.
+func (hu *HoldingUpdate) SetNillableDecimals(u *uint32) *HoldingUpdate {
 	if u != nil {
-		hu.SetPrecision(*u)
+		hu.SetDecimals(*u)
 	}
 	return hu
 }
 
-// AddPrecision adds u to the "precision" field.
-func (hu *HoldingUpdate) AddPrecision(u int32) *HoldingUpdate {
-	hu.mutation.AddPrecision(u)
+// AddDecimals adds u to the "Decimals" field.
+func (hu *HoldingUpdate) AddDecimals(u int32) *HoldingUpdate {
+	hu.mutation.AddDecimals(u)
 	return hu
 }
 
-// SetUpdatedAt sets the "updated_at" field.
-func (hu *HoldingUpdate) SetUpdatedAt(t time.Time) *HoldingUpdate {
-	hu.mutation.SetUpdatedAt(t)
+// SetPortfolioID sets the "portfolio_id" field.
+func (hu *HoldingUpdate) SetPortfolioID(i int) *HoldingUpdate {
+	hu.mutation.SetPortfolioID(i)
+	return hu
+}
+
+// SetNillablePortfolioID sets the "portfolio_id" field if the given value is not nil.
+func (hu *HoldingUpdate) SetNillablePortfolioID(i *int) *HoldingUpdate {
+	if i != nil {
+		hu.SetPortfolioID(*i)
+	}
+	return hu
+}
+
+// ClearPortfolioID clears the value of the "portfolio_id" field.
+func (hu *HoldingUpdate) ClearPortfolioID() *HoldingUpdate {
+	hu.mutation.ClearPortfolioID()
+	return hu
+}
+
+// SetAccountID sets the "account_id" field.
+func (hu *HoldingUpdate) SetAccountID(i int) *HoldingUpdate {
+	hu.mutation.SetAccountID(i)
+	return hu
+}
+
+// SetNillableAccountID sets the "account_id" field if the given value is not nil.
+func (hu *HoldingUpdate) SetNillableAccountID(i *int) *HoldingUpdate {
+	if i != nil {
+		hu.SetAccountID(*i)
+	}
 	return hu
 }
 
@@ -215,9 +221,6 @@ func (hu *HoldingUpdate) check() error {
 	if hu.mutation.AssetCleared() && len(hu.mutation.AssetIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "Holding.asset"`)
 	}
-	if hu.mutation.PortfolioCleared() && len(hu.mutation.PortfolioIDs()) > 0 {
-		return errors.New(`ent: clearing a required unique edge "Holding.portfolio"`)
-	}
 	if hu.mutation.AccountCleared() && len(hu.mutation.AccountIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "Holding.account"`)
 	}
@@ -239,20 +242,20 @@ func (hu *HoldingUpdate) sqlSave(ctx context.Context) (n int, err error) {
 	if value, ok := hu.mutation.UUID(); ok {
 		_spec.SetField(holding.FieldUUID, field.TypeUUID, value)
 	}
+	if value, ok := hu.mutation.UpdatedAt(); ok {
+		_spec.SetField(holding.FieldUpdatedAt, field.TypeTime, value)
+	}
 	if value, ok := hu.mutation.Amount(); ok {
 		_spec.SetField(holding.FieldAmount, field.TypeInt64, value)
 	}
 	if value, ok := hu.mutation.AddedAmount(); ok {
 		_spec.AddField(holding.FieldAmount, field.TypeInt64, value)
 	}
-	if value, ok := hu.mutation.Precision(); ok {
-		_spec.SetField(holding.FieldPrecision, field.TypeUint32, value)
+	if value, ok := hu.mutation.Decimals(); ok {
+		_spec.SetField(holding.FieldDecimals, field.TypeUint32, value)
 	}
-	if value, ok := hu.mutation.AddedPrecision(); ok {
-		_spec.AddField(holding.FieldPrecision, field.TypeUint32, value)
-	}
-	if value, ok := hu.mutation.UpdatedAt(); ok {
-		_spec.SetField(holding.FieldUpdatedAt, field.TypeTime, value)
+	if value, ok := hu.mutation.AddedDecimals(); ok {
+		_spec.AddField(holding.FieldDecimals, field.TypeUint32, value)
 	}
 	if hu.mutation.AssetCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -375,6 +378,12 @@ func (huo *HoldingUpdateOne) SetNillableUUID(u *uuid.UUID) *HoldingUpdateOne {
 	return huo
 }
 
+// SetUpdatedAt sets the "updated_at" field.
+func (huo *HoldingUpdateOne) SetUpdatedAt(t time.Time) *HoldingUpdateOne {
+	huo.mutation.SetUpdatedAt(t)
+	return huo
+}
+
 // SetAssetID sets the "asset_id" field.
 func (huo *HoldingUpdateOne) SetAssetID(i int) *HoldingUpdateOne {
 	huo.mutation.SetAssetID(i)
@@ -385,34 +394,6 @@ func (huo *HoldingUpdateOne) SetAssetID(i int) *HoldingUpdateOne {
 func (huo *HoldingUpdateOne) SetNillableAssetID(i *int) *HoldingUpdateOne {
 	if i != nil {
 		huo.SetAssetID(*i)
-	}
-	return huo
-}
-
-// SetPortfolioID sets the "portfolio_id" field.
-func (huo *HoldingUpdateOne) SetPortfolioID(i int) *HoldingUpdateOne {
-	huo.mutation.SetPortfolioID(i)
-	return huo
-}
-
-// SetNillablePortfolioID sets the "portfolio_id" field if the given value is not nil.
-func (huo *HoldingUpdateOne) SetNillablePortfolioID(i *int) *HoldingUpdateOne {
-	if i != nil {
-		huo.SetPortfolioID(*i)
-	}
-	return huo
-}
-
-// SetAccountID sets the "account_id" field.
-func (huo *HoldingUpdateOne) SetAccountID(i int) *HoldingUpdateOne {
-	huo.mutation.SetAccountID(i)
-	return huo
-}
-
-// SetNillableAccountID sets the "account_id" field if the given value is not nil.
-func (huo *HoldingUpdateOne) SetNillableAccountID(i *int) *HoldingUpdateOne {
-	if i != nil {
-		huo.SetAccountID(*i)
 	}
 	return huo
 }
@@ -438,30 +419,58 @@ func (huo *HoldingUpdateOne) AddAmount(i int64) *HoldingUpdateOne {
 	return huo
 }
 
-// SetPrecision sets the "precision" field.
-func (huo *HoldingUpdateOne) SetPrecision(u uint32) *HoldingUpdateOne {
-	huo.mutation.ResetPrecision()
-	huo.mutation.SetPrecision(u)
+// SetDecimals sets the "Decimals" field.
+func (huo *HoldingUpdateOne) SetDecimals(u uint32) *HoldingUpdateOne {
+	huo.mutation.ResetDecimals()
+	huo.mutation.SetDecimals(u)
 	return huo
 }
 
-// SetNillablePrecision sets the "precision" field if the given value is not nil.
-func (huo *HoldingUpdateOne) SetNillablePrecision(u *uint32) *HoldingUpdateOne {
+// SetNillableDecimals sets the "Decimals" field if the given value is not nil.
+func (huo *HoldingUpdateOne) SetNillableDecimals(u *uint32) *HoldingUpdateOne {
 	if u != nil {
-		huo.SetPrecision(*u)
+		huo.SetDecimals(*u)
 	}
 	return huo
 }
 
-// AddPrecision adds u to the "precision" field.
-func (huo *HoldingUpdateOne) AddPrecision(u int32) *HoldingUpdateOne {
-	huo.mutation.AddPrecision(u)
+// AddDecimals adds u to the "Decimals" field.
+func (huo *HoldingUpdateOne) AddDecimals(u int32) *HoldingUpdateOne {
+	huo.mutation.AddDecimals(u)
 	return huo
 }
 
-// SetUpdatedAt sets the "updated_at" field.
-func (huo *HoldingUpdateOne) SetUpdatedAt(t time.Time) *HoldingUpdateOne {
-	huo.mutation.SetUpdatedAt(t)
+// SetPortfolioID sets the "portfolio_id" field.
+func (huo *HoldingUpdateOne) SetPortfolioID(i int) *HoldingUpdateOne {
+	huo.mutation.SetPortfolioID(i)
+	return huo
+}
+
+// SetNillablePortfolioID sets the "portfolio_id" field if the given value is not nil.
+func (huo *HoldingUpdateOne) SetNillablePortfolioID(i *int) *HoldingUpdateOne {
+	if i != nil {
+		huo.SetPortfolioID(*i)
+	}
+	return huo
+}
+
+// ClearPortfolioID clears the value of the "portfolio_id" field.
+func (huo *HoldingUpdateOne) ClearPortfolioID() *HoldingUpdateOne {
+	huo.mutation.ClearPortfolioID()
+	return huo
+}
+
+// SetAccountID sets the "account_id" field.
+func (huo *HoldingUpdateOne) SetAccountID(i int) *HoldingUpdateOne {
+	huo.mutation.SetAccountID(i)
+	return huo
+}
+
+// SetNillableAccountID sets the "account_id" field if the given value is not nil.
+func (huo *HoldingUpdateOne) SetNillableAccountID(i *int) *HoldingUpdateOne {
+	if i != nil {
+		huo.SetAccountID(*i)
+	}
 	return huo
 }
 
@@ -557,9 +566,6 @@ func (huo *HoldingUpdateOne) check() error {
 	if huo.mutation.AssetCleared() && len(huo.mutation.AssetIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "Holding.asset"`)
 	}
-	if huo.mutation.PortfolioCleared() && len(huo.mutation.PortfolioIDs()) > 0 {
-		return errors.New(`ent: clearing a required unique edge "Holding.portfolio"`)
-	}
 	if huo.mutation.AccountCleared() && len(huo.mutation.AccountIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "Holding.account"`)
 	}
@@ -598,20 +604,20 @@ func (huo *HoldingUpdateOne) sqlSave(ctx context.Context) (_node *Holding, err e
 	if value, ok := huo.mutation.UUID(); ok {
 		_spec.SetField(holding.FieldUUID, field.TypeUUID, value)
 	}
+	if value, ok := huo.mutation.UpdatedAt(); ok {
+		_spec.SetField(holding.FieldUpdatedAt, field.TypeTime, value)
+	}
 	if value, ok := huo.mutation.Amount(); ok {
 		_spec.SetField(holding.FieldAmount, field.TypeInt64, value)
 	}
 	if value, ok := huo.mutation.AddedAmount(); ok {
 		_spec.AddField(holding.FieldAmount, field.TypeInt64, value)
 	}
-	if value, ok := huo.mutation.Precision(); ok {
-		_spec.SetField(holding.FieldPrecision, field.TypeUint32, value)
+	if value, ok := huo.mutation.Decimals(); ok {
+		_spec.SetField(holding.FieldDecimals, field.TypeUint32, value)
 	}
-	if value, ok := huo.mutation.AddedPrecision(); ok {
-		_spec.AddField(holding.FieldPrecision, field.TypeUint32, value)
-	}
-	if value, ok := huo.mutation.UpdatedAt(); ok {
-		_spec.SetField(holding.FieldUpdatedAt, field.TypeTime, value)
+	if value, ok := huo.mutation.AddedDecimals(); ok {
+		_spec.AddField(holding.FieldDecimals, field.TypeUint32, value)
 	}
 	if huo.mutation.AssetCleared() {
 		edge := &sqlgraph.EdgeSpec{

@@ -18,68 +18,47 @@ const (
 	FieldID = "id"
 	// FieldUUID holds the string denoting the uuid field in the database.
 	FieldUUID = "uuid"
-	// FieldAssetID holds the string denoting the asset_id field in the database.
-	FieldAssetID = "asset_id"
-	// FieldAmount holds the string denoting the amount field in the database.
-	FieldAmount = "amount"
-	// FieldFee holds the string denoting the fee field in the database.
-	FieldFee = "fee"
-	// FieldPrecision holds the string denoting the precision field in the database.
-	FieldPrecision = "precision"
 	// FieldType holds the string denoting the type field in the database.
 	FieldType = "type"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
+	// FieldAccountID holds the string denoting the account_id field in the database.
+	FieldAccountID = "account_id"
+	// FieldData holds the string denoting the data field in the database.
+	FieldData = "data"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
 	FieldUpdatedAt = "updated_at"
-	// FieldMetadata holds the string denoting the metadata field in the database.
-	FieldMetadata = "metadata"
-	// EdgePortfolio holds the string denoting the portfolio edge name in mutations.
-	EdgePortfolio = "portfolio"
 	// EdgeAccount holds the string denoting the account edge name in mutations.
 	EdgeAccount = "account"
-	// EdgeAsset holds the string denoting the asset edge name in mutations.
-	EdgeAsset = "asset"
 	// Table holds the table name of the transaction in the database.
 	Table = "transactions"
-	// PortfolioTable is the table that holds the portfolio relation/edge.
-	PortfolioTable = "portfolios"
-	// PortfolioInverseTable is the table name for the Portfolio entity.
-	// It exists in this package in order to avoid circular dependency with the "portfolio" package.
-	PortfolioInverseTable = "portfolios"
-	// PortfolioColumn is the table column denoting the portfolio relation/edge.
-	PortfolioColumn = "transaction_portfolio"
 	// AccountTable is the table that holds the account relation/edge.
-	AccountTable = "accounts"
+	AccountTable = "transactions"
 	// AccountInverseTable is the table name for the Account entity.
 	// It exists in this package in order to avoid circular dependency with the "account" package.
 	AccountInverseTable = "accounts"
 	// AccountColumn is the table column denoting the account relation/edge.
-	AccountColumn = "transaction_account"
-	// AssetTable is the table that holds the asset relation/edge.
-	AssetTable = "transactions"
-	// AssetInverseTable is the table name for the Asset entity.
-	// It exists in this package in order to avoid circular dependency with the "asset" package.
-	AssetInverseTable = "assets"
-	// AssetColumn is the table column denoting the asset relation/edge.
-	AssetColumn = "asset_id"
+	AccountColumn = "account_id"
 )
 
 // Columns holds all SQL columns for transaction fields.
 var Columns = []string{
 	FieldID,
 	FieldUUID,
-	FieldAssetID,
-	FieldAmount,
-	FieldFee,
-	FieldPrecision,
 	FieldType,
 	FieldStatus,
+	FieldAccountID,
+	FieldData,
 	FieldCreatedAt,
 	FieldUpdatedAt,
-	FieldMetadata,
+}
+
+// ForeignKeys holds the SQL foreign-keys that are owned by the "transactions"
+// table and are not defined as standalone fields in the schema.
+var ForeignKeys = []string{
+	"asset_transactions",
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -89,20 +68,25 @@ func ValidColumn(column string) bool {
 			return true
 		}
 	}
+	for i := range ForeignKeys {
+		if column == ForeignKeys[i] {
+			return true
+		}
+	}
 	return false
 }
 
 var (
 	// DefaultUUID holds the default value on creation for the "uuid" field.
 	DefaultUUID func() uuid.UUID
+	// DefaultData holds the default value on creation for the "data" field.
+	DefaultData map[string]string
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.
 	DefaultUpdatedAt func() time.Time
 	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
 	UpdateDefaultUpdatedAt func() time.Time
-	// DefaultMetadata holds the default value on creation for the "metadata" field.
-	DefaultMetadata map[string]string
 )
 
 // Type defines the type for the "type" enum field.
@@ -111,8 +95,8 @@ type Type string
 // Type values.
 const (
 	TypeUnspecified Type = "unspecified"
-	TypeBuy         Type = "buy"
-	TypeSell        Type = "sell"
+	TypeExtended    Type = "extended"
+	TypeTrade       Type = "trade"
 	TypeTransfer    Type = "transfer"
 	TypeDeposit     Type = "deposit"
 	TypeWithdrawal  Type = "withdrawal"
@@ -125,7 +109,7 @@ func (_type Type) String() string {
 // TypeValidator is a validator for the "type" field enum values. It is called by the builders before save.
 func TypeValidator(_type Type) error {
 	switch _type {
-	case TypeUnspecified, TypeBuy, TypeSell, TypeTransfer, TypeDeposit, TypeWithdrawal:
+	case TypeUnspecified, TypeExtended, TypeTrade, TypeTransfer, TypeDeposit, TypeWithdrawal:
 		return nil
 	default:
 		return fmt.Errorf("transaction: invalid enum value for type field: %q", _type)
@@ -139,6 +123,7 @@ type Status string
 const (
 	StatusUnspecified Status = "unspecified"
 	StatusPending     Status = "pending"
+	StatusProcessing  Status = "processing"
 	StatusCompleted   Status = "completed"
 	StatusFailed      Status = "failed"
 	StatusCancelled   Status = "cancelled"
@@ -151,7 +136,7 @@ func (s Status) String() string {
 // StatusValidator is a validator for the "status" field enum values. It is called by the builders before save.
 func StatusValidator(s Status) error {
 	switch s {
-	case StatusUnspecified, StatusPending, StatusCompleted, StatusFailed, StatusCancelled:
+	case StatusUnspecified, StatusPending, StatusProcessing, StatusCompleted, StatusFailed, StatusCancelled:
 		return nil
 	default:
 		return fmt.Errorf("transaction: invalid enum value for status field: %q", s)
@@ -171,26 +156,6 @@ func ByUUID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUUID, opts...).ToFunc()
 }
 
-// ByAssetID orders the results by the asset_id field.
-func ByAssetID(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldAssetID, opts...).ToFunc()
-}
-
-// ByAmount orders the results by the amount field.
-func ByAmount(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldAmount, opts...).ToFunc()
-}
-
-// ByFee orders the results by the fee field.
-func ByFee(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldFee, opts...).ToFunc()
-}
-
-// ByPrecision orders the results by the precision field.
-func ByPrecision(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldPrecision, opts...).ToFunc()
-}
-
 // ByType orders the results by the type field.
 func ByType(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldType, opts...).ToFunc()
@@ -199,6 +164,11 @@ func ByType(opts ...sql.OrderTermOption) OrderOption {
 // ByStatus orders the results by the status field.
 func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStatus, opts...).ToFunc()
+}
+
+// ByAccountID orders the results by the account_id field.
+func ByAccountID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAccountID, opts...).ToFunc()
 }
 
 // ByCreatedAt orders the results by the created_at field.
@@ -211,58 +181,16 @@ func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
 }
 
-// ByPortfolioCount orders the results by portfolio count.
-func ByPortfolioCount(opts ...sql.OrderTermOption) OrderOption {
+// ByAccountField orders the results by account field.
+func ByAccountField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborsCount(s, newPortfolioStep(), opts...)
+		sqlgraph.OrderByNeighborTerms(s, newAccountStep(), sql.OrderByField(field, opts...))
 	}
-}
-
-// ByPortfolio orders the results by portfolio terms.
-func ByPortfolio(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newPortfolioStep(), append([]sql.OrderTerm{term}, terms...)...)
-	}
-}
-
-// ByAccountCount orders the results by account count.
-func ByAccountCount(opts ...sql.OrderTermOption) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborsCount(s, newAccountStep(), opts...)
-	}
-}
-
-// ByAccount orders the results by account terms.
-func ByAccount(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newAccountStep(), append([]sql.OrderTerm{term}, terms...)...)
-	}
-}
-
-// ByAssetField orders the results by asset field.
-func ByAssetField(field string, opts ...sql.OrderTermOption) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newAssetStep(), sql.OrderByField(field, opts...))
-	}
-}
-func newPortfolioStep() *sqlgraph.Step {
-	return sqlgraph.NewStep(
-		sqlgraph.From(Table, FieldID),
-		sqlgraph.To(PortfolioInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.O2M, false, PortfolioTable, PortfolioColumn),
-	)
 }
 func newAccountStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(AccountInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.O2M, false, AccountTable, AccountColumn),
-	)
-}
-func newAssetStep() *sqlgraph.Step {
-	return sqlgraph.NewStep(
-		sqlgraph.From(Table, FieldID),
-		sqlgraph.To(AssetInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.M2O, true, AssetTable, AssetColumn),
+		sqlgraph.Edge(sqlgraph.M2O, true, AccountTable, AccountColumn),
 	)
 }

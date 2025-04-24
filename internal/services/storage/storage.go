@@ -6,6 +6,11 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	// DefaultPageSize is the default page size for pagination.
+	DefaultPageSize = 100
+)
+
 type StorageService struct {
 	services.UnimplementedStorageServiceServer
 
@@ -20,3 +25,4 @@ func NewService(dbClient *ent.Client, logger *zap.Logger) *StorageService {
 	}
 
 	return service
+}

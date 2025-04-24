@@ -457,7 +457,6 @@ func (uq *UserQuery) loadAccounts(ctx context.Context, query *AccountQuery, node
 			init(nodes[i])
 		}
 	}
-	query.withFKs = true
 	if len(query.ctx.Fields) > 0 {
 		query.ctx.AppendFieldOnce(account.FieldUserID)
 	}
@@ -488,7 +487,6 @@ func (uq *UserQuery) loadPortfolios(ctx context.Context, query *PortfolioQuery, 
 			init(nodes[i])
 		}
 	}
-	query.withFKs = true
 	if len(query.ctx.Fields) > 0 {
 		query.ctx.AppendFieldOnce(portfolio.FieldUserID)
 	}

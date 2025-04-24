@@ -8,9 +8,9 @@ option go_package = "github.com/foxcool/greedy-eye/internal/api/models";
 // Asset represents financial instrument (crypto, stock, etc.).
 message Asset {
     string id = 1;
-    string symbol = 2;
-    string name = 3;
-    AssetType type = 4;
+    string name = 2;
+    AssetType type = 3;
+    optional string symbol = 4;
     repeated string tags = 5;
     google.protobuf.Timestamp created_at = 6;
     google.protobuf.Timestamp updated_at = 7;

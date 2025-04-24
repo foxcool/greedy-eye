@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -14,6 +13,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/services/asset"
 	"github.com/foxcool/greedy-eye/internal/services/portfolio"
 	"github.com/foxcool/greedy-eye/internal/services/price"
+	"github.com/foxcool/greedy-eye/internal/services/storage"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent"
 	"github.com/foxcool/greedy-eye/internal/services/user"
 	"github.com/getsentry/sentry-go"
@@ -74,7 +74,7 @@ func main() {
 	}()
 
 	// Start subservices and gRPC server
-	server := registerServices(config.Services)
+	server := registerServices(config.Services, client, log)
 	go func() {
 		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", config.GRPC.Port))
 		if err != nil {
@@ -123,8 +123,11 @@ func createLogger(level string) (*zap.Logger, error) {
 	return cfg.Build()
 }
 
-func registerServices(serviceConfigs []ServiceConfig) *grpc.Server {
+func registerServices(serviceConfigs []ServiceConfig, client *ent.Client, log *zap.Logger) *grpc.Server {
 	server := grpc.NewServer()
+
+	storageService := storage.NewService(client, log)
+	services.RegisterStorageServiceServer(server, storageService)
 
 	if len(serviceConfigs) == 0 {
 		// Register all services with default implementations

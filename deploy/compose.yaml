@@ -19,9 +19,9 @@ services:
     # Development specific configuration working with source code.
     volumes:
       # Mount source code for live reload.
-      - ..:/go/src/github.com/Foxcool/greedy-eye
+      - ..:/go/src/github.com/foxcool/greedy-eye
       - go_modules:/go/pkg/mod
-    working_dir: /go/src/github.com/Foxcool/greedy-eye
+    working_dir: /go/src/github.com/foxcool/greedy-eye
     # Use air for running the application.
     command: ["air", "-c", ".air.toml"]
     env_file: secrets.env
@@ -46,9 +46,9 @@ services:
       - "50081:80"
       - "40000:40000"
     volumes:
-      - ..:/go/src/github.com/Foxcool/greedy-eye
+      - ..:/go/src/github.com/foxcool/greedy-eye
       - go_modules:/go/pkg/mod
-    working_dir: /go/src/github.com/Foxcool/greedy-eye
+    working_dir: /go/src/github.com/foxcool/greedy-eye
     env_file: secrets.env
     environment:
       EYE_LOGGING_LEVEL: DEBUG
@@ -88,3 +88,27 @@ services:
         condition: service_healthy
     environment:
       EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
+
+  # Service for running tests in isolation
+  eye-test:
+    profiles: ["test"]
+    build:
+      context: ..
+      dockerfile: build/dev.Dockerfile
+      args:
+        _path: cmd/eye
+    container_name: eye-test
+    volumes:
+      - ..:/go/src/github.com/foxcool/greedy-eye
+      - go_modules:/go/pkg/mod
+    working_dir: /go/src/github.com/foxcool/greedy-eye
+    env_file: secrets.env
+    environment:
+      EYE_LOGGING_LEVEL: INFO
+      EYE_SENTRY_ENVIRONMENT: "test"
+      EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
+      # Flag to indicate running in test environment
+      DOCKER_COMPOSE_TEST: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy

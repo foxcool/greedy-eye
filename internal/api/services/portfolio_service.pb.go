@@ -86,9 +86,9 @@ type PortfolioValueResponse struct {
 	state        protoimpl.MessageState `protogen:"open.v1"`
 	PortfolioId  string                 `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
 	QuoteAssetId string                 `protobuf:"bytes,2,opt,name=quote_asset_id,json=quoteAssetId,proto3" json:"quote_asset_id,omitempty"`
-	// Monetary value represented by amount and precision. real_value = amount / (10^precision)
+	// Monetary value represented by amount and decimals. real_value = amount / (10^decimals)
 	TotalValueAmount int64                  `protobuf:"varint,3,opt,name=total_value_amount,json=totalValueAmount,proto3" json:"total_value_amount,omitempty"`
-	Precision        uint32                 `protobuf:"varint,4,opt,name=precision,proto3" json:"precision,omitempty"`
+	Decimals         uint32                 `protobuf:"varint,4,opt,name=decimals,proto3" json:"decimals,omitempty"`
 	CalculationTime  *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=calculation_time,json=calculationTime,proto3" json:"calculation_time,omitempty"` // Could also include breakdown by asset
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -145,9 +145,9 @@ func (x *PortfolioValueResponse) GetTotalValueAmount() int64 {
 	return 0
 }
 
-func (x *PortfolioValueResponse) GetPrecision() uint32 {
+func (x *PortfolioValueResponse) GetDecimals() uint32 {
 	if x != nil {
-		return x.Precision
+		return x.Decimals
 	}
 	return 0
 }
@@ -304,12 +304,12 @@ const file_api_services_portfolio_service_proto_rawDesc = "" +
 	"\x1eCalculatePortfolioValueRequest\x12!\n" +
 	"\fportfolio_id\x18\x01 \x01(\tR\vportfolioId\x12$\n" +
 	"\x0equote_asset_id\x18\x02 \x01(\tR\fquoteAssetId\x123\n" +
-	"\aat_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x06atTime\"\xf4\x01\n" +
+	"\aat_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x06atTime\"\xf2\x01\n" +
 	"\x16PortfolioValueResponse\x12!\n" +
 	"\fportfolio_id\x18\x01 \x01(\tR\vportfolioId\x12$\n" +
 	"\x0equote_asset_id\x18\x02 \x01(\tR\fquoteAssetId\x12,\n" +
-	"\x12total_value_amount\x18\x03 \x01(\x03R\x10totalValueAmount\x12\x1c\n" +
-	"\tprecision\x18\x04 \x01(\rR\tprecision\x12E\n" +
+	"\x12total_value_amount\x18\x03 \x01(\x03R\x10totalValueAmount\x12\x1a\n" +
+	"\bdecimals\x18\x04 \x01(\rR\bdecimals\x12E\n" +
 	"\x10calculation_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x0fcalculationTime\"\xcd\x01\n" +
 	"\x1eGetPortfolioPerformanceRequest\x12!\n" +
 	"\fportfolio_id\x18\x01 \x01(\tR\vportfolioId\x12.\n" +

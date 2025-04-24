@@ -22,6 +22,8 @@ import (
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/price"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/transaction"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/user"
+
+	stdsql "database/sql"
 )
 
 // Client is the client that holds all ent builders.
@@ -386,6 +388,22 @@ func (c *AccountClient) QueryHoldings(a *Account) *HoldingQuery {
 			sqlgraph.From(account.Table, account.FieldID, id),
 			sqlgraph.To(holding.Table, holding.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, account.HoldingsTable, account.HoldingsColumn),
+		)
+		fromV = sqlgraph.Neighbors(a.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryTransactions queries the transactions edge of a Account.
+func (c *AccountClient) QueryTransactions(a *Account) *TransactionQuery {
+	query := (&TransactionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := a.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(account.Table, account.FieldID, id),
+			sqlgraph.To(transaction.Table, transaction.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, account.TransactionsTable, account.TransactionsColumn),
 		)
 		fromV = sqlgraph.Neighbors(a.driver.Dialect(), step)
 		return fromV, nil
@@ -904,15 +922,15 @@ func (c *PortfolioClient) GetX(ctx context.Context, id int) *Portfolio {
 	return obj
 }
 
-// QueryUsers queries the users edge of a Portfolio.
-func (c *PortfolioClient) QueryUsers(po *Portfolio) *UserQuery {
+// QueryUser queries the user edge of a Portfolio.
+func (c *PortfolioClient) QueryUser(po *Portfolio) *UserQuery {
 	query := (&UserClient{config: c.config}).Query()
 	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
 		id := po.ID
 		step := sqlgraph.NewStep(
 			sqlgraph.From(portfolio.Table, portfolio.FieldID, id),
 			sqlgraph.To(user.Table, user.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, portfolio.UsersTable, portfolio.UsersColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, portfolio.UserTable, portfolio.UserColumn),
 		)
 		fromV = sqlgraph.Neighbors(po.driver.Dialect(), step)
 		return fromV, nil
@@ -1234,22 +1252,6 @@ func (c *TransactionClient) GetX(ctx context.Context, id int) *Transaction {
 	return obj
 }
 
-// QueryPortfolio queries the portfolio edge of a Transaction.
-func (c *TransactionClient) QueryPortfolio(t *Transaction) *PortfolioQuery {
-	query := (&PortfolioClient{config: c.config}).Query()
-	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
-		id := t.ID
-		step := sqlgraph.NewStep(
-			sqlgraph.From(transaction.Table, transaction.FieldID, id),
-			sqlgraph.To(portfolio.Table, portfolio.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, transaction.PortfolioTable, transaction.PortfolioColumn),
-		)
-		fromV = sqlgraph.Neighbors(t.driver.Dialect(), step)
-		return fromV, nil
-	}
-	return query
-}
-
 // QueryAccount queries the account edge of a Transaction.
 func (c *TransactionClient) QueryAccount(t *Transaction) *AccountQuery {
 	query := (&AccountClient{config: c.config}).Query()
@@ -1258,23 +1260,7 @@ func (c *TransactionClient) QueryAccount(t *Transaction) *AccountQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(transaction.Table, transaction.FieldID, id),
 			sqlgraph.To(account.Table, account.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, transaction.AccountTable, transaction.AccountColumn),
-		)
-		fromV = sqlgraph.Neighbors(t.driver.Dialect(), step)
-		return fromV, nil
-	}
-	return query
-}
-
-// QueryAsset queries the asset edge of a Transaction.
-func (c *TransactionClient) QueryAsset(t *Transaction) *AssetQuery {
-	query := (&AssetClient{config: c.config}).Query()
-	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
-		id := t.ID
-		step := sqlgraph.NewStep(
-			sqlgraph.From(transaction.Table, transaction.FieldID, id),
-			sqlgraph.To(asset.Table, asset.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, transaction.AssetTable, transaction.AssetColumn),
+			sqlgraph.Edge(sqlgraph.M2O, true, transaction.AccountTable, transaction.AccountColumn),
 		)
 		fromV = sqlgraph.Neighbors(t.driver.Dialect(), step)
 		return fromV, nil
@@ -1481,3 +1467,27 @@ type (
 		Account, Asset, Holding, Portfolio, Price, Transaction, User []ent.Interceptor
 	}
 )
+
+// ExecContext allows calling the underlying ExecContext method of the driver if it is supported by it.
+// See, database/sql#DB.ExecContext for more information.
+func (c *config) ExecContext(ctx context.Context, query string, args ...any) (stdsql.Result, error) {
+	ex, ok := c.driver.(interface {
+		ExecContext(context.Context, string, ...any) (stdsql.Result, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("Driver.ExecContext is not supported")
+	}
+	return ex.ExecContext(ctx, query, args...)
+}
+
+// QueryContext allows calling the underlying QueryContext method of the driver if it is supported by it.
+// See, database/sql#DB.QueryContext for more information.
+func (c *config) QueryContext(ctx context.Context, query string, args ...any) (*stdsql.Rows, error) {
+	q, ok := c.driver.(interface {
+		QueryContext(context.Context, string, ...any) (*stdsql.Rows, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("Driver.QueryContext is not supported")
+	}
+	return q.QueryContext(ctx, query, args...)
+}

@@ -87,9 +87,9 @@ func (AssetType) EnumDescriptor() ([]byte, []int) {
 type Asset struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Symbol        string                 `protobuf:"bytes,2,opt,name=symbol,proto3" json:"symbol,omitempty"`
-	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	Type          AssetType              `protobuf:"varint,4,opt,name=type,proto3,enum=models.AssetType" json:"type,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Type          AssetType              `protobuf:"varint,3,opt,name=type,proto3,enum=models.AssetType" json:"type,omitempty"`
+	Symbol        *string                `protobuf:"bytes,4,opt,name=symbol,proto3,oneof" json:"symbol,omitempty"`
 	Tags          []string               `protobuf:"bytes,5,rep,name=tags,proto3" json:"tags,omitempty"`
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
@@ -134,13 +134,6 @@ func (x *Asset) GetId() string {
 	return ""
 }
 
-func (x *Asset) GetSymbol() string {
-	if x != nil {
-		return x.Symbol
-	}
-	return ""
-}
-
 func (x *Asset) GetName() string {
 	if x != nil {
 		return x.Name
@@ -153,6 +146,13 @@ func (x *Asset) GetType() AssetType {
 		return x.Type
 	}
 	return AssetType_ASSET_TYPE_UNSPECIFIED
+}
+
+func (x *Asset) GetSymbol() string {
+	if x != nil && x.Symbol != nil {
+		return *x.Symbol
+	}
+	return ""
 }
 
 func (x *Asset) GetTags() []string {
@@ -180,17 +180,18 @@ var File_api_models_asset_proto protoreflect.FileDescriptor
 
 const file_api_models_asset_proto_rawDesc = "" +
 	"\n" +
-	"\x16api/models/asset.proto\x12\x06models\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf4\x01\n" +
+	"\x16api/models/asset.proto\x12\x06models\x1a\x1fgoogle/protobuf/timestamp.proto\"\x84\x02\n" +
 	"\x05Asset\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
-	"\x06symbol\x18\x02 \x01(\tR\x06symbol\x12\x12\n" +
-	"\x04name\x18\x03 \x01(\tR\x04name\x12%\n" +
-	"\x04type\x18\x04 \x01(\x0e2\x11.models.AssetTypeR\x04type\x12\x12\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12%\n" +
+	"\x04type\x18\x03 \x01(\x0e2\x11.models.AssetTypeR\x04type\x12\x1b\n" +
+	"\x06symbol\x18\x04 \x01(\tH\x00R\x06symbol\x88\x01\x01\x12\x12\n" +
 	"\x04tags\x18\x05 \x03(\tR\x04tags\x129\n" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt*\xb6\x01\n" +
+	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAtB\t\n" +
+	"\a_symbol*\xb6\x01\n" +
 	"\tAssetType\x12\x1a\n" +
 	"\x16ASSET_TYPE_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19ASSET_TYPE_CRYPTOCURRENCY\x10\x01\x12\x14\n" +
@@ -235,6 +236,7 @@ func file_api_models_asset_proto_init() {
 	if File_api_models_asset_proto != nil {
 		return
 	}
+	file_api_models_asset_proto_msgTypes[0].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -4,6 +4,7 @@ package account
 
 import (
 	"fmt"
+	"time"
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
@@ -17,6 +18,10 @@ const (
 	FieldID = "id"
 	// FieldUUID holds the string denoting the uuid field in the database.
 	FieldUUID = "uuid"
+	// FieldCreatedAt holds the string denoting the created_at field in the database.
+	FieldCreatedAt = "created_at"
+	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
+	FieldUpdatedAt = "updated_at"
 	// FieldUserID holds the string denoting the user_id field in the database.
 	FieldUserID = "user_id"
 	// FieldName holds the string denoting the name field in the database.
@@ -27,14 +32,12 @@ const (
 	FieldType = "type"
 	// FieldData holds the string denoting the data field in the database.
 	FieldData = "data"
-	// FieldCreatedAt holds the string denoting the created_at field in the database.
-	FieldCreatedAt = "created_at"
-	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
-	FieldUpdatedAt = "updated_at"
 	// EdgeUser holds the string denoting the user edge name in mutations.
 	EdgeUser = "user"
 	// EdgeHoldings holds the string denoting the holdings edge name in mutations.
 	EdgeHoldings = "holdings"
+	// EdgeTransactions holds the string denoting the transactions edge name in mutations.
+	EdgeTransactions = "transactions"
 	// Table holds the table name of the account in the database.
 	Table = "accounts"
 	// UserTable is the table that holds the user relation/edge.
@@ -51,25 +54,26 @@ const (
 	HoldingsInverseTable = "holdings"
 	// HoldingsColumn is the table column denoting the holdings relation/edge.
 	HoldingsColumn = "account_id"
+	// TransactionsTable is the table that holds the transactions relation/edge.
+	TransactionsTable = "transactions"
+	// TransactionsInverseTable is the table name for the Transaction entity.
+	// It exists in this package in order to avoid circular dependency with the "transaction" package.
+	TransactionsInverseTable = "transactions"
+	// TransactionsColumn is the table column denoting the transactions relation/edge.
+	TransactionsColumn = "account_id"
 )
 
 // Columns holds all SQL columns for account fields.
 var Columns = []string{
 	FieldID,
 	FieldUUID,
+	FieldCreatedAt,
+	FieldUpdatedAt,
 	FieldUserID,
 	FieldName,
 	FieldDescription,
 	FieldType,
 	FieldData,
-	FieldCreatedAt,
-	FieldUpdatedAt,
-}
-
-// ForeignKeys holds the SQL foreign-keys that are owned by the "accounts"
-// table and are not defined as standalone fields in the schema.
-var ForeignKeys = []string{
-	"transaction_account",
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -79,17 +83,20 @@ func ValidColumn(column string) bool {
 			return true
 		}
 	}
-	for i := range ForeignKeys {
-		if column == ForeignKeys[i] {
-			return true
-		}
-	}
 	return false
 }
 
 var (
 	// DefaultUUID holds the default value on creation for the "uuid" field.
 	DefaultUUID func() uuid.UUID
+	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
+	DefaultCreatedAt func() time.Time
+	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.
+	DefaultUpdatedAt func() time.Time
+	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
+	UpdateDefaultUpdatedAt func() time.Time
+	// DefaultData holds the default value on creation for the "data" field.
+	DefaultData map[string]string
 )
 
 // Type defines the type for the "type" enum field.
@@ -131,6 +138,16 @@ func ByUUID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUUID, opts...).ToFunc()
 }
 
+// ByCreatedAt orders the results by the created_at field.
+func ByCreatedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCreatedAt, opts...).ToFunc()
+}
+
+// ByUpdatedAt orders the results by the updated_at field.
+func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
+}
+
 // ByUserID orders the results by the user_id field.
 func ByUserID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUserID, opts...).ToFunc()
@@ -149,16 +166,6 @@ func ByDescription(opts ...sql.OrderTermOption) OrderOption {
 // ByType orders the results by the type field.
 func ByType(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldType, opts...).ToFunc()
-}
-
-// ByCreatedAt orders the results by the created_at field.
-func ByCreatedAt(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldCreatedAt, opts...).ToFunc()
-}
-
-// ByUpdatedAt orders the results by the updated_at field.
-func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
 }
 
 // ByUserField orders the results by user field.
@@ -181,6 +188,20 @@ func ByHoldings(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newHoldingsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByTransactionsCount orders the results by transactions count.
+func ByTransactionsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newTransactionsStep(), opts...)
+	}
+}
+
+// ByTransactions orders the results by transactions terms.
+func ByTransactions(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newTransactionsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newUserStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -193,5 +214,12 @@ func newHoldingsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(HoldingsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, HoldingsTable, HoldingsColumn),
+	)
+}
+func newTransactionsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(TransactionsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, TransactionsTable, TransactionsColumn),
 	)
 }

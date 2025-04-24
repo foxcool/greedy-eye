@@ -42,7 +42,6 @@ const (
 	StorageService_GetHolding_FullMethodName           = "/services.StorageService/GetHolding"
 	StorageService_UpdateHolding_FullMethodName        = "/services.StorageService/UpdateHolding"
 	StorageService_ListHoldings_FullMethodName         = "/services.StorageService/ListHoldings"
-	StorageService_ListHoldingHistory_FullMethodName   = "/services.StorageService/ListHoldingHistory"
 	StorageService_CreateUser_FullMethodName           = "/services.StorageService/CreateUser"
 	StorageService_GetUser_FullMethodName              = "/services.StorageService/GetUser"
 	StorageService_UpdateUser_FullMethodName           = "/services.StorageService/UpdateUser"
@@ -91,8 +90,6 @@ type StorageServiceClient interface {
 	GetHolding(ctx context.Context, in *GetHoldingRequest, opts ...grpc.CallOption) (*models.Holding, error)
 	UpdateHolding(ctx context.Context, in *UpdateHoldingRequest, opts ...grpc.CallOption) (*models.Holding, error)
 	ListHoldings(ctx context.Context, in *ListHoldingsRequest, opts ...grpc.CallOption) (*ListHoldingsResponse, error)
-	// History might be derived from transactions or snapshots. Let's keep it for now.
-	ListHoldingHistory(ctx context.Context, in *ListHoldingHistoryRequest, opts ...grpc.CallOption) (*ListHoldingHistoryResponse, error)
 	// --- User operations ---
 	CreateUser(ctx context.Context, in *CreateUserRequest, opts ...grpc.CallOption) (*models.User, error)
 	GetUser(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*models.User, error)
@@ -107,9 +104,7 @@ type StorageServiceClient interface {
 	// --- Transaction operations ---
 	CreateTransaction(ctx context.Context, in *CreateTransactionRequest, opts ...grpc.CallOption) (*models.Transaction, error)
 	GetTransaction(ctx context.Context, in *GetTransactionRequest, opts ...grpc.CallOption) (*models.Transaction, error)
-	// Transactions are often immutable after completion. Update might only change status.
 	UpdateTransaction(ctx context.Context, in *UpdateTransactionRequest, opts ...grpc.CallOption) (*models.Transaction, error)
-	// rpc DeleteTransaction(DeleteTransactionRequest) returns (google.protobuf.Empty); // Optional: For admin/cleanup
 	ListTransactions(ctx context.Context, in *ListTransactionsRequest, opts ...grpc.CallOption) (*ListTransactionsResponse, error)
 }
 
@@ -331,16 +326,6 @@ func (c *storageServiceClient) ListHoldings(ctx context.Context, in *ListHolding
 	return out, nil
 }
 
-func (c *storageServiceClient) ListHoldingHistory(ctx context.Context, in *ListHoldingHistoryRequest, opts ...grpc.CallOption) (*ListHoldingHistoryResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListHoldingHistoryResponse)
-	err := c.cc.Invoke(ctx, StorageService_ListHoldingHistory_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *storageServiceClient) CreateUser(ctx context.Context, in *CreateUserRequest, opts ...grpc.CallOption) (*models.User, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(models.User)
@@ -504,8 +489,6 @@ type StorageServiceServer interface {
 	GetHolding(context.Context, *GetHoldingRequest) (*models.Holding, error)
 	UpdateHolding(context.Context, *UpdateHoldingRequest) (*models.Holding, error)
 	ListHoldings(context.Context, *ListHoldingsRequest) (*ListHoldingsResponse, error)
-	// History might be derived from transactions or snapshots. Let's keep it for now.
-	ListHoldingHistory(context.Context, *ListHoldingHistoryRequest) (*ListHoldingHistoryResponse, error)
 	// --- User operations ---
 	CreateUser(context.Context, *CreateUserRequest) (*models.User, error)
 	GetUser(context.Context, *GetUserRequest) (*models.User, error)
@@ -520,9 +503,7 @@ type StorageServiceServer interface {
 	// --- Transaction operations ---
 	CreateTransaction(context.Context, *CreateTransactionRequest) (*models.Transaction, error)
 	GetTransaction(context.Context, *GetTransactionRequest) (*models.Transaction, error)
-	// Transactions are often immutable after completion. Update might only change status.
 	UpdateTransaction(context.Context, *UpdateTransactionRequest) (*models.Transaction, error)
-	// rpc DeleteTransaction(DeleteTransactionRequest) returns (google.protobuf.Empty); // Optional: For admin/cleanup
 	ListTransactions(context.Context, *ListTransactionsRequest) (*ListTransactionsResponse, error)
 	mustEmbedUnimplementedStorageServiceServer()
 }
@@ -596,9 +577,6 @@ func (UnimplementedStorageServiceServer) UpdateHolding(context.Context, *UpdateH
 }
 func (UnimplementedStorageServiceServer) ListHoldings(context.Context, *ListHoldingsRequest) (*ListHoldingsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListHoldings not implemented")
-}
-func (UnimplementedStorageServiceServer) ListHoldingHistory(context.Context, *ListHoldingHistoryRequest) (*ListHoldingHistoryResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListHoldingHistory not implemented")
 }
 func (UnimplementedStorageServiceServer) CreateUser(context.Context, *CreateUserRequest) (*models.User, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateUser not implemented")
@@ -1038,24 +1016,6 @@ func _StorageService_ListHoldings_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
-func _StorageService_ListHoldingHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListHoldingHistoryRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StorageServiceServer).ListHoldingHistory(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: StorageService_ListHoldingHistory_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StorageServiceServer).ListHoldingHistory(ctx, req.(*ListHoldingHistoryRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _StorageService_CreateUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateUserRequest)
 	if err := dec(in); err != nil {
@@ -1380,10 +1340,6 @@ var StorageService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListHoldings",
 			Handler:    _StorageService_ListHoldings_Handler,
-		},
-		{
-			MethodName: "ListHoldingHistory",
-			Handler:    _StorageService_ListHoldingHistory_Handler,
 		},
 		{
 			MethodName: "CreateUser",

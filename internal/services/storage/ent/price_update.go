@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
@@ -100,45 +99,45 @@ func (pu *PriceUpdate) SetNillableInterval(s *string) *PriceUpdate {
 	return pu
 }
 
-// SetAmount sets the "amount" field.
-func (pu *PriceUpdate) SetAmount(i int64) *PriceUpdate {
-	pu.mutation.ResetAmount()
-	pu.mutation.SetAmount(i)
+// SetDecimals sets the "decimals" field.
+func (pu *PriceUpdate) SetDecimals(u uint32) *PriceUpdate {
+	pu.mutation.ResetDecimals()
+	pu.mutation.SetDecimals(u)
 	return pu
 }
 
-// SetNillableAmount sets the "amount" field if the given value is not nil.
-func (pu *PriceUpdate) SetNillableAmount(i *int64) *PriceUpdate {
-	if i != nil {
-		pu.SetAmount(*i)
-	}
-	return pu
-}
-
-// AddAmount adds i to the "amount" field.
-func (pu *PriceUpdate) AddAmount(i int64) *PriceUpdate {
-	pu.mutation.AddAmount(i)
-	return pu
-}
-
-// SetPrecision sets the "precision" field.
-func (pu *PriceUpdate) SetPrecision(u uint32) *PriceUpdate {
-	pu.mutation.ResetPrecision()
-	pu.mutation.SetPrecision(u)
-	return pu
-}
-
-// SetNillablePrecision sets the "precision" field if the given value is not nil.
-func (pu *PriceUpdate) SetNillablePrecision(u *uint32) *PriceUpdate {
+// SetNillableDecimals sets the "decimals" field if the given value is not nil.
+func (pu *PriceUpdate) SetNillableDecimals(u *uint32) *PriceUpdate {
 	if u != nil {
-		pu.SetPrecision(*u)
+		pu.SetDecimals(*u)
 	}
 	return pu
 }
 
-// AddPrecision adds u to the "precision" field.
-func (pu *PriceUpdate) AddPrecision(u int32) *PriceUpdate {
-	pu.mutation.AddPrecision(u)
+// AddDecimals adds u to the "decimals" field.
+func (pu *PriceUpdate) AddDecimals(u int32) *PriceUpdate {
+	pu.mutation.AddDecimals(u)
+	return pu
+}
+
+// SetLast sets the "last" field.
+func (pu *PriceUpdate) SetLast(i int64) *PriceUpdate {
+	pu.mutation.ResetLast()
+	pu.mutation.SetLast(i)
+	return pu
+}
+
+// SetNillableLast sets the "last" field if the given value is not nil.
+func (pu *PriceUpdate) SetNillableLast(i *int64) *PriceUpdate {
+	if i != nil {
+		pu.SetLast(*i)
+	}
+	return pu
+}
+
+// AddLast adds i to the "last" field.
+func (pu *PriceUpdate) AddLast(i int64) *PriceUpdate {
+	pu.mutation.AddLast(i)
 	return pu
 }
 
@@ -277,12 +276,6 @@ func (pu *PriceUpdate) ClearVolume() *PriceUpdate {
 	return pu
 }
 
-// SetUpdatedAt sets the "updated_at" field.
-func (pu *PriceUpdate) SetUpdatedAt(t time.Time) *PriceUpdate {
-	pu.mutation.SetUpdatedAt(t)
-	return pu
-}
-
 // SetAsset sets the "asset" edge to the Asset entity.
 func (pu *PriceUpdate) SetAsset(a *Asset) *PriceUpdate {
 	return pu.SetAssetID(a.ID)
@@ -312,7 +305,6 @@ func (pu *PriceUpdate) ClearBaseAsset() *PriceUpdate {
 
 // Save executes the query and returns the number of nodes affected by the update operation.
 func (pu *PriceUpdate) Save(ctx context.Context) (int, error) {
-	pu.defaults()
 	return withHooks(ctx, pu.sqlSave, pu.mutation, pu.hooks)
 }
 
@@ -335,14 +327,6 @@ func (pu *PriceUpdate) Exec(ctx context.Context) error {
 func (pu *PriceUpdate) ExecX(ctx context.Context) {
 	if err := pu.Exec(ctx); err != nil {
 		panic(err)
-	}
-}
-
-// defaults sets the default values of the builder before save.
-func (pu *PriceUpdate) defaults() {
-	if _, ok := pu.mutation.UpdatedAt(); !ok {
-		v := price.UpdateDefaultUpdatedAt()
-		pu.mutation.SetUpdatedAt(v)
 	}
 }
 
@@ -378,17 +362,17 @@ func (pu *PriceUpdate) sqlSave(ctx context.Context) (n int, err error) {
 	if value, ok := pu.mutation.Interval(); ok {
 		_spec.SetField(price.FieldInterval, field.TypeString, value)
 	}
-	if value, ok := pu.mutation.Amount(); ok {
-		_spec.SetField(price.FieldAmount, field.TypeInt64, value)
+	if value, ok := pu.mutation.Decimals(); ok {
+		_spec.SetField(price.FieldDecimals, field.TypeUint32, value)
 	}
-	if value, ok := pu.mutation.AddedAmount(); ok {
-		_spec.AddField(price.FieldAmount, field.TypeInt64, value)
+	if value, ok := pu.mutation.AddedDecimals(); ok {
+		_spec.AddField(price.FieldDecimals, field.TypeUint32, value)
 	}
-	if value, ok := pu.mutation.Precision(); ok {
-		_spec.SetField(price.FieldPrecision, field.TypeUint32, value)
+	if value, ok := pu.mutation.Last(); ok {
+		_spec.SetField(price.FieldLast, field.TypeInt64, value)
 	}
-	if value, ok := pu.mutation.AddedPrecision(); ok {
-		_spec.AddField(price.FieldPrecision, field.TypeUint32, value)
+	if value, ok := pu.mutation.AddedLast(); ok {
+		_spec.AddField(price.FieldLast, field.TypeInt64, value)
 	}
 	if value, ok := pu.mutation.Open(); ok {
 		_spec.SetField(price.FieldOpen, field.TypeInt64, value)
@@ -434,9 +418,6 @@ func (pu *PriceUpdate) sqlSave(ctx context.Context) (n int, err error) {
 	}
 	if pu.mutation.VolumeCleared() {
 		_spec.ClearField(price.FieldVolume, field.TypeInt64)
-	}
-	if value, ok := pu.mutation.UpdatedAt(); ok {
-		_spec.SetField(price.FieldUpdatedAt, field.TypeTime, value)
 	}
 	if pu.mutation.AssetCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -586,45 +567,45 @@ func (puo *PriceUpdateOne) SetNillableInterval(s *string) *PriceUpdateOne {
 	return puo
 }
 
-// SetAmount sets the "amount" field.
-func (puo *PriceUpdateOne) SetAmount(i int64) *PriceUpdateOne {
-	puo.mutation.ResetAmount()
-	puo.mutation.SetAmount(i)
+// SetDecimals sets the "decimals" field.
+func (puo *PriceUpdateOne) SetDecimals(u uint32) *PriceUpdateOne {
+	puo.mutation.ResetDecimals()
+	puo.mutation.SetDecimals(u)
 	return puo
 }
 
-// SetNillableAmount sets the "amount" field if the given value is not nil.
-func (puo *PriceUpdateOne) SetNillableAmount(i *int64) *PriceUpdateOne {
-	if i != nil {
-		puo.SetAmount(*i)
-	}
-	return puo
-}
-
-// AddAmount adds i to the "amount" field.
-func (puo *PriceUpdateOne) AddAmount(i int64) *PriceUpdateOne {
-	puo.mutation.AddAmount(i)
-	return puo
-}
-
-// SetPrecision sets the "precision" field.
-func (puo *PriceUpdateOne) SetPrecision(u uint32) *PriceUpdateOne {
-	puo.mutation.ResetPrecision()
-	puo.mutation.SetPrecision(u)
-	return puo
-}
-
-// SetNillablePrecision sets the "precision" field if the given value is not nil.
-func (puo *PriceUpdateOne) SetNillablePrecision(u *uint32) *PriceUpdateOne {
+// SetNillableDecimals sets the "decimals" field if the given value is not nil.
+func (puo *PriceUpdateOne) SetNillableDecimals(u *uint32) *PriceUpdateOne {
 	if u != nil {
-		puo.SetPrecision(*u)
+		puo.SetDecimals(*u)
 	}
 	return puo
 }
 
-// AddPrecision adds u to the "precision" field.
-func (puo *PriceUpdateOne) AddPrecision(u int32) *PriceUpdateOne {
-	puo.mutation.AddPrecision(u)
+// AddDecimals adds u to the "decimals" field.
+func (puo *PriceUpdateOne) AddDecimals(u int32) *PriceUpdateOne {
+	puo.mutation.AddDecimals(u)
+	return puo
+}
+
+// SetLast sets the "last" field.
+func (puo *PriceUpdateOne) SetLast(i int64) *PriceUpdateOne {
+	puo.mutation.ResetLast()
+	puo.mutation.SetLast(i)
+	return puo
+}
+
+// SetNillableLast sets the "last" field if the given value is not nil.
+func (puo *PriceUpdateOne) SetNillableLast(i *int64) *PriceUpdateOne {
+	if i != nil {
+		puo.SetLast(*i)
+	}
+	return puo
+}
+
+// AddLast adds i to the "last" field.
+func (puo *PriceUpdateOne) AddLast(i int64) *PriceUpdateOne {
+	puo.mutation.AddLast(i)
 	return puo
 }
 
@@ -763,12 +744,6 @@ func (puo *PriceUpdateOne) ClearVolume() *PriceUpdateOne {
 	return puo
 }
 
-// SetUpdatedAt sets the "updated_at" field.
-func (puo *PriceUpdateOne) SetUpdatedAt(t time.Time) *PriceUpdateOne {
-	puo.mutation.SetUpdatedAt(t)
-	return puo
-}
-
 // SetAsset sets the "asset" edge to the Asset entity.
 func (puo *PriceUpdateOne) SetAsset(a *Asset) *PriceUpdateOne {
 	return puo.SetAssetID(a.ID)
@@ -811,7 +786,6 @@ func (puo *PriceUpdateOne) Select(field string, fields ...string) *PriceUpdateOn
 
 // Save executes the query and returns the updated Price entity.
 func (puo *PriceUpdateOne) Save(ctx context.Context) (*Price, error) {
-	puo.defaults()
 	return withHooks(ctx, puo.sqlSave, puo.mutation, puo.hooks)
 }
 
@@ -834,14 +808,6 @@ func (puo *PriceUpdateOne) Exec(ctx context.Context) error {
 func (puo *PriceUpdateOne) ExecX(ctx context.Context) {
 	if err := puo.Exec(ctx); err != nil {
 		panic(err)
-	}
-}
-
-// defaults sets the default values of the builder before save.
-func (puo *PriceUpdateOne) defaults() {
-	if _, ok := puo.mutation.UpdatedAt(); !ok {
-		v := price.UpdateDefaultUpdatedAt()
-		puo.mutation.SetUpdatedAt(v)
 	}
 }
 
@@ -894,17 +860,17 @@ func (puo *PriceUpdateOne) sqlSave(ctx context.Context) (_node *Price, err error
 	if value, ok := puo.mutation.Interval(); ok {
 		_spec.SetField(price.FieldInterval, field.TypeString, value)
 	}
-	if value, ok := puo.mutation.Amount(); ok {
-		_spec.SetField(price.FieldAmount, field.TypeInt64, value)
+	if value, ok := puo.mutation.Decimals(); ok {
+		_spec.SetField(price.FieldDecimals, field.TypeUint32, value)
 	}
-	if value, ok := puo.mutation.AddedAmount(); ok {
-		_spec.AddField(price.FieldAmount, field.TypeInt64, value)
+	if value, ok := puo.mutation.AddedDecimals(); ok {
+		_spec.AddField(price.FieldDecimals, field.TypeUint32, value)
 	}
-	if value, ok := puo.mutation.Precision(); ok {
-		_spec.SetField(price.FieldPrecision, field.TypeUint32, value)
+	if value, ok := puo.mutation.Last(); ok {
+		_spec.SetField(price.FieldLast, field.TypeInt64, value)
 	}
-	if value, ok := puo.mutation.AddedPrecision(); ok {
-		_spec.AddField(price.FieldPrecision, field.TypeUint32, value)
+	if value, ok := puo.mutation.AddedLast(); ok {
+		_spec.AddField(price.FieldLast, field.TypeInt64, value)
 	}
 	if value, ok := puo.mutation.Open(); ok {
 		_spec.SetField(price.FieldOpen, field.TypeInt64, value)
@@ -950,9 +916,6 @@ func (puo *PriceUpdateOne) sqlSave(ctx context.Context) (_node *Price, err error
 	}
 	if puo.mutation.VolumeCleared() {
 		_spec.ClearField(price.FieldVolume, field.TypeInt64)
-	}
-	if value, ok := puo.mutation.UpdatedAt(); ok {
-		_spec.SetField(price.FieldUpdatedAt, field.TypeTime, value)
 	}
 	if puo.mutation.AssetCleared() {
 		edge := &sqlgraph.EdgeSpec{

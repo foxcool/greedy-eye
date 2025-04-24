@@ -73,3 +73,10 @@ logs:
 logs-debug:
 	@echo "Following logs for eye_debug service..."
 	$(COMPOSE) -f $(COMPOSE_FILE) logs -f eye-debug
+
+# Run tests in a dedicated test container
+test:
+	@echo "Running tests in a dedicated test container..."
+	$(COMPOSE) -f $(COMPOSE_FILE) --env-file deploy/secrets.env run --rm \
+	-e DOCKER_COMPOSE_TEST=true \
+	eye-test go test ./...

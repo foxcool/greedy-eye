@@ -41,7 +41,12 @@ func Get() ([]entities.Price, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() {
+		err := response.Body.Close()
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+	}()
 
 	// Read the response body
 	body, err := io.ReadAll(response.Body)

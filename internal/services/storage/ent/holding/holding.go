@@ -17,20 +17,20 @@ const (
 	FieldID = "id"
 	// FieldUUID holds the string denoting the uuid field in the database.
 	FieldUUID = "uuid"
-	// FieldAssetID holds the string denoting the asset_id field in the database.
-	FieldAssetID = "asset_id"
-	// FieldPortfolioID holds the string denoting the portfolio_id field in the database.
-	FieldPortfolioID = "portfolio_id"
-	// FieldAccountID holds the string denoting the account_id field in the database.
-	FieldAccountID = "account_id"
-	// FieldAmount holds the string denoting the amount field in the database.
-	FieldAmount = "amount"
-	// FieldPrecision holds the string denoting the precision field in the database.
-	FieldPrecision = "precision"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
 	FieldUpdatedAt = "updated_at"
+	// FieldAssetID holds the string denoting the asset_id field in the database.
+	FieldAssetID = "asset_id"
+	// FieldAmount holds the string denoting the amount field in the database.
+	FieldAmount = "amount"
+	// FieldDecimals holds the string denoting the decimals field in the database.
+	FieldDecimals = "decimals"
+	// FieldPortfolioID holds the string denoting the portfolio_id field in the database.
+	FieldPortfolioID = "portfolio_id"
+	// FieldAccountID holds the string denoting the account_id field in the database.
+	FieldAccountID = "account_id"
 	// EdgeAsset holds the string denoting the asset edge name in mutations.
 	EdgeAsset = "asset"
 	// EdgePortfolio holds the string denoting the portfolio edge name in mutations.
@@ -66,13 +66,13 @@ const (
 var Columns = []string{
 	FieldID,
 	FieldUUID,
-	FieldAssetID,
-	FieldPortfolioID,
-	FieldAccountID,
-	FieldAmount,
-	FieldPrecision,
 	FieldCreatedAt,
 	FieldUpdatedAt,
+	FieldAssetID,
+	FieldAmount,
+	FieldDecimals,
+	FieldPortfolioID,
+	FieldAccountID,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -109,9 +109,29 @@ func ByUUID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUUID, opts...).ToFunc()
 }
 
+// ByCreatedAt orders the results by the created_at field.
+func ByCreatedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCreatedAt, opts...).ToFunc()
+}
+
+// ByUpdatedAt orders the results by the updated_at field.
+func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
+}
+
 // ByAssetID orders the results by the asset_id field.
 func ByAssetID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldAssetID, opts...).ToFunc()
+}
+
+// ByAmount orders the results by the amount field.
+func ByAmount(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAmount, opts...).ToFunc()
+}
+
+// ByDecimals orders the results by the Decimals field.
+func ByDecimals(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDecimals, opts...).ToFunc()
 }
 
 // ByPortfolioID orders the results by the portfolio_id field.
@@ -122,26 +142,6 @@ func ByPortfolioID(opts ...sql.OrderTermOption) OrderOption {
 // ByAccountID orders the results by the account_id field.
 func ByAccountID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldAccountID, opts...).ToFunc()
-}
-
-// ByAmount orders the results by the amount field.
-func ByAmount(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldAmount, opts...).ToFunc()
-}
-
-// ByPrecision orders the results by the precision field.
-func ByPrecision(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldPrecision, opts...).ToFunc()
-}
-
-// ByCreatedAt orders the results by the created_at field.
-func ByCreatedAt(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldCreatedAt, opts...).ToFunc()
-}
-
-// ByUpdatedAt orders the results by the updated_at field.
-func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
 }
 
 // ByAssetField orders the results by asset field.

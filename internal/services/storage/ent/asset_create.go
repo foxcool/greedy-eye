@@ -38,30 +38,6 @@ func (ac *AssetCreate) SetNillableUUID(u *uuid.UUID) *AssetCreate {
 	return ac
 }
 
-// SetSymbol sets the "symbol" field.
-func (ac *AssetCreate) SetSymbol(s string) *AssetCreate {
-	ac.mutation.SetSymbol(s)
-	return ac
-}
-
-// SetName sets the "name" field.
-func (ac *AssetCreate) SetName(s string) *AssetCreate {
-	ac.mutation.SetName(s)
-	return ac
-}
-
-// SetType sets the "type" field.
-func (ac *AssetCreate) SetType(a asset.Type) *AssetCreate {
-	ac.mutation.SetType(a)
-	return ac
-}
-
-// SetTags sets the "tags" field.
-func (ac *AssetCreate) SetTags(s []string) *AssetCreate {
-	ac.mutation.SetTags(s)
-	return ac
-}
-
 // SetCreatedAt sets the "created_at" field.
 func (ac *AssetCreate) SetCreatedAt(t time.Time) *AssetCreate {
 	ac.mutation.SetCreatedAt(t)
@@ -87,6 +63,30 @@ func (ac *AssetCreate) SetNillableUpdatedAt(t *time.Time) *AssetCreate {
 	if t != nil {
 		ac.SetUpdatedAt(*t)
 	}
+	return ac
+}
+
+// SetSymbol sets the "symbol" field.
+func (ac *AssetCreate) SetSymbol(s string) *AssetCreate {
+	ac.mutation.SetSymbol(s)
+	return ac
+}
+
+// SetName sets the "name" field.
+func (ac *AssetCreate) SetName(s string) *AssetCreate {
+	ac.mutation.SetName(s)
+	return ac
+}
+
+// SetType sets the "type" field.
+func (ac *AssetCreate) SetType(a asset.Type) *AssetCreate {
+	ac.mutation.SetType(a)
+	return ac
+}
+
+// SetTags sets the "tags" field.
+func (ac *AssetCreate) SetTags(s []string) *AssetCreate {
+	ac.mutation.SetTags(s)
 	return ac
 }
 
@@ -204,6 +204,12 @@ func (ac *AssetCreate) check() error {
 	if _, ok := ac.mutation.UUID(); !ok {
 		return &ValidationError{Name: "uuid", err: errors.New(`ent: missing required field "Asset.uuid"`)}
 	}
+	if _, ok := ac.mutation.CreatedAt(); !ok {
+		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Asset.created_at"`)}
+	}
+	if _, ok := ac.mutation.UpdatedAt(); !ok {
+		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Asset.updated_at"`)}
+	}
 	if _, ok := ac.mutation.Symbol(); !ok {
 		return &ValidationError{Name: "symbol", err: errors.New(`ent: missing required field "Asset.symbol"`)}
 	}
@@ -220,12 +226,6 @@ func (ac *AssetCreate) check() error {
 	}
 	if _, ok := ac.mutation.Tags(); !ok {
 		return &ValidationError{Name: "tags", err: errors.New(`ent: missing required field "Asset.tags"`)}
-	}
-	if _, ok := ac.mutation.CreatedAt(); !ok {
-		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Asset.created_at"`)}
-	}
-	if _, ok := ac.mutation.UpdatedAt(); !ok {
-		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Asset.updated_at"`)}
 	}
 	return nil
 }
@@ -257,6 +257,14 @@ func (ac *AssetCreate) createSpec() (*Asset, *sqlgraph.CreateSpec) {
 		_spec.SetField(asset.FieldUUID, field.TypeUUID, value)
 		_node.UUID = value
 	}
+	if value, ok := ac.mutation.CreatedAt(); ok {
+		_spec.SetField(asset.FieldCreatedAt, field.TypeTime, value)
+		_node.CreatedAt = value
+	}
+	if value, ok := ac.mutation.UpdatedAt(); ok {
+		_spec.SetField(asset.FieldUpdatedAt, field.TypeTime, value)
+		_node.UpdatedAt = value
+	}
 	if value, ok := ac.mutation.Symbol(); ok {
 		_spec.SetField(asset.FieldSymbol, field.TypeString, value)
 		_node.Symbol = value
@@ -272,14 +280,6 @@ func (ac *AssetCreate) createSpec() (*Asset, *sqlgraph.CreateSpec) {
 	if value, ok := ac.mutation.Tags(); ok {
 		_spec.SetField(asset.FieldTags, field.TypeJSON, value)
 		_node.Tags = value
-	}
-	if value, ok := ac.mutation.CreatedAt(); ok {
-		_spec.SetField(asset.FieldCreatedAt, field.TypeTime, value)
-		_node.CreatedAt = value
-	}
-	if value, ok := ac.mutation.UpdatedAt(); ok {
-		_spec.SetField(asset.FieldUpdatedAt, field.TypeTime, value)
-		_node.UpdatedAt = value
 	}
 	if nodes := ac.mutation.HoldingsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

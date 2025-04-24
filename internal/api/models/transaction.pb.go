@@ -26,8 +26,8 @@ type TransactionType int32
 
 const (
 	TransactionType_TRANSACTION_TYPE_UNSPECIFIED TransactionType = 0
-	TransactionType_TRANSACTION_TYPE_BUY         TransactionType = 1 // Buying an asset
-	TransactionType_TRANSACTION_TYPE_SELL        TransactionType = 2 // Selling an asset
+	TransactionType_TRANSACTION_TYPE_EXTENDED    TransactionType = 1 // Complex transactionsz: DeFi, NFT, Governance, Gaming, etc.
+	TransactionType_TRANSACTION_TYPE_TRADE       TransactionType = 2 // Echanging one asset for another
 	TransactionType_TRANSACTION_TYPE_TRANSFER    TransactionType = 3 // Transferring asset between accounts (internal or external)
 	TransactionType_TRANSACTION_TYPE_DEPOSIT     TransactionType = 4 // Depositing asset into an account from outside the system
 	TransactionType_TRANSACTION_TYPE_WITHDRAWAL  TransactionType = 5 // Withdrawing asset from an account to outside the system
@@ -37,16 +37,16 @@ const (
 var (
 	TransactionType_name = map[int32]string{
 		0: "TRANSACTION_TYPE_UNSPECIFIED",
-		1: "TRANSACTION_TYPE_BUY",
-		2: "TRANSACTION_TYPE_SELL",
+		1: "TRANSACTION_TYPE_EXTENDED",
+		2: "TRANSACTION_TYPE_TRADE",
 		3: "TRANSACTION_TYPE_TRANSFER",
 		4: "TRANSACTION_TYPE_DEPOSIT",
 		5: "TRANSACTION_TYPE_WITHDRAWAL",
 	}
 	TransactionType_value = map[string]int32{
 		"TRANSACTION_TYPE_UNSPECIFIED": 0,
-		"TRANSACTION_TYPE_BUY":         1,
-		"TRANSACTION_TYPE_SELL":        2,
+		"TRANSACTION_TYPE_EXTENDED":    1,
+		"TRANSACTION_TYPE_TRADE":       2,
 		"TRANSACTION_TYPE_TRANSFER":    3,
 		"TRANSACTION_TYPE_DEPOSIT":     4,
 		"TRANSACTION_TYPE_WITHDRAWAL":  5,
@@ -85,9 +85,10 @@ type TransactionStatus int32
 const (
 	TransactionStatus_TRANSACTION_STATUS_UNSPECIFIED TransactionStatus = 0
 	TransactionStatus_TRANSACTION_STATUS_PENDING     TransactionStatus = 1 // Transaction initiated but not confirmed
-	TransactionStatus_TRANSACTION_STATUS_COMPLETED   TransactionStatus = 2 // Transaction successfully completed
-	TransactionStatus_TRANSACTION_STATUS_FAILED      TransactionStatus = 3 // Transaction failed
-	TransactionStatus_TRANSACTION_STATUS_CANCELLED   TransactionStatus = 4 // Transaction cancelled before completion
+	TransactionStatus_TRANSACTION_STATUS_PROCESSING  TransactionStatus = 2 // Transaction is being processed
+	TransactionStatus_TRANSACTION_STATUS_COMPLETED   TransactionStatus = 3 // Transaction successfully completed
+	TransactionStatus_TRANSACTION_STATUS_FAILED      TransactionStatus = 4 // Transaction failed
+	TransactionStatus_TRANSACTION_STATUS_CANCELLED   TransactionStatus = 5 // Transaction cancelled before completion
 )
 
 // Enum value maps for TransactionStatus.
@@ -95,16 +96,18 @@ var (
 	TransactionStatus_name = map[int32]string{
 		0: "TRANSACTION_STATUS_UNSPECIFIED",
 		1: "TRANSACTION_STATUS_PENDING",
-		2: "TRANSACTION_STATUS_COMPLETED",
-		3: "TRANSACTION_STATUS_FAILED",
-		4: "TRANSACTION_STATUS_CANCELLED",
+		2: "TRANSACTION_STATUS_PROCESSING",
+		3: "TRANSACTION_STATUS_COMPLETED",
+		4: "TRANSACTION_STATUS_FAILED",
+		5: "TRANSACTION_STATUS_CANCELLED",
 	}
 	TransactionStatus_value = map[string]int32{
 		"TRANSACTION_STATUS_UNSPECIFIED": 0,
 		"TRANSACTION_STATUS_PENDING":     1,
-		"TRANSACTION_STATUS_COMPLETED":   2,
-		"TRANSACTION_STATUS_FAILED":      3,
-		"TRANSACTION_STATUS_CANCELLED":   4,
+		"TRANSACTION_STATUS_PROCESSING":  2,
+		"TRANSACTION_STATUS_COMPLETED":   3,
+		"TRANSACTION_STATUS_FAILED":      4,
+		"TRANSACTION_STATUS_CANCELLED":   5,
 	}
 )
 
@@ -137,22 +140,14 @@ func (TransactionStatus) EnumDescriptor() ([]byte, []int) {
 
 // Transaction represents a financial event involving assets, accounts, and portfolios.
 type Transaction struct {
-	state       protoimpl.MessageState `protogen:"open.v1"`
-	Id          string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`                                      // Unique identifier (UUID)
-	PortfolioId string                 `protobuf:"bytes,2,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"` // ID of the Portfolio affected by the transaction
-	AccountId   string                 `protobuf:"bytes,3,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`       // ID of the primary Account involved
-	AssetId     string                 `protobuf:"bytes,4,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`             // ID of the primary Asset involved
-	// Monetary value represented by amount and precision. real_value = amount / (10^precision)
-	Amount int64 `protobuf:"varint,5,opt,name=amount,proto3" json:"amount,omitempty"` // Quantity of the primary asset involved
-	// Fee amount, represented by fee and precision. real_fee = fee / (10^precision)
-	Fee           int64                  `protobuf:"varint,6,opt,name=fee,proto3" json:"fee,omitempty"`                                                                                     // Fee paid for the transaction
-	Precision     uint32                 `protobuf:"varint,7,opt,name=precision,proto3" json:"precision,omitempty"`                                                                         // Precision for both 'amount' and 'fee' (assuming same precision for simplicity, adjust if needed)
-	FeeAssetId    string                 `protobuf:"bytes,8,opt,name=fee_asset_id,json=feeAssetId,proto3" json:"fee_asset_id,omitempty"`                                                    // ID of the Asset used to pay the fee (can be different from primary asset)
-	Type          TransactionType        `protobuf:"varint,9,opt,name=type,proto3,enum=models.TransactionType" json:"type,omitempty"`                                                       // Type of the transaction
-	Status        TransactionStatus      `protobuf:"varint,10,opt,name=status,proto3,enum=models.TransactionStatus" json:"status,omitempty"`                                                // Current status of the transaction
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`                                                        // Timestamp when the transaction occurred or was recorded
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`                                                        // Timestamp of last status update
-	Metadata      map[string]string      `protobuf:"bytes,13,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Additional data (e.g., external transaction ID, notes)
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`                                                                               // Unique identifier (UUID)
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`                                                // Timestamp when the transaction occurred or was recorded
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`                                                // Timestamp of last status update
+	Type          TransactionType        `protobuf:"varint,4,opt,name=type,proto3,enum=models.TransactionType" json:"type,omitempty"`                                              // Type of the transaction
+	Status        TransactionStatus      `protobuf:"varint,5,opt,name=status,proto3,enum=models.TransactionStatus" json:"status,omitempty"`                                        // Current status of the transaction
+	AccountId     string                 `protobuf:"bytes,6,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`                                                // ID of the Account involved in the transaction
+	Data          map[string]string      `protobuf:"bytes,7,rep,name=data,proto3" json:"data,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Transaction data (e.g., external transaction ID, notes, )
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -194,53 +189,18 @@ func (x *Transaction) GetId() string {
 	return ""
 }
 
-func (x *Transaction) GetPortfolioId() string {
+func (x *Transaction) GetCreatedAt() *timestamppb.Timestamp {
 	if x != nil {
-		return x.PortfolioId
+		return x.CreatedAt
 	}
-	return ""
+	return nil
 }
 
-func (x *Transaction) GetAccountId() string {
+func (x *Transaction) GetUpdatedAt() *timestamppb.Timestamp {
 	if x != nil {
-		return x.AccountId
+		return x.UpdatedAt
 	}
-	return ""
-}
-
-func (x *Transaction) GetAssetId() string {
-	if x != nil {
-		return x.AssetId
-	}
-	return ""
-}
-
-func (x *Transaction) GetAmount() int64 {
-	if x != nil {
-		return x.Amount
-	}
-	return 0
-}
-
-func (x *Transaction) GetFee() int64 {
-	if x != nil {
-		return x.Fee
-	}
-	return 0
-}
-
-func (x *Transaction) GetPrecision() uint32 {
-	if x != nil {
-		return x.Precision
-	}
-	return 0
-}
-
-func (x *Transaction) GetFeeAssetId() string {
-	if x != nil {
-		return x.FeeAssetId
-	}
-	return ""
+	return nil
 }
 
 func (x *Transaction) GetType() TransactionType {
@@ -257,23 +217,16 @@ func (x *Transaction) GetStatus() TransactionStatus {
 	return TransactionStatus_TRANSACTION_STATUS_UNSPECIFIED
 }
 
-func (x *Transaction) GetCreatedAt() *timestamppb.Timestamp {
+func (x *Transaction) GetAccountId() string {
 	if x != nil {
-		return x.CreatedAt
+		return x.AccountId
 	}
-	return nil
+	return ""
 }
 
-func (x *Transaction) GetUpdatedAt() *timestamppb.Timestamp {
+func (x *Transaction) GetData() map[string]string {
 	if x != nil {
-		return x.UpdatedAt
-	}
-	return nil
-}
-
-func (x *Transaction) GetMetadata() map[string]string {
-	if x != nil {
-		return x.Metadata
+		return x.Data
 	}
 	return nil
 }
@@ -282,42 +235,35 @@ var File_api_models_transaction_proto protoreflect.FileDescriptor
 
 const file_api_models_transaction_proto_rawDesc = "" +
 	"\n" +
-	"\x1capi/models/transaction.proto\x12\x06models\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb6\x04\n" +
+	"\x1capi/models/transaction.proto\x12\x06models\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfe\x02\n" +
 	"\vTransaction\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
-	"\fportfolio_id\x18\x02 \x01(\tR\vportfolioId\x12\x1d\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x129\n" +
 	"\n" +
-	"account_id\x18\x03 \x01(\tR\taccountId\x12\x19\n" +
-	"\basset_id\x18\x04 \x01(\tR\aassetId\x12\x16\n" +
-	"\x06amount\x18\x05 \x01(\x03R\x06amount\x12\x10\n" +
-	"\x03fee\x18\x06 \x01(\x03R\x03fee\x12\x1c\n" +
-	"\tprecision\x18\a \x01(\rR\tprecision\x12 \n" +
-	"\ffee_asset_id\x18\b \x01(\tR\n" +
-	"feeAssetId\x12+\n" +
-	"\x04type\x18\t \x01(\x0e2\x17.models.TransactionTypeR\x04type\x121\n" +
-	"\x06status\x18\n" +
-	" \x01(\x0e2\x19.models.TransactionStatusR\x06status\x129\n" +
+	"created_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"created_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"updated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12+\n" +
+	"\x04type\x18\x04 \x01(\x0e2\x17.models.TransactionTypeR\x04type\x121\n" +
+	"\x06status\x18\x05 \x01(\x0e2\x19.models.TransactionStatusR\x06status\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12=\n" +
-	"\bmetadata\x18\r \x03(\v2!.models.Transaction.MetadataEntryR\bmetadata\x1a;\n" +
-	"\rMetadataEntry\x12\x10\n" +
+	"account_id\x18\x06 \x01(\tR\taccountId\x121\n" +
+	"\x04data\x18\a \x03(\v2\x1d.models.Transaction.DataEntryR\x04data\x1a7\n" +
+	"\tDataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xc6\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xcc\x01\n" +
 	"\x0fTransactionType\x12 \n" +
-	"\x1cTRANSACTION_TYPE_UNSPECIFIED\x10\x00\x12\x18\n" +
-	"\x14TRANSACTION_TYPE_BUY\x10\x01\x12\x19\n" +
-	"\x15TRANSACTION_TYPE_SELL\x10\x02\x12\x1d\n" +
+	"\x1cTRANSACTION_TYPE_UNSPECIFIED\x10\x00\x12\x1d\n" +
+	"\x19TRANSACTION_TYPE_EXTENDED\x10\x01\x12\x1a\n" +
+	"\x16TRANSACTION_TYPE_TRADE\x10\x02\x12\x1d\n" +
 	"\x19TRANSACTION_TYPE_TRANSFER\x10\x03\x12\x1c\n" +
 	"\x18TRANSACTION_TYPE_DEPOSIT\x10\x04\x12\x1f\n" +
-	"\x1bTRANSACTION_TYPE_WITHDRAWAL\x10\x05*\xba\x01\n" +
+	"\x1bTRANSACTION_TYPE_WITHDRAWAL\x10\x05*\xdd\x01\n" +
 	"\x11TransactionStatus\x12\"\n" +
 	"\x1eTRANSACTION_STATUS_UNSPECIFIED\x10\x00\x12\x1e\n" +
-	"\x1aTRANSACTION_STATUS_PENDING\x10\x01\x12 \n" +
-	"\x1cTRANSACTION_STATUS_COMPLETED\x10\x02\x12\x1d\n" +
-	"\x19TRANSACTION_STATUS_FAILED\x10\x03\x12 \n" +
-	"\x1cTRANSACTION_STATUS_CANCELLED\x10\x04B3Z1github.com/foxcool/greedy-eye/internal/api/modelsb\x06proto3"
+	"\x1aTRANSACTION_STATUS_PENDING\x10\x01\x12!\n" +
+	"\x1dTRANSACTION_STATUS_PROCESSING\x10\x02\x12 \n" +
+	"\x1cTRANSACTION_STATUS_COMPLETED\x10\x03\x12\x1d\n" +
+	"\x19TRANSACTION_STATUS_FAILED\x10\x04\x12 \n" +
+	"\x1cTRANSACTION_STATUS_CANCELLED\x10\x05B3Z1github.com/foxcool/greedy-eye/internal/api/modelsb\x06proto3"
 
 var (
 	file_api_models_transaction_proto_rawDescOnce sync.Once
@@ -337,15 +283,15 @@ var file_api_models_transaction_proto_goTypes = []any{
 	(TransactionType)(0),          // 0: models.TransactionType
 	(TransactionStatus)(0),        // 1: models.TransactionStatus
 	(*Transaction)(nil),           // 2: models.Transaction
-	nil,                           // 3: models.Transaction.MetadataEntry
+	nil,                           // 3: models.Transaction.DataEntry
 	(*timestamppb.Timestamp)(nil), // 4: google.protobuf.Timestamp
 }
 var file_api_models_transaction_proto_depIdxs = []int32{
-	0, // 0: models.Transaction.type:type_name -> models.TransactionType
-	1, // 1: models.Transaction.status:type_name -> models.TransactionStatus
-	4, // 2: models.Transaction.created_at:type_name -> google.protobuf.Timestamp
-	4, // 3: models.Transaction.updated_at:type_name -> google.protobuf.Timestamp
-	3, // 4: models.Transaction.metadata:type_name -> models.Transaction.MetadataEntry
+	4, // 0: models.Transaction.created_at:type_name -> google.protobuf.Timestamp
+	4, // 1: models.Transaction.updated_at:type_name -> google.protobuf.Timestamp
+	0, // 2: models.Transaction.type:type_name -> models.TransactionType
+	1, // 3: models.Transaction.status:type_name -> models.TransactionStatus
+	3, // 4: models.Transaction.data:type_name -> models.Transaction.DataEntry
 	5, // [5:5] is the sub-list for method output_type
 	5, // [5:5] is the sub-list for method input_type
 	5, // [5:5] is the sub-list for extension type_name

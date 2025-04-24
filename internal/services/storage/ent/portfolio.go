@@ -3,6 +3,7 @@
 package ent
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -21,27 +22,28 @@ type Portfolio struct {
 	ID int `json:"id,omitempty"`
 	// UUID holds the value of the "uuid" field.
 	UUID uuid.UUID `json:"uuid,omitempty"`
+	// CreatedAt holds the value of the "created_at" field.
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	// UpdatedAt holds the value of the "updated_at" field.
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
 	// UserID holds the value of the "user_id" field.
 	UserID int `json:"user_id,omitempty"`
 	// Name holds the value of the "name" field.
 	Name string `json:"name,omitempty"`
 	// Description holds the value of the "description" field.
 	Description string `json:"description,omitempty"`
-	// CreatedAt holds the value of the "created_at" field.
-	CreatedAt time.Time `json:"created_at,omitempty"`
-	// UpdatedAt holds the value of the "updated_at" field.
-	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	// Data holds the value of the "data" field.
+	Data map[string]interface{} `json:"data,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the PortfolioQuery when eager-loading is set.
-	Edges                 PortfolioEdges `json:"edges"`
-	transaction_portfolio *int
-	selectValues          sql.SelectValues
+	Edges        PortfolioEdges `json:"edges"`
+	selectValues sql.SelectValues
 }
 
 // PortfolioEdges holds the relations/edges for other nodes in the graph.
 type PortfolioEdges struct {
-	// Users holds the value of the users edge.
-	Users *User `json:"users,omitempty"`
+	// User holds the value of the user edge.
+	User *User `json:"user,omitempty"`
 	// Holdings holds the value of the holdings edge.
 	Holdings []*Holding `json:"holdings,omitempty"`
 	// loadedTypes holds the information for reporting if a
@@ -49,15 +51,15 @@ type PortfolioEdges struct {
 	loadedTypes [2]bool
 }
 
-// UsersOrErr returns the Users value or an error if the edge
+// UserOrErr returns the User value or an error if the edge
 // was not loaded in eager-loading, or loaded but was not found.
-func (e PortfolioEdges) UsersOrErr() (*User, error) {
-	if e.Users != nil {
-		return e.Users, nil
+func (e PortfolioEdges) UserOrErr() (*User, error) {
+	if e.User != nil {
+		return e.User, nil
 	} else if e.loadedTypes[0] {
 		return nil, &NotFoundError{label: user.Label}
 	}
-	return nil, &NotLoadedError{edge: "users"}
+	return nil, &NotLoadedError{edge: "user"}
 }
 
 // HoldingsOrErr returns the Holdings value or an error if the edge
@@ -74,6 +76,8 @@ func (*Portfolio) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
+		case portfolio.FieldData:
+			values[i] = new([]byte)
 		case portfolio.FieldID, portfolio.FieldUserID:
 			values[i] = new(sql.NullInt64)
 		case portfolio.FieldName, portfolio.FieldDescription:
@@ -82,8 +86,6 @@ func (*Portfolio) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullTime)
 		case portfolio.FieldUUID:
 			values[i] = new(uuid.UUID)
-		case portfolio.ForeignKeys[0]: // transaction_portfolio
-			values[i] = new(sql.NullInt64)
 		default:
 			values[i] = new(sql.UnknownType)
 		}
@@ -111,6 +113,18 @@ func (po *Portfolio) assignValues(columns []string, values []any) error {
 			} else if value != nil {
 				po.UUID = *value
 			}
+		case portfolio.FieldCreatedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field created_at", values[i])
+			} else if value.Valid {
+				po.CreatedAt = value.Time
+			}
+		case portfolio.FieldUpdatedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field updated_at", values[i])
+			} else if value.Valid {
+				po.UpdatedAt = value.Time
+			}
 		case portfolio.FieldUserID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field user_id", values[i])
@@ -129,24 +143,13 @@ func (po *Portfolio) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				po.Description = value.String
 			}
-		case portfolio.FieldCreatedAt:
-			if value, ok := values[i].(*sql.NullTime); !ok {
-				return fmt.Errorf("unexpected type %T for field created_at", values[i])
-			} else if value.Valid {
-				po.CreatedAt = value.Time
-			}
-		case portfolio.FieldUpdatedAt:
-			if value, ok := values[i].(*sql.NullTime); !ok {
-				return fmt.Errorf("unexpected type %T for field updated_at", values[i])
-			} else if value.Valid {
-				po.UpdatedAt = value.Time
-			}
-		case portfolio.ForeignKeys[0]:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for edge-field transaction_portfolio", value)
-			} else if value.Valid {
-				po.transaction_portfolio = new(int)
-				*po.transaction_portfolio = int(value.Int64)
+		case portfolio.FieldData:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field data", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &po.Data); err != nil {
+					return fmt.Errorf("unmarshal field data: %w", err)
+				}
 			}
 		default:
 			po.selectValues.Set(columns[i], values[i])
@@ -161,9 +164,9 @@ func (po *Portfolio) Value(name string) (ent.Value, error) {
 	return po.selectValues.Get(name)
 }
 
-// QueryUsers queries the "users" edge of the Portfolio entity.
-func (po *Portfolio) QueryUsers() *UserQuery {
-	return NewPortfolioClient(po.config).QueryUsers(po)
+// QueryUser queries the "user" edge of the Portfolio entity.
+func (po *Portfolio) QueryUser() *UserQuery {
+	return NewPortfolioClient(po.config).QueryUser(po)
 }
 
 // QueryHoldings queries the "holdings" edge of the Portfolio entity.
@@ -197,6 +200,12 @@ func (po *Portfolio) String() string {
 	builder.WriteString("uuid=")
 	builder.WriteString(fmt.Sprintf("%v", po.UUID))
 	builder.WriteString(", ")
+	builder.WriteString("created_at=")
+	builder.WriteString(po.CreatedAt.Format(time.ANSIC))
+	builder.WriteString(", ")
+	builder.WriteString("updated_at=")
+	builder.WriteString(po.UpdatedAt.Format(time.ANSIC))
+	builder.WriteString(", ")
 	builder.WriteString("user_id=")
 	builder.WriteString(fmt.Sprintf("%v", po.UserID))
 	builder.WriteString(", ")
@@ -206,11 +215,8 @@ func (po *Portfolio) String() string {
 	builder.WriteString("description=")
 	builder.WriteString(po.Description)
 	builder.WriteString(", ")
-	builder.WriteString("created_at=")
-	builder.WriteString(po.CreatedAt.Format(time.ANSIC))
-	builder.WriteString(", ")
-	builder.WriteString("updated_at=")
-	builder.WriteString(po.UpdatedAt.Format(time.ANSIC))
+	builder.WriteString("data=")
+	builder.WriteString(fmt.Sprintf("%v", po.Data))
 	builder.WriteByte(')')
 	return builder.String()
 }
