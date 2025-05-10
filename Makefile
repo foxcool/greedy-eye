@@ -79,4 +79,4 @@ test:
 	@echo "Running tests in a dedicated test container..."
 	$(COMPOSE) -f $(COMPOSE_FILE) --env-file deploy/secrets.env run --rm \
 	-e DOCKER_COMPOSE_TEST=true \
-	eye-test go test ./...
+	eye-test go test ./... -tags=integration
