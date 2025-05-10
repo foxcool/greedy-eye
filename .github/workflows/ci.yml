@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags:
+      - '*.*.*'
+  pull_request:
+
+jobs:
+  golangci:
+    name: Lint code
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.1
+
+  unit-tests:
+    name: Run unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '^1.24'
+
+      - name: Run unit tests
+        run: |
+          go test -v -coverprofile=coverage-unit.out -covermode=atomic ./...
+
+  integration-tests:
+    name: Run integration tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: greedy_eye
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: greedy_eye
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U greedy_eye -d greedy_eye"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '^1.24'
+
+      - name: Wait for Postgres
+        run: |
+          for i in $(seq 1 10); do
+            pg_isready -h localhost -p 5432 -U greedy_eye && break
+            echo "Waiting for postgres..."
+            sleep 2
+          done
+
+      - name: Run integration tests
+        env:
+          EYE_DB_URL: postgres://greedy_eye:password@localhost:5432/greedy_eye?sslmode=disable
+          DOCKER_COMPOSE_TEST: true
+        run: |
+          go test -v -tags=integration ./... -coverprofile=coverage-integration.out
+
+  docker-publish:
+    name: Build & Publish Docker Image
+    runs-on: ubuntu-latest
+    needs:
+      - golangci
+      - unit-tests
+      - integration-tests
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: cmd/eye/Dockerfile
+          tags: |
+            foxcool/greedy-eye:${{ github.ref_name }}
+            foxcool/greedy-eye:latest
+          push: true

@@ -1,8 +1,11 @@
+//go:build integration
+
 package storage
 
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/enttest"
@@ -11,9 +14,7 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
-var (
-	dbURL string
-)
+var dbURL string
 
 // TestMain sets up and tears down the test environment for all test files in the package.
 func TestMain(m *testing.M) {
@@ -64,7 +65,14 @@ func getTransactionedService(t *testing.T, truncateTables ...string) *StorageSer
 	// When the test is finished, rollback the transaction automatically.
 	t.Cleanup(func() {
 		if err := tx.Rollback(); err != nil {
-			t.Fatal("rolling back transaction failed", zap.Error(err))
+			if strings.Contains(err.Error(), "bad connection") ||
+				strings.Contains(err.Error(), "connection reset") ||
+				strings.Contains(err.Error(), "broken pipe") {
+				// don't fail on connection problems
+				t.Logf("Note: connection issue during rollback: %v", err)
+			} else {
+				t.Fatal("rolling back transaction failed", zap.Error(err))
+			}
 		}
 
 		if err := client.Close(); err != nil {
