@@ -8,11 +8,17 @@
 
 :warning: **Under development.**
 
-Current focus:
+**Current state (v0.0.2-alpha):**
 
-- Building core service implementations (Asset, Portfolio, Price, User)
-- Establishing database schema and migrations
-- Implementing API integrations with exchanges
+- ✅ Infrastructure foundation complete (storage, DB, CI/CD)
+- ✅ Application bootstrapping and configuration
+- ✅ Database schema with Ent ORM integration
+- ✅ Docker deployment with multiplatform support
+
+**Next phase:**
+
+- Building core business logic services (Asset, Portfolio, Price, User)
+- Implementing API integrations with external data providers
 
 ## 📜 Table of Contents
 
@@ -60,18 +66,21 @@ UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="2")
 ## Features
 
 - **Portfolio Management**:
-  - [x] Basic portfolio structure and holdings
-  - [x] Multiple portfolios support
+  - [x] Database schema and storage layer
+  - [ ] Basic portfolio structure and holdings
+  - [ ] Multiple portfolios support
   - [ ] Advanced portfolio metrics and analytics
   - [ ] Rebalancing suggestions
 
 - **Data Integration**:
-  - [x] Basic price fetching from CoinGecko
+  - [x] Storage layer for price data
+  - [ ] Basic price fetching from CoinGecko
   - [ ] Balance synchronization with exchanges
   - [ ] Transaction history import
 
 - **Notifications**:
-  - [x] Basic Telegram integration
+  - [x] Telegram client adapter structure
+  - [ ] Basic Telegram integration
   - [ ] Price alerts
   - [ ] Portfolio performance alerts
 
@@ -197,6 +206,11 @@ Configure which services to run using either:
 
 ### Docker
 
+Greedy-Eye provides multiplatform Docker images supporting:
+
+- `linux/amd64` (Intel/AMD 64-bit)
+- `linux/arm64` (ARM 64-bit, including Apple Silicon)
+
 To run Greedy-Eye using Docker, follow these steps:
 
 Create a docker-compose.yml file:
@@ -301,7 +315,10 @@ make up
 
 - [x] Core architecture and service structure
 - [x] Basic gRPC interfaces
-- [ ] Database schema and migrations
+- [x] Database schema and migrations
+- [x] Storage service implementation
+- [x] Docker containerization and CI/CD
+- [ ] Core business logic services (Asset, Portfolio, Price, User)
 - [ ] Basic portfolio tracking
 - [ ] Binance API integration
 - [ ] Telegram notifications
