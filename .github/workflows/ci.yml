@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main, develop ]
     tags:
-      - '*.*.*'
+      - 'v*.*.*'
   pull_request:
 
 jobs:
@@ -102,11 +102,14 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: Build and push
+      - name: Build and push multiplatform
         uses: docker/build-push-action@v4
         with:
           context: .
-          file: cmd/eye/Dockerfile
+          file: build/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            _path=cmd/eye
           tags: |
             foxcool/greedy-eye:${{ github.ref_name }}
             foxcool/greedy-eye:latest

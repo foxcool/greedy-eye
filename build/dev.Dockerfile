@@ -1,5 +1,5 @@
 FROM golang:alpine
-ENV PROJECT_PATH=github.com/Foxcool/greedy-eye
+ENV PROJECT_PATH=github.com/foxcool/greedy-eye
 
 # Get CMD path argument (default: cmd/eye)
 ARG _path="cmd/eye"
@@ -14,5 +14,3 @@ COPY go.mod go.sum ./
 
 # Install air
 RUN go install github.com/air-verse/air@latest
-
-# No CMD here, it will be specified in deploy/docker-compose.yml

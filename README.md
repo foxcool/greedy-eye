@@ -9,6 +9,7 @@
 :warning: **Under development.**
 
 Current focus:
+
 - Building core service implementations (Asset, Portfolio, Price, User)
 - Establishing database schema and migrations
 - Implementing API integrations with exchanges
@@ -147,7 +148,7 @@ Rel(TerminalService, TradingService, "Uses")
 UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="3")
 ```
 
-### Key Components:
+### Key Components
 
 - **Asset Service**: Manages information about financial assets (cryptocurrencies, stocks, etc.).
 - **Portfolio Service**: Handles portfolio management, including balances, trades, and performance metrics.
@@ -161,14 +162,18 @@ UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="3")
 Greedy-Eye follows a layered architecture pattern with clear separation of concerns:
 
 #### Domain Services
+
 Services like `AssetService`, `PortfolioService`, and `UserService` represent the business domain and implement domain-specific logic:
+
 - Business rules validation
 - Domain workflows and operations
 - Cross-entity operations
 - External integrations
 
 #### Storage Service
+
 `StorageService` acts as an abstraction layer for persistent storage:
+
 - Low-level data CRUD operations
 - Database transaction management
 - Data versioning and history tracking
@@ -184,6 +189,7 @@ Greedy-Eye offers flexible deployment options:
 2. **Microservices Mode**: Run each service separately and communicate via gRPC
 
 Configure which services to run using either:
+
 - Configuration file with `-c [config file path]`
 - Environment variables (e.g., `EYE_SERVICES="asset,portfolio,price"`)
 
@@ -243,22 +249,26 @@ Greedy-Eye will be accessible at <http://localhost:8080>.
 To build and run Greedy-Eye manually:
 
 1. Clone the repository:
+
 ```bash
 git clone https://github.com/foxcool/greedy-eye.git
 cd greedy-eye
 ```
 
 2. Generate Go code from Protocol Buffers:
+
 ```bash
 make protoc
 ```
 
 3. Build the project:
+
 ```bash
 make build
 ```
 
 4. Run the application:
+
 ```bash
 ./bin/eye -c configs/config.yaml
 ```
