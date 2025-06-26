@@ -11,10 +11,16 @@ ENV GOPATH=/go \
 
 # Copy project files
 WORKDIR ${GOPATH}/src/${PROJECT_PATH}
+
+# Copy go.mod and go.sum first for better caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the rest of the source code
 COPY . .
 
 # Build from project root, specifying the cmd path
-RUN CGO_ENABLED=0 GOOS=linux go build -a -o ${GOPATH}/bin/app ./${_path}
+RUN CGO_ENABLED=0 GOOS=linux go build -o ${GOPATH}/bin/app ./${_path}
 
 # Init new lightweight container
 FROM alpine
