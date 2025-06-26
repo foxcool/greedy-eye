@@ -55,6 +55,7 @@ func getConfig() (*Config, error) {
 
 	defaults := map[string]interface{}{
 		"sentry.tracesSampleRate": 1.0,
+		"grpc.port":               50051,
 	}
 	err = k.Load(confmap.Provider(defaults, "."), nil)
 	if err != nil {

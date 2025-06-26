@@ -20,8 +20,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -o ${GOPATH}/bin/app .
 # Init new lightweight container
 FROM alpine
 RUN apk --no-cache add ca-certificates
+RUN curl -sSf https://atlasgo.sh | sh
 
+COPY deploy/migrations /migrations
 COPY --from=builder /go/bin/app .
 
 # Run the compiled bin by default when the container start.
-CMD /app
+CMD [ "/app" ]
