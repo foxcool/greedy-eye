@@ -1,0 +1,42 @@
+# Active Tasks - Greedy Eye
+
+## Current Sprint
+
+### In Progress
+- [ ] **Binance Integration**: Complete API integration for balance and transaction fetching
+- [ ] **Portfolio Analytics**: Basic portfolio valuation and asset distribution calculation
+- [ ] **Telegram Interface**: Basic N8N workflow for /balance and /portfolio commands
+
+### High Priority
+- [ ] **Arbitrage Analytics**: Price spread monitoring >0.1% between exchanges
+- [ ] **Web3 Integration**: Ethereum wallet balance tracking for ERC-20 tokens
+- [ ] **Security**: Ensure gRPC interfaces are not publicly accessible
+
+### Medium Priority
+- [ ] **Documentation**: Update README with current architecture
+- [ ] **Testing**: Add integration tests for storage service
+- [ ] **Performance**: Optimize price data retrieval and storage
+
+### Low Priority
+- [ ] **Web Interface**: Consider basic web dashboard
+- [ ] **Additional Exchanges**: GateIO integration planning
+- [ ] **Advanced Analytics**: Portfolio risk metrics and historical analysis
+
+## Completed
+- [x] **Infrastructure**: Docker containerization and CI/CD setup
+- [x] **Database**: PostgreSQL setup with Ent ORM integration
+- [x] **Storage Service**: CRUD operations for all entities
+- [x] **gRPC API**: Basic service structure and Proto definitions
+- [x] **Development Environment**: Air live reload and Delve debugging
+
+## Next Actions
+1. Focus on Binance API integration for real data
+2. Implement basic portfolio calculation logic
+3. Set up Telegram notification system
+4. Test with small amounts of real money for arbitrage
+
+## Success Criteria
+- [ ] Track real portfolio from at least one exchange
+- [ ] Receive automated Telegram notifications
+- [ ] Basic arbitrage opportunity detection
+- [ ] Portfolio value calculation and distribution analysis

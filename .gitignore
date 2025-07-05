@@ -26,3 +26,20 @@ tree.md
 .aider*
 .cache
 .streamlit
+# IDE files
+.idea
+.cursor
+
+# Secrets
+secrets.env
+
+# Temporary files
+tmp
+tree.md
+.aider*
+.cache
+.streamlit
+
+# ToDo: Clean duplicates and make better
+
+*.backup
