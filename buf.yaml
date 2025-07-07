@@ -1,0 +1,14 @@
+version: v1
+deps:
+  - buf.build/googleapis/googleapis
+breaking:
+  use:
+    - FILE
+lint:
+  use:
+    - DEFAULT
+  except:
+    - UNARY_RPC
+    - COMMENT_FIELD
+    - SERVICE_SUFFIX
+    - RPC_REQUEST_RESPONSE_UNIQUE

@@ -3,6 +3,7 @@ syntax = "proto3";
 package services;
 
 import "google/protobuf/field_mask.proto";
+import "google/api/annotations.proto";
 import "api/models/user.proto";
 
 option go_package = "github.com/foxcool/greedy-eye/internal/api/services";
@@ -11,7 +12,12 @@ option go_package = "github.com/foxcool/greedy-eye/internal/api/services";
 // See storage_service.proto for CRUD operations on users and accounts.
 service UserService {
   // Updates user-specific preferences.
-  rpc UpdateUserPreferences(UpdateUserPreferencesRequest) returns (models.User);
+  rpc UpdateUserPreferences(UpdateUserPreferencesRequest) returns (models.User) {
+    option (google.api.http) = {
+      put: "/api/v1/users/{user_id}/preferences"
+      body: "*"
+    };
+  }
 }
 
 message UpdateUserPreferencesRequest {

@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
+	apiservices "github.com/foxcool/greedy-eye/api/services"
 	"github.com/foxcool/greedy-eye/internal/api/services"
 	"github.com/foxcool/greedy-eye/internal/services/asset"
 	"github.com/foxcool/greedy-eye/internal/services/portfolio"
@@ -17,10 +20,12 @@ import (
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent"
 	"github.com/foxcool/greedy-eye/internal/services/user"
 	"github.com/getsentry/sentry-go"
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 const ServiceName = "EYE"
@@ -73,16 +78,40 @@ func main() {
 		_ = log.Sync()
 	}()
 
-	// Start subservices and gRPC server
-	server := registerServices(config.Services, client, log)
+	// Create context for server lifecycle
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start gRPC server
+	grpcServer := registerServices(config.Services, client, log)
+	var wg sync.WaitGroup
+
+	// Start gRPC server
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", config.GRPC.Port))
 		if err != nil {
 			log.Fatal("Failed to listen gRPC", zap.Error(err))
 		}
 		log.Info("gRPC server started", zap.String("address", listener.Addr().String()), zap.Int("port", config.GRPC.Port))
-		if err := server.Serve(listener); err != nil && err != grpc.ErrServerStopped {
+		if err := grpcServer.Serve(listener); err != nil && err != grpc.ErrServerStopped {
 			log.Fatal("Failed to serve gRPC", zap.Error(err))
+		}
+	}()
+
+	// Start HTTP server with gRPC-Gateway
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		httpServer, err := createHTTPServer(ctx, config.GRPC.Port, config.HTTP.Port, log)
+		if err != nil {
+			log.Fatal("Failed to create HTTP server", zap.Error(err))
+		}
+
+		log.Info("HTTP server starting", zap.Int("port", config.HTTP.Port))
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal("Failed to serve HTTP", zap.Error(err))
 		}
 	}()
 
@@ -91,24 +120,86 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
 	log.Info("Received shutdown signal", zap.String("signal", sig.String()))
-	// Call GracefulStop on the server
+
+	// Cancel context to stop HTTP server
+	cancel()
+
+	// Create a timer for graceful shutdown
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	// Shutdown gRPC server gracefully
 	stopped := make(chan struct{})
 	go func() {
-		server.GracefulStop()
+		grpcServer.GracefulStop()
 		close(stopped)
 	}()
-	// Create a timer for graceful shutdown
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 
-	// Wait for server graceful shutdown
+	// Wait for servers graceful shutdown
 	select {
 	case <-shutdownCtx.Done():
 		log.Error("gRPC server graceful shutdown timed out", zap.Error(shutdownCtx.Err()))
-		server.Stop()
+		grpcServer.Stop()
 	case <-stopped:
 		log.Info("gRPC server stopped gracefully")
 	}
+
+	// Wait for all goroutines to finish
+	wg.Wait()
+	log.Info("All servers stopped")
+}
+
+func createHTTPServer(ctx context.Context, grpcPort int, httpPort int, log *zap.Logger) (*http.Server, error) {
+	// Create gRPC-Gateway mux
+	mux := runtime.NewServeMux()
+
+	// gRPC endpoint (connecting to local gRPC server)
+	grpcEndpoint := fmt.Sprintf("localhost:%d", grpcPort)
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+
+	// Register all services with gRPC-Gateway
+	if err := apiservices.RegisterStorageServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
+		return nil, fmt.Errorf("failed to register StorageService: %w", err)
+	}
+
+	if err := apiservices.RegisterUserServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
+		return nil, fmt.Errorf("failed to register UserService: %w", err)
+	}
+
+	if err := apiservices.RegisterAssetServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
+		return nil, fmt.Errorf("failed to register AssetService: %w", err)
+	}
+
+	if err := apiservices.RegisterPortfolioServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
+		return nil, fmt.Errorf("failed to register PortfolioService: %w", err)
+	}
+
+	if err := apiservices.RegisterPriceServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
+		return nil, fmt.Errorf("failed to register PriceService: %w", err)
+	}
+
+	// Register new services (they will be added later)
+	if err := apiservices.RegisterAuthServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
+		log.Warn("Failed to register AuthService (not implemented yet)", zap.Error(err))
+	}
+
+	if err := apiservices.RegisterRuleServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
+		log.Warn("Failed to register RuleService (not implemented yet)", zap.Error(err))
+	}
+
+	// Add health check endpoint
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write([]byte(`{"status":"ok","service":"greedy-eye"}`)); err != nil {
+			log.Error("Failed to write health response", zap.Error(err))
+		}
+	})
+
+	// Create HTTP server
+	return &http.Server{
+		Addr:    fmt.Sprintf(":%d", httpPort),
+		Handler: mux,
+	}, nil
 }
 
 func createLogger(level string) (*zap.Logger, error) {
@@ -126,38 +217,38 @@ func createLogger(level string) (*zap.Logger, error) {
 func registerServices(serviceConfigs []ServiceConfig, client *ent.Client, log *zap.Logger) *grpc.Server {
 	server := grpc.NewServer()
 
+	// Always register StorageService
 	storageService := storage.NewService(client, log)
 	services.RegisterStorageServiceServer(server, storageService)
 
-	if len(serviceConfigs) == 0 {
-		// Register all services with default implementations
-		userService := user.NewService()
-		services.RegisterUserServiceServer(server, userService)
-		assetService := asset.NewService()
-		services.RegisterAssetServiceServer(server, assetService)
-		portfolioService := portfolio.NewService()
-		services.RegisterPortfolioServiceServer(server, portfolioService)
-		pricingService := price.NewService()
-		services.RegisterPriceServiceServer(server, pricingService)
-	} else {
-		for _, service := range serviceConfigs {
-			switch service.Type {
-			case ServiceConfigTypeUser:
-				userService := user.NewService()
-				services.RegisterUserServiceServer(server, userService)
-			case ServiceConfigTypeAsset:
-				assetService := asset.NewService()
-				services.RegisterAssetServiceServer(server, assetService)
-			case ServiceConfigTypePortfolio:
-				portfolioService := portfolio.NewService()
-				services.RegisterPortfolioServiceServer(server, portfolioService)
-			case ServiceConfigTypePrice:
-				pricingService := price.NewService()
-				services.RegisterPriceServiceServer(server, pricingService)
-			default:
-				log.Fatal("Unknown service type", zap.String("type", service.Type))
-			}
+	// Helper function to register a service by type
+	registerServiceByType := func(serviceType string) {
+		switch serviceType {
+		case ServiceConfigTypeUser:
+			services.RegisterUserServiceServer(server, user.NewService())
+		case ServiceConfigTypeAsset:
+			services.RegisterAssetServiceServer(server, asset.NewService())
+		case ServiceConfigTypePortfolio:
+			services.RegisterPortfolioServiceServer(server, portfolio.NewService())
+		case ServiceConfigTypePrice:
+			services.RegisterPriceServiceServer(server, price.NewService())
+		default:
+			log.Fatal("Unknown service type", zap.String("type", serviceType))
 		}
 	}
+
+	if len(serviceConfigs) == 0 {
+		// Register all services with default implementations
+		registerServiceByType(ServiceConfigTypeUser)
+		registerServiceByType(ServiceConfigTypeAsset)
+		registerServiceByType(ServiceConfigTypePortfolio)
+		registerServiceByType(ServiceConfigTypePrice)
+	} else {
+		// Register only configured services
+		for _, service := range serviceConfigs {
+			registerServiceByType(service.Type)
+		}
+	}
+
 	return server
 }

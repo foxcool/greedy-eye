@@ -5,6 +5,7 @@ package services;
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/field_mask.proto";
+import "google/api/annotations.proto";
 import "api/models/account.proto";
 import "api/models/asset.proto";
 import "api/models/holding.proto";
@@ -19,53 +20,203 @@ option go_package = "github.com/foxcool/greedy-eye/internal/api/services";
 // It acts as an abstraction layer over the database.
 service StorageService {
   // --- Asset operations ---
-  rpc CreateAsset(CreateAssetRequest) returns (models.Asset);
-  rpc GetAsset(GetAssetRequest) returns (models.Asset);
-  rpc UpdateAsset(UpdateAssetRequest) returns (models.Asset);
-  rpc DeleteAsset(DeleteAssetRequest) returns (google.protobuf.Empty);
-  rpc ListAssets(ListAssetsRequest) returns (ListAssetsResponse);
+  rpc CreateAsset(CreateAssetRequest) returns (models.Asset) {
+    option (google.api.http) = {
+      post: "/api/v1/assets"
+      body: "asset"
+    };
+  }
+  rpc GetAsset(GetAssetRequest) returns (models.Asset) {
+    option (google.api.http) = {
+      get: "/api/v1/assets/{id}"
+    };
+  }
+  rpc UpdateAsset(UpdateAssetRequest) returns (models.Asset) {
+    option (google.api.http) = {
+      put: "/api/v1/assets/{asset.id}"
+      body: "asset"
+    };
+  }
+  rpc DeleteAsset(DeleteAssetRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/api/v1/assets/{id}"
+    };
+  }
+  rpc ListAssets(ListAssetsRequest) returns (ListAssetsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/assets"
+    };
+  }
 
   // --- Price operations ---
   // Assuming prices are immutable once created, so no UpdatePrice.
-  rpc CreatePrice(CreatePriceRequest) returns (models.Price);
-  rpc CreatePrices(CreatePricesRequest) returns (CreatePricesResponse); // Bulk create
-  rpc GetLatestPrice(GetLatestPriceRequest) returns (models.Price); // Gets the most recent price matching criteria
-  rpc ListPriceHistory(ListPriceHistoryRequest) returns (ListPriceHistoryResponse); // Gets prices in a time range
-  rpc ListPricesByInterval(ListPricesByIntervalRequest) returns (ListPriceHistoryResponse); // Aggregated prices (e.g., daily OHLC) - Implementation detail TBD
-  rpc DeletePrice(DeletePriceRequest) returns (google.protobuf.Empty); // For admin/cleanup
-  rpc DeletePrices(DeletePricesRequest) returns (google.protobuf.Empty); // Bulk delete by criteria
+  rpc CreatePrice(CreatePriceRequest) returns (models.Price) {
+    option (google.api.http) = {
+      post: "/api/v1/prices"
+      body: "price"
+    };
+  }
+  rpc CreatePrices(CreatePricesRequest) returns (CreatePricesResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/prices/bulk"
+      body: "prices"
+    };
+  }
+  rpc GetLatestPrice(GetLatestPriceRequest) returns (models.Price) {
+    option (google.api.http) = {
+      get: "/api/v1/prices/{asset_id}/{base_asset_id}/latest"
+    };
+  }
+  rpc ListPriceHistory(ListPriceHistoryRequest) returns (ListPriceHistoryResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/prices/{asset_id}/{base_asset_id}/history"
+    };
+  }
+  rpc ListPricesByInterval(ListPricesByIntervalRequest) returns (ListPriceHistoryResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/prices/{asset_id}/{base_asset_id}/intervals"
+    };
+  }
+  rpc DeletePrice(DeletePriceRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/api/v1/prices/{id}"
+    };
+  }
+  rpc DeletePrices(DeletePricesRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/api/v1/prices"
+    };
+  }
 
   // --- Portfolio operations ---
-  rpc CreatePortfolio(CreatePortfolioRequest) returns (models.Portfolio);
-  rpc GetPortfolio(GetPortfolioRequest) returns (models.Portfolio);
-  rpc UpdatePortfolio(UpdatePortfolioRequest) returns (models.Portfolio);
-  rpc DeletePortfolio(DeletePortfolioRequest) returns (google.protobuf.Empty);
-  rpc ListPortfolios(ListPortfoliosRequest) returns (ListPortfoliosResponse);
+  rpc CreatePortfolio(CreatePortfolioRequest) returns (models.Portfolio) {
+    option (google.api.http) = {
+      post: "/api/v1/portfolios"
+      body: "portfolio"
+    };
+  }
+  rpc GetPortfolio(GetPortfolioRequest) returns (models.Portfolio) {
+    option (google.api.http) = {
+      get: "/api/v1/portfolios/{id}"
+    };
+  }
+  rpc UpdatePortfolio(UpdatePortfolioRequest) returns (models.Portfolio) {
+    option (google.api.http) = {
+      put: "/api/v1/portfolios/{portfolio.id}"
+      body: "portfolio"
+    };
+  }
+  rpc DeletePortfolio(DeletePortfolioRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/api/v1/portfolios/{id}"
+    };
+  }
+  rpc ListPortfolios(ListPortfoliosRequest) returns (ListPortfoliosResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/portfolios"
+    };
+  }
 
   // --- Holdings operations ---
-  rpc CreateHolding(CreateHoldingRequest) returns (models.Holding);
-  rpc GetHolding(GetHoldingRequest) returns (models.Holding);
-  rpc UpdateHolding(UpdateHoldingRequest) returns (models.Holding);
-  rpc ListHoldings(ListHoldingsRequest) returns (ListHoldingsResponse);
+  rpc CreateHolding(CreateHoldingRequest) returns (models.Holding) {
+    option (google.api.http) = {
+      post: "/api/v1/holdings"
+      body: "holding"
+    };
+  }
+  rpc GetHolding(GetHoldingRequest) returns (models.Holding) {
+    option (google.api.http) = {
+      get: "/api/v1/holdings/{id}"
+    };
+  }
+  rpc UpdateHolding(UpdateHoldingRequest) returns (models.Holding) {
+    option (google.api.http) = {
+      put: "/api/v1/holdings/{holding.id}"
+      body: "holding"
+    };
+  }
+  rpc ListHoldings(ListHoldingsRequest) returns (ListHoldingsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/holdings"
+    };
+  }
 
   // --- User operations ---
-  rpc CreateUser(CreateUserRequest) returns (models.User);
-  rpc GetUser(GetUserRequest) returns (models.User);
-  rpc UpdateUser(UpdateUserRequest) returns (models.User);
-  rpc DeleteUser(DeleteUserRequest) returns (google.protobuf.Empty);
+  rpc CreateUser(CreateUserRequest) returns (models.User) {
+    option (google.api.http) = {
+      post: "/api/v1/users"
+      body: "user"
+    };
+  }
+  rpc GetUser(GetUserRequest) returns (models.User) {
+    option (google.api.http) = {
+      get: "/api/v1/users/{id}"
+    };
+  }
+  rpc UpdateUser(UpdateUserRequest) returns (models.User) {
+    option (google.api.http) = {
+      put: "/api/v1/users/{user.id}"
+      body: "user"
+    };
+  }
+  rpc DeleteUser(DeleteUserRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/api/v1/users/{id}"
+    };
+  }
 
   // --- Account operations ---
-  rpc CreateAccount(CreateAccountRequest) returns (models.Account);
-  rpc GetAccount(GetAccountRequest) returns (models.Account);
-  rpc UpdateAccount(UpdateAccountRequest) returns (models.Account);
-  rpc DeleteAccount(DeleteAccountRequest) returns (google.protobuf.Empty);
-  rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse);
+  rpc CreateAccount(CreateAccountRequest) returns (models.Account) {
+    option (google.api.http) = {
+      post: "/api/v1/accounts"
+      body: "account"
+    };
+  }
+  rpc GetAccount(GetAccountRequest) returns (models.Account) {
+    option (google.api.http) = {
+      get: "/api/v1/accounts/{id}"
+    };
+  }
+  rpc UpdateAccount(UpdateAccountRequest) returns (models.Account) {
+    option (google.api.http) = {
+      put: "/api/v1/accounts/{account.id}"
+      body: "account"
+    };
+  }
+  rpc DeleteAccount(DeleteAccountRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/api/v1/accounts/{id}"
+    };
+  }
+  rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/accounts"
+    };
+  }
 
   // --- Transaction operations ---
-  rpc CreateTransaction(CreateTransactionRequest) returns (models.Transaction);
-  rpc GetTransaction(GetTransactionRequest) returns (models.Transaction);
-  rpc UpdateTransaction(UpdateTransactionRequest) returns (models.Transaction);
-  rpc ListTransactions(ListTransactionsRequest) returns (ListTransactionsResponse);
+  rpc CreateTransaction(CreateTransactionRequest) returns (models.Transaction) {
+    option (google.api.http) = {
+      post: "/api/v1/transactions"
+      body: "transaction"
+    };
+  }
+  rpc GetTransaction(GetTransactionRequest) returns (models.Transaction) {
+    option (google.api.http) = {
+      get: "/api/v1/transactions/{id}"
+    };
+  }
+  rpc UpdateTransaction(UpdateTransactionRequest) returns (models.Transaction) {
+    option (google.api.http) = {
+      put: "/api/v1/transactions/{transaction.id}"
+      body: "transaction"
+    };
+  }
+  rpc ListTransactions(ListTransactionsRequest) returns (ListTransactionsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/transactions"
+    };
+  }
 }
 
 // --- Asset Messages ---

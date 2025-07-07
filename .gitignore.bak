@@ -32,3 +32,5 @@ tree.md
 eye
 cmd/eye/eye
 
+# Generated API documentation  
+docs/api/

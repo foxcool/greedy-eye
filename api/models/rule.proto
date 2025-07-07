@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package models;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/foxcool/greedy-eye/internal/api/models";
+
+// Rule defines a business rule that can be applied to portfolios
+message Rule {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string rule_type = 4; // e.g., "target_allocation", "monthly_withdrawal", "stop_loss", "dca"
+  string portfolio_id = 5;
+  string user_id = 6;
+  bool enabled = 7;
+  google.protobuf.Struct configuration = 8; // Flexible configuration for any rule type
+  RuleSchedule schedule = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  google.protobuf.Timestamp last_executed_at = 12;
+  string last_execution_id = 13;
+  RuleStatus status = 14;
+}
+
+// RuleSchedule defines when a rule should be executed
+message RuleSchedule {
+  string cron_expression = 1; // Cron expression for scheduling
+  string timezone = 2; // Timezone for execution
+  bool one_time = 3; // If true, rule executes only once
+  google.protobuf.Timestamp execute_after = 4; // For delayed execution
+}
+
+// RuleStatus indicates the current status of a rule
+enum RuleStatus {
+  RULE_STATUS_UNKNOWN = 0;
+  RULE_STATUS_ACTIVE = 1;
+  RULE_STATUS_PAUSED = 2;
+  RULE_STATUS_DISABLED = 3;
+  RULE_STATUS_ERROR = 4;
+}
+
+// Common rule configuration types
+message TargetAllocationConfig {
+  repeated AssetTarget targets = 1;
+  double rebalance_threshold = 2; // Percentage deviation before rebalancing
+  bool allow_partial_rebalancing = 3;
+}
+
+message AssetTarget {
+  string asset_id = 1;
+  double target_percentage = 2; // Target percentage of portfolio
+  double min_percentage = 3; // Minimum allowed percentage
+  double max_percentage = 4; // Maximum allowed percentage
+}
+
+message MonthlyWithdrawalConfig {
+  double amount = 1;
+  string currency = 2;
+  string destination_account_id = 3;
+  int32 day_of_month = 4; // Day of month for withdrawal (1-31)
+  repeated string source_asset_ids = 5; // Assets to withdraw from, in order of preference
+}
+
+message StopLossConfig {
+  double stop_loss_percentage = 1; // Percentage loss before triggering
+  string action = 2; // "sell_all", "sell_percentage", "notify_only"
+  double sell_percentage = 3; // If action is "sell_percentage"
+  repeated string notification_channels = 4; // "email", "telegram", "webhook"
+}
+
+message DCAConfig {
+  double amount = 1;
+  string currency = 2;
+  string target_asset_id = 3;
+  string source_account_id = 4;
+  string frequency = 5; // "daily", "weekly", "monthly"
+} 

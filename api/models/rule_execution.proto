@@ -1,0 +1,120 @@
+syntax = "proto3";
+
+package models;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/foxcool/greedy-eye/internal/api/models";
+
+// RuleExecution represents a single execution of a rule
+message RuleExecution {
+  string id = 1;
+  string rule_id = 2;
+  string portfolio_id = 3;
+  string user_id = 4;
+  google.protobuf.Timestamp started_at = 5;
+  google.protobuf.Timestamp completed_at = 6;
+  ExecutionStatus status = 7;
+  string error_message = 8;
+  google.protobuf.Struct execution_context = 9; // Context at execution time
+  repeated ExecutionStep steps = 10;
+  ExecutionSummary summary = 11;
+}
+
+// ExecutionStatus indicates the status of a rule execution
+enum ExecutionStatus {
+  EXECUTION_STATUS_UNKNOWN = 0;
+  EXECUTION_STATUS_PENDING = 1;
+  EXECUTION_STATUS_IN_PROGRESS = 2;
+  EXECUTION_STATUS_COMPLETED = 3;
+  EXECUTION_STATUS_FAILED = 4;
+  EXECUTION_STATUS_CANCELLED = 5;
+}
+
+// ExecutionStep represents a single step in rule execution
+message ExecutionStep {
+  string step_id = 1;
+  string name = 2;
+  string description = 3;
+  google.protobuf.Timestamp started_at = 4;
+  google.protobuf.Timestamp completed_at = 5;
+  ExecutionStatus status = 6;
+  string error_message = 7;
+  google.protobuf.Struct input_data = 8;
+  google.protobuf.Struct output_data = 9;
+  repeated string log_messages = 10;
+}
+
+// ExecutionSummary provides a summary of the execution results
+message ExecutionSummary {
+  int32 total_steps = 1;
+  int32 successful_steps = 2;
+  int32 failed_steps = 3;
+  int64 duration_ms = 4;
+  
+  // Rule-specific summary data
+  oneof rule_summary {
+    RebalancingSummary rebalancing = 5;
+    WithdrawalSummary withdrawal = 6;
+    StopLossSummary stop_loss = 7;
+    DCASummary dca = 8;
+  }
+}
+
+// Rule-specific summary types
+message RebalancingSummary {
+  double total_value_before = 1;
+  double total_value_after = 2;
+  repeated AssetRebalance asset_changes = 3;
+  int32 trades_executed = 4;
+  double total_fees = 5;
+}
+
+message AssetRebalance {
+  string asset_id = 1;
+  double percentage_before = 2;
+  double percentage_after = 3;
+  double amount_traded = 4;
+  string trade_direction = 5; // "buy" or "sell"
+}
+
+message WithdrawalSummary {
+  double amount_withdrawn = 1;
+  string currency = 2;
+  string destination_account_id = 3;
+  repeated AssetWithdrawal asset_withdrawals = 4;
+  double total_fees = 5;
+}
+
+message AssetWithdrawal {
+  string asset_id = 1;
+  double amount = 2;
+  double value_in_currency = 3;
+}
+
+message StopLossSummary {
+  double portfolio_value_before = 1;
+  double portfolio_value_after = 2;
+  double loss_percentage = 3;
+  string action_taken = 4;
+  repeated AssetSold assets_sold = 5;
+  double total_fees = 6;
+}
+
+message AssetSold {
+  string asset_id = 1;
+  double amount = 2;
+  double sell_price = 3;
+  double value = 4;
+}
+
+message DCASummary {
+  double amount_invested = 1;
+  string target_asset_id = 2;
+  double asset_amount_purchased = 3;
+  double purchase_price = 4;
+  double fees = 5;
+  double total_invested_to_date = 6;
+  double total_asset_amount_to_date = 7;
+} 

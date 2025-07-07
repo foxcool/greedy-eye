@@ -3,7 +3,7 @@ syntax = "proto3";
 package services;
 
 import "google/protobuf/timestamp.proto";
-
+import "google/api/annotations.proto";
 
 option go_package = "github.com/foxcool/greedy-eye/internal/api/services";
 
@@ -11,10 +11,20 @@ option go_package = "github.com/foxcool/greedy-eye/internal/api/services";
 // See storage_service.proto for CRUD operations.
 service PortfolioService {
   // Calculates the current total value of a portfolio in a specified currency.
-  rpc CalculatePortfolioValue(CalculatePortfolioValueRequest) returns (PortfolioValueResponse);
+  rpc CalculatePortfolioValue(CalculatePortfolioValueRequest) returns (PortfolioValueResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/portfolios/{portfolio_id}/calculate-value"
+      body: "*"
+    };
+  }
 
   // Retrieves performance metrics for a portfolio over a specified period.
-  rpc GetPortfolioPerformance(GetPortfolioPerformanceRequest) returns (PortfolioPerformanceResponse);
+  rpc GetPortfolioPerformance(GetPortfolioPerformanceRequest) returns (PortfolioPerformanceResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/portfolios/{portfolio_id}/performance"
+      body: "*"
+    };
+  }
 
   // Suggests rebalancing actions based on target allocation (future feature).
   // rpc SuggestRebalancing(SuggestRebalancingRequest) returns (RebalancingSuggestionResponse);
