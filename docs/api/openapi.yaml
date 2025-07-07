@@ -1,0 +1,3299 @@
+swagger: "2.0"
+info:
+  title: api/models/account.proto
+  version: version not set
+tags:
+  - name: StorageService
+  - name: AssetService
+  - name: AuthService
+  - name: PortfolioService
+  - name: PriceService
+  - name: RuleService
+  - name: UserService
+consumes:
+  - application/json
+produces:
+  - application/json
+paths:
+  /api/v1/accounts:
+    get:
+      operationId: StorageService_ListAccounts
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesListAccountsResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: userId
+          description: Filter by user
+          in: query
+          required: false
+          type: string
+        - name: type
+          description: Filter by AccountType
+          in: query
+          required: false
+          type: string
+          enum:
+            - ACCOUNT_TYPE_UNSPECIFIED
+            - ACCOUNT_TYPE_WALLET
+            - ACCOUNT_TYPE_EXCHANGE
+            - ACCOUNT_TYPE_BANK
+            - ACCOUNT_TYPE_BROKER
+          default: ACCOUNT_TYPE_UNSPECIFIED
+        - name: pageSize
+          in: query
+          required: false
+          type: integer
+          format: int32
+        - name: pageToken
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+    post:
+      summary: '--- Account operations ---'
+      operationId: StorageService_CreateAccount
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsAccount'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: account
+          description: user_id, name, type required. ID empty.
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/modelsAccount'
+      tags:
+        - StorageService
+  /api/v1/accounts/{account.id}:
+    put:
+      operationId: StorageService_UpdateAccount
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsAccount'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: account.id
+          description: Unique identifier (UUID)
+          in: path
+          required: true
+          type: string
+        - name: account
+          description: Must include ID and fields to update
+          in: body
+          required: true
+          schema:
+            type: object
+            properties:
+              userId:
+                type: string
+                title: ID of the user owning this account
+              name:
+                type: string
+                title: User-defined name (e.g., "My Binance Spot", "Ledger Nano S")
+              description:
+                type: string
+                title: Optional longer description
+              type:
+                $ref: '#/definitions/modelsAccountType'
+                title: Type of the account
+              data:
+                type: object
+                additionalProperties:
+                  type: string
+                description: Flexible map for connection parameters, API keys, addresses etc. Needs careful handling due to sensitive data.
+              createdAt:
+                type: string
+                format: date-time
+                title: Timestamp of creation
+              updatedAt:
+                type: string
+                format: date-time
+                title: Timestamp of last update
+            title: Must include ID and fields to update
+        - name: updateMask
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+  /api/v1/accounts/{id}:
+    get:
+      operationId: StorageService_GetAccount
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsAccount'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - StorageService
+    delete:
+      operationId: StorageService_DeleteAccount
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            type: object
+            properties: {}
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - StorageService
+  /api/v1/assets:
+    get:
+      operationId: StorageService_ListAssets
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesListAssetsResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: pageSize
+          description: Number of assets to return
+          in: query
+          required: false
+          type: integer
+          format: int32
+        - name: pageToken
+          description: Token for fetching the next page
+          in: query
+          required: false
+          type: string
+        - name: tags
+          description: Filter by tags
+          in: query
+          required: false
+          type: array
+          items:
+            type: string
+          collectionFormat: multi
+      tags:
+        - StorageService
+    post:
+      summary: '--- Asset operations ---'
+      operationId: StorageService_CreateAsset
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsAsset'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: asset
+          description: ID might be empty if generated server-side
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/modelsAsset'
+      tags:
+        - StorageService
+  /api/v1/assets/{asset.id}:
+    put:
+      operationId: StorageService_UpdateAsset
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsAsset'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: asset.id
+          in: path
+          required: true
+          type: string
+        - name: asset
+          description: Must include ID and fields to update
+          in: body
+          required: true
+          schema:
+            type: object
+            properties:
+              name:
+                type: string
+              type:
+                $ref: '#/definitions/modelsAssetType'
+              symbol:
+                type: string
+              tags:
+                type: array
+                items:
+                  type: string
+              createdAt:
+                type: string
+                format: date-time
+              updatedAt:
+                type: string
+                format: date-time
+            title: Must include ID and fields to update
+        - name: updateMask
+          description: Specifies which fields to update
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+  /api/v1/assets/{assetId}/enrich:
+    post:
+      summary: 'Example business logic method: Fetches data from external sources and updates the asset info.'
+      operationId: AssetService_EnrichAssetData
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsAsset'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: assetId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/AssetServiceEnrichAssetDataBody'
+      tags:
+        - AssetService
+  /api/v1/assets/{assetId}/similar:
+    get:
+      summary: 'Example: Find assets similar to a given one based on tags, type, etc.'
+      operationId: AssetService_FindSimilarAssets
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesListAssetsResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: assetId
+          description: Find assets similar to this one
+          in: path
+          required: true
+          type: string
+        - name: limit
+          description: Max number of similar assets to return
+          in: query
+          required: false
+          type: integer
+          format: int32
+      tags:
+        - AssetService
+  /api/v1/assets/{id}:
+    get:
+      operationId: StorageService_GetAsset
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsAsset'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - StorageService
+    delete:
+      operationId: StorageService_DeleteAsset
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            type: object
+            properties: {}
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - StorageService
+  /api/v1/auth/api-keys:
+    get:
+      operationId: AuthService_ListAPIKeys
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesListAPIKeysResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: userId
+          in: query
+          required: false
+          type: string
+        - name: pageSize
+          in: query
+          required: false
+          type: integer
+          format: int32
+        - name: pageToken
+          in: query
+          required: false
+          type: string
+      tags:
+        - AuthService
+    post:
+      summary: API Key management
+      operationId: AuthService_CreateAPIKey
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesCreateAPIKeyResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/servicesCreateAPIKeyRequest'
+      tags:
+        - AuthService
+  /api/v1/auth/api-keys/{keyId}:
+    delete:
+      operationId: AuthService_RevokeAPIKey
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            type: object
+            properties: {}
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: keyId
+          in: path
+          required: true
+          type: string
+      tags:
+        - AuthService
+    put:
+      operationId: AuthService_UpdateAPIKey
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesAPIKey'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: keyId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/AuthServiceUpdateAPIKeyBody'
+      tags:
+        - AuthService
+  /api/v1/auth/external-keys:
+    post:
+      summary: External API Key management (for integrations)
+      operationId: AuthService_StoreExternalAPIKey
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            type: object
+            properties: {}
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/servicesStoreExternalAPIKeyRequest'
+      tags:
+        - AuthService
+  /api/v1/auth/external-keys/{provider}:
+    get:
+      operationId: AuthService_GetExternalAPIKey
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesGetExternalAPIKeyResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          type: string
+        - name: userId
+          in: query
+          required: false
+          type: string
+      tags:
+        - AuthService
+    delete:
+      operationId: AuthService_DeleteExternalAPIKey
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            type: object
+            properties: {}
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          type: string
+        - name: userId
+          in: query
+          required: false
+          type: string
+      tags:
+        - AuthService
+  /api/v1/auth/jwt/create:
+    post:
+      summary: JWT management
+      operationId: AuthService_CreateJWT
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesCreateJWTResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/servicesCreateJWTRequest'
+      tags:
+        - AuthService
+  /api/v1/auth/jwt/refresh:
+    post:
+      operationId: AuthService_RefreshJWT
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesRefreshJWTResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/servicesRefreshJWTRequest'
+      tags:
+        - AuthService
+  /api/v1/auth/jwt/validate:
+    post:
+      operationId: AuthService_ValidateJWT
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesValidateJWTResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/servicesValidateJWTRequest'
+      tags:
+        - AuthService
+  /api/v1/holdings:
+    get:
+      operationId: StorageService_ListHoldings
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesListHoldingsResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: portfolioId
+          in: query
+          required: false
+          type: string
+        - name: accountId
+          in: query
+          required: false
+          type: string
+        - name: assetId
+          in: query
+          required: false
+          type: string
+        - name: pageSize
+          in: query
+          required: false
+          type: integer
+          format: int32
+        - name: pageToken
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+    post:
+      summary: '--- Holdings operations ---'
+      operationId: StorageService_CreateHolding
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsHolding'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: holding
+          description: asset_id, amount, decimals required. One of portfolio_id or account_id required. ID empty.
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/modelsHolding'
+      tags:
+        - StorageService
+  /api/v1/holdings/{holding.id}:
+    put:
+      operationId: StorageService_UpdateHolding
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsHolding'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: holding.id
+          description: Unique identifier (UUID)
+          in: path
+          required: true
+          type: string
+        - name: holding
+          description: Must include ID and fields to update (e.g., amount)
+          in: body
+          required: true
+          schema:
+            type: object
+            properties:
+              amount:
+                type: string
+                format: int64
+                title: Value of the asset in the smallest unit
+              decimals:
+                type: integer
+                format: int64
+                title: Number of decimal places for the amount
+              assetId:
+                type: string
+                title: ID of the Asset
+              accountId:
+                type: string
+                title: ID of the Account where the asset is held
+              portfolioId:
+                type: string
+                title: ID of the Portfolio this holding belongs to
+              createdAt:
+                type: string
+                format: date-time
+                title: Timestamp of creation
+              updatedAt:
+                type: string
+                format: date-time
+                title: Timestamp of last update
+            title: Must include ID and fields to update (e.g., amount)
+        - name: updateMask
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+  /api/v1/holdings/{id}:
+    get:
+      operationId: StorageService_GetHolding
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsHolding'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - StorageService
+  /api/v1/portfolios:
+    get:
+      operationId: StorageService_ListPortfolios
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesListPortfoliosResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: userId
+          in: query
+          required: false
+          type: string
+        - name: pageSize
+          in: query
+          required: false
+          type: integer
+          format: int32
+        - name: pageToken
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+    post:
+      summary: '--- Portfolio operations ---'
+      operationId: StorageService_CreatePortfolio
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsPortfolio'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: portfolio
+          description: user_id and name are required. ID empty if server-generated.
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/modelsPortfolio'
+      tags:
+        - StorageService
+  /api/v1/portfolios/{id}:
+    get:
+      operationId: StorageService_GetPortfolio
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsPortfolio'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - StorageService
+    delete:
+      operationId: StorageService_DeletePortfolio
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            type: object
+            properties: {}
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - StorageService
+  /api/v1/portfolios/{portfolio.id}:
+    put:
+      operationId: StorageService_UpdatePortfolio
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsPortfolio'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: portfolio.id
+          description: Unique identifier (UUID)
+          in: path
+          required: true
+          type: string
+        - name: portfolio
+          description: Must include ID and fields to update
+          in: body
+          required: true
+          schema:
+            type: object
+            properties:
+              userId:
+                type: string
+                title: ID of the user owning this portfolio
+              name:
+                type: string
+                title: User-defined name (e.g., "Long Term Crypto", "Trading")
+              description:
+                type: string
+                title: Optional longer description
+              data:
+                type: object
+                additionalProperties:
+                  $ref: '#/definitions/protobufAny'
+                title: Additional data (e.g., strategy, notes, regulated balance of assets, etc.)
+              createdAt:
+                type: string
+                format: date-time
+                title: Timestamp of creation
+              updatedAt:
+                type: string
+                format: date-time
+                title: Timestamp of last update
+            title: Must include ID and fields to update
+        - name: updateMask
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+  /api/v1/portfolios/{portfolioId}/calculate-value:
+    post:
+      summary: Calculates the current total value of a portfolio in a specified currency.
+      operationId: PortfolioService_CalculatePortfolioValue
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesPortfolioValueResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: portfolioId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/PortfolioServiceCalculatePortfolioValueBody'
+      tags:
+        - PortfolioService
+  /api/v1/portfolios/{portfolioId}/performance:
+    post:
+      summary: Retrieves performance metrics for a portfolio over a specified period.
+      operationId: PortfolioService_GetPortfolioPerformance
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesPortfolioPerformanceResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: portfolioId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/PortfolioServiceGetPortfolioPerformanceBody'
+      tags:
+        - PortfolioService
+  /api/v1/portfolios/{portfolioId}/rules:
+    get:
+      operationId: RuleService_ListRulesByPortfolio
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesListRulesResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: portfolioId
+          in: path
+          required: true
+          type: string
+        - name: status
+          in: query
+          required: false
+          type: string
+          enum:
+            - RULE_STATUS_UNKNOWN
+            - RULE_STATUS_ACTIVE
+            - RULE_STATUS_PAUSED
+            - RULE_STATUS_DISABLED
+            - RULE_STATUS_ERROR
+          default: RULE_STATUS_UNKNOWN
+        - name: pageSize
+          in: query
+          required: false
+          type: integer
+          format: int32
+        - name: pageToken
+          in: query
+          required: false
+          type: string
+      tags:
+        - RuleService
+  /api/v1/prices:
+    delete:
+      operationId: StorageService_DeletePrices
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            type: object
+            properties: {}
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: assetId
+          in: query
+          required: false
+          type: string
+        - name: baseAssetId
+          in: query
+          required: false
+          type: string
+        - name: from
+          in: query
+          required: false
+          type: string
+          format: date-time
+        - name: to
+          in: query
+          required: false
+          type: string
+          format: date-time
+        - name: sourceId
+          description: Filter by source
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+    post:
+      summary: |-
+        --- Price operations ---
+        Assuming prices are immutable once created, so no UpdatePrice.
+      operationId: StorageService_CreatePrice
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsPrice'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: price
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/modelsPrice'
+      tags:
+        - StorageService
+  /api/v1/prices/bulk:
+    post:
+      operationId: StorageService_CreatePrices
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesCreatePricesResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: prices
+          in: body
+          required: true
+          schema:
+            type: array
+            items:
+              type: object
+              $ref: '#/definitions/modelsPrice'
+      tags:
+        - StorageService
+  /api/v1/prices/fetch-external:
+    post:
+      summary: Triggers fetching of latest prices from configured external sources and stores them using StorageService.
+      operationId: PriceService_FetchExternalPrices
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesFetchExternalPricesResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/servicesFetchExternalPricesRequest'
+      tags:
+        - PriceService
+  /api/v1/prices/{assetId}/{baseAssetId}/history:
+    get:
+      operationId: StorageService_ListPriceHistory
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesListPriceHistoryResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: assetId
+          in: path
+          required: true
+          type: string
+        - name: baseAssetId
+          in: path
+          required: true
+          type: string
+        - name: from
+          description: Start of the time range
+          in: query
+          required: false
+          type: string
+          format: date-time
+        - name: to
+          description: End of the time range
+          in: query
+          required: false
+          type: string
+          format: date-time
+        - name: sourceId
+          description: Filter by source
+          in: query
+          required: false
+          type: string
+        - name: pageSize
+          description: Pagination for large history
+          in: query
+          required: false
+          type: integer
+          format: int32
+        - name: pageToken
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+  /api/v1/prices/{assetId}/{baseAssetId}/intervals:
+    get:
+      operationId: StorageService_ListPricesByInterval
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesListPriceHistoryResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: assetId
+          in: path
+          required: true
+          type: string
+        - name: baseAssetId
+          in: path
+          required: true
+          type: string
+        - name: from
+          in: query
+          required: false
+          type: string
+          format: date-time
+        - name: to
+          in: query
+          required: false
+          type: string
+          format: date-time
+        - name: interval
+          description: e.g., "hourly", "daily", "weekly" - specific values TBD
+          in: query
+          required: false
+          type: string
+        - name: sourceId
+          description: Filter by source
+          in: query
+          required: false
+          type: string
+        - name: pageSize
+          description: Pagination
+          in: query
+          required: false
+          type: integer
+          format: int32
+        - name: pageToken
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+  /api/v1/prices/{assetId}/{baseAssetId}/latest:
+    get:
+      operationId: StorageService_GetLatestPrice
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsPrice'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: assetId
+          in: path
+          required: true
+          type: string
+        - name: baseAssetId
+          in: path
+          required: true
+          type: string
+        - name: sourceId
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+  /api/v1/prices/{id}:
+    delete:
+      operationId: StorageService_DeletePrice
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            type: object
+            properties: {}
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - StorageService
+  /api/v1/rule-executions/{executionId}:
+    get:
+      operationId: RuleService_GetRuleExecution
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsRuleExecution'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: executionId
+          in: path
+          required: true
+          type: string
+      tags:
+        - RuleService
+  /api/v1/rule-executions/{executionId}/cancel:
+    post:
+      operationId: RuleService_CancelRuleExecution
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            type: object
+            properties: {}
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: executionId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/RuleServiceCancelRuleExecutionBody'
+      tags:
+        - RuleService
+  /api/v1/rules:
+    get:
+      operationId: RuleService_ListRules
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesListRulesResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: userId
+          in: query
+          required: false
+          type: string
+        - name: portfolioId
+          in: query
+          required: false
+          type: string
+        - name: ruleType
+          in: query
+          required: false
+          type: string
+        - name: status
+          in: query
+          required: false
+          type: string
+          enum:
+            - RULE_STATUS_UNKNOWN
+            - RULE_STATUS_ACTIVE
+            - RULE_STATUS_PAUSED
+            - RULE_STATUS_DISABLED
+            - RULE_STATUS_ERROR
+          default: RULE_STATUS_UNKNOWN
+        - name: pageSize
+          in: query
+          required: false
+          type: integer
+          format: int32
+        - name: pageToken
+          in: query
+          required: false
+          type: string
+      tags:
+        - RuleService
+    post:
+      summary: Rule CRUD operations
+      operationId: RuleService_CreateRule
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsRule'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: rule
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/modelsRule'
+      tags:
+        - RuleService
+  /api/v1/rules/validate:
+    post:
+      summary: Rule validation and simulation
+      operationId: RuleService_ValidateRule
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesValidateRuleResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: rule
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/modelsRule'
+      tags:
+        - RuleService
+  /api/v1/rules/{id}:
+    get:
+      operationId: RuleService_GetRule
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsRule'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - RuleService
+    delete:
+      operationId: RuleService_DeleteRule
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            type: object
+            properties: {}
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - RuleService
+  /api/v1/rules/{rule.id}:
+    put:
+      operationId: RuleService_UpdateRule
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsRule'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: rule.id
+          in: path
+          required: true
+          type: string
+        - name: rule
+          description: Rule defines a business rule that can be applied to portfolios
+          in: body
+          required: true
+          schema:
+            type: object
+            properties:
+              name:
+                type: string
+              description:
+                type: string
+              ruleType:
+                type: string
+                title: e.g., "target_allocation", "monthly_withdrawal", "stop_loss", "dca"
+              portfolioId:
+                type: string
+              userId:
+                type: string
+              enabled:
+                type: boolean
+              configuration:
+                type: object
+                title: Flexible configuration for any rule type
+              schedule:
+                $ref: '#/definitions/modelsRuleSchedule'
+              createdAt:
+                type: string
+                format: date-time
+              updatedAt:
+                type: string
+                format: date-time
+              lastExecutedAt:
+                type: string
+                format: date-time
+              lastExecutionId:
+                type: string
+              status:
+                $ref: '#/definitions/modelsRuleStatus'
+            title: Rule defines a business rule that can be applied to portfolios
+        - name: updateMask
+          in: query
+          required: false
+          type: string
+      tags:
+        - RuleService
+  /api/v1/rules/{ruleId}/disable:
+    post:
+      operationId: RuleService_DisableRule
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsRule'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/RuleServiceDisableRuleBody'
+      tags:
+        - RuleService
+  /api/v1/rules/{ruleId}/enable:
+    post:
+      summary: Rule status management
+      operationId: RuleService_EnableRule
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsRule'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/RuleServiceEnableRuleBody'
+      tags:
+        - RuleService
+  /api/v1/rules/{ruleId}/execute:
+    post:
+      summary: Rule execution operations
+      operationId: RuleService_ExecuteRule
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesExecuteRuleResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/RuleServiceExecuteRuleBody'
+      tags:
+        - RuleService
+  /api/v1/rules/{ruleId}/execute-async:
+    post:
+      operationId: RuleService_ExecuteRuleAsync
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesExecuteRuleAsyncResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/RuleServiceExecuteRuleAsyncBody'
+      tags:
+        - RuleService
+  /api/v1/rules/{ruleId}/executions:
+    get:
+      operationId: RuleService_ListRuleExecutions
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesListRuleExecutionsResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          type: string
+        - name: status
+          in: query
+          required: false
+          type: string
+          enum:
+            - EXECUTION_STATUS_UNKNOWN
+            - EXECUTION_STATUS_PENDING
+            - EXECUTION_STATUS_IN_PROGRESS
+            - EXECUTION_STATUS_COMPLETED
+            - EXECUTION_STATUS_FAILED
+            - EXECUTION_STATUS_CANCELLED
+          default: EXECUTION_STATUS_UNKNOWN
+        - name: fromDate
+          in: query
+          required: false
+          type: string
+          format: date-time
+        - name: toDate
+          in: query
+          required: false
+          type: string
+          format: date-time
+        - name: pageSize
+          in: query
+          required: false
+          type: integer
+          format: int32
+        - name: pageToken
+          in: query
+          required: false
+          type: string
+      tags:
+        - RuleService
+  /api/v1/rules/{ruleId}/pause:
+    post:
+      operationId: RuleService_PauseRule
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsRule'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/RuleServicePauseRuleBody'
+      tags:
+        - RuleService
+  /api/v1/rules/{ruleId}/resume:
+    post:
+      operationId: RuleService_ResumeRule
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsRule'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/RuleServiceResumeRuleBody'
+      tags:
+        - RuleService
+  /api/v1/rules/{ruleId}/simulate:
+    post:
+      operationId: RuleService_SimulateRule
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesSimulateRuleResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/RuleServiceSimulateRuleBody'
+      tags:
+        - RuleService
+  /api/v1/transactions:
+    get:
+      operationId: StorageService_ListTransactions
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesListTransactionsResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: type
+          description: |2-
+             - TRANSACTION_TYPE_EXTENDED: Complex transactionsz: DeFi, NFT, Governance, Gaming, etc.
+             - TRANSACTION_TYPE_TRADE: Echanging one asset for another
+             - TRANSACTION_TYPE_TRANSFER: Transferring asset between accounts (internal or external)
+             - TRANSACTION_TYPE_DEPOSIT: Depositing asset into an account from outside the system
+             - TRANSACTION_TYPE_WITHDRAWAL: Withdrawing asset from an account to outside the system
+          in: query
+          required: false
+          type: string
+          enum:
+            - TRANSACTION_TYPE_UNSPECIFIED
+            - TRANSACTION_TYPE_EXTENDED
+            - TRANSACTION_TYPE_TRADE
+            - TRANSACTION_TYPE_TRANSFER
+            - TRANSACTION_TYPE_DEPOSIT
+            - TRANSACTION_TYPE_WITHDRAWAL
+          default: TRANSACTION_TYPE_UNSPECIFIED
+        - name: status
+          description: |2-
+             - TRANSACTION_STATUS_PENDING: Transaction initiated but not confirmed
+             - TRANSACTION_STATUS_PROCESSING: Transaction is being processed
+             - TRANSACTION_STATUS_COMPLETED: Transaction successfully completed
+             - TRANSACTION_STATUS_FAILED: Transaction failed
+             - TRANSACTION_STATUS_CANCELLED: Transaction cancelled before completion
+          in: query
+          required: false
+          type: string
+          enum:
+            - TRANSACTION_STATUS_UNSPECIFIED
+            - TRANSACTION_STATUS_PENDING
+            - TRANSACTION_STATUS_PROCESSING
+            - TRANSACTION_STATUS_COMPLETED
+            - TRANSACTION_STATUS_FAILED
+            - TRANSACTION_STATUS_CANCELLED
+          default: TRANSACTION_STATUS_UNSPECIFIED
+        - name: accountId
+          in: query
+          required: false
+          type: string
+        - name: from
+          in: query
+          required: false
+          type: string
+          format: date-time
+        - name: to
+          in: query
+          required: false
+          type: string
+          format: date-time
+        - name: pageSize
+          in: query
+          required: false
+          type: integer
+          format: int32
+        - name: pageToken
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+    post:
+      summary: '--- Transaction operations ---'
+      operationId: StorageService_CreateTransaction
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsTransaction'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: transaction
+          description: Required fields depend on type. ID empty.
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/modelsTransaction'
+      tags:
+        - StorageService
+  /api/v1/transactions/{id}:
+    get:
+      operationId: StorageService_GetTransaction
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsTransaction'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - StorageService
+  /api/v1/transactions/{transaction.id}:
+    put:
+      operationId: StorageService_UpdateTransaction
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsTransaction'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: transaction.id
+          description: Unique identifier (UUID)
+          in: path
+          required: true
+          type: string
+        - name: transaction
+          description: Must include ID. Typically only 'status' or 'metadata' can be updated.
+          in: body
+          required: true
+          schema:
+            type: object
+            properties:
+              createdAt:
+                type: string
+                format: date-time
+                title: Timestamp when the transaction occurred or was recorded
+              updatedAt:
+                type: string
+                format: date-time
+                title: Timestamp of last status update
+              type:
+                $ref: '#/definitions/modelsTransactionType'
+                title: Type of the transaction
+              status:
+                $ref: '#/definitions/modelsTransactionStatus'
+                title: Current status of the transaction
+              accountId:
+                type: string
+                title: ID of the Account involved in the transaction
+              data:
+                type: object
+                additionalProperties:
+                  type: string
+                title: Transaction data (e.g., external transaction ID, notes, )
+            title: Must include ID. Typically only 'status' or 'metadata' can be updated.
+        - name: updateMask
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+  /api/v1/users:
+    post:
+      summary: '--- User operations ---'
+      operationId: StorageService_CreateUser
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsUser'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: user
+          description: email, name required. ID empty.
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/modelsUser'
+      tags:
+        - StorageService
+  /api/v1/users/{id}:
+    get:
+      operationId: StorageService_GetUser
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsUser'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - StorageService
+    delete:
+      operationId: StorageService_DeleteUser
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            type: object
+            properties: {}
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - StorageService
+  /api/v1/users/{user.id}:
+    put:
+      operationId: StorageService_UpdateUser
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsUser'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: user.id
+          description: Unique identifier (UUID)
+          in: path
+          required: true
+          type: string
+        - name: user
+          description: Must include ID and fields to update
+          in: body
+          required: true
+          schema:
+            type: object
+            properties:
+              name:
+                type: string
+                title: User's display name
+              email:
+                type: string
+                title: User's email address (used for login/notifications)
+              preferences:
+                type: object
+                additionalProperties:
+                  type: string
+                title: User-specific settings (e.g., default currency, notification preferences)
+              createdAt:
+                type: string
+                format: date-time
+                title: Timestamp of registration
+              updatedAt:
+                type: string
+                format: date-time
+                title: Timestamp of last profile update
+            title: Must include ID and fields to update
+        - name: updateMask
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+  /api/v1/users/{userId}/preferences:
+    put:
+      summary: Updates user-specific preferences.
+      operationId: UserService_UpdateUserPreferences
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsUser'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/UserServiceUpdateUserPreferencesBody'
+      tags:
+        - UserService
+definitions:
+  AssetServiceEnrichAssetDataBody:
+    type: object
+    properties:
+      sources:
+        type: array
+        items:
+          type: string
+        title: 'Optional: specify sources like "market_cap_provider", "fundamental_data_provider"'
+  AuthServiceUpdateAPIKeyBody:
+    type: object
+    properties:
+      name:
+        type: string
+      description:
+        type: string
+      enabled:
+        type: boolean
+      rateLimit:
+        $ref: '#/definitions/servicesRateLimitConfig'
+  PortfolioServiceCalculatePortfolioValueBody:
+    type: object
+    properties:
+      quoteAssetId:
+        type: string
+        title: e.g., "USD", "BTC" - the currency to calculate value in
+      atTime:
+        type: string
+        format: date-time
+        title: 'Optional: Calculate value at a specific point in time (requires price history)'
+  PortfolioServiceGetPortfolioPerformanceBody:
+    type: object
+    properties:
+      from:
+        type: string
+        format: date-time
+      to:
+        type: string
+        format: date-time
+      benchmarkAssetId:
+        type: string
+        title: 'Optional: Asset to compare performance against (e.g., BTC, SPY)'
+  RuleServiceCancelRuleExecutionBody:
+    type: object
+    properties:
+      reason:
+        type: string
+  RuleServiceDisableRuleBody:
+    type: object
+  RuleServiceEnableRuleBody:
+    type: object
+    title: Rule status management messages
+  RuleServiceExecuteRuleAsyncBody:
+    type: object
+    properties:
+      dryRun:
+        type: boolean
+      executionContext:
+        type: string
+  RuleServiceExecuteRuleBody:
+    type: object
+    properties:
+      dryRun:
+        type: boolean
+      executionContext:
+        type: string
+    title: Rule execution messages
+  RuleServicePauseRuleBody:
+    type: object
+    properties:
+      reason:
+        type: string
+  RuleServiceResumeRuleBody:
+    type: object
+  RuleServiceSimulateRuleBody:
+    type: object
+    properties:
+      simulateAt:
+        type: string
+        format: date-time
+      includeCosts:
+        type: boolean
+  UserServiceUpdateUserPreferencesBody:
+    type: object
+    properties:
+      preferencesToUpdate:
+        type: object
+        additionalProperties:
+          type: string
+        title: Only the preferences to change
+      updateMask:
+        type: string
+        title: Alternatively, use a mask to specify which keys in the map to update/delete
+  modelsAccount:
+    type: object
+    properties:
+      id:
+        type: string
+        title: Unique identifier (UUID)
+      userId:
+        type: string
+        title: ID of the user owning this account
+      name:
+        type: string
+        title: User-defined name (e.g., "My Binance Spot", "Ledger Nano S")
+      description:
+        type: string
+        title: Optional longer description
+      type:
+        $ref: '#/definitions/modelsAccountType'
+        title: Type of the account
+      data:
+        type: object
+        additionalProperties:
+          type: string
+        description: Flexible map for connection parameters, API keys, addresses etc. Needs careful handling due to sensitive data.
+      createdAt:
+        type: string
+        format: date-time
+        title: Timestamp of creation
+      updatedAt:
+        type: string
+        format: date-time
+        title: Timestamp of last update
+    description: |-
+      Account represents a user's connection to an external financial entity
+      (like an exchange account, bank account, or a self-custody wallet).
+      It holds metadata and potentially credentials (in 'data' field) needed to interact.
+  modelsAccountType:
+    type: string
+    enum:
+      - ACCOUNT_TYPE_UNSPECIFIED
+      - ACCOUNT_TYPE_WALLET
+      - ACCOUNT_TYPE_EXCHANGE
+      - ACCOUNT_TYPE_BANK
+      - ACCOUNT_TYPE_BROKER
+    default: ACCOUNT_TYPE_UNSPECIFIED
+  modelsAsset:
+    type: object
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+      type:
+        $ref: '#/definitions/modelsAssetType'
+      symbol:
+        type: string
+      tags:
+        type: array
+        items:
+          type: string
+      createdAt:
+        type: string
+        format: date-time
+      updatedAt:
+        type: string
+        format: date-time
+    description: Asset represents financial instrument (crypto, stock, etc.).
+  modelsAssetRebalance:
+    type: object
+    properties:
+      assetId:
+        type: string
+      percentageBefore:
+        type: number
+        format: double
+      percentageAfter:
+        type: number
+        format: double
+      amountTraded:
+        type: number
+        format: double
+      tradeDirection:
+        type: string
+        title: '"buy" or "sell"'
+  modelsAssetSold:
+    type: object
+    properties:
+      assetId:
+        type: string
+      amount:
+        type: number
+        format: double
+      sellPrice:
+        type: number
+        format: double
+      value:
+        type: number
+        format: double
+  modelsAssetType:
+    type: string
+    enum:
+      - ASSET_TYPE_UNSPECIFIED
+      - ASSET_TYPE_CRYPTOCURRENCY
+      - ASSET_TYPE_STOCK
+      - ASSET_TYPE_BOND
+      - ASSET_TYPE_COMMODITY
+      - ASSET_TYPE_FOREX
+      - ASSET_TYPE_FUND
+    default: ASSET_TYPE_UNSPECIFIED
+  modelsAssetWithdrawal:
+    type: object
+    properties:
+      assetId:
+        type: string
+      amount:
+        type: number
+        format: double
+      valueInCurrency:
+        type: number
+        format: double
+  modelsDCASummary:
+    type: object
+    properties:
+      amountInvested:
+        type: number
+        format: double
+      targetAssetId:
+        type: string
+      assetAmountPurchased:
+        type: number
+        format: double
+      purchasePrice:
+        type: number
+        format: double
+      fees:
+        type: number
+        format: double
+      totalInvestedToDate:
+        type: number
+        format: double
+      totalAssetAmountToDate:
+        type: number
+        format: double
+  modelsExecutionStatus:
+    type: string
+    enum:
+      - EXECUTION_STATUS_UNKNOWN
+      - EXECUTION_STATUS_PENDING
+      - EXECUTION_STATUS_IN_PROGRESS
+      - EXECUTION_STATUS_COMPLETED
+      - EXECUTION_STATUS_FAILED
+      - EXECUTION_STATUS_CANCELLED
+    default: EXECUTION_STATUS_UNKNOWN
+    title: ExecutionStatus indicates the status of a rule execution
+  modelsExecutionStep:
+    type: object
+    properties:
+      stepId:
+        type: string
+      name:
+        type: string
+      description:
+        type: string
+      startedAt:
+        type: string
+        format: date-time
+      completedAt:
+        type: string
+        format: date-time
+      status:
+        $ref: '#/definitions/modelsExecutionStatus'
+      errorMessage:
+        type: string
+      inputData:
+        type: object
+      outputData:
+        type: object
+      logMessages:
+        type: array
+        items:
+          type: string
+    title: ExecutionStep represents a single step in rule execution
+  modelsExecutionSummary:
+    type: object
+    properties:
+      totalSteps:
+        type: integer
+        format: int32
+      successfulSteps:
+        type: integer
+        format: int32
+      failedSteps:
+        type: integer
+        format: int32
+      durationMs:
+        type: string
+        format: int64
+      rebalancing:
+        $ref: '#/definitions/modelsRebalancingSummary'
+      withdrawal:
+        $ref: '#/definitions/modelsWithdrawalSummary'
+      stopLoss:
+        $ref: '#/definitions/modelsStopLossSummary'
+      dca:
+        $ref: '#/definitions/modelsDCASummary'
+    title: ExecutionSummary provides a summary of the execution results
+  modelsHolding:
+    type: object
+    properties:
+      id:
+        type: string
+        title: Unique identifier (UUID)
+      amount:
+        type: string
+        format: int64
+        title: Value of the asset in the smallest unit
+      decimals:
+        type: integer
+        format: int64
+        title: Number of decimal places for the amount
+      assetId:
+        type: string
+        title: ID of the Asset
+      accountId:
+        type: string
+        title: ID of the Account where the asset is held
+      portfolioId:
+        type: string
+        title: ID of the Portfolio this holding belongs to
+      createdAt:
+        type: string
+        format: date-time
+        title: Timestamp of creation
+      updatedAt:
+        type: string
+        format: date-time
+        title: Timestamp of last update
+    description: |-
+      Holding represents a specific quantity of an Asset held within an Account
+      and associated with a Portfolio.
+  modelsPortfolio:
+    type: object
+    properties:
+      id:
+        type: string
+        title: Unique identifier (UUID)
+      userId:
+        type: string
+        title: ID of the user owning this portfolio
+      name:
+        type: string
+        title: User-defined name (e.g., "Long Term Crypto", "Trading")
+      description:
+        type: string
+        title: Optional longer description
+      data:
+        type: object
+        additionalProperties:
+          $ref: '#/definitions/protobufAny'
+        title: Additional data (e.g., strategy, notes, regulated balance of assets, etc.)
+      createdAt:
+        type: string
+        format: date-time
+        title: Timestamp of creation
+      updatedAt:
+        type: string
+        format: date-time
+        title: Timestamp of last update
+    description: |-
+      Portfolio represents a collection of holdings (assets) managed by a user.
+      It's used for tracking performance and overall value.
+  modelsPrice:
+    type: object
+    properties:
+      id:
+        type: string
+        title: Unique identifier (UUID)
+      sourceId:
+        type: string
+        title: Identifier for the source (e.g., "coingecko", "binance")
+      assetId:
+        type: string
+        title: ID of the Asset whose price is represented
+      baseAssetId:
+        type: string
+        title: ID of the Asset against which the price is quoted (e.g., USDT, USD, BTC)
+      interval:
+        type: string
+        description: |-
+          Interval defines the time period this price data represents.
+          Examples: "1m", "5m", "1h", "4h", "1d", "tick", "latest".
+          Empty or "latest" might indicate a snapshot price rather than a full candle.
+      decimals:
+        type: integer
+        format: int64
+        title: The decimals of the prices and volume
+      last:
+        type: string
+        format: int64
+        title: The latest price of the asset
+      open:
+        type: string
+        format: int64
+        description: |-
+          OHLCV data - applicable when 'interval' represents a standard candle type (e.g., "1m", "1h").
+          These fields might be 0 or unset if the price represents a 'latest' snapshot or 'tick'.
+      high:
+        type: string
+        format: int64
+      low:
+        type: string
+        format: int64
+      close:
+        type: string
+        format: int64
+      volume:
+        type: string
+        format: int64
+        title: Trading volume during the interval
+      timestamp:
+        type: string
+        format: date-time
+        description: The closing time of the interval or the time of the snapshot/tick.
+    description: |-
+      Represents the price action of an Asset against a base Asset
+      over a specific interval (candle/OHLCV) or as a latest snapshot.
+  modelsRebalancingSummary:
+    type: object
+    properties:
+      totalValueBefore:
+        type: number
+        format: double
+      totalValueAfter:
+        type: number
+        format: double
+      assetChanges:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/modelsAssetRebalance'
+      tradesExecuted:
+        type: integer
+        format: int32
+      totalFees:
+        type: number
+        format: double
+    title: Rule-specific summary types
+  modelsRule:
+    type: object
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+      description:
+        type: string
+      ruleType:
+        type: string
+        title: e.g., "target_allocation", "monthly_withdrawal", "stop_loss", "dca"
+      portfolioId:
+        type: string
+      userId:
+        type: string
+      enabled:
+        type: boolean
+      configuration:
+        type: object
+        title: Flexible configuration for any rule type
+      schedule:
+        $ref: '#/definitions/modelsRuleSchedule'
+      createdAt:
+        type: string
+        format: date-time
+      updatedAt:
+        type: string
+        format: date-time
+      lastExecutedAt:
+        type: string
+        format: date-time
+      lastExecutionId:
+        type: string
+      status:
+        $ref: '#/definitions/modelsRuleStatus'
+    title: Rule defines a business rule that can be applied to portfolios
+  modelsRuleExecution:
+    type: object
+    properties:
+      id:
+        type: string
+      ruleId:
+        type: string
+      portfolioId:
+        type: string
+      userId:
+        type: string
+      startedAt:
+        type: string
+        format: date-time
+      completedAt:
+        type: string
+        format: date-time
+      status:
+        $ref: '#/definitions/modelsExecutionStatus'
+      errorMessage:
+        type: string
+      executionContext:
+        type: object
+        title: Context at execution time
+      steps:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/modelsExecutionStep'
+      summary:
+        $ref: '#/definitions/modelsExecutionSummary'
+    title: RuleExecution represents a single execution of a rule
+  modelsRuleSchedule:
+    type: object
+    properties:
+      cronExpression:
+        type: string
+        title: Cron expression for scheduling
+      timezone:
+        type: string
+        title: Timezone for execution
+      oneTime:
+        type: boolean
+        title: If true, rule executes only once
+      executeAfter:
+        type: string
+        format: date-time
+        title: For delayed execution
+    title: RuleSchedule defines when a rule should be executed
+  modelsRuleStatus:
+    type: string
+    enum:
+      - RULE_STATUS_UNKNOWN
+      - RULE_STATUS_ACTIVE
+      - RULE_STATUS_PAUSED
+      - RULE_STATUS_DISABLED
+      - RULE_STATUS_ERROR
+    default: RULE_STATUS_UNKNOWN
+    title: RuleStatus indicates the current status of a rule
+  modelsStopLossSummary:
+    type: object
+    properties:
+      portfolioValueBefore:
+        type: number
+        format: double
+      portfolioValueAfter:
+        type: number
+        format: double
+      lossPercentage:
+        type: number
+        format: double
+      actionTaken:
+        type: string
+      assetsSold:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/modelsAssetSold'
+      totalFees:
+        type: number
+        format: double
+  modelsTransaction:
+    type: object
+    properties:
+      id:
+        type: string
+        title: Unique identifier (UUID)
+      createdAt:
+        type: string
+        format: date-time
+        title: Timestamp when the transaction occurred or was recorded
+      updatedAt:
+        type: string
+        format: date-time
+        title: Timestamp of last status update
+      type:
+        $ref: '#/definitions/modelsTransactionType'
+        title: Type of the transaction
+      status:
+        $ref: '#/definitions/modelsTransactionStatus'
+        title: Current status of the transaction
+      accountId:
+        type: string
+        title: ID of the Account involved in the transaction
+      data:
+        type: object
+        additionalProperties:
+          type: string
+        title: Transaction data (e.g., external transaction ID, notes, )
+    description: Transaction represents a financial event involving assets, accounts, and portfolios.
+  modelsTransactionStatus:
+    type: string
+    enum:
+      - TRANSACTION_STATUS_UNSPECIFIED
+      - TRANSACTION_STATUS_PENDING
+      - TRANSACTION_STATUS_PROCESSING
+      - TRANSACTION_STATUS_COMPLETED
+      - TRANSACTION_STATUS_FAILED
+      - TRANSACTION_STATUS_CANCELLED
+    default: TRANSACTION_STATUS_UNSPECIFIED
+    title: |-
+      - TRANSACTION_STATUS_PENDING: Transaction initiated but not confirmed
+       - TRANSACTION_STATUS_PROCESSING: Transaction is being processed
+       - TRANSACTION_STATUS_COMPLETED: Transaction successfully completed
+       - TRANSACTION_STATUS_FAILED: Transaction failed
+       - TRANSACTION_STATUS_CANCELLED: Transaction cancelled before completion
+  modelsTransactionType:
+    type: string
+    enum:
+      - TRANSACTION_TYPE_UNSPECIFIED
+      - TRANSACTION_TYPE_EXTENDED
+      - TRANSACTION_TYPE_TRADE
+      - TRANSACTION_TYPE_TRANSFER
+      - TRANSACTION_TYPE_DEPOSIT
+      - TRANSACTION_TYPE_WITHDRAWAL
+    default: TRANSACTION_TYPE_UNSPECIFIED
+    title: |-
+      - TRANSACTION_TYPE_EXTENDED: Complex transactionsz: DeFi, NFT, Governance, Gaming, etc.
+       - TRANSACTION_TYPE_TRADE: Echanging one asset for another
+       - TRANSACTION_TYPE_TRANSFER: Transferring asset between accounts (internal or external)
+       - TRANSACTION_TYPE_DEPOSIT: Depositing asset into an account from outside the system
+       - TRANSACTION_TYPE_WITHDRAWAL: Withdrawing asset from an account to outside the system
+  modelsUser:
+    type: object
+    properties:
+      id:
+        type: string
+        title: Unique identifier (UUID)
+      name:
+        type: string
+        title: User's display name
+      email:
+        type: string
+        title: User's email address (used for login/notifications)
+      preferences:
+        type: object
+        additionalProperties:
+          type: string
+        title: User-specific settings (e.g., default currency, notification preferences)
+      createdAt:
+        type: string
+        format: date-time
+        title: Timestamp of registration
+      updatedAt:
+        type: string
+        format: date-time
+        title: Timestamp of last profile update
+    description: User represents a user of the Greedy-Eye system.
+  modelsWithdrawalSummary:
+    type: object
+    properties:
+      amountWithdrawn:
+        type: number
+        format: double
+      currency:
+        type: string
+      destinationAccountId:
+        type: string
+      assetWithdrawals:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/modelsAssetWithdrawal'
+      totalFees:
+        type: number
+        format: double
+  protobufAny:
+    type: object
+    properties:
+      '@type':
+        type: string
+        description: |-
+          A URL/resource name that uniquely identifies the type of the serialized
+          protocol buffer message. This string must contain at least
+          one "/" character. The last segment of the URL's path must represent
+          the fully qualified name of the type (as in
+          `path/google.protobuf.Duration`). The name should be in a canonical form
+          (e.g., leading "." is not accepted).
+
+          In practice, teams usually precompile into the binary all types that they
+          expect it to use in the context of Any. However, for URLs which use the
+          scheme `http`, `https`, or no scheme, one can optionally set up a type
+          server that maps type URLs to message definitions as follows:
+
+          * If no scheme is provided, `https` is assumed.
+          * An HTTP GET on the URL must yield a [google.protobuf.Type][]
+            value in binary format, or produce an error.
+          * Applications are allowed to cache lookup results based on the
+            URL, or have them precompiled into a binary to avoid any
+            lookup. Therefore, binary compatibility needs to be preserved
+            on changes to types. (Use versioned type names to manage
+            breaking changes.)
+
+          Note: this functionality is not currently available in the official
+          protobuf release, and it is not used for type URLs beginning with
+          type.googleapis.com. As of May 2023, there are no widely used type server
+          implementations and no plans to implement one.
+
+          Schemes other than `http`, `https` (or the empty scheme) might be
+          used with implementation specific semantics.
+    additionalProperties: {}
+    description: |-
+      `Any` contains an arbitrary serialized protocol buffer message along with a
+      URL that describes the type of the serialized message.
+
+      Protobuf library provides support to pack/unpack Any values in the form
+      of utility functions or additional generated methods of the Any type.
+
+      Example 1: Pack and unpack a message in C++.
+
+          Foo foo = ...;
+          Any any;
+          any.PackFrom(foo);
+          ...
+          if (any.UnpackTo(&foo)) {
+            ...
+          }
+
+      Example 2: Pack and unpack a message in Java.
+
+          Foo foo = ...;
+          Any any = Any.pack(foo);
+          ...
+          if (any.is(Foo.class)) {
+            foo = any.unpack(Foo.class);
+          }
+          // or ...
+          if (any.isSameTypeAs(Foo.getDefaultInstance())) {
+            foo = any.unpack(Foo.getDefaultInstance());
+          }
+
+       Example 3: Pack and unpack a message in Python.
+
+          foo = Foo(...)
+          any = Any()
+          any.Pack(foo)
+          ...
+          if any.Is(Foo.DESCRIPTOR):
+            any.Unpack(foo)
+            ...
+
+       Example 4: Pack and unpack a message in Go
+
+           foo := &pb.Foo{...}
+           any, err := anypb.New(foo)
+           if err != nil {
+             ...
+           }
+           ...
+           foo := &pb.Foo{}
+           if err := any.UnmarshalTo(foo); err != nil {
+             ...
+           }
+
+      The pack methods provided by protobuf library will by default use
+      'type.googleapis.com/full.type.name' as the type URL and the unpack
+      methods only use the fully qualified type name after the last '/'
+      in the type URL, for example "foo.bar.com/x/y.z" will yield type
+      name "y.z".
+
+      JSON
+      ====
+      The JSON representation of an `Any` value uses the regular
+      representation of the deserialized, embedded message, with an
+      additional field `@type` which contains the type URL. Example:
+
+          package google.profile;
+          message Person {
+            string first_name = 1;
+            string last_name = 2;
+          }
+
+          {
+            "@type": "type.googleapis.com/google.profile.Person",
+            "firstName": <string>,
+            "lastName": <string>
+          }
+
+      If the embedded message type is well-known and has a custom JSON
+      representation, that representation will be embedded adding a field
+      `value` which holds the custom JSON in addition to the `@type`
+      field. Example (for message [google.protobuf.Duration][]):
+
+          {
+            "@type": "type.googleapis.com/google.protobuf.Duration",
+            "value": "1.212s"
+          }
+  protobufNullValue:
+    type: string
+    enum:
+      - NULL_VALUE
+    default: NULL_VALUE
+    description: |-
+      `NullValue` is a singleton enumeration to represent the null value for the
+      `Value` type union.
+
+      The JSON representation for `NullValue` is JSON `null`.
+
+       - NULL_VALUE: Null value.
+  rpcStatus:
+    type: object
+    properties:
+      code:
+        type: integer
+        format: int32
+      message:
+        type: string
+      details:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/protobufAny'
+  servicesAPIKey:
+    type: object
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+      description:
+        type: string
+      userId:
+        type: string
+      scopes:
+        type: array
+        items:
+          type: string
+      createdAt:
+        type: string
+        format: date-time
+      lastUsedAt:
+        type: string
+        format: date-time
+      expiresAt:
+        type: string
+        format: date-time
+      enabled:
+        type: boolean
+      keyPrefix:
+        type: string
+        title: First 8 characters for display
+      usageCount:
+        type: integer
+        format: int32
+      rateLimit:
+        $ref: '#/definitions/servicesRateLimitConfig'
+    title: API Key messages
+  servicesAssetAllocation:
+    type: object
+    properties:
+      assetId:
+        type: string
+      currentAmount:
+        type: number
+        format: double
+      currentPercentage:
+        type: number
+        format: double
+      targetPercentage:
+        type: number
+        format: double
+      difference:
+        type: number
+        format: double
+  servicesAssetStopLoss:
+    type: object
+    properties:
+      assetId:
+        type: string
+      currentAmount:
+        type: number
+        format: double
+      amountToSell:
+        type: number
+        format: double
+      estimatedValue:
+        type: number
+        format: double
+  servicesAssetWithdrawalPlan:
+    type: object
+    properties:
+      assetId:
+        type: string
+      amountToWithdraw:
+        type: number
+        format: double
+      estimatedValue:
+        type: number
+        format: double
+      needsSelling:
+        type: boolean
+  servicesCreateAPIKeyRequest:
+    type: object
+    properties:
+      name:
+        type: string
+      description:
+        type: string
+      userId:
+        type: string
+      scopes:
+        type: array
+        items:
+          type: string
+      expiresAt:
+        type: string
+        format: date-time
+      rateLimit:
+        $ref: '#/definitions/servicesRateLimitConfig'
+  servicesCreateAPIKeyResponse:
+    type: object
+    properties:
+      apiKey:
+        $ref: '#/definitions/servicesAPIKey'
+      secretKey:
+        type: string
+        title: Only returned once
+  servicesCreateJWTRequest:
+    type: object
+    properties:
+      userId:
+        type: string
+      scopes:
+        type: array
+        items:
+          type: string
+      expiresInSeconds:
+        type: string
+        format: int64
+      apiKeyId:
+        type: string
+        title: Reference to API key used for authentication
+    title: JWT messages
+  servicesCreateJWTResponse:
+    type: object
+    properties:
+      accessToken:
+        type: string
+      refreshToken:
+        type: string
+      expiresIn:
+        type: string
+        format: int64
+      tokenType:
+        type: string
+  servicesCreatePricesResponse:
+    type: object
+    properties:
+      createdCount:
+        type: integer
+        format: int32
+        title: Number of prices successfully created
+  servicesDCASimulation:
+    type: object
+    properties:
+      availableBalance:
+        type: number
+        format: double
+      dcaAmount:
+        type: number
+        format: double
+      targetAssetId:
+        type: string
+      estimatedPurchaseAmount:
+        type: number
+        format: double
+      estimatedPrice:
+        type: number
+        format: double
+      estimatedFee:
+        type: number
+        format: double
+      sufficientFunds:
+        type: boolean
+  servicesExecuteRuleAsyncResponse:
+    type: object
+    properties:
+      executionId:
+        type: string
+      status:
+        type: string
+  servicesExecuteRuleResponse:
+    type: object
+    properties:
+      execution:
+        $ref: '#/definitions/modelsRuleExecution'
+  servicesFetchExternalPricesRequest:
+    type: object
+    properties:
+      sourceIds:
+        type: array
+        items:
+          type: string
+        title: 'Optional: Fetch only from specific sources (e.g., ["coingecko", "binance"])'
+      assetIds:
+        type: array
+        items:
+          type: string
+        title: 'Optional: Fetch only for specific assets'
+  servicesFetchExternalPricesResponse:
+    type: object
+    properties:
+      pricesFetched:
+        type: integer
+        format: int32
+      pricesStored:
+        type: integer
+        format: int32
+      errors:
+        type: array
+        items:
+          type: string
+        title: List of errors encountered during fetching/storing
+  servicesGetExternalAPIKeyResponse:
+    type: object
+    properties:
+      apiKey:
+        type: string
+      apiSecret:
+        type: string
+      passphrase:
+        type: string
+      sandbox:
+        type: boolean
+  servicesListAPIKeysResponse:
+    type: object
+    properties:
+      apiKeys:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/servicesAPIKey'
+      nextPageToken:
+        type: string
+  servicesListAccountsResponse:
+    type: object
+    properties:
+      accounts:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/modelsAccount'
+      nextPageToken:
+        type: string
+  servicesListAssetsResponse:
+    type: object
+    properties:
+      assets:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/modelsAsset'
+      nextPageToken:
+        type: string
+        title: Token for the next page, empty if no more pages
+  servicesListHoldingsResponse:
+    type: object
+    properties:
+      holdings:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/modelsHolding'
+      nextPageToken:
+        type: string
+  servicesListPortfoliosResponse:
+    type: object
+    properties:
+      portfolios:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/modelsPortfolio'
+      nextPageToken:
+        type: string
+  servicesListPriceHistoryResponse:
+    type: object
+    properties:
+      prices:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/modelsPrice'
+      nextPageToken:
+        type: string
+  servicesListRuleExecutionsResponse:
+    type: object
+    properties:
+      executions:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/modelsRuleExecution'
+      nextPageToken:
+        type: string
+  servicesListRulesResponse:
+    type: object
+    properties:
+      rules:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/modelsRule'
+      nextPageToken:
+        type: string
+  servicesListTransactionsResponse:
+    type: object
+    properties:
+      transactions:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/modelsTransaction'
+      nextPageToken:
+        type: string
+  servicesPlannedTrade:
+    type: object
+    properties:
+      assetId:
+        type: string
+      action:
+        type: string
+        title: '"buy" or "sell"'
+      amount:
+        type: number
+        format: double
+      estimatedPrice:
+        type: number
+        format: double
+      estimatedFee:
+        type: number
+        format: double
+  servicesPortfolioPerformanceResponse:
+    type: object
+    properties:
+      portfolioId:
+        type: string
+      returnPercentage:
+        type: number
+        format: double
+        title: 'Various performance metrics:'
+      volatility:
+        type: number
+        format: double
+      sharpeRatio:
+        type: number
+        format: double
+        title: Example metric
+  servicesPortfolioValueResponse:
+    type: object
+    properties:
+      portfolioId:
+        type: string
+      quoteAssetId:
+        type: string
+      totalValueAmount:
+        type: string
+        format: int64
+        title: Monetary value represented by amount and decimals. real_value = amount / (10^decimals)
+      decimals:
+        type: integer
+        format: int64
+      calculationTime:
+        type: string
+        format: date-time
+        title: Could also include breakdown by asset
+  servicesRateLimitConfig:
+    type: object
+    properties:
+      requestsPerMinute:
+        type: integer
+        format: int32
+      requestsPerHour:
+        type: integer
+        format: int32
+      requestsPerDay:
+        type: integer
+        format: int32
+  servicesRebalancingSimulation:
+    type: object
+    properties:
+      currentTotalValue:
+        type: number
+        format: double
+      currentAllocations:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/servicesAssetAllocation'
+      targetAllocations:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/servicesAssetAllocation'
+      plannedTrades:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/servicesPlannedTrade'
+      totalEstimatedFees:
+        type: number
+        format: double
+  servicesRefreshJWTRequest:
+    type: object
+    properties:
+      refreshToken:
+        type: string
+  servicesRefreshJWTResponse:
+    type: object
+    properties:
+      accessToken:
+        type: string
+      refreshToken:
+        type: string
+      expiresIn:
+        type: string
+        format: int64
+  servicesSimulateRuleResponse:
+    type: object
+    properties:
+      success:
+        type: boolean
+      result:
+        $ref: '#/definitions/servicesSimulationResult'
+      warnings:
+        type: array
+        items:
+          type: string
+      errorMessage:
+        type: string
+  servicesSimulationResult:
+    type: object
+    properties:
+      estimatedCost:
+        type: number
+        format: double
+      estimatedSteps:
+        type: integer
+        format: int32
+      estimatedDurationMs:
+        type: string
+        format: int64
+      rebalancing:
+        $ref: '#/definitions/servicesRebalancingSimulation'
+      withdrawal:
+        $ref: '#/definitions/servicesWithdrawalSimulation'
+      stopLoss:
+        $ref: '#/definitions/servicesStopLossSimulation'
+      dca:
+        $ref: '#/definitions/servicesDCASimulation'
+  servicesStopLossSimulation:
+    type: object
+    properties:
+      currentPortfolioValue:
+        type: number
+        format: double
+      stopLossThreshold:
+        type: number
+        format: double
+      currentLossPercentage:
+        type: number
+        format: double
+      wouldTrigger:
+        type: boolean
+      assetActions:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/servicesAssetStopLoss'
+  servicesStoreExternalAPIKeyRequest:
+    type: object
+    properties:
+      userId:
+        type: string
+      provider:
+        type: string
+        title: e.g., "binance", "gate.io", "coingecko"
+      apiKey:
+        type: string
+      apiSecret:
+        type: string
+      passphrase:
+        type: string
+        title: For some exchanges
+      sandbox:
+        type: boolean
+        title: Whether this is a sandbox/test key
+    title: External API Key messages
+  servicesValidateJWTRequest:
+    type: object
+    properties:
+      token:
+        type: string
+      requiredScopes:
+        type: array
+        items:
+          type: string
+  servicesValidateJWTResponse:
+    type: object
+    properties:
+      valid:
+        type: boolean
+      userId:
+        type: string
+      scopes:
+        type: array
+        items:
+          type: string
+      expiresAt:
+        type: string
+        format: date-time
+      errorMessage:
+        type: string
+  servicesValidateRuleResponse:
+    type: object
+    properties:
+      valid:
+        type: boolean
+      validationErrors:
+        type: array
+        items:
+          type: string
+      warnings:
+        type: array
+        items:
+          type: string
+  servicesWithdrawalSimulation:
+    type: object
+    properties:
+      availableBalance:
+        type: number
+        format: double
+      requestedAmount:
+        type: number
+        format: double
+      sufficientFunds:
+        type: boolean
+      withdrawalPlan:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/servicesAssetWithdrawalPlan'

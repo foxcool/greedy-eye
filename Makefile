@@ -1,27 +1,44 @@
 # Define makefile variables for frequently used commands
-PROTOC_GEN_GO=$(shell which protoc-gen-go)
+BUF=$(shell which buf)
 # Use docker compose instead of docker-compose
 COMPOSE=docker compose -p eye
 # Path to the compose file
 COMPOSE_FILE=deploy/compose.yaml
 
-.PHONY: gen protoc go-gen migrations migrate-apply up debug down logs clean
+.PHONY: gen go-gen migrations migrate-apply up debug down logs clean buf-gen buf-gateway docs-api
 
 # Generate all code
-gen: protoc go-gen migrations
+gen: buf-gen buf-gateway go-gen migrations
 
-# Generate Go files from .proto sources
-protoc:
-ifndef PROTOC_GEN_GO
-	@echo "Installing protoc-gen-go with grpc plugin..."
-	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+# Generate Go files from .proto sources using buf
+buf-gen:
+ifndef BUF
+	@echo "Installing buf..."
+	go install github.com/bufbuild/buf/cmd/buf@latest
 endif
-	@echo "Generating .proto files..."
-	protoc --go_out=internal/ --go_opt=paths=source_relative \
-		--go-grpc_out=internal/ --go-grpc_opt=paths=source_relative \
-	$(shell find api -name "*.proto")
-	@echo "Protobuf files generated in internal/"
+	@echo "Generating gRPC files with buf..."
+	buf generate --template buf.gen.yaml
+	@echo "gRPC files generated"
+
+# Generate gRPC-Gateway HTTP proxy files
+buf-gateway:
+ifndef BUF
+	@echo "Installing buf..."
+	go install github.com/bufbuild/buf/cmd/buf@latest
+endif
+	@echo "Generating gRPC-Gateway files with buf..."
+	mkdir -p docs/api
+	buf generate --template buf.gen.gateway.yaml
+	@echo "Renaming OpenAPI spec to standard name..."
+	@if [ -f docs/api/openapi.swagger.yaml ]; then mv docs/api/openapi.swagger.yaml docs/api/openapi.yaml; fi
+	@echo "gRPC-Gateway files generated"
+
+# Generate OpenAPI documentation
+docs-api: buf-gateway
+	@echo "OpenAPI documentation generated in docs/api/"
+
+# Legacy protoc command (deprecated, use buf-gen instead)
+protoc: buf-gen
 
 # Generate go code
 go-gen:

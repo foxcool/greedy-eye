@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package models;
+
+import "google/protobuf/duration.proto";
+
+option go_package = "github.com/foxcool/greedy-eye/internal/api/models";
+
+// ErrorDetails provides structured error information
+message ErrorDetails {
+  string error_code = 1;              // Machine-readable error code (e.g., USER_NOT_FOUND)
+  string field = 2;                   // Field that caused error (for validation errors)
+  map<string, string> metadata = 3;   // Additional context
+}
+
+// RetryInfo tells clients when they can retry
+message RetryInfo {
+  google.protobuf.Duration retry_delay = 1;
+  int32 max_attempts = 2;
+}
+
+// ValidationError for field validation failures
+message ValidationError {
+  repeated FieldViolation violations = 1;
+  
+  message FieldViolation {
+    string field = 1;
+    string description = 2;
+  }
+}
+
+// QuotaError for rate limiting
+message QuotaError {
+  string subject = 1;       // What is being limited (e.g., "requests", "api_calls")
+  int64 limit = 2;          // The quota limit
+  int64 current = 3;        // Current usage
+  google.protobuf.Duration reset_duration = 4; // When quota resets
+} 

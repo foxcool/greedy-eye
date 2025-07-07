@@ -1,0 +1,20 @@
+version: v1
+managed:
+  enabled: true
+  go_package_prefix:
+    default: github.com/foxcool/greedy-eye
+    except:
+      - buf.build/googleapis/googleapis
+plugins:
+  - plugin: buf.build/grpc-ecosystem/gateway
+    out: .
+    opt:
+      - paths=source_relative
+      - generate_unbound_methods=true
+  - plugin: buf.build/grpc-ecosystem/openapiv2
+    out: docs/api
+    opt:
+      - allow_merge=true
+      - merge_file_name=openapi
+      - output_format=yaml
+      - output_format=yaml

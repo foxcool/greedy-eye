@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package services;
 
+import "google/api/annotations.proto";
 import "api/models/asset.proto";
 import "api/services/storage_service.proto"; // Import storage messages if needed for responses
 
@@ -12,10 +13,19 @@ option go_package = "github.com/foxcool/greedy-eye/internal/api/services";
 // See storage_service.proto for CRUD operations.
 service AssetService {
   // Example business logic method: Fetches data from external sources and updates the asset info.
-  rpc EnrichAssetData(EnrichAssetDataRequest) returns (models.Asset);
+  rpc EnrichAssetData(EnrichAssetDataRequest) returns (models.Asset) {
+    option (google.api.http) = {
+      post: "/api/v1/assets/{asset_id}/enrich"
+      body: "*"
+    };
+  }
 
   // Example: Find assets similar to a given one based on tags, type, etc.
-  rpc FindSimilarAssets(FindSimilarAssetsRequest) returns (ListAssetsResponse); // Reuse ListAssetsResponse from storage
+  rpc FindSimilarAssets(FindSimilarAssetsRequest) returns (ListAssetsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/assets/{asset_id}/similar"
+    };
+  }
 }
 
 message EnrichAssetDataRequest {
