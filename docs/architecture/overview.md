@@ -1,6 +1,6 @@
-# Technical Context - Greedy Eye
+# Architecture Overview - Greedy Eye
 
-## Architecture Overview
+## Architecture Pattern
 **Pattern**: Modular Monolith with gRPC Services + HTTP API Gateway
 **Communication**: Internal gRPC + External HTTP API
 **Deployment**: Docker containers with configurable services
@@ -11,11 +11,11 @@
 ### Core Technologies
 - **Language**: Go 1.24
 - **Internal API**: gRPC with Protocol Buffers
-- **External API**: HTTP REST API with JSON
+- **External API**: HTTP REST API with JSON (via gRPC-Gateway)
 - **Database**: PostgreSQL 17
 - **ORM**: Ent (Facebook's Go ORM)
 - **Containerization**: Docker & Docker Compose
-- **HTTP Router**: TBD (Gin, Echo, or Chi)
+- **Build Tool**: buf + Go modules
 
 ### Development Tools
 - **Live Reload**: Air
@@ -39,15 +39,15 @@
 3. **PortfolioService**: Portfolio operations and calculations
 4. **PriceService**: Price data fetching and storage
 5. **UserService**: User management and authentication
-6. **TradingService**: Trading operations (planned)
-7. **TerminalService**: User interface and notifications (planned)
+6. **AuthService**: Authentication and authorization (new)
+7. **RuleService**: Rule-based portfolio management (new)
 
-### New Components
+### HTTP API Gateway
 8. **HTTP API Gateway**: External HTTP API wrapper
    - RESTful endpoints for external integrations
    - Authentication and authorization
    - Rate limiting and security
-   - Request/response transformation
+   - Request/response transformation via gRPC-Gateway
    - Logging and monitoring
 
 ## Data Flow Architecture
@@ -59,36 +59,10 @@
 
 ### External Communication
 - **External Services**: HTTP API Gateway → gRPC Services
-- **Data Access**: HTTP endpoints → JSON responses
+- **Data Access**: HTTP endpoints → JSON responses (auto-generated)
 - **Authentication**: API key-based access control
 
-## HTTP API Gateway Design
-
-### Key Features
-- **Authentication**: API key-based authentication
-- **Authorization**: Role-based access control
-- **Rate Limiting**: Per-client request limits
-- **Logging**: Comprehensive request/response logging
-- **Error Handling**: Consistent error response format
-- **Validation**: Request validation and sanitization
-
-### API Endpoints Structure
-```
-/api/v1/users/{id}          - User profile management
-/api/v1/portfolios/{id}     - Portfolio operations
-/api/v1/assets/{symbol}     - Asset information
-/api/v1/prices/{symbol}     - Price data
-/api/v1/transactions/{id}   - Transaction history
-/api/v1/accounts/{id}       - Account information
-```
-
-### Authentication Flow
-1. External service provides API key in Authorization header
-2. API Gateway validates key and identifies client
-3. Request forwarded to appropriate gRPC service
-4. Response transformed to JSON and returned
-
-## Security Considerations
+## Security Architecture
 
 ### API Security
 - **API Key Management**: Secure key generation and rotation
@@ -117,36 +91,6 @@
 - **Indexing**: Proper database indexing
 - **Caching**: Database query result caching
 
-## Development Patterns
-
-### Code Organization
-- **cmd/gateway/**: HTTP API Gateway entry point
-- **internal/gateway/**: HTTP API Gateway implementation
-- **internal/middleware/**: Authentication, logging, rate limiting
-- **internal/handlers/**: HTTP request handlers
-- **internal/transform/**: Request/response transformation
-
-### API Design Principles
-- **RESTful Design**: Standard HTTP methods and status codes
-- **JSON Format**: Consistent JSON request/response format
-- **Error Handling**: Standardized error response structure
-- **Versioning**: API versioning strategy (/api/v1/)
-- **Documentation**: OpenAPI/Swagger documentation
-
-## Integration Architecture
-
-### External Service Integration
-- **Webhook Support**: HTTP endpoints for external workflows
-- **Authentication**: API key-based authentication
-- **Data Format**: JSON request/response
-- **Error Handling**: Consistent error reporting
-
-### Data Service Focus
-- **Read Operations**: Portfolio, asset, price data access
-- **Write Operations**: User preferences, portfolio updates
-- **Real-time Data**: Price updates and portfolio changes
-- **Historical Data**: Transaction history and analytics
-
 ## Monitoring and Observability
 
 ### Logging Strategy
@@ -161,28 +105,10 @@
 - **Error Rates**: Error frequency and patterns
 - **Security Metrics**: Authentication and access patterns
 
-## Future Technical Roadmap
-
-### Phase 1: HTTP API Gateway (Current)
-- Basic HTTP API Gateway implementation
-- Authentication and rate limiting
-- Core endpoints for external integration
-
-### Phase 2: Enhanced Integration
-- Advanced data access endpoints
-- Webhook support for real-time updates
-- Enhanced security features
-
-### Phase 3: Scale and Optimize
-- Performance optimization
-- Advanced caching strategies
-- Load balancing and scaling
-
 ## Deployment Architecture
 
 ### Container Strategy
-- **API Gateway**: Separate container for HTTP API Gateway
-- **gRPC Services**: Existing service containers
+- **API Gateway**: Dual-server (gRPC + HTTP) in single container
 - **Database**: PostgreSQL container
 - **Reverse Proxy**: Nginx for SSL termination (optional)
 
