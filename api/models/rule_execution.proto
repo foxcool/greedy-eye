@@ -53,68 +53,9 @@ message ExecutionSummary {
   int32 failed_steps = 3;
   int64 duration_ms = 4;
   
-  // Rule-specific summary data
-  oneof rule_summary {
-    RebalancingSummary rebalancing = 5;
-    WithdrawalSummary withdrawal = 6;
-    StopLossSummary stop_loss = 7;
-    DCASummary dca = 8;
-  }
+  // Flexible summary data - adapts to any rule type
+  google.protobuf.Struct summary = 5;
 }
 
-// Rule-specific summary types
-message RebalancingSummary {
-  double total_value_before = 1;
-  double total_value_after = 2;
-  repeated AssetRebalance asset_changes = 3;
-  int32 trades_executed = 4;
-  double total_fees = 5;
-}
-
-message AssetRebalance {
-  string asset_id = 1;
-  double percentage_before = 2;
-  double percentage_after = 3;
-  double amount_traded = 4;
-  string trade_direction = 5; // "buy" or "sell"
-}
-
-message WithdrawalSummary {
-  double amount_withdrawn = 1;
-  string currency = 2;
-  string destination_account_id = 3;
-  repeated AssetWithdrawal asset_withdrawals = 4;
-  double total_fees = 5;
-}
-
-message AssetWithdrawal {
-  string asset_id = 1;
-  double amount = 2;
-  double value_in_currency = 3;
-}
-
-message StopLossSummary {
-  double portfolio_value_before = 1;
-  double portfolio_value_after = 2;
-  double loss_percentage = 3;
-  string action_taken = 4;
-  repeated AssetSold assets_sold = 5;
-  double total_fees = 6;
-}
-
-message AssetSold {
-  string asset_id = 1;
-  double amount = 2;
-  double sell_price = 3;
-  double value = 4;
-}
-
-message DCASummary {
-  double amount_invested = 1;
-  string target_asset_id = 2;
-  double asset_amount_purchased = 3;
-  double purchase_price = 4;
-  double fees = 5;
-  double total_invested_to_date = 6;
-  double total_asset_amount_to_date = 7;
-} 
+// Note: Rule execution summaries are stored in flexible google.protobuf.Struct format
+// for maximum adaptability as different rule types evolve
