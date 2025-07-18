@@ -2118,37 +2118,6 @@ definitions:
         type: string
         format: date-time
     description: Asset represents financial instrument (crypto, stock, etc.).
-  modelsAssetRebalance:
-    type: object
-    properties:
-      assetId:
-        type: string
-      percentageBefore:
-        type: number
-        format: double
-      percentageAfter:
-        type: number
-        format: double
-      amountTraded:
-        type: number
-        format: double
-      tradeDirection:
-        type: string
-        title: '"buy" or "sell"'
-  modelsAssetSold:
-    type: object
-    properties:
-      assetId:
-        type: string
-      amount:
-        type: number
-        format: double
-      sellPrice:
-        type: number
-        format: double
-      value:
-        type: number
-        format: double
   modelsAssetType:
     type: string
     enum:
@@ -2160,40 +2129,6 @@ definitions:
       - ASSET_TYPE_FOREX
       - ASSET_TYPE_FUND
     default: ASSET_TYPE_UNSPECIFIED
-  modelsAssetWithdrawal:
-    type: object
-    properties:
-      assetId:
-        type: string
-      amount:
-        type: number
-        format: double
-      valueInCurrency:
-        type: number
-        format: double
-  modelsDCASummary:
-    type: object
-    properties:
-      amountInvested:
-        type: number
-        format: double
-      targetAssetId:
-        type: string
-      assetAmountPurchased:
-        type: number
-        format: double
-      purchasePrice:
-        type: number
-        format: double
-      fees:
-        type: number
-        format: double
-      totalInvestedToDate:
-        type: number
-        format: double
-      totalAssetAmountToDate:
-        type: number
-        format: double
   modelsExecutionStatus:
     type: string
     enum:
@@ -2248,14 +2183,9 @@ definitions:
       durationMs:
         type: string
         format: int64
-      rebalancing:
-        $ref: '#/definitions/modelsRebalancingSummary'
-      withdrawal:
-        $ref: '#/definitions/modelsWithdrawalSummary'
-      stopLoss:
-        $ref: '#/definitions/modelsStopLossSummary'
-      dca:
-        $ref: '#/definitions/modelsDCASummary'
+      summary:
+        type: object
+        title: Flexible summary data - adapts to any rule type
     title: ExecutionSummary provides a summary of the execution results
   modelsHolding:
     type: object
@@ -2377,27 +2307,6 @@ definitions:
     description: |-
       Represents the price action of an Asset against a base Asset
       over a specific interval (candle/OHLCV) or as a latest snapshot.
-  modelsRebalancingSummary:
-    type: object
-    properties:
-      totalValueBefore:
-        type: number
-        format: double
-      totalValueAfter:
-        type: number
-        format: double
-      assetChanges:
-        type: array
-        items:
-          type: object
-          $ref: '#/definitions/modelsAssetRebalance'
-      tradesExecuted:
-        type: integer
-        format: int32
-      totalFees:
-        type: number
-        format: double
-    title: Rule-specific summary types
   modelsRule:
     type: object
     properties:
@@ -2494,28 +2403,6 @@ definitions:
       - RULE_STATUS_ERROR
     default: RULE_STATUS_UNKNOWN
     title: RuleStatus indicates the current status of a rule
-  modelsStopLossSummary:
-    type: object
-    properties:
-      portfolioValueBefore:
-        type: number
-        format: double
-      portfolioValueAfter:
-        type: number
-        format: double
-      lossPercentage:
-        type: number
-        format: double
-      actionTaken:
-        type: string
-      assetsSold:
-        type: array
-        items:
-          type: object
-          $ref: '#/definitions/modelsAssetSold'
-      totalFees:
-        type: number
-        format: double
   modelsTransaction:
     type: object
     properties:
@@ -2603,24 +2490,6 @@ definitions:
         format: date-time
         title: Timestamp of last profile update
     description: User represents a user of the Greedy-Eye system.
-  modelsWithdrawalSummary:
-    type: object
-    properties:
-      amountWithdrawn:
-        type: number
-        format: double
-      currency:
-        type: string
-      destinationAccountId:
-        type: string
-      assetWithdrawals:
-        type: array
-        items:
-          type: object
-          $ref: '#/definitions/modelsAssetWithdrawal'
-      totalFees:
-        type: number
-        format: double
   protobufAny:
     type: object
     properties:
