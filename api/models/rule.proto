@@ -42,39 +42,5 @@ enum RuleStatus {
   RULE_STATUS_ERROR = 4;
 }
 
-// Common rule configuration types
-message TargetAllocationConfig {
-  repeated AssetTarget targets = 1;
-  double rebalance_threshold = 2; // Percentage deviation before rebalancing
-  bool allow_partial_rebalancing = 3;
-}
-
-message AssetTarget {
-  string asset_id = 1;
-  double target_percentage = 2; // Target percentage of portfolio
-  double min_percentage = 3; // Minimum allowed percentage
-  double max_percentage = 4; // Maximum allowed percentage
-}
-
-message MonthlyWithdrawalConfig {
-  double amount = 1;
-  string currency = 2;
-  string destination_account_id = 3;
-  int32 day_of_month = 4; // Day of month for withdrawal (1-31)
-  repeated string source_asset_ids = 5; // Assets to withdraw from, in order of preference
-}
-
-message StopLossConfig {
-  double stop_loss_percentage = 1; // Percentage loss before triggering
-  string action = 2; // "sell_all", "sell_percentage", "notify_only"
-  double sell_percentage = 3; // If action is "sell_percentage"
-  repeated string notification_channels = 4; // "email", "telegram", "webhook"
-}
-
-message DCAConfig {
-  double amount = 1;
-  string currency = 2;
-  string target_asset_id = 3;
-  string source_account_id = 4;
-  string frequency = 5; // "daily", "weekly", "monthly"
-} 
+// Note: Rule configuration is stored in flexible google.protobuf.Struct format
+// for maximum adaptability as business requirements evolve
