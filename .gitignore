@@ -4,6 +4,9 @@
 *.dll
 *.so
 *.dylib
+./eye
+cmd/eye/eye
+
 
 # Test binary, built with `go test -c`
 *.test
@@ -28,7 +31,4 @@ tree.md
 .cache
 .streamlit
 *.backup
-# Application binaries
-eye
-cmd/eye/eye
 
