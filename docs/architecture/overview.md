@@ -9,13 +9,13 @@
 ## Technology Stack
 
 ### Core Technologies
-- **Language**: Go 1.24
+- **Language**: Go 1.23+
 - **Internal API**: gRPC with Protocol Buffers
 - **External API**: HTTP REST API with JSON (via gRPC-Gateway)
-- **Database**: PostgreSQL 17
+- **Database**: PostgreSQL 13+
 - **ORM**: Ent (Facebook's Go ORM)
 - **Containerization**: Docker & Docker Compose
-- **Build Tool**: buf + Go modules
+- **Build Tools**: buf (protobuf), Go modules, Make
 
 ### Development Tools
 - **Live Reload**: Air
@@ -25,22 +25,23 @@
 - **Version Control**: Git
 
 ### External Integrations
-- **Cryptocurrency Exchange**: Binance API
-- **Price Data**: CoinGecko API
-- **Notifications**: Telegram Bot API
+- **Cryptocurrency Exchange**: Binance API (planned)
+- **Price Data**: CoinGecko API (planned)
+- **Notifications**: Telegram Bot API (basic implementation)
 - **External Services**: HTTP API Gateway for data access
-- **Monitoring**: Sentry (error tracking)
+- **Authentication**: API Key and JWT-based authentication
+- **Monitoring**: Sentry (error tracking, planned)
 
 ## Service Architecture
 
 ### Core Services (Internal gRPC)
 1. **StorageService**: Data persistence and retrieval
-2. **AssetService**: Asset management and metadata
+2. **AssetService**: Asset management and metadata  
 3. **PortfolioService**: Portfolio operations and calculations
 4. **PriceService**: Price data fetching and storage
-5. **UserService**: User management and authentication
-6. **AuthService**: Authentication and authorization (new)
-7. **RuleService**: Rule-based portfolio management (new)
+5. **UserService**: User management and basic operations
+6. **AuthService**: Authentication, API keys, JWT tokens, external integrations
+7. **RuleService**: Rule-based portfolio automation (DCA, rebalancing, stop-loss)
 
 ### HTTP API Gateway
 8. **HTTP API Gateway**: External HTTP API wrapper

@@ -1,3 +1,0 @@
-# Layered Monolith Architecture
-
-## Introduction

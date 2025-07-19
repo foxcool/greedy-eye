@@ -2,23 +2,29 @@
 
 ![Logo](docs/logo.png)
 
-**Greedy-Eye** is a comprehensive portfolio management system with advanced trading features, analytics, notifications, and metrics, built using Go.
+**Greedy-Eye** is a comprehensive portfolio management system with advanced trading features,
+analytics, notifications, and metrics, built using Go.
 
 ## ⚠️ Status
 
 :warning: **Under development.**
 
-**Current state (v0.0.2-alpha):**
+**Current state (v0.0.3-alpha):**
 
 - ✅ Infrastructure foundation complete (storage, DB, CI/CD)
 - ✅ Application bootstrapping and configuration
 - ✅ Database schema with Ent ORM integration
 - ✅ Docker deployment with multiplatform support
+- ✅ gRPC-Gateway HTTP API implementation
+- ✅ Core service structure (Asset, Portfolio, Price, User, Storage)
+- ✅ Authentication service with API keys and JWT
+- ✅ Rule-based portfolio management system
 
 **Next phase:**
 
-- Building core business logic services (Asset, Portfolio, Price, User)
-- Implementing API integrations with external data providers
+- Implementing external API integrations (Binance, CoinGecko)
+- Adding business logic to services
+- Integration testing and validation
 
 ## 📜 Table of Contents
 
@@ -34,7 +40,9 @@
 
 ## Overview
 
-Greedy-Eye is designed to help investment enthusiasts manage their portfolios efficiently. It integrates data fetching, analysis, trading, and real-time notifications to provide a seamless experience for tracking and optimizing your crypto investments.
+Greedy-Eye is designed to help investment enthusiasts manage their portfolios efficiently.
+It integrates data fetching, analysis, trading, and real-time notifications to provide a
+seamless experience for tracking and optimizing your crypto investments.
 
 ```mermaid
 C4Context
@@ -45,7 +53,8 @@ System_Ext(Exchange, "Exchange")
 System_Ext(PricingService, "Pricing Service")
 System_Ext(Messenger, "Messenger")
 System_Ext(BrokerAPI, "Broker", "API of stock broker.")
-System_Ext(PortfolioManager, "Portfolio Manager", "Another portfolio manager or wallet service.")
+System_Ext(PortfolioManager, "Portfolio Manager",
+  "Another portfolio manager or wallet service.")
 
 System_Boundary(b1, "Greedy-Eye Boundary", "The boundary of Greedy-Eye.") {
   System(Eye, "Eye instance", "An instance of Greedy-Eye.")
@@ -105,7 +114,9 @@ UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="2")
 
 ## Architecture
 
-Greedy-Eye follows a modular monolithic architecture with microservices deployment capability. Each component is responsible for a specific set of functionalities, and the system is designed to be extensible, allowing for easy integration of new services and features.
+Greedy-Eye follows a modular monolithic architecture with microservices deployment capability.
+Each component is responsible for a specific set of functionalities, and the system is designed
+to be extensible, allowing for easy integration of new services and features.
 
 ```mermaid
 C4Component
@@ -113,16 +124,20 @@ title Layered Component Architecture for Greedy-Eye
 
 Container_Boundary(b1, "Greedy-Eye Application") {
 
-  ComponentDb(DB, "Database", "PostgreSQL / TimescaleDB", "Stores application data, including time-series price data")
+  ComponentDb(DB, "Database", "PostgreSQL / TimescaleDB",
+    "Stores application data, including time-series price data")
 
   Boundary(storage, "Storage Layer") {
     Component(StorageService, "Storage Service", "Abstracts database interactions")
   }
 
   Boundary(domain, "Domain Layer") {
-    Component(AssetService, "Asset Management Service", "Manages asset data and operations")
-    Component(PortfolioService, "Portfolio Management Service", "Manages portfolios and holdings")
-    Component(PriceService, "Price Management Service", "Manages price data and operations")
+    Component(AssetService, "Asset Management Service",
+      "Manages asset data and operations")
+    Component(PortfolioService, "Portfolio Management Service",
+      "Manages portfolios and holdings")
+    Component(PriceService, "Price Management Service",
+      "Manages price data and operations")
     Component(UserService, "Users and Accounts Service", "Manages user accounts")
     Component(TradingService, "Trading Service", "Handles trading operations")
   }
@@ -160,9 +175,13 @@ UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="3")
 ### Key Components
 
 - **Asset Service**: Manages information about financial assets (cryptocurrencies, stocks, etc.).
-- **Portfolio Service**: Handles portfolio management, including balances, trades, and performance metrics.
+- **Portfolio Service**: Handles portfolio management, including balances, trades, and
+  performance metrics.
 - **Price Service**: Fetches and stores price data from external providers.
-- **User Service**: Manages user accounts and authentication.
+- **User Service**: Manages user accounts and basic operations.
+- **Auth Service**: Handles authentication, API keys, JWT tokens, and external API key
+  management.
+- **Rule Service**: Manages rule-based portfolio automation (DCA, rebalancing, stop-loss, etc.).
 - **Trading Service**: Handles trade executions and strategy implementation.
 - **Terminal Service**: Provides interfaces for user interaction and notifications.
 
@@ -172,7 +191,8 @@ Greedy-Eye follows a layered architecture pattern with clear separation of conce
 
 #### Domain Services
 
-Services like `AssetService`, `PortfolioService`, and `UserService` represent the business domain and implement domain-specific logic:
+Services like `AssetService`, `PortfolioService`, `UserService`, `AuthService`, and `RuleService`
+represent the business domain and implement domain-specific logic:
 
 - Business rules validation
 - Domain workflows and operations
@@ -188,7 +208,8 @@ Services like `AssetService`, `PortfolioService`, and `UserService` represent th
 - Data versioning and history tracking
 - Query optimization
 
-Domain services depend on the Storage service for data persistence needs, never directly accessing the database.
+Domain services depend on the Storage service for data persistence needs, never directly
+accessing the database.
 
 ## Deployment Options
 
@@ -272,7 +293,7 @@ cd greedy-eye
 2. Generate Go code from Protocol Buffers:
 
 ```bash
-make protoc
+make buf-gen
 ```
 
 3. Build the project:
@@ -299,7 +320,7 @@ make build
 
 ```bash
 # Generate protobuf files
-make protoc
+make buf-gen
 
 # Run linting
 make lint
