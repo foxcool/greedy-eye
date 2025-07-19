@@ -5,36 +5,26 @@ COMPOSE=docker compose -p eye
 # Path to the compose file
 COMPOSE_FILE=deploy/compose.yaml
 
-.PHONY: gen go-gen migrations migrate-apply up debug down logs clean buf-gen buf-gateway docs-api
+.PHONY: gen go-gen migrations migrate-apply up debug down logs clean buf-gen docs-api
 
 # Generate all code
-gen: buf-gen buf-gateway go-gen migrations
+gen: buf-gen go-gen migrations
 
-# Generate Go files from .proto sources using buf
+# Generate all files from .proto sources using buf
 buf-gen:
 ifndef BUF
 	@echo "Installing buf..."
 	go install github.com/bufbuild/buf/cmd/buf@latest
 endif
-	@echo "Generating gRPC files with buf..."
-	buf generate --template buf.gen.yaml
-	@echo "gRPC files generated"
-
-# Generate gRPC-Gateway HTTP proxy files
-buf-gateway:
-ifndef BUF
-	@echo "Installing buf..."
-	go install github.com/bufbuild/buf/cmd/buf@latest
-endif
-	@echo "Generating gRPC-Gateway files with buf..."
+	@echo "Generating protobuf files with buf..."
 	mkdir -p docs/api
-	buf generate --template buf.gen.gateway.yaml
+	buf generate --template buf.gen.yaml
 	@echo "Renaming OpenAPI spec to standard name..."
 	@if [ -f docs/api/openapi.swagger.yaml ]; then mv docs/api/openapi.swagger.yaml docs/api/openapi.yaml; fi
-	@echo "gRPC-Gateway files generated"
+	@echo "Protobuf files generated"
 
 # Generate OpenAPI documentation
-docs-api: buf-gateway
+docs-api: buf-gen
 	@echo "OpenAPI documentation generated in docs/api/"
 
 # Legacy protoc command (deprecated, use buf-gen instead)

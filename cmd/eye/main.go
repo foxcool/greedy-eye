@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	apiservices "github.com/foxcool/greedy-eye/api/services"
 	"github.com/foxcool/greedy-eye/internal/api/services"
 	"github.com/foxcool/greedy-eye/internal/services/asset"
 	"github.com/foxcool/greedy-eye/internal/services/portfolio"
@@ -158,32 +157,32 @@ func createHTTPServer(ctx context.Context, grpcPort int, httpPort int, log *zap.
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 
 	// Register all services with gRPC-Gateway
-	if err := apiservices.RegisterStorageServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
+	if err := services.RegisterStorageServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
 		return nil, fmt.Errorf("failed to register StorageService: %w", err)
 	}
 
-	if err := apiservices.RegisterUserServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
+	if err := services.RegisterUserServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
 		return nil, fmt.Errorf("failed to register UserService: %w", err)
 	}
 
-	if err := apiservices.RegisterAssetServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
+	if err := services.RegisterAssetServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
 		return nil, fmt.Errorf("failed to register AssetService: %w", err)
 	}
 
-	if err := apiservices.RegisterPortfolioServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
+	if err := services.RegisterPortfolioServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
 		return nil, fmt.Errorf("failed to register PortfolioService: %w", err)
 	}
 
-	if err := apiservices.RegisterPriceServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
+	if err := services.RegisterPriceServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
 		return nil, fmt.Errorf("failed to register PriceService: %w", err)
 	}
 
 	// Register new services (they will be added later)
-	if err := apiservices.RegisterAuthServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
+	if err := services.RegisterAuthServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
 		log.Warn("Failed to register AuthService (not implemented yet)", zap.Error(err))
 	}
 
-	if err := apiservices.RegisterRuleServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
+	if err := services.RegisterRuleServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
 		log.Warn("Failed to register RuleService (not implemented yet)", zap.Error(err))
 	}
 
