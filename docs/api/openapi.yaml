@@ -2140,53 +2140,6 @@ definitions:
       - EXECUTION_STATUS_CANCELLED
     default: EXECUTION_STATUS_UNKNOWN
     title: ExecutionStatus indicates the status of a rule execution
-  modelsExecutionStep:
-    type: object
-    properties:
-      stepId:
-        type: string
-      name:
-        type: string
-      description:
-        type: string
-      startedAt:
-        type: string
-        format: date-time
-      completedAt:
-        type: string
-        format: date-time
-      status:
-        $ref: '#/definitions/modelsExecutionStatus'
-      errorMessage:
-        type: string
-      inputData:
-        type: object
-      outputData:
-        type: object
-      logMessages:
-        type: array
-        items:
-          type: string
-    title: ExecutionStep represents a single step in rule execution
-  modelsExecutionSummary:
-    type: object
-    properties:
-      totalSteps:
-        type: integer
-        format: int32
-      successfulSteps:
-        type: integer
-        format: int32
-      failedSteps:
-        type: integer
-        format: int32
-      durationMs:
-        type: string
-        format: int64
-      summary:
-        type: object
-        title: Flexible summary data - adapts to any rule type
-    title: ExecutionSummary provides a summary of the execution results
   modelsHolding:
     type: object
     properties:
@@ -2353,6 +2306,7 @@ definitions:
         type: string
       portfolioId:
         type: string
+        title: Optional scope - inherited from rule if not specified
       userId:
         type: string
       startedAt:
@@ -2365,16 +2319,22 @@ definitions:
         $ref: '#/definitions/modelsExecutionStatus'
       errorMessage:
         type: string
-      executionContext:
-        type: object
-        title: Context at execution time
-      steps:
+      createdTransactionIds:
         type: array
         items:
-          type: object
-          $ref: '#/definitions/modelsExecutionStep'
-      summary:
-        $ref: '#/definitions/modelsExecutionSummary'
+          type: string
+        title: Results produced by execution
+      affectedHoldingIds:
+        type: array
+        items:
+          type: string
+      durationMs:
+        type: string
+        format: int64
+        title: Execution metrics
+      transactionsCreated:
+        type: integer
+        format: int32
     title: RuleExecution represents a single execution of a rule
   modelsRuleSchedule:
     type: object
