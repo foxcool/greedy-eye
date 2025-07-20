@@ -9,7 +9,7 @@ package models
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	structpb "google.golang.org/protobuf/types/known/structpb"
+	_ "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
@@ -84,20 +84,24 @@ func (ExecutionStatus) EnumDescriptor() ([]byte, []int) {
 
 // RuleExecution represents a single execution of a rule
 type RuleExecution struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	RuleId           string                 `protobuf:"bytes,2,opt,name=rule_id,json=ruleId,proto3" json:"rule_id,omitempty"`
-	PortfolioId      string                 `protobuf:"bytes,3,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
-	UserId           string                 `protobuf:"bytes,4,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	StartedAt        *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	CompletedAt      *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
-	Status           ExecutionStatus        `protobuf:"varint,7,opt,name=status,proto3,enum=models.ExecutionStatus" json:"status,omitempty"`
-	ErrorMessage     string                 `protobuf:"bytes,8,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
-	ExecutionContext *structpb.Struct       `protobuf:"bytes,9,opt,name=execution_context,json=executionContext,proto3" json:"execution_context,omitempty"` // Context at execution time
-	Steps            []*ExecutionStep       `protobuf:"bytes,10,rep,name=steps,proto3" json:"steps,omitempty"`
-	Summary          *ExecutionSummary      `protobuf:"bytes,11,opt,name=summary,proto3" json:"summary,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Id     string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	RuleId string                 `protobuf:"bytes,2,opt,name=rule_id,json=ruleId,proto3" json:"rule_id,omitempty"`
+	// Optional scope - inherited from rule if not specified
+	PortfolioId  *string                `protobuf:"bytes,3,opt,name=portfolio_id,json=portfolioId,proto3,oneof" json:"portfolio_id,omitempty"`
+	UserId       *string                `protobuf:"bytes,4,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`
+	StartedAt    *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	CompletedAt  *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
+	Status       ExecutionStatus        `protobuf:"varint,7,opt,name=status,proto3,enum=models.ExecutionStatus" json:"status,omitempty"`
+	ErrorMessage *string                `protobuf:"bytes,8,opt,name=error_message,json=errorMessage,proto3,oneof" json:"error_message,omitempty"`
+	// Results produced by execution
+	CreatedTransactionIds []string `protobuf:"bytes,9,rep,name=created_transaction_ids,json=createdTransactionIds,proto3" json:"created_transaction_ids,omitempty"`
+	AffectedHoldingIds    []string `protobuf:"bytes,10,rep,name=affected_holding_ids,json=affectedHoldingIds,proto3" json:"affected_holding_ids,omitempty"`
+	// Execution metrics
+	DurationMs          int64 `protobuf:"varint,11,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	TransactionsCreated int32 `protobuf:"varint,12,opt,name=transactions_created,json=transactionsCreated,proto3" json:"transactions_created,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *RuleExecution) Reset() {
@@ -145,15 +149,15 @@ func (x *RuleExecution) GetRuleId() string {
 }
 
 func (x *RuleExecution) GetPortfolioId() string {
-	if x != nil {
-		return x.PortfolioId
+	if x != nil && x.PortfolioId != nil {
+		return *x.PortfolioId
 	}
 	return ""
 }
 
 func (x *RuleExecution) GetUserId() string {
-	if x != nil {
-		return x.UserId
+	if x != nil && x.UserId != nil {
+		return *x.UserId
 	}
 	return ""
 }
@@ -180,270 +184,65 @@ func (x *RuleExecution) GetStatus() ExecutionStatus {
 }
 
 func (x *RuleExecution) GetErrorMessage() string {
-	if x != nil {
-		return x.ErrorMessage
+	if x != nil && x.ErrorMessage != nil {
+		return *x.ErrorMessage
 	}
 	return ""
 }
 
-func (x *RuleExecution) GetExecutionContext() *structpb.Struct {
+func (x *RuleExecution) GetCreatedTransactionIds() []string {
 	if x != nil {
-		return x.ExecutionContext
+		return x.CreatedTransactionIds
 	}
 	return nil
 }
 
-func (x *RuleExecution) GetSteps() []*ExecutionStep {
+func (x *RuleExecution) GetAffectedHoldingIds() []string {
 	if x != nil {
-		return x.Steps
+		return x.AffectedHoldingIds
 	}
 	return nil
 }
 
-func (x *RuleExecution) GetSummary() *ExecutionSummary {
-	if x != nil {
-		return x.Summary
-	}
-	return nil
-}
-
-// ExecutionStep represents a single step in rule execution
-type ExecutionStep struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	StepId        string                 `protobuf:"bytes,1,opt,name=step_id,json=stepId,proto3" json:"step_id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Description   string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
-	StartedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	CompletedAt   *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
-	Status        ExecutionStatus        `protobuf:"varint,6,opt,name=status,proto3,enum=models.ExecutionStatus" json:"status,omitempty"`
-	ErrorMessage  string                 `protobuf:"bytes,7,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
-	InputData     *structpb.Struct       `protobuf:"bytes,8,opt,name=input_data,json=inputData,proto3" json:"input_data,omitempty"`
-	OutputData    *structpb.Struct       `protobuf:"bytes,9,opt,name=output_data,json=outputData,proto3" json:"output_data,omitempty"`
-	LogMessages   []string               `protobuf:"bytes,10,rep,name=log_messages,json=logMessages,proto3" json:"log_messages,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ExecutionStep) Reset() {
-	*x = ExecutionStep{}
-	mi := &file_api_models_rule_execution_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ExecutionStep) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ExecutionStep) ProtoMessage() {}
-
-func (x *ExecutionStep) ProtoReflect() protoreflect.Message {
-	mi := &file_api_models_rule_execution_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ExecutionStep.ProtoReflect.Descriptor instead.
-func (*ExecutionStep) Descriptor() ([]byte, []int) {
-	return file_api_models_rule_execution_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *ExecutionStep) GetStepId() string {
-	if x != nil {
-		return x.StepId
-	}
-	return ""
-}
-
-func (x *ExecutionStep) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *ExecutionStep) GetDescription() string {
-	if x != nil {
-		return x.Description
-	}
-	return ""
-}
-
-func (x *ExecutionStep) GetStartedAt() *timestamppb.Timestamp {
-	if x != nil {
-		return x.StartedAt
-	}
-	return nil
-}
-
-func (x *ExecutionStep) GetCompletedAt() *timestamppb.Timestamp {
-	if x != nil {
-		return x.CompletedAt
-	}
-	return nil
-}
-
-func (x *ExecutionStep) GetStatus() ExecutionStatus {
-	if x != nil {
-		return x.Status
-	}
-	return ExecutionStatus_EXECUTION_STATUS_UNKNOWN
-}
-
-func (x *ExecutionStep) GetErrorMessage() string {
-	if x != nil {
-		return x.ErrorMessage
-	}
-	return ""
-}
-
-func (x *ExecutionStep) GetInputData() *structpb.Struct {
-	if x != nil {
-		return x.InputData
-	}
-	return nil
-}
-
-func (x *ExecutionStep) GetOutputData() *structpb.Struct {
-	if x != nil {
-		return x.OutputData
-	}
-	return nil
-}
-
-func (x *ExecutionStep) GetLogMessages() []string {
-	if x != nil {
-		return x.LogMessages
-	}
-	return nil
-}
-
-// ExecutionSummary provides a summary of the execution results
-type ExecutionSummary struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	TotalSteps      int32                  `protobuf:"varint,1,opt,name=total_steps,json=totalSteps,proto3" json:"total_steps,omitempty"`
-	SuccessfulSteps int32                  `protobuf:"varint,2,opt,name=successful_steps,json=successfulSteps,proto3" json:"successful_steps,omitempty"`
-	FailedSteps     int32                  `protobuf:"varint,3,opt,name=failed_steps,json=failedSteps,proto3" json:"failed_steps,omitempty"`
-	DurationMs      int64                  `protobuf:"varint,4,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
-	// Flexible summary data - adapts to any rule type
-	Summary       *structpb.Struct `protobuf:"bytes,5,opt,name=summary,proto3" json:"summary,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ExecutionSummary) Reset() {
-	*x = ExecutionSummary{}
-	mi := &file_api_models_rule_execution_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ExecutionSummary) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ExecutionSummary) ProtoMessage() {}
-
-func (x *ExecutionSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_api_models_rule_execution_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ExecutionSummary.ProtoReflect.Descriptor instead.
-func (*ExecutionSummary) Descriptor() ([]byte, []int) {
-	return file_api_models_rule_execution_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *ExecutionSummary) GetTotalSteps() int32 {
-	if x != nil {
-		return x.TotalSteps
-	}
-	return 0
-}
-
-func (x *ExecutionSummary) GetSuccessfulSteps() int32 {
-	if x != nil {
-		return x.SuccessfulSteps
-	}
-	return 0
-}
-
-func (x *ExecutionSummary) GetFailedSteps() int32 {
-	if x != nil {
-		return x.FailedSteps
-	}
-	return 0
-}
-
-func (x *ExecutionSummary) GetDurationMs() int64 {
+func (x *RuleExecution) GetDurationMs() int64 {
 	if x != nil {
 		return x.DurationMs
 	}
 	return 0
 }
 
-func (x *ExecutionSummary) GetSummary() *structpb.Struct {
+func (x *RuleExecution) GetTransactionsCreated() int32 {
 	if x != nil {
-		return x.Summary
+		return x.TransactionsCreated
 	}
-	return nil
+	return 0
 }
 
 var File_api_models_rule_execution_proto protoreflect.FileDescriptor
 
 const file_api_models_rule_execution_proto_rawDesc = "" +
 	"\n" +
-	"\x1fapi/models/rule_execution.proto\x12\x06models\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xeb\x03\n" +
+	"\x1fapi/models/rule_execution.proto\x12\x06models\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xc0\x04\n" +
 	"\rRuleExecution\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
-	"\arule_id\x18\x02 \x01(\tR\x06ruleId\x12!\n" +
-	"\fportfolio_id\x18\x03 \x01(\tR\vportfolioId\x12\x17\n" +
-	"\auser_id\x18\x04 \x01(\tR\x06userId\x129\n" +
+	"\arule_id\x18\x02 \x01(\tR\x06ruleId\x12&\n" +
+	"\fportfolio_id\x18\x03 \x01(\tH\x00R\vportfolioId\x88\x01\x01\x12\x1c\n" +
+	"\auser_id\x18\x04 \x01(\tH\x01R\x06userId\x88\x01\x01\x129\n" +
 	"\n" +
 	"started_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12=\n" +
 	"\fcompleted_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\vcompletedAt\x12/\n" +
-	"\x06status\x18\a \x01(\x0e2\x17.models.ExecutionStatusR\x06status\x12#\n" +
-	"\rerror_message\x18\b \x01(\tR\ferrorMessage\x12D\n" +
-	"\x11execution_context\x18\t \x01(\v2\x17.google.protobuf.StructR\x10executionContext\x12+\n" +
-	"\x05steps\x18\n" +
-	" \x03(\v2\x15.models.ExecutionStepR\x05steps\x122\n" +
-	"\asummary\x18\v \x01(\v2\x18.models.ExecutionSummaryR\asummary\"\xc3\x03\n" +
-	"\rExecutionStep\x12\x17\n" +
-	"\astep_id\x18\x01 \x01(\tR\x06stepId\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
-	"\vdescription\x18\x03 \x01(\tR\vdescription\x129\n" +
-	"\n" +
-	"started_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12=\n" +
-	"\fcompleted_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\vcompletedAt\x12/\n" +
-	"\x06status\x18\x06 \x01(\x0e2\x17.models.ExecutionStatusR\x06status\x12#\n" +
-	"\rerror_message\x18\a \x01(\tR\ferrorMessage\x126\n" +
-	"\n" +
-	"input_data\x18\b \x01(\v2\x17.google.protobuf.StructR\tinputData\x128\n" +
-	"\voutput_data\x18\t \x01(\v2\x17.google.protobuf.StructR\n" +
-	"outputData\x12!\n" +
-	"\flog_messages\x18\n" +
-	" \x03(\tR\vlogMessages\"\xd5\x01\n" +
-	"\x10ExecutionSummary\x12\x1f\n" +
-	"\vtotal_steps\x18\x01 \x01(\x05R\n" +
-	"totalSteps\x12)\n" +
-	"\x10successful_steps\x18\x02 \x01(\x05R\x0fsuccessfulSteps\x12!\n" +
-	"\ffailed_steps\x18\x03 \x01(\x05R\vfailedSteps\x12\x1f\n" +
-	"\vduration_ms\x18\x04 \x01(\x03R\n" +
+	"\x06status\x18\a \x01(\x0e2\x17.models.ExecutionStatusR\x06status\x12(\n" +
+	"\rerror_message\x18\b \x01(\tH\x02R\ferrorMessage\x88\x01\x01\x126\n" +
+	"\x17created_transaction_ids\x18\t \x03(\tR\x15createdTransactionIds\x120\n" +
+	"\x14affected_holding_ids\x18\n" +
+	" \x03(\tR\x12affectedHoldingIds\x12\x1f\n" +
+	"\vduration_ms\x18\v \x01(\x03R\n" +
 	"durationMs\x121\n" +
-	"\asummary\x18\x05 \x01(\v2\x17.google.protobuf.StructR\asummary*\xcc\x01\n" +
+	"\x14transactions_created\x18\f \x01(\x05R\x13transactionsCreatedB\x0f\n" +
+	"\r_portfolio_idB\n" +
+	"\n" +
+	"\b_user_idB\x10\n" +
+	"\x0e_error_message*\xcc\x01\n" +
 	"\x0fExecutionStatus\x12\x1c\n" +
 	"\x18EXECUTION_STATUS_UNKNOWN\x10\x00\x12\x1c\n" +
 	"\x18EXECUTION_STATUS_PENDING\x10\x01\x12 \n" +
@@ -467,33 +266,21 @@ func file_api_models_rule_execution_proto_rawDescGZIP() []byte {
 }
 
 var file_api_models_rule_execution_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_api_models_rule_execution_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_api_models_rule_execution_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_api_models_rule_execution_proto_goTypes = []any{
 	(ExecutionStatus)(0),          // 0: models.ExecutionStatus
 	(*RuleExecution)(nil),         // 1: models.RuleExecution
-	(*ExecutionStep)(nil),         // 2: models.ExecutionStep
-	(*ExecutionSummary)(nil),      // 3: models.ExecutionSummary
-	(*timestamppb.Timestamp)(nil), // 4: google.protobuf.Timestamp
-	(*structpb.Struct)(nil),       // 5: google.protobuf.Struct
+	(*timestamppb.Timestamp)(nil), // 2: google.protobuf.Timestamp
 }
 var file_api_models_rule_execution_proto_depIdxs = []int32{
-	4,  // 0: models.RuleExecution.started_at:type_name -> google.protobuf.Timestamp
-	4,  // 1: models.RuleExecution.completed_at:type_name -> google.protobuf.Timestamp
-	0,  // 2: models.RuleExecution.status:type_name -> models.ExecutionStatus
-	5,  // 3: models.RuleExecution.execution_context:type_name -> google.protobuf.Struct
-	2,  // 4: models.RuleExecution.steps:type_name -> models.ExecutionStep
-	3,  // 5: models.RuleExecution.summary:type_name -> models.ExecutionSummary
-	4,  // 6: models.ExecutionStep.started_at:type_name -> google.protobuf.Timestamp
-	4,  // 7: models.ExecutionStep.completed_at:type_name -> google.protobuf.Timestamp
-	0,  // 8: models.ExecutionStep.status:type_name -> models.ExecutionStatus
-	5,  // 9: models.ExecutionStep.input_data:type_name -> google.protobuf.Struct
-	5,  // 10: models.ExecutionStep.output_data:type_name -> google.protobuf.Struct
-	5,  // 11: models.ExecutionSummary.summary:type_name -> google.protobuf.Struct
-	12, // [12:12] is the sub-list for method output_type
-	12, // [12:12] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	2, // 0: models.RuleExecution.started_at:type_name -> google.protobuf.Timestamp
+	2, // 1: models.RuleExecution.completed_at:type_name -> google.protobuf.Timestamp
+	0, // 2: models.RuleExecution.status:type_name -> models.ExecutionStatus
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_api_models_rule_execution_proto_init() }
@@ -501,13 +288,14 @@ func file_api_models_rule_execution_proto_init() {
 	if File_api_models_rule_execution_proto != nil {
 		return
 	}
+	file_api_models_rule_execution_proto_msgTypes[0].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_models_rule_execution_proto_rawDesc), len(file_api_models_rule_execution_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   3,
+			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
