@@ -34,13 +34,13 @@ Comprehensive portfolio management system for cryptocurrency investments built i
 - **UserService**: User management and basic operations
 
 ### New Services (v0.0.3-alpha)
-- **AuthService**: Authentication, API keys, JWT tokens, external API management
-- **RuleService**: Rule-based portfolio automation (DCA, rebalancing, stop-loss)
+- **AuthService**: JWT authentication and token management
+- **RuleService**: Rule execution and portfolio automation logic
 
 ### Data Models
 - **Core**: Asset, Price, User, Account, Portfolio, Holding, Transaction
-- **Rules**: Rule, RuleExecution, RuleSchedule
-- **Security**: ErrorDetails, APIKey, JWT tokens
+- **Rules**: Rule, RuleExecution, RuleSchedule  
+- **Security**: ErrorDetails, APIKey, ExternalAPIKey
 
 ## Common Tasks
 

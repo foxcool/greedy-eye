@@ -26,8 +26,8 @@ message RuleExecution {
   repeated string affected_holding_ids = 10;
   
   // Execution metrics
-  int64 duration_ms = 11;
-  int32 transactions_created = 12;
+  int32 transactions_created = 11;
+  google.protobuf.Struct execution_summary = 12; // Rule-type specific execution details
 }
 
 // ExecutionStatus indicates the status of a rule execution

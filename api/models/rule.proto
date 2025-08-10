@@ -15,14 +15,11 @@ message Rule {
   string rule_type = 4; // e.g., "target_allocation", "monthly_withdrawal", "stop_loss", "dca"
   string portfolio_id = 5;
   string user_id = 6;
-  bool enabled = 7;
+  RuleStatus status = 7;
   google.protobuf.Struct configuration = 8; // Flexible configuration for any rule type
   RuleSchedule schedule = 9;
   google.protobuf.Timestamp created_at = 10;
   google.protobuf.Timestamp updated_at = 11;
-  google.protobuf.Timestamp last_executed_at = 12;
-  string last_execution_id = 13;
-  RuleStatus status = 14;
 }
 
 // RuleSchedule defines when a rule should be executed

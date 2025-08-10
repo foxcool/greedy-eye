@@ -21,43 +21,27 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RuleService_CreateRule_FullMethodName           = "/services.RuleService/CreateRule"
-	RuleService_GetRule_FullMethodName              = "/services.RuleService/GetRule"
-	RuleService_UpdateRule_FullMethodName           = "/services.RuleService/UpdateRule"
-	RuleService_DeleteRule_FullMethodName           = "/services.RuleService/DeleteRule"
-	RuleService_ListRules_FullMethodName            = "/services.RuleService/ListRules"
-	RuleService_ListRulesByPortfolio_FullMethodName = "/services.RuleService/ListRulesByPortfolio"
-	RuleService_ExecuteRule_FullMethodName          = "/services.RuleService/ExecuteRule"
-	RuleService_ExecuteRuleAsync_FullMethodName     = "/services.RuleService/ExecuteRuleAsync"
-	RuleService_GetRuleExecution_FullMethodName     = "/services.RuleService/GetRuleExecution"
-	RuleService_ListRuleExecutions_FullMethodName   = "/services.RuleService/ListRuleExecutions"
-	RuleService_CancelRuleExecution_FullMethodName  = "/services.RuleService/CancelRuleExecution"
-	RuleService_ValidateRule_FullMethodName         = "/services.RuleService/ValidateRule"
-	RuleService_SimulateRule_FullMethodName         = "/services.RuleService/SimulateRule"
-	RuleService_EnableRule_FullMethodName           = "/services.RuleService/EnableRule"
-	RuleService_DisableRule_FullMethodName          = "/services.RuleService/DisableRule"
-	RuleService_PauseRule_FullMethodName            = "/services.RuleService/PauseRule"
-	RuleService_ResumeRule_FullMethodName           = "/services.RuleService/ResumeRule"
+	RuleService_ExecuteRule_FullMethodName         = "/services.RuleService/ExecuteRule"
+	RuleService_ExecuteRuleAsync_FullMethodName    = "/services.RuleService/ExecuteRuleAsync"
+	RuleService_CancelRuleExecution_FullMethodName = "/services.RuleService/CancelRuleExecution"
+	RuleService_ValidateRule_FullMethodName        = "/services.RuleService/ValidateRule"
+	RuleService_SimulateRule_FullMethodName        = "/services.RuleService/SimulateRule"
+	RuleService_EnableRule_FullMethodName          = "/services.RuleService/EnableRule"
+	RuleService_DisableRule_FullMethodName         = "/services.RuleService/DisableRule"
+	RuleService_PauseRule_FullMethodName           = "/services.RuleService/PauseRule"
+	RuleService_ResumeRule_FullMethodName          = "/services.RuleService/ResumeRule"
 )
 
 // RuleServiceClient is the client API for RuleService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// RuleService provides rule management and execution services
+// RuleService provides rule execution and business logic services
+// For CRUD operations, use StorageService
 type RuleServiceClient interface {
-	// Rule CRUD operations
-	CreateRule(ctx context.Context, in *CreateRuleRequest, opts ...grpc.CallOption) (*models.Rule, error)
-	GetRule(ctx context.Context, in *GetRuleRequest, opts ...grpc.CallOption) (*models.Rule, error)
-	UpdateRule(ctx context.Context, in *UpdateRuleRequest, opts ...grpc.CallOption) (*models.Rule, error)
-	DeleteRule(ctx context.Context, in *DeleteRuleRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	ListRules(ctx context.Context, in *ListRulesRequest, opts ...grpc.CallOption) (*ListRulesResponse, error)
-	ListRulesByPortfolio(ctx context.Context, in *ListRulesByPortfolioRequest, opts ...grpc.CallOption) (*ListRulesResponse, error)
 	// Rule execution operations
 	ExecuteRule(ctx context.Context, in *ExecuteRuleRequest, opts ...grpc.CallOption) (*ExecuteRuleResponse, error)
 	ExecuteRuleAsync(ctx context.Context, in *ExecuteRuleAsyncRequest, opts ...grpc.CallOption) (*ExecuteRuleAsyncResponse, error)
-	GetRuleExecution(ctx context.Context, in *GetRuleExecutionRequest, opts ...grpc.CallOption) (*models.RuleExecution, error)
-	ListRuleExecutions(ctx context.Context, in *ListRuleExecutionsRequest, opts ...grpc.CallOption) (*ListRuleExecutionsResponse, error)
 	CancelRuleExecution(ctx context.Context, in *CancelRuleExecutionRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Rule validation and simulation
 	ValidateRule(ctx context.Context, in *ValidateRuleRequest, opts ...grpc.CallOption) (*ValidateRuleResponse, error)
@@ -77,66 +61,6 @@ func NewRuleServiceClient(cc grpc.ClientConnInterface) RuleServiceClient {
 	return &ruleServiceClient{cc}
 }
 
-func (c *ruleServiceClient) CreateRule(ctx context.Context, in *CreateRuleRequest, opts ...grpc.CallOption) (*models.Rule, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(models.Rule)
-	err := c.cc.Invoke(ctx, RuleService_CreateRule_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *ruleServiceClient) GetRule(ctx context.Context, in *GetRuleRequest, opts ...grpc.CallOption) (*models.Rule, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(models.Rule)
-	err := c.cc.Invoke(ctx, RuleService_GetRule_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *ruleServiceClient) UpdateRule(ctx context.Context, in *UpdateRuleRequest, opts ...grpc.CallOption) (*models.Rule, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(models.Rule)
-	err := c.cc.Invoke(ctx, RuleService_UpdateRule_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *ruleServiceClient) DeleteRule(ctx context.Context, in *DeleteRuleRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
-	err := c.cc.Invoke(ctx, RuleService_DeleteRule_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *ruleServiceClient) ListRules(ctx context.Context, in *ListRulesRequest, opts ...grpc.CallOption) (*ListRulesResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListRulesResponse)
-	err := c.cc.Invoke(ctx, RuleService_ListRules_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *ruleServiceClient) ListRulesByPortfolio(ctx context.Context, in *ListRulesByPortfolioRequest, opts ...grpc.CallOption) (*ListRulesResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListRulesResponse)
-	err := c.cc.Invoke(ctx, RuleService_ListRulesByPortfolio_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *ruleServiceClient) ExecuteRule(ctx context.Context, in *ExecuteRuleRequest, opts ...grpc.CallOption) (*ExecuteRuleResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ExecuteRuleResponse)
@@ -151,26 +75,6 @@ func (c *ruleServiceClient) ExecuteRuleAsync(ctx context.Context, in *ExecuteRul
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ExecuteRuleAsyncResponse)
 	err := c.cc.Invoke(ctx, RuleService_ExecuteRuleAsync_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *ruleServiceClient) GetRuleExecution(ctx context.Context, in *GetRuleExecutionRequest, opts ...grpc.CallOption) (*models.RuleExecution, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(models.RuleExecution)
-	err := c.cc.Invoke(ctx, RuleService_GetRuleExecution_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *ruleServiceClient) ListRuleExecutions(ctx context.Context, in *ListRuleExecutionsRequest, opts ...grpc.CallOption) (*ListRuleExecutionsResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListRuleExecutionsResponse)
-	err := c.cc.Invoke(ctx, RuleService_ListRuleExecutions_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -251,20 +155,12 @@ func (c *ruleServiceClient) ResumeRule(ctx context.Context, in *ResumeRuleReques
 // All implementations should embed UnimplementedRuleServiceServer
 // for forward compatibility.
 //
-// RuleService provides rule management and execution services
+// RuleService provides rule execution and business logic services
+// For CRUD operations, use StorageService
 type RuleServiceServer interface {
-	// Rule CRUD operations
-	CreateRule(context.Context, *CreateRuleRequest) (*models.Rule, error)
-	GetRule(context.Context, *GetRuleRequest) (*models.Rule, error)
-	UpdateRule(context.Context, *UpdateRuleRequest) (*models.Rule, error)
-	DeleteRule(context.Context, *DeleteRuleRequest) (*emptypb.Empty, error)
-	ListRules(context.Context, *ListRulesRequest) (*ListRulesResponse, error)
-	ListRulesByPortfolio(context.Context, *ListRulesByPortfolioRequest) (*ListRulesResponse, error)
 	// Rule execution operations
 	ExecuteRule(context.Context, *ExecuteRuleRequest) (*ExecuteRuleResponse, error)
 	ExecuteRuleAsync(context.Context, *ExecuteRuleAsyncRequest) (*ExecuteRuleAsyncResponse, error)
-	GetRuleExecution(context.Context, *GetRuleExecutionRequest) (*models.RuleExecution, error)
-	ListRuleExecutions(context.Context, *ListRuleExecutionsRequest) (*ListRuleExecutionsResponse, error)
 	CancelRuleExecution(context.Context, *CancelRuleExecutionRequest) (*emptypb.Empty, error)
 	// Rule validation and simulation
 	ValidateRule(context.Context, *ValidateRuleRequest) (*ValidateRuleResponse, error)
@@ -283,35 +179,11 @@ type RuleServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedRuleServiceServer struct{}
 
-func (UnimplementedRuleServiceServer) CreateRule(context.Context, *CreateRuleRequest) (*models.Rule, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method CreateRule not implemented")
-}
-func (UnimplementedRuleServiceServer) GetRule(context.Context, *GetRuleRequest) (*models.Rule, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetRule not implemented")
-}
-func (UnimplementedRuleServiceServer) UpdateRule(context.Context, *UpdateRuleRequest) (*models.Rule, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method UpdateRule not implemented")
-}
-func (UnimplementedRuleServiceServer) DeleteRule(context.Context, *DeleteRuleRequest) (*emptypb.Empty, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DeleteRule not implemented")
-}
-func (UnimplementedRuleServiceServer) ListRules(context.Context, *ListRulesRequest) (*ListRulesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListRules not implemented")
-}
-func (UnimplementedRuleServiceServer) ListRulesByPortfolio(context.Context, *ListRulesByPortfolioRequest) (*ListRulesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListRulesByPortfolio not implemented")
-}
 func (UnimplementedRuleServiceServer) ExecuteRule(context.Context, *ExecuteRuleRequest) (*ExecuteRuleResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExecuteRule not implemented")
 }
 func (UnimplementedRuleServiceServer) ExecuteRuleAsync(context.Context, *ExecuteRuleAsyncRequest) (*ExecuteRuleAsyncResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExecuteRuleAsync not implemented")
-}
-func (UnimplementedRuleServiceServer) GetRuleExecution(context.Context, *GetRuleExecutionRequest) (*models.RuleExecution, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetRuleExecution not implemented")
-}
-func (UnimplementedRuleServiceServer) ListRuleExecutions(context.Context, *ListRuleExecutionsRequest) (*ListRuleExecutionsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListRuleExecutions not implemented")
 }
 func (UnimplementedRuleServiceServer) CancelRuleExecution(context.Context, *CancelRuleExecutionRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CancelRuleExecution not implemented")
@@ -354,114 +226,6 @@ func RegisterRuleServiceServer(s grpc.ServiceRegistrar, srv RuleServiceServer) {
 	s.RegisterService(&RuleService_ServiceDesc, srv)
 }
 
-func _RuleService_CreateRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreateRuleRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RuleServiceServer).CreateRule(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: RuleService_CreateRule_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RuleServiceServer).CreateRule(ctx, req.(*CreateRuleRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _RuleService_GetRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetRuleRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RuleServiceServer).GetRule(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: RuleService_GetRule_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RuleServiceServer).GetRule(ctx, req.(*GetRuleRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _RuleService_UpdateRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UpdateRuleRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RuleServiceServer).UpdateRule(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: RuleService_UpdateRule_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RuleServiceServer).UpdateRule(ctx, req.(*UpdateRuleRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _RuleService_DeleteRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeleteRuleRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RuleServiceServer).DeleteRule(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: RuleService_DeleteRule_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RuleServiceServer).DeleteRule(ctx, req.(*DeleteRuleRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _RuleService_ListRules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListRulesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RuleServiceServer).ListRules(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: RuleService_ListRules_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RuleServiceServer).ListRules(ctx, req.(*ListRulesRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _RuleService_ListRulesByPortfolio_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListRulesByPortfolioRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RuleServiceServer).ListRulesByPortfolio(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: RuleService_ListRulesByPortfolio_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RuleServiceServer).ListRulesByPortfolio(ctx, req.(*ListRulesByPortfolioRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _RuleService_ExecuteRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ExecuteRuleRequest)
 	if err := dec(in); err != nil {
@@ -494,42 +258,6 @@ func _RuleService_ExecuteRuleAsync_Handler(srv interface{}, ctx context.Context,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RuleServiceServer).ExecuteRuleAsync(ctx, req.(*ExecuteRuleAsyncRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _RuleService_GetRuleExecution_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetRuleExecutionRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RuleServiceServer).GetRuleExecution(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: RuleService_GetRuleExecution_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RuleServiceServer).GetRuleExecution(ctx, req.(*GetRuleExecutionRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _RuleService_ListRuleExecutions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListRuleExecutionsRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RuleServiceServer).ListRuleExecutions(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: RuleService_ListRuleExecutions_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RuleServiceServer).ListRuleExecutions(ctx, req.(*ListRuleExecutionsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -668,44 +396,12 @@ var RuleService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*RuleServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "CreateRule",
-			Handler:    _RuleService_CreateRule_Handler,
-		},
-		{
-			MethodName: "GetRule",
-			Handler:    _RuleService_GetRule_Handler,
-		},
-		{
-			MethodName: "UpdateRule",
-			Handler:    _RuleService_UpdateRule_Handler,
-		},
-		{
-			MethodName: "DeleteRule",
-			Handler:    _RuleService_DeleteRule_Handler,
-		},
-		{
-			MethodName: "ListRules",
-			Handler:    _RuleService_ListRules_Handler,
-		},
-		{
-			MethodName: "ListRulesByPortfolio",
-			Handler:    _RuleService_ListRulesByPortfolio_Handler,
-		},
-		{
 			MethodName: "ExecuteRule",
 			Handler:    _RuleService_ExecuteRule_Handler,
 		},
 		{
 			MethodName: "ExecuteRuleAsync",
 			Handler:    _RuleService_ExecuteRuleAsync_Handler,
-		},
-		{
-			MethodName: "GetRuleExecution",
-			Handler:    _RuleService_GetRuleExecution_Handler,
-		},
-		{
-			MethodName: "ListRuleExecutions",
-			Handler:    _RuleService_ListRuleExecutions_Handler,
 		},
 		{
 			MethodName: "CancelRuleExecution",
