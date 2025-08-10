@@ -11,46 +11,9 @@ import "api/models/rule_execution.proto";
 
 option go_package = "github.com/foxcool/greedy-eye/internal/api/services";
 
-// RuleService provides rule management and execution services
+// RuleService provides rule execution and business logic services
+// For CRUD operations, use StorageService
 service RuleService {
-  // Rule CRUD operations
-  rpc CreateRule(CreateRuleRequest) returns (models.Rule) {
-    option (google.api.http) = {
-      post: "/api/v1/rules"
-      body: "rule"
-    };
-  }
-  
-  rpc GetRule(GetRuleRequest) returns (models.Rule) {
-    option (google.api.http) = {
-      get: "/api/v1/rules/{id}"
-    };
-  }
-  
-  rpc UpdateRule(UpdateRuleRequest) returns (models.Rule) {
-    option (google.api.http) = {
-      put: "/api/v1/rules/{rule.id}"
-      body: "rule"
-    };
-  }
-  
-  rpc DeleteRule(DeleteRuleRequest) returns (google.protobuf.Empty) {
-    option (google.api.http) = {
-      delete: "/api/v1/rules/{id}"
-    };
-  }
-  
-  rpc ListRules(ListRulesRequest) returns (ListRulesResponse) {
-    option (google.api.http) = {
-      get: "/api/v1/rules"
-    };
-  }
-  
-  rpc ListRulesByPortfolio(ListRulesByPortfolioRequest) returns (ListRulesResponse) {
-    option (google.api.http) = {
-      get: "/api/v1/portfolios/{portfolio_id}/rules"
-    };
-  }
   
   // Rule execution operations
   rpc ExecuteRule(ExecuteRuleRequest) returns (ExecuteRuleResponse) {
@@ -64,18 +27,6 @@ service RuleService {
     option (google.api.http) = {
       post: "/api/v1/rules/{rule_id}/execute-async"
       body: "*"
-    };
-  }
-  
-  rpc GetRuleExecution(GetRuleExecutionRequest) returns (models.RuleExecution) {
-    option (google.api.http) = {
-      get: "/api/v1/rule-executions/{execution_id}"
-    };
-  }
-  
-  rpc ListRuleExecutions(ListRuleExecutionsRequest) returns (ListRuleExecutionsResponse) {
-    option (google.api.http) = {
-      get: "/api/v1/rules/{rule_id}/executions"
     };
   }
   
@@ -131,44 +82,6 @@ service RuleService {
   }
 }
 
-// Rule CRUD messages
-message CreateRuleRequest {
-  models.Rule rule = 1;
-}
-
-message GetRuleRequest {
-  string id = 1;
-}
-
-message UpdateRuleRequest {
-  models.Rule rule = 1;
-  google.protobuf.FieldMask update_mask = 2;
-}
-
-message DeleteRuleRequest {
-  string id = 1;
-}
-
-message ListRulesRequest {
-  optional string user_id = 1;
-  optional string portfolio_id = 2;
-  optional string rule_type = 3;
-  optional models.RuleStatus status = 4;
-  optional int32 page_size = 5;
-  optional string page_token = 6;
-}
-
-message ListRulesResponse {
-  repeated models.Rule rules = 1;
-  string next_page_token = 2;
-}
-
-message ListRulesByPortfolioRequest {
-  string portfolio_id = 1;
-  optional models.RuleStatus status = 2;
-  optional int32 page_size = 3;
-  optional string page_token = 4;
-}
 
 // Rule execution messages
 message ExecuteRuleRequest {
@@ -192,23 +105,6 @@ message ExecuteRuleAsyncResponse {
   string status = 2;
 }
 
-message GetRuleExecutionRequest {
-  string execution_id = 1;
-}
-
-message ListRuleExecutionsRequest {
-  string rule_id = 1;
-  optional models.ExecutionStatus status = 2;
-  optional google.protobuf.Timestamp from_date = 3;
-  optional google.protobuf.Timestamp to_date = 4;
-  optional int32 page_size = 5;
-  optional string page_token = 6;
-}
-
-message ListRuleExecutionsResponse {
-  repeated models.RuleExecution executions = 1;
-  string next_page_token = 2;
-}
 
 message CancelRuleExecutionRequest {
   string execution_id = 1;

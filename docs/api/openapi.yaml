@@ -172,6 +172,157 @@ paths:
           type: string
       tags:
         - StorageService
+  /api/v1/api-keys:
+    get:
+      operationId: StorageService_ListAPIKeys
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesListAPIKeysResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: userId
+          in: query
+          required: false
+          type: string
+        - name: enabled
+          in: query
+          required: false
+          type: boolean
+        - name: pageSize
+          in: query
+          required: false
+          type: integer
+          format: int32
+        - name: pageToken
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+    post:
+      summary: '--- APIKey operations ---'
+      operationId: StorageService_CreateAPIKey
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsAPIKey'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: apiKey
+          description: name, user_id, scopes required. ID empty.
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/modelsAPIKey'
+      tags:
+        - StorageService
+  /api/v1/api-keys/{apiKey.id}:
+    put:
+      operationId: StorageService_UpdateAPIKey
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsAPIKey'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: apiKey.id
+          in: path
+          required: true
+          type: string
+        - name: apiKey
+          description: Must include ID and fields to update
+          in: body
+          required: true
+          schema:
+            type: object
+            properties:
+              name:
+                type: string
+              description:
+                type: string
+              userId:
+                type: string
+              scopes:
+                type: array
+                items:
+                  type: string
+              createdAt:
+                type: string
+                format: date-time
+              lastUsedAt:
+                type: string
+                format: date-time
+              expiresAt:
+                type: string
+                format: date-time
+              enabled:
+                type: boolean
+              keyPrefix:
+                type: string
+                title: First 8 characters for display
+              usageCount:
+                type: integer
+                format: int32
+              rateLimit:
+                $ref: '#/definitions/modelsRateLimitConfig'
+            title: Must include ID and fields to update
+        - name: updateMask
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+  /api/v1/api-keys/{id}:
+    get:
+      operationId: StorageService_GetAPIKey
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsAPIKey'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - StorageService
+    delete:
+      operationId: StorageService_DeleteAPIKey
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            type: object
+            properties: {}
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - StorageService
   /api/v1/assets:
     get:
       operationId: StorageService_ListAssets
@@ -365,165 +516,6 @@ paths:
           type: string
       tags:
         - StorageService
-  /api/v1/auth/api-keys:
-    get:
-      operationId: AuthService_ListAPIKeys
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            $ref: '#/definitions/servicesListAPIKeysResponse'
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: userId
-          in: query
-          required: false
-          type: string
-        - name: pageSize
-          in: query
-          required: false
-          type: integer
-          format: int32
-        - name: pageToken
-          in: query
-          required: false
-          type: string
-      tags:
-        - AuthService
-    post:
-      summary: API Key management
-      operationId: AuthService_CreateAPIKey
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            $ref: '#/definitions/servicesCreateAPIKeyResponse'
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: body
-          in: body
-          required: true
-          schema:
-            $ref: '#/definitions/servicesCreateAPIKeyRequest'
-      tags:
-        - AuthService
-  /api/v1/auth/api-keys/{keyId}:
-    delete:
-      operationId: AuthService_RevokeAPIKey
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            type: object
-            properties: {}
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: keyId
-          in: path
-          required: true
-          type: string
-      tags:
-        - AuthService
-    put:
-      operationId: AuthService_UpdateAPIKey
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            $ref: '#/definitions/servicesAPIKey'
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: keyId
-          in: path
-          required: true
-          type: string
-        - name: body
-          in: body
-          required: true
-          schema:
-            $ref: '#/definitions/AuthServiceUpdateAPIKeyBody'
-      tags:
-        - AuthService
-  /api/v1/auth/external-keys:
-    post:
-      summary: External API Key management (for integrations)
-      operationId: AuthService_StoreExternalAPIKey
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            type: object
-            properties: {}
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: body
-          in: body
-          required: true
-          schema:
-            $ref: '#/definitions/servicesStoreExternalAPIKeyRequest'
-      tags:
-        - AuthService
-  /api/v1/auth/external-keys/{provider}:
-    get:
-      operationId: AuthService_GetExternalAPIKey
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            $ref: '#/definitions/servicesGetExternalAPIKeyResponse'
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: provider
-          in: path
-          required: true
-          type: string
-        - name: userId
-          in: query
-          required: false
-          type: string
-      tags:
-        - AuthService
-    delete:
-      operationId: AuthService_DeleteExternalAPIKey
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            type: object
-            properties: {}
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: provider
-          in: path
-          required: true
-          type: string
-        - name: userId
-          in: query
-          required: false
-          type: string
-      tags:
-        - AuthService
   /api/v1/auth/jwt/create:
     post:
       summary: JWT management
@@ -585,6 +577,153 @@ paths:
             $ref: '#/definitions/servicesValidateJWTRequest'
       tags:
         - AuthService
+  /api/v1/external-api-keys:
+    get:
+      operationId: StorageService_ListExternalAPIKeys
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesListExternalAPIKeysResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: userId
+          in: query
+          required: false
+          type: string
+        - name: provider
+          in: query
+          required: false
+          type: string
+        - name: sandbox
+          in: query
+          required: false
+          type: boolean
+        - name: pageSize
+          in: query
+          required: false
+          type: integer
+          format: int32
+        - name: pageToken
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+    post:
+      summary: '--- ExternalAPIKey operations ---'
+      operationId: StorageService_CreateExternalAPIKey
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsExternalAPIKey'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: externalApiKey
+          description: user_id, provider required. ID empty.
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/modelsExternalAPIKey'
+      tags:
+        - StorageService
+  /api/v1/external-api-keys/{externalApiKey.id}:
+    put:
+      operationId: StorageService_UpdateExternalAPIKey
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsExternalAPIKey'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: externalApiKey.id
+          in: path
+          required: true
+          type: string
+        - name: externalApiKey
+          description: Must include ID and fields to update
+          in: body
+          required: true
+          schema:
+            type: object
+            properties:
+              userId:
+                type: string
+              provider:
+                type: string
+                title: e.g., "binance", "gate.io", "coingecko"
+              encryptedApiKey:
+                type: string
+              encryptedApiSecret:
+                type: string
+              encryptedPassphrase:
+                type: string
+                title: For some exchanges
+              sandbox:
+                type: boolean
+                title: Whether this is a sandbox/test key
+              createdAt:
+                type: string
+                format: date-time
+              updatedAt:
+                type: string
+                format: date-time
+            title: Must include ID and fields to update
+        - name: updateMask
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+  /api/v1/external-api-keys/{id}:
+    get:
+      operationId: StorageService_GetExternalAPIKey
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsExternalAPIKey'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - StorageService
+    delete:
+      operationId: StorageService_DeleteExternalAPIKey
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            type: object
+            properties: {}
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - StorageService
   /api/v1/holdings:
     get:
       operationId: StorageService_ListHoldings
@@ -909,45 +1048,6 @@ paths:
             $ref: '#/definitions/PortfolioServiceGetPortfolioPerformanceBody'
       tags:
         - PortfolioService
-  /api/v1/portfolios/{portfolioId}/rules:
-    get:
-      operationId: RuleService_ListRulesByPortfolio
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            $ref: '#/definitions/servicesListRulesResponse'
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: portfolioId
-          in: path
-          required: true
-          type: string
-        - name: status
-          in: query
-          required: false
-          type: string
-          enum:
-            - RULE_STATUS_UNKNOWN
-            - RULE_STATUS_ACTIVE
-            - RULE_STATUS_PAUSED
-            - RULE_STATUS_DISABLED
-            - RULE_STATUS_ERROR
-          default: RULE_STATUS_UNKNOWN
-        - name: pageSize
-          in: query
-          required: false
-          type: integer
-          format: int32
-        - name: pageToken
-          in: query
-          required: false
-          type: string
-      tags:
-        - RuleService
   /api/v1/prices:
     delete:
       operationId: StorageService_DeletePrices
@@ -1203,9 +1303,67 @@ paths:
           type: string
       tags:
         - StorageService
-  /api/v1/rule-executions/{executionId}:
+  /api/v1/rule-executions:
     get:
-      operationId: RuleService_GetRuleExecution
+      operationId: StorageService_ListRuleExecutions
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesListRuleExecutionsResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: ruleId
+          in: query
+          required: false
+          type: string
+        - name: portfolioId
+          in: query
+          required: false
+          type: string
+        - name: userId
+          in: query
+          required: false
+          type: string
+        - name: status
+          in: query
+          required: false
+          type: string
+          enum:
+            - EXECUTION_STATUS_UNKNOWN
+            - EXECUTION_STATUS_PENDING
+            - EXECUTION_STATUS_IN_PROGRESS
+            - EXECUTION_STATUS_COMPLETED
+            - EXECUTION_STATUS_FAILED
+            - EXECUTION_STATUS_CANCELLED
+          default: EXECUTION_STATUS_UNKNOWN
+        - name: from
+          in: query
+          required: false
+          type: string
+          format: date-time
+        - name: to
+          in: query
+          required: false
+          type: string
+          format: date-time
+        - name: pageSize
+          in: query
+          required: false
+          type: integer
+          format: int32
+        - name: pageToken
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
+    post:
+      summary: '--- RuleExecution operations ---'
+      operationId: StorageService_CreateRuleExecution
       responses:
         "200":
           description: A successful response.
@@ -1216,12 +1374,14 @@ paths:
           schema:
             $ref: '#/definitions/rpcStatus'
       parameters:
-        - name: executionId
-          in: path
+        - name: ruleExecution
+          description: rule_id required. ID empty.
+          in: body
           required: true
-          type: string
+          schema:
+            $ref: '#/definitions/modelsRuleExecution'
       tags:
-        - RuleService
+        - StorageService
   /api/v1/rule-executions/{executionId}/cancel:
     post:
       operationId: RuleService_CancelRuleExecution
@@ -1247,9 +1407,92 @@ paths:
             $ref: '#/definitions/RuleServiceCancelRuleExecutionBody'
       tags:
         - RuleService
+  /api/v1/rule-executions/{id}:
+    get:
+      operationId: StorageService_GetRuleExecution
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsRuleExecution'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      tags:
+        - StorageService
+  /api/v1/rule-executions/{ruleExecution.id}:
+    put:
+      operationId: StorageService_UpdateRuleExecution
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/modelsRuleExecution'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: ruleExecution.id
+          in: path
+          required: true
+          type: string
+        - name: ruleExecution
+          description: Must include ID and fields to update
+          in: body
+          required: true
+          schema:
+            type: object
+            properties:
+              ruleId:
+                type: string
+              portfolioId:
+                type: string
+                title: Optional scope - inherited from rule if not specified
+              userId:
+                type: string
+              startedAt:
+                type: string
+                format: date-time
+              completedAt:
+                type: string
+                format: date-time
+              status:
+                $ref: '#/definitions/modelsExecutionStatus'
+              errorMessage:
+                type: string
+              createdTransactionIds:
+                type: array
+                items:
+                  type: string
+                title: Results produced by execution
+              affectedHoldingIds:
+                type: array
+                items:
+                  type: string
+              transactionsCreated:
+                type: integer
+                format: int32
+                title: Execution metrics
+              executionSummary:
+                type: object
+                title: Rule-type specific execution details
+            title: Must include ID and fields to update
+        - name: updateMask
+          in: query
+          required: false
+          type: string
+      tags:
+        - StorageService
   /api/v1/rules:
     get:
-      operationId: RuleService_ListRules
+      operationId: StorageService_ListRules
       responses:
         "200":
           description: A successful response.
@@ -1293,10 +1536,10 @@ paths:
           required: false
           type: string
       tags:
-        - RuleService
+        - StorageService
     post:
-      summary: Rule CRUD operations
-      operationId: RuleService_CreateRule
+      summary: '--- Rule operations ---'
+      operationId: StorageService_CreateRule
       responses:
         "200":
           description: A successful response.
@@ -1308,12 +1551,13 @@ paths:
             $ref: '#/definitions/rpcStatus'
       parameters:
         - name: rule
+          description: name, rule_type, portfolio_id, user_id required. ID empty.
           in: body
           required: true
           schema:
             $ref: '#/definitions/modelsRule'
       tags:
-        - RuleService
+        - StorageService
   /api/v1/rules/validate:
     post:
       summary: Rule validation and simulation
@@ -1337,7 +1581,7 @@ paths:
         - RuleService
   /api/v1/rules/{id}:
     get:
-      operationId: RuleService_GetRule
+      operationId: StorageService_GetRule
       responses:
         "200":
           description: A successful response.
@@ -1353,9 +1597,9 @@ paths:
           required: true
           type: string
       tags:
-        - RuleService
+        - StorageService
     delete:
-      operationId: RuleService_DeleteRule
+      operationId: StorageService_DeleteRule
       responses:
         "200":
           description: A successful response.
@@ -1372,10 +1616,10 @@ paths:
           required: true
           type: string
       tags:
-        - RuleService
+        - StorageService
   /api/v1/rules/{rule.id}:
     put:
-      operationId: RuleService_UpdateRule
+      operationId: StorageService_UpdateRule
       responses:
         "200":
           description: A successful response.
@@ -1391,7 +1635,7 @@ paths:
           required: true
           type: string
         - name: rule
-          description: Rule defines a business rule that can be applied to portfolios
+          description: Must include ID and fields to update
           in: body
           required: true
           schema:
@@ -1408,8 +1652,8 @@ paths:
                 type: string
               userId:
                 type: string
-              enabled:
-                type: boolean
+              status:
+                $ref: '#/definitions/modelsRuleStatus'
               configuration:
                 type: object
                 title: Flexible configuration for any rule type
@@ -1421,20 +1665,13 @@ paths:
               updatedAt:
                 type: string
                 format: date-time
-              lastExecutedAt:
-                type: string
-                format: date-time
-              lastExecutionId:
-                type: string
-              status:
-                $ref: '#/definitions/modelsRuleStatus'
-            title: Rule defines a business rule that can be applied to portfolios
+            title: Must include ID and fields to update
         - name: updateMask
           in: query
           required: false
           type: string
       tags:
-        - RuleService
+        - StorageService
   /api/v1/rules/{ruleId}/disable:
     post:
       operationId: RuleService_DisableRule
@@ -1531,56 +1768,6 @@ paths:
           required: true
           schema:
             $ref: '#/definitions/RuleServiceExecuteRuleAsyncBody'
-      tags:
-        - RuleService
-  /api/v1/rules/{ruleId}/executions:
-    get:
-      operationId: RuleService_ListRuleExecutions
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            $ref: '#/definitions/servicesListRuleExecutionsResponse'
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: ruleId
-          in: path
-          required: true
-          type: string
-        - name: status
-          in: query
-          required: false
-          type: string
-          enum:
-            - EXECUTION_STATUS_UNKNOWN
-            - EXECUTION_STATUS_PENDING
-            - EXECUTION_STATUS_IN_PROGRESS
-            - EXECUTION_STATUS_COMPLETED
-            - EXECUTION_STATUS_FAILED
-            - EXECUTION_STATUS_CANCELLED
-          default: EXECUTION_STATUS_UNKNOWN
-        - name: fromDate
-          in: query
-          required: false
-          type: string
-          format: date-time
-        - name: toDate
-          in: query
-          required: false
-          type: string
-          format: date-time
-        - name: pageSize
-          in: query
-          required: false
-          type: integer
-          format: int32
-        - name: pageToken
-          in: query
-          required: false
-          type: string
       tags:
         - RuleService
   /api/v1/rules/{ruleId}/pause:
@@ -1968,17 +2155,6 @@ definitions:
         items:
           type: string
         title: 'Optional: specify sources like "market_cap_provider", "fundamental_data_provider"'
-  AuthServiceUpdateAPIKeyBody:
-    type: object
-    properties:
-      name:
-        type: string
-      description:
-        type: string
-      enabled:
-        type: boolean
-      rateLimit:
-        $ref: '#/definitions/servicesRateLimitConfig'
   PortfolioServiceCalculatePortfolioValueBody:
     type: object
     properties:
@@ -2052,6 +2228,41 @@ definitions:
       updateMask:
         type: string
         title: Alternatively, use a mask to specify which keys in the map to update/delete
+  modelsAPIKey:
+    type: object
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+      description:
+        type: string
+      userId:
+        type: string
+      scopes:
+        type: array
+        items:
+          type: string
+      createdAt:
+        type: string
+        format: date-time
+      lastUsedAt:
+        type: string
+        format: date-time
+      expiresAt:
+        type: string
+        format: date-time
+      enabled:
+        type: boolean
+      keyPrefix:
+        type: string
+        title: First 8 characters for display
+      usageCount:
+        type: integer
+        format: int32
+      rateLimit:
+        $ref: '#/definitions/modelsRateLimitConfig'
+    title: APIKey represents an API key for authentication
   modelsAccount:
     type: object
     properties:
@@ -2140,6 +2351,33 @@ definitions:
       - EXECUTION_STATUS_CANCELLED
     default: EXECUTION_STATUS_UNKNOWN
     title: ExecutionStatus indicates the status of a rule execution
+  modelsExternalAPIKey:
+    type: object
+    properties:
+      id:
+        type: string
+      userId:
+        type: string
+      provider:
+        type: string
+        title: e.g., "binance", "gate.io", "coingecko"
+      encryptedApiKey:
+        type: string
+      encryptedApiSecret:
+        type: string
+      encryptedPassphrase:
+        type: string
+        title: For some exchanges
+      sandbox:
+        type: boolean
+        title: Whether this is a sandbox/test key
+      createdAt:
+        type: string
+        format: date-time
+      updatedAt:
+        type: string
+        format: date-time
+    title: ExternalAPIKey stores encrypted external API credentials
   modelsHolding:
     type: object
     properties:
@@ -2260,6 +2498,19 @@ definitions:
     description: |-
       Represents the price action of an Asset against a base Asset
       over a specific interval (candle/OHLCV) or as a latest snapshot.
+  modelsRateLimitConfig:
+    type: object
+    properties:
+      requestsPerMinute:
+        type: integer
+        format: int32
+      requestsPerHour:
+        type: integer
+        format: int32
+      requestsPerDay:
+        type: integer
+        format: int32
+    title: RateLimitConfig defines rate limiting for API keys
   modelsRule:
     type: object
     properties:
@@ -2276,8 +2527,8 @@ definitions:
         type: string
       userId:
         type: string
-      enabled:
-        type: boolean
+      status:
+        $ref: '#/definitions/modelsRuleStatus'
       configuration:
         type: object
         title: Flexible configuration for any rule type
@@ -2289,13 +2540,6 @@ definitions:
       updatedAt:
         type: string
         format: date-time
-      lastExecutedAt:
-        type: string
-        format: date-time
-      lastExecutionId:
-        type: string
-      status:
-        $ref: '#/definitions/modelsRuleStatus'
     title: Rule defines a business rule that can be applied to portfolios
   modelsRuleExecution:
     type: object
@@ -2328,13 +2572,13 @@ definitions:
         type: array
         items:
           type: string
-      durationMs:
-        type: string
-        format: int64
-        title: Execution metrics
       transactionsCreated:
         type: integer
         format: int32
+        title: Execution metrics
+      executionSummary:
+        type: object
+        title: Rule-type specific execution details
     title: RuleExecution represents a single execution of a rule
   modelsRuleSchedule:
     type: object
@@ -2596,41 +2840,6 @@ definitions:
         items:
           type: object
           $ref: '#/definitions/protobufAny'
-  servicesAPIKey:
-    type: object
-    properties:
-      id:
-        type: string
-      name:
-        type: string
-      description:
-        type: string
-      userId:
-        type: string
-      scopes:
-        type: array
-        items:
-          type: string
-      createdAt:
-        type: string
-        format: date-time
-      lastUsedAt:
-        type: string
-        format: date-time
-      expiresAt:
-        type: string
-        format: date-time
-      enabled:
-        type: boolean
-      keyPrefix:
-        type: string
-        title: First 8 characters for display
-      usageCount:
-        type: integer
-        format: int32
-      rateLimit:
-        $ref: '#/definitions/servicesRateLimitConfig'
-    title: API Key messages
   servicesAssetAllocation:
     type: object
     properties:
@@ -2675,32 +2884,6 @@ definitions:
         format: double
       needsSelling:
         type: boolean
-  servicesCreateAPIKeyRequest:
-    type: object
-    properties:
-      name:
-        type: string
-      description:
-        type: string
-      userId:
-        type: string
-      scopes:
-        type: array
-        items:
-          type: string
-      expiresAt:
-        type: string
-        format: date-time
-      rateLimit:
-        $ref: '#/definitions/servicesRateLimitConfig'
-  servicesCreateAPIKeyResponse:
-    type: object
-    properties:
-      apiKey:
-        $ref: '#/definitions/servicesAPIKey'
-      secretKey:
-        type: string
-        title: Only returned once
   servicesCreateJWTRequest:
     type: object
     properties:
@@ -2797,17 +2980,6 @@ definitions:
         items:
           type: string
         title: List of errors encountered during fetching/storing
-  servicesGetExternalAPIKeyResponse:
-    type: object
-    properties:
-      apiKey:
-        type: string
-      apiSecret:
-        type: string
-      passphrase:
-        type: string
-      sandbox:
-        type: boolean
   servicesListAPIKeysResponse:
     type: object
     properties:
@@ -2815,7 +2987,7 @@ definitions:
         type: array
         items:
           type: object
-          $ref: '#/definitions/servicesAPIKey'
+          $ref: '#/definitions/modelsAPIKey'
       nextPageToken:
         type: string
   servicesListAccountsResponse:
@@ -2839,6 +3011,16 @@ definitions:
       nextPageToken:
         type: string
         title: Token for the next page, empty if no more pages
+  servicesListExternalAPIKeysResponse:
+    type: object
+    properties:
+      externalApiKeys:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/modelsExternalAPIKey'
+      nextPageToken:
+        type: string
   servicesListHoldingsResponse:
     type: object
     properties:
@@ -2872,7 +3054,7 @@ definitions:
   servicesListRuleExecutionsResponse:
     type: object
     properties:
-      executions:
+      ruleExecutions:
         type: array
         items:
           type: object
@@ -2950,18 +3132,6 @@ definitions:
         type: string
         format: date-time
         title: Could also include breakdown by asset
-  servicesRateLimitConfig:
-    type: object
-    properties:
-      requestsPerMinute:
-        type: integer
-        format: int32
-      requestsPerHour:
-        type: integer
-        format: int32
-      requestsPerDay:
-        type: integer
-        format: int32
   servicesRebalancingSimulation:
     type: object
     properties:
@@ -3053,25 +3223,6 @@ definitions:
         items:
           type: object
           $ref: '#/definitions/servicesAssetStopLoss'
-  servicesStoreExternalAPIKeyRequest:
-    type: object
-    properties:
-      userId:
-        type: string
-      provider:
-        type: string
-        title: e.g., "binance", "gate.io", "coingecko"
-      apiKey:
-        type: string
-      apiSecret:
-        type: string
-      passphrase:
-        type: string
-        title: For some exchanges
-      sandbox:
-        type: boolean
-        title: Whether this is a sandbox/test key
-    title: External API Key messages
   servicesValidateJWTRequest:
     type: object
     properties:

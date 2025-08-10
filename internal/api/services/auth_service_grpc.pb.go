@@ -11,7 +11,6 @@ import (
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
-	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -20,37 +19,22 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AuthService_CreateAPIKey_FullMethodName         = "/services.AuthService/CreateAPIKey"
-	AuthService_ListAPIKeys_FullMethodName          = "/services.AuthService/ListAPIKeys"
-	AuthService_RevokeAPIKey_FullMethodName         = "/services.AuthService/RevokeAPIKey"
-	AuthService_UpdateAPIKey_FullMethodName         = "/services.AuthService/UpdateAPIKey"
-	AuthService_CreateJWT_FullMethodName            = "/services.AuthService/CreateJWT"
-	AuthService_ValidateJWT_FullMethodName          = "/services.AuthService/ValidateJWT"
-	AuthService_RefreshJWT_FullMethodName           = "/services.AuthService/RefreshJWT"
-	AuthService_StoreExternalAPIKey_FullMethodName  = "/services.AuthService/StoreExternalAPIKey"
-	AuthService_GetExternalAPIKey_FullMethodName    = "/services.AuthService/GetExternalAPIKey"
-	AuthService_DeleteExternalAPIKey_FullMethodName = "/services.AuthService/DeleteExternalAPIKey"
+	AuthService_CreateJWT_FullMethodName   = "/services.AuthService/CreateJWT"
+	AuthService_ValidateJWT_FullMethodName = "/services.AuthService/ValidateJWT"
+	AuthService_RefreshJWT_FullMethodName  = "/services.AuthService/RefreshJWT"
 )
 
 // AuthServiceClient is the client API for AuthService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// AuthService provides authentication and authorization services
+// AuthService provides authentication and authorization business logic
+// For API Key CRUD operations, use StorageService
 type AuthServiceClient interface {
-	// API Key management
-	CreateAPIKey(ctx context.Context, in *CreateAPIKeyRequest, opts ...grpc.CallOption) (*CreateAPIKeyResponse, error)
-	ListAPIKeys(ctx context.Context, in *ListAPIKeysRequest, opts ...grpc.CallOption) (*ListAPIKeysResponse, error)
-	RevokeAPIKey(ctx context.Context, in *RevokeAPIKeyRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	UpdateAPIKey(ctx context.Context, in *UpdateAPIKeyRequest, opts ...grpc.CallOption) (*APIKey, error)
 	// JWT management
 	CreateJWT(ctx context.Context, in *CreateJWTRequest, opts ...grpc.CallOption) (*CreateJWTResponse, error)
 	ValidateJWT(ctx context.Context, in *ValidateJWTRequest, opts ...grpc.CallOption) (*ValidateJWTResponse, error)
 	RefreshJWT(ctx context.Context, in *RefreshJWTRequest, opts ...grpc.CallOption) (*RefreshJWTResponse, error)
-	// External API Key management (for integrations)
-	StoreExternalAPIKey(ctx context.Context, in *StoreExternalAPIKeyRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	GetExternalAPIKey(ctx context.Context, in *GetExternalAPIKeyRequest, opts ...grpc.CallOption) (*GetExternalAPIKeyResponse, error)
-	DeleteExternalAPIKey(ctx context.Context, in *DeleteExternalAPIKeyRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
 type authServiceClient struct {
@@ -59,46 +43,6 @@ type authServiceClient struct {
 
 func NewAuthServiceClient(cc grpc.ClientConnInterface) AuthServiceClient {
 	return &authServiceClient{cc}
-}
-
-func (c *authServiceClient) CreateAPIKey(ctx context.Context, in *CreateAPIKeyRequest, opts ...grpc.CallOption) (*CreateAPIKeyResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(CreateAPIKeyResponse)
-	err := c.cc.Invoke(ctx, AuthService_CreateAPIKey_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *authServiceClient) ListAPIKeys(ctx context.Context, in *ListAPIKeysRequest, opts ...grpc.CallOption) (*ListAPIKeysResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListAPIKeysResponse)
-	err := c.cc.Invoke(ctx, AuthService_ListAPIKeys_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *authServiceClient) RevokeAPIKey(ctx context.Context, in *RevokeAPIKeyRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
-	err := c.cc.Invoke(ctx, AuthService_RevokeAPIKey_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *authServiceClient) UpdateAPIKey(ctx context.Context, in *UpdateAPIKeyRequest, opts ...grpc.CallOption) (*APIKey, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(APIKey)
-	err := c.cc.Invoke(ctx, AuthService_UpdateAPIKey_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 func (c *authServiceClient) CreateJWT(ctx context.Context, in *CreateJWTRequest, opts ...grpc.CallOption) (*CreateJWTResponse, error) {
@@ -131,55 +75,17 @@ func (c *authServiceClient) RefreshJWT(ctx context.Context, in *RefreshJWTReques
 	return out, nil
 }
 
-func (c *authServiceClient) StoreExternalAPIKey(ctx context.Context, in *StoreExternalAPIKeyRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
-	err := c.cc.Invoke(ctx, AuthService_StoreExternalAPIKey_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *authServiceClient) GetExternalAPIKey(ctx context.Context, in *GetExternalAPIKeyRequest, opts ...grpc.CallOption) (*GetExternalAPIKeyResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetExternalAPIKeyResponse)
-	err := c.cc.Invoke(ctx, AuthService_GetExternalAPIKey_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *authServiceClient) DeleteExternalAPIKey(ctx context.Context, in *DeleteExternalAPIKeyRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
-	err := c.cc.Invoke(ctx, AuthService_DeleteExternalAPIKey_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // AuthServiceServer is the server API for AuthService service.
 // All implementations should embed UnimplementedAuthServiceServer
 // for forward compatibility.
 //
-// AuthService provides authentication and authorization services
+// AuthService provides authentication and authorization business logic
+// For API Key CRUD operations, use StorageService
 type AuthServiceServer interface {
-	// API Key management
-	CreateAPIKey(context.Context, *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error)
-	ListAPIKeys(context.Context, *ListAPIKeysRequest) (*ListAPIKeysResponse, error)
-	RevokeAPIKey(context.Context, *RevokeAPIKeyRequest) (*emptypb.Empty, error)
-	UpdateAPIKey(context.Context, *UpdateAPIKeyRequest) (*APIKey, error)
 	// JWT management
 	CreateJWT(context.Context, *CreateJWTRequest) (*CreateJWTResponse, error)
 	ValidateJWT(context.Context, *ValidateJWTRequest) (*ValidateJWTResponse, error)
 	RefreshJWT(context.Context, *RefreshJWTRequest) (*RefreshJWTResponse, error)
-	// External API Key management (for integrations)
-	StoreExternalAPIKey(context.Context, *StoreExternalAPIKeyRequest) (*emptypb.Empty, error)
-	GetExternalAPIKey(context.Context, *GetExternalAPIKeyRequest) (*GetExternalAPIKeyResponse, error)
-	DeleteExternalAPIKey(context.Context, *DeleteExternalAPIKeyRequest) (*emptypb.Empty, error)
 }
 
 // UnimplementedAuthServiceServer should be embedded to have
@@ -189,18 +95,6 @@ type AuthServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedAuthServiceServer struct{}
 
-func (UnimplementedAuthServiceServer) CreateAPIKey(context.Context, *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method CreateAPIKey not implemented")
-}
-func (UnimplementedAuthServiceServer) ListAPIKeys(context.Context, *ListAPIKeysRequest) (*ListAPIKeysResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListAPIKeys not implemented")
-}
-func (UnimplementedAuthServiceServer) RevokeAPIKey(context.Context, *RevokeAPIKeyRequest) (*emptypb.Empty, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method RevokeAPIKey not implemented")
-}
-func (UnimplementedAuthServiceServer) UpdateAPIKey(context.Context, *UpdateAPIKeyRequest) (*APIKey, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method UpdateAPIKey not implemented")
-}
 func (UnimplementedAuthServiceServer) CreateJWT(context.Context, *CreateJWTRequest) (*CreateJWTResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateJWT not implemented")
 }
@@ -209,15 +103,6 @@ func (UnimplementedAuthServiceServer) ValidateJWT(context.Context, *ValidateJWTR
 }
 func (UnimplementedAuthServiceServer) RefreshJWT(context.Context, *RefreshJWTRequest) (*RefreshJWTResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RefreshJWT not implemented")
-}
-func (UnimplementedAuthServiceServer) StoreExternalAPIKey(context.Context, *StoreExternalAPIKeyRequest) (*emptypb.Empty, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method StoreExternalAPIKey not implemented")
-}
-func (UnimplementedAuthServiceServer) GetExternalAPIKey(context.Context, *GetExternalAPIKeyRequest) (*GetExternalAPIKeyResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetExternalAPIKey not implemented")
-}
-func (UnimplementedAuthServiceServer) DeleteExternalAPIKey(context.Context, *DeleteExternalAPIKeyRequest) (*emptypb.Empty, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DeleteExternalAPIKey not implemented")
 }
 func (UnimplementedAuthServiceServer) testEmbeddedByValue() {}
 
@@ -237,78 +122,6 @@ func RegisterAuthServiceServer(s grpc.ServiceRegistrar, srv AuthServiceServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&AuthService_ServiceDesc, srv)
-}
-
-func _AuthService_CreateAPIKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreateAPIKeyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AuthServiceServer).CreateAPIKey(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: AuthService_CreateAPIKey_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AuthServiceServer).CreateAPIKey(ctx, req.(*CreateAPIKeyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AuthService_ListAPIKeys_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListAPIKeysRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AuthServiceServer).ListAPIKeys(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: AuthService_ListAPIKeys_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AuthServiceServer).ListAPIKeys(ctx, req.(*ListAPIKeysRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AuthService_RevokeAPIKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RevokeAPIKeyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AuthServiceServer).RevokeAPIKey(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: AuthService_RevokeAPIKey_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AuthServiceServer).RevokeAPIKey(ctx, req.(*RevokeAPIKeyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AuthService_UpdateAPIKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UpdateAPIKeyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AuthServiceServer).UpdateAPIKey(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: AuthService_UpdateAPIKey_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AuthServiceServer).UpdateAPIKey(ctx, req.(*UpdateAPIKeyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
 }
 
 func _AuthService_CreateJWT_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -365,60 +178,6 @@ func _AuthService_RefreshJWT_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
-func _AuthService_StoreExternalAPIKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(StoreExternalAPIKeyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AuthServiceServer).StoreExternalAPIKey(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: AuthService_StoreExternalAPIKey_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AuthServiceServer).StoreExternalAPIKey(ctx, req.(*StoreExternalAPIKeyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AuthService_GetExternalAPIKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetExternalAPIKeyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AuthServiceServer).GetExternalAPIKey(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: AuthService_GetExternalAPIKey_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AuthServiceServer).GetExternalAPIKey(ctx, req.(*GetExternalAPIKeyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AuthService_DeleteExternalAPIKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeleteExternalAPIKeyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AuthServiceServer).DeleteExternalAPIKey(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: AuthService_DeleteExternalAPIKey_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AuthServiceServer).DeleteExternalAPIKey(ctx, req.(*DeleteExternalAPIKeyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // AuthService_ServiceDesc is the grpc.ServiceDesc for AuthService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -426,22 +185,6 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "services.AuthService",
 	HandlerType: (*AuthServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "CreateAPIKey",
-			Handler:    _AuthService_CreateAPIKey_Handler,
-		},
-		{
-			MethodName: "ListAPIKeys",
-			Handler:    _AuthService_ListAPIKeys_Handler,
-		},
-		{
-			MethodName: "RevokeAPIKey",
-			Handler:    _AuthService_RevokeAPIKey_Handler,
-		},
-		{
-			MethodName: "UpdateAPIKey",
-			Handler:    _AuthService_UpdateAPIKey_Handler,
-		},
 		{
 			MethodName: "CreateJWT",
 			Handler:    _AuthService_CreateJWT_Handler,
@@ -453,18 +196,6 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RefreshJWT",
 			Handler:    _AuthService_RefreshJWT_Handler,
-		},
-		{
-			MethodName: "StoreExternalAPIKey",
-			Handler:    _AuthService_StoreExternalAPIKey_Handler,
-		},
-		{
-			MethodName: "GetExternalAPIKey",
-			Handler:    _AuthService_GetExternalAPIKey_Handler,
-		},
-		{
-			MethodName: "DeleteExternalAPIKey",
-			Handler:    _AuthService_DeleteExternalAPIKey_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

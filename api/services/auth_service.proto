@@ -5,37 +5,13 @@ package services;
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "google/api/annotations.proto";
+import "api/models/api_key.proto";
 
 option go_package = "github.com/foxcool/greedy-eye/internal/api/services";
 
-// AuthService provides authentication and authorization services
+// AuthService provides authentication and authorization business logic
+// For API Key CRUD operations, use StorageService
 service AuthService {
-  // API Key management
-  rpc CreateAPIKey(CreateAPIKeyRequest) returns (CreateAPIKeyResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/auth/api-keys"
-      body: "*"
-    };
-  }
-  
-  rpc ListAPIKeys(ListAPIKeysRequest) returns (ListAPIKeysResponse) {
-    option (google.api.http) = {
-      get: "/api/v1/auth/api-keys"
-    };
-  }
-  
-  rpc RevokeAPIKey(RevokeAPIKeyRequest) returns (google.protobuf.Empty) {
-    option (google.api.http) = {
-      delete: "/api/v1/auth/api-keys/{key_id}"
-    };
-  }
-  
-  rpc UpdateAPIKey(UpdateAPIKeyRequest) returns (APIKey) {
-    option (google.api.http) = {
-      put: "/api/v1/auth/api-keys/{key_id}"
-      body: "*"
-    };
-  }
   
   // JWT management
   rpc CreateJWT(CreateJWTRequest) returns (CreateJWTResponse) {
@@ -59,85 +35,9 @@ service AuthService {
     };
   }
   
-  // External API Key management (for integrations)
-  rpc StoreExternalAPIKey(StoreExternalAPIKeyRequest) returns (google.protobuf.Empty) {
-    option (google.api.http) = {
-      post: "/api/v1/auth/external-keys"
-      body: "*"
-    };
-  }
-  
-  rpc GetExternalAPIKey(GetExternalAPIKeyRequest) returns (GetExternalAPIKeyResponse) {
-    option (google.api.http) = {
-      get: "/api/v1/auth/external-keys/{provider}"
-    };
-  }
-  
-  rpc DeleteExternalAPIKey(DeleteExternalAPIKeyRequest) returns (google.protobuf.Empty) {
-    option (google.api.http) = {
-      delete: "/api/v1/auth/external-keys/{provider}"
-    };
-  }
 }
 
-// API Key messages
-message APIKey {
-  string id = 1;
-  string name = 2;
-  string description = 3;
-  string user_id = 4;
-  repeated string scopes = 5;
-  google.protobuf.Timestamp created_at = 6;
-  google.protobuf.Timestamp last_used_at = 7;
-  google.protobuf.Timestamp expires_at = 8;
-  bool enabled = 9;
-  string key_prefix = 10; // First 8 characters for display
-  int32 usage_count = 11;
-  RateLimitConfig rate_limit = 12;
-}
 
-message RateLimitConfig {
-  int32 requests_per_minute = 1;
-  int32 requests_per_hour = 2;
-  int32 requests_per_day = 3;
-}
-
-message CreateAPIKeyRequest {
-  string name = 1;
-  string description = 2;
-  string user_id = 3;
-  repeated string scopes = 4;
-  google.protobuf.Timestamp expires_at = 5;
-  RateLimitConfig rate_limit = 6;
-}
-
-message CreateAPIKeyResponse {
-  APIKey api_key = 1;
-  string secret_key = 2; // Only returned once
-}
-
-message ListAPIKeysRequest {
-  string user_id = 1;
-  optional int32 page_size = 2;
-  optional string page_token = 3;
-}
-
-message ListAPIKeysResponse {
-  repeated APIKey api_keys = 1;
-  string next_page_token = 2;
-}
-
-message RevokeAPIKeyRequest {
-  string key_id = 1;
-}
-
-message UpdateAPIKeyRequest {
-  string key_id = 1;
-  optional string name = 2;
-  optional string description = 3;
-  optional bool enabled = 4;
-  optional RateLimitConfig rate_limit = 5;
-}
 
 // JWT messages
 message CreateJWTRequest {
@@ -177,32 +77,6 @@ message RefreshJWTResponse {
   int64 expires_in = 3;
 }
 
-// External API Key messages
-message StoreExternalAPIKeyRequest {
-  string user_id = 1;
-  string provider = 2; // e.g., "binance", "gate.io", "coingecko"
-  string api_key = 3;
-  string api_secret = 4;
-  optional string passphrase = 5; // For some exchanges
-  bool sandbox = 6; // Whether this is a sandbox/test key
-}
-
-message GetExternalAPIKeyRequest {
-  string user_id = 1;
-  string provider = 2;
-}
-
-message GetExternalAPIKeyResponse {
-  string api_key = 1;
-  string api_secret = 2;
-  optional string passphrase = 3;
-  bool sandbox = 4;
-}
-
-message DeleteExternalAPIKeyRequest {
-  string user_id = 1;
-  string provider = 2;
-}
 
 // Common scope definitions
 enum Scope {
