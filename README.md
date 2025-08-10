@@ -1,7 +1,5 @@
 # Greedy-Eye
 
-![Logo](docs/logo.png)
-
 **Greedy-Eye** is a comprehensive portfolio management system with advanced trading features,
 analytics, notifications, and metrics, built using Go.
 
@@ -45,31 +43,25 @@ It integrates data fetching, analysis, trading, and real-time notifications to p
 seamless experience for tracking and optimizing your crypto investments.
 
 ```mermaid
-C4Context
-title System Context diagram for Greedy-Eye
-Person(User, "User", "Greedy-Eye user.")
-
-System_Ext(Exchange, "Exchange")
-System_Ext(PricingService, "Pricing Service")
-System_Ext(Messenger, "Messenger")
-System_Ext(BrokerAPI, "Broker", "API of stock broker.")
-System_Ext(PortfolioManager, "Portfolio Manager",
-  "Another portfolio manager or wallet service.")
-
-System_Boundary(b1, "Greedy-Eye Boundary", "The boundary of Greedy-Eye.") {
-  System(Eye, "Eye instance", "An instance of Greedy-Eye.")
-  SystemDb(DB, "Eye DB", "Database for Greedy-Eye.")
-}
-
-BiRel(User, Messenger, "Uses")
-BiRel(Messenger, Eye, "Communicates with")
-BiRel(Eye, DB, "Stores configuration and data")
-BiRel(Eye, Exchange, "Sync balances and trades")
-BiRel(Eye, PricingService, "Fetches prices")
-BiRel(Eye, BrokerAPI, "Sync stock balances and trades")
-BiRel(Eye, PortfolioManager, "Sync balances and trades")
-
-UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="2")
+graph TB
+    User[👤 User] --> API[🌐 gRPC/HTTP API]
+    API --> Services[📋 Business Services]
+    Services --> Storage[💾 Storage Layer]
+    Storage --> DB[(🗄️ PostgreSQL)]
+    
+    Services --> External[🔌 External APIs]
+    External --> Binance[📊 Binance]
+    External --> CoinGecko[💰 CoinGecko]
+    External --> Telegram[📱 Telegram]
+    
+    subgraph "Core Services"
+        Services --> Auth[🔐 AuthService]
+        Services --> Rules[⚙️ RuleService] 
+        Services --> Portfolio[📈 PortfolioService]
+        Services --> Assets[🏦 AssetService]
+        Services --> Prices[💲 PriceService]
+        Services --> Users[👥 UserService]
+    end
 ```
 
 ## Features
@@ -119,71 +111,56 @@ Each component is responsible for a specific set of functionalities, and the sys
 to be extensible, allowing for easy integration of new services and features.
 
 ```mermaid
-C4Component
-title Layered Component Architecture for Greedy-Eye
-
-Container_Boundary(b1, "Greedy-Eye Application") {
-
-  ComponentDb(DB, "Database", "PostgreSQL / TimescaleDB",
-    "Stores application data, including time-series price data")
-
-  Boundary(storage, "Storage Layer") {
-    Component(StorageService, "Storage Service", "Abstracts database interactions")
-  }
-
-  Boundary(domain, "Domain Layer") {
-    Component(AssetService, "Asset Management Service",
-      "Manages asset data and operations")
-    Component(PortfolioService, "Portfolio Management Service",
-      "Manages portfolios and holdings")
-    Component(PriceService, "Price Management Service",
-      "Manages price data and operations")
-    Component(UserService, "Users and Accounts Service", "Manages user accounts")
-    Component(TradingService, "Trading Service", "Handles trading operations")
-  }
-
-
-  Boundary(interface, "Interface Layer") {
-    Component(APIGateway, "API Gateway", "Handles external requests")
-    Component(TerminalService, "Terminal Service", "Handles user interactions")
-  }
-}
-
-Rel(StorageService, DB, "Persists and retrieves data")
-
-Rel(AssetService, StorageService, "Uses")
-Rel(PortfolioService, StorageService, "Uses")
-Rel(PriceService, StorageService, "Uses")
-Rel(UserService, StorageService, "Uses")
-Rel(TradingService, StorageService, "Uses")
-
-Rel(APIGateway, AssetService, "Uses")
-Rel(APIGateway, PortfolioService, "Uses")
-Rel(APIGateway, PriceService, "Uses")
-Rel(APIGateway, UserService, "Uses")
-Rel(APIGateway, TradingService, "Uses")
-
-Rel(TerminalService, AssetService, "Uses")
-Rel(TerminalService, PortfolioService, "Uses")
-Rel(TerminalService, PriceService, "Uses")
-Rel(TerminalService, UserService, "Uses")
-Rel(TerminalService, TradingService, "Uses")
-
-UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="3")
+graph TB
+    subgraph "Interface Layer"
+        API[🌐 gRPC-Gateway<br/>HTTP:8080]
+        gRPC[🔌 gRPC Server<br/>:50051]
+    end
+    
+    subgraph "Business Logic Layer"
+        Auth[🔐 AuthService<br/>JWT & Auth]
+        Rules[⚙️ RuleService<br/>Automation]
+        Portfolio[📈 PortfolioService<br/>Calculations]
+        Assets[🏦 AssetService<br/>Metadata]
+        Prices[💲 PriceService<br/>Data Fetching]
+        Users[👥 UserService<br/>Management]
+    end
+    
+    subgraph "Data Layer"
+        Storage[💾 StorageService<br/>CRUD Operations]
+    end
+    
+    subgraph "Database"
+        DB[(🗄️ PostgreSQL<br/>Persistent Storage)]
+    end
+    
+    API --> gRPC
+    gRPC --> Auth
+    gRPC --> Rules  
+    gRPC --> Portfolio
+    gRPC --> Assets
+    gRPC --> Prices
+    gRPC --> Users
+    
+    Auth --> Storage
+    Rules --> Storage
+    Portfolio --> Storage
+    Assets --> Storage
+    Prices --> Storage
+    Users --> Storage
+    
+    Storage --> DB
 ```
 
 ### Key Components
 
-- **Asset Service**: Manages information about financial assets (cryptocurrencies, stocks, etc.).
-- **Portfolio Service**: Handles portfolio management, including balances, trades, and
-  performance metrics.
-- **Price Service**: Fetches and stores price data from external providers.
-- **User Service**: Manages user accounts and basic operations.
-- **Auth Service**: Handles authentication, API keys, JWT tokens, and external API key
-  management.
-- **Rule Service**: Manages rule-based portfolio automation (DCA, rebalancing, stop-loss, etc.).
-- **Trading Service**: Handles trade executions and strategy implementation.
-- **Terminal Service**: Provides interfaces for user interaction and notifications.
+- **Asset Service**: Asset metadata and external data enrichment
+- **Portfolio Service**: Portfolio calculations, performance metrics, and analytics  
+- **Price Service**: Price data fetching from external providers (CoinGecko, exchanges)
+- **User Service**: User account management and preferences
+- **Auth Service**: JWT authentication and token management
+- **Rule Service**: Rule execution engine for portfolio automation (DCA, rebalancing, stop-loss)
+- **Storage Service**: Low-level CRUD operations and database abstraction
 
 ### Service Layer Separation
 
@@ -210,6 +187,9 @@ represent the business domain and implement domain-specific logic:
 
 Domain services depend on the Storage service for data persistence needs, never directly
 accessing the database.
+
+**Note**: All API Key CRUD operations are handled by StorageService, while AuthService 
+focuses on JWT business logic.
 
 ## Deployment Options
 
