@@ -45,7 +45,7 @@
 - [x] MVP with basic crypto portfolio tracking
 - [x] gRPC-Gateway HTTP API foundation
 - [ ] Binance integration
-- [ ] Telegram notifications
+- [ ] **Telegram Bot Service** - Conversational interface with voice support
 - [ ] Basic arbitrage detection
 
 ### Q2 2024: Multi-Asset Expansion
@@ -77,13 +77,14 @@
 ## Technical Milestones
 
 ### Current Sprint (Q1 2024)
-- **Target**: Complete HTTP API Gateway with security
-- **Progress**: Phase 1 complete, Phase 2 in progress
+- **Target**: Complete HTTP API Gateway with security + Telegram Bot Service
+- **Progress**: Phase 1 complete, Phase 2 in progress, Telegram Bot starting
 - **Key Features**: 
   - ✅ HTTP API auto-generation from proto files
   - ✅ Dual-server architecture
   - 🔄 Zero Trust authentication
   - 🔄 Rule-based portfolio management
+  - 🔄 **Telegram Bot Service with Speech-to-Text integration**
 
 ### Next Sprint (Q2 2024)
 - **Target**: External integrations and testing
@@ -150,6 +151,7 @@
 - **RuleService**: Rule-based portfolio management
 - **IntegrationService**: External API aggregation
 - **PriceService**: Market data management
+- **TelegramBotService**: Conversational interface with voice support
 
 ## Next Quarter Priorities
 

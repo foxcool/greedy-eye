@@ -9,6 +9,7 @@ tags:
   - name: PortfolioService
   - name: PriceService
   - name: RuleService
+  - name: TelegramBotService
   - name: UserService
 consumes:
   - application/json
@@ -1842,6 +1843,270 @@ paths:
             $ref: '#/definitions/RuleServiceSimulateRuleBody'
       tags:
         - RuleService
+  /api/v1/telegram/alerts:
+    post:
+      summary: Manage user alert subscriptions
+      operationId: TelegramBotService_ManageAlerts
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesManageAlertsResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/servicesManageAlertsRequest'
+      tags:
+        - TelegramBotService
+  /api/v1/telegram/notifications:
+    post:
+      summary: Send notification to specific user
+      operationId: TelegramBotService_SendNotification
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesSendNotificationResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/servicesSendNotificationRequest'
+      tags:
+        - TelegramBotService
+  /api/v1/telegram/notifications/bulk:
+    post:
+      summary: Send bulk notifications to multiple users
+      operationId: TelegramBotService_SendBulkNotifications
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesSendBulkNotificationsResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/servicesSendBulkNotificationsRequest'
+      tags:
+        - TelegramBotService
+  /api/v1/telegram/sessions/{session.telegramId}:
+    put:
+      summary: Update user session context
+      operationId: TelegramBotService_UpdateUserSession
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesUpdateUserSessionResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: session.telegramId
+          description: Telegram user ID
+          in: path
+          required: true
+          type: string
+        - name: session
+          description: SessionContext represents user conversation state
+          in: body
+          required: true
+          schema:
+            type: object
+            properties:
+              currentOperation:
+                type: string
+                description: 'Current operation: "trade", "portfolio_view", etc.'
+              contextData:
+                type: object
+                additionalProperties:
+                  type: string
+                title: Key-value context data
+              expiresAt:
+                type: string
+                format: date-time
+                title: Session expiration time
+              conversationHistory:
+                type: array
+                items:
+                  type: string
+                title: Recent conversation history
+              state:
+                type: string
+                title: Current conversation state
+            title: SessionContext represents user conversation state
+      tags:
+        - TelegramBotService
+  /api/v1/telegram/sessions/{telegramId}:
+    get:
+      summary: Get user session information
+      operationId: TelegramBotService_GetUserSession
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesGetUserSessionResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: telegramId
+          in: path
+          required: true
+          type: string
+      tags:
+        - TelegramBotService
+  /api/v1/telegram/stats:
+    get:
+      summary: Get bot statistics and health
+      operationId: TelegramBotService_GetBotStats
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesGetBotStatsResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: from
+          description: Statistics from this time (optional)
+          in: query
+          required: false
+          type: string
+          format: date-time
+        - name: to
+          description: Statistics to this time (optional)
+          in: query
+          required: false
+          type: string
+          format: date-time
+      tags:
+        - TelegramBotService
+  /api/v1/telegram/users:
+    post:
+      summary: Register new Telegram user or update existing
+      operationId: TelegramBotService_RegisterTelegramUser
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesRegisterTelegramUserResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/servicesRegisterTelegramUserRequest'
+      tags:
+        - TelegramBotService
+  /api/v1/telegram/users/{telegramId}:
+    get:
+      summary: Get Telegram user information
+      operationId: TelegramBotService_GetTelegramUser
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesGetTelegramUserResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: telegramId
+          in: path
+          required: true
+          type: string
+      tags:
+        - TelegramBotService
+  /api/v1/telegram/voice/process:
+    post:
+      summary: Process voice message (Speech-to-Text)
+      operationId: TelegramBotService_ProcessVoiceMessage
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesProcessVoiceMessageResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/servicesProcessVoiceMessageRequest'
+      tags:
+        - TelegramBotService
+  /api/v1/telegram/voice/synthesize:
+    post:
+      summary: Convert text to speech
+      operationId: TelegramBotService_ConvertTextToSpeech
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesConvertTextToSpeechResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/servicesConvertTextToSpeechRequest'
+      tags:
+        - TelegramBotService
+  /api/v1/telegram/webhook:
+    post:
+      summary: Process incoming Telegram webhook updates
+      operationId: TelegramBotService_ProcessTelegramUpdate
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/servicesProcessTelegramUpdateResponse'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/servicesProcessTelegramUpdateRequest'
+      tags:
+        - TelegramBotService
   /api/v1/transactions:
     get:
       operationId: StorageService_ListTransactions
@@ -2307,6 +2572,27 @@ definitions:
       - ACCOUNT_TYPE_BANK
       - ACCOUNT_TYPE_BROKER
     default: ACCOUNT_TYPE_UNSPECIFIED
+  modelsAlertCondition:
+    type: string
+    enum:
+      - ALERT_CONDITION_UNSPECIFIED
+      - ALERT_CONDITION_GREATER_THAN
+      - ALERT_CONDITION_LESS_THAN
+      - ALERT_CONDITION_EQUAL
+      - ALERT_CONDITION_CHANGE_PERCENT
+      - ALERT_CONDITION_CHANGE_ABSOLUTE
+    default: ALERT_CONDITION_UNSPECIFIED
+  modelsAlertType:
+    type: string
+    enum:
+      - ALERT_TYPE_UNSPECIFIED
+      - ALERT_TYPE_PRICE_ABOVE
+      - ALERT_TYPE_PRICE_BELOW
+      - ALERT_TYPE_PRICE_CHANGE
+      - ALERT_TYPE_PORTFOLIO_VALUE
+      - ALERT_TYPE_PORTFOLIO_CHANGE
+      - ALERT_TYPE_BALANCE_LOW
+    default: ALERT_TYPE_UNSPECIFIED
   modelsAsset:
     type: object
     properties:
@@ -2412,6 +2698,17 @@ definitions:
     description: |-
       Holding represents a specific quantity of an Asset held within an Account
       and associated with a Portfolio.
+  modelsNotificationType:
+    type: string
+    enum:
+      - NOTIFICATION_TYPE_UNSPECIFIED
+      - NOTIFICATION_TYPE_PRICE_ALERT
+      - NOTIFICATION_TYPE_PORTFOLIO_CHANGE
+      - NOTIFICATION_TYPE_TRADE_EXECUTED
+      - NOTIFICATION_TYPE_SYNC_COMPLETED
+      - NOTIFICATION_TYPE_SYSTEM_ALERT
+      - NOTIFICATION_TYPE_WEEKLY_REPORT
+    default: NOTIFICATION_TYPE_UNSPECIFIED
   modelsPortfolio:
     type: object
     properties:
@@ -2607,6 +2904,143 @@ definitions:
       - RULE_STATUS_ERROR
     default: RULE_STATUS_UNKNOWN
     title: RuleStatus indicates the current status of a rule
+  modelsSessionContext:
+    type: object
+    properties:
+      telegramId:
+        type: string
+        title: Telegram user ID
+      currentOperation:
+        type: string
+        description: 'Current operation: "trade", "portfolio_view", etc.'
+      contextData:
+        type: object
+        additionalProperties:
+          type: string
+        title: Key-value context data
+      expiresAt:
+        type: string
+        format: date-time
+        title: Session expiration time
+      conversationHistory:
+        type: array
+        items:
+          type: string
+        title: Recent conversation history
+      state:
+        type: string
+        title: Current conversation state
+    title: SessionContext represents user conversation state
+  modelsTelegramAlert:
+    type: object
+    properties:
+      id:
+        type: string
+        title: Alert ID
+      telegramId:
+        type: string
+        title: Owner Telegram ID
+      alertType:
+        $ref: '#/definitions/modelsAlertType'
+        title: Type of alert
+      assetSymbol:
+        type: string
+        title: Asset symbol (if applicable)
+      portfolioId:
+        type: string
+        title: Portfolio ID (if applicable)
+      condition:
+        $ref: '#/definitions/modelsAlertCondition'
+        title: Alert condition
+      thresholdValue:
+        type: number
+        format: double
+        title: Threshold value for alert
+      customMessage:
+        type: string
+        title: Custom alert message
+      enabled:
+        type: boolean
+        title: Whether alert is active
+      createdAt:
+        type: string
+        format: date-time
+      lastTriggered:
+        type: string
+        format: date-time
+      triggerCount:
+        type: integer
+        format: int32
+        title: How many times this alert was triggered
+    title: Alert represents user-configured alert
+  modelsTelegramNotification:
+    type: object
+    properties:
+      telegramId:
+        type: string
+        title: Target user Telegram ID
+      type:
+        $ref: '#/definitions/modelsNotificationType'
+        title: Notification type
+      title:
+        type: string
+        title: Notification title
+      message:
+        type: string
+        title: Notification message
+      assetSymbol:
+        type: string
+        title: Related asset (if applicable)
+      portfolioId:
+        type: string
+        title: Related portfolio (if applicable)
+      value:
+        type: number
+        format: double
+        title: Related value (price, change, etc.)
+      createdAt:
+        type: string
+        format: date-time
+      sent:
+        type: boolean
+        title: Whether notification was sent successfully
+    title: Notification represents push notification to user
+  modelsTelegramUser:
+    type: object
+    properties:
+      telegramId:
+        type: string
+        title: Telegram user ID
+      userId:
+        type: string
+        title: System User ID (link to User model)
+      username:
+        type: string
+        title: Telegram username (@username)
+      firstName:
+        type: string
+        title: User's first name in Telegram
+      lastName:
+        type: string
+        title: User's last name in Telegram
+      languageCode:
+        type: string
+        title: User's language preference (ru, en)
+      notificationsEnabled:
+        type: boolean
+        title: Whether notifications are enabled
+      subscribedAlerts:
+        type: array
+        items:
+          type: string
+        title: List of alert types user subscribed to
+      createdAt:
+        type: string
+        format: date-time
+      lastActive:
+        type: string
+        format: date-time
+    title: TelegramUser represents a user linked between Telegram and the system
   modelsTransaction:
     type: object
     properties:
@@ -2840,6 +3274,15 @@ definitions:
         items:
           type: object
           $ref: '#/definitions/protobufAny'
+  servicesAlertOperation:
+    type: string
+    enum:
+      - ALERT_OPERATION_UNSPECIFIED
+      - ALERT_OPERATION_CREATE
+      - ALERT_OPERATION_UPDATE
+      - ALERT_OPERATION_DELETE
+      - ALERT_OPERATION_LIST
+    default: ALERT_OPERATION_UNSPECIFIED
   servicesAssetAllocation:
     type: object
     properties:
@@ -2884,6 +3327,104 @@ definitions:
         format: double
       needsSelling:
         type: boolean
+  servicesAudioFormat:
+    type: string
+    enum:
+      - AUDIO_FORMAT_UNSPECIFIED
+      - AUDIO_FORMAT_OGG
+      - AUDIO_FORMAT_MP3
+      - AUDIO_FORMAT_WAV
+      - AUDIO_FORMAT_M4A
+    default: AUDIO_FORMAT_UNSPECIFIED
+  servicesBotStats:
+    type: object
+    properties:
+      totalUsers:
+        type: integer
+        format: int32
+        title: Total registered users
+      activeUsersToday:
+        type: integer
+        format: int32
+        title: Users active in last 24h
+      activeUsersWeek:
+        type: integer
+        format: int32
+        title: Users active in last 7 days
+      totalMessagesToday:
+        type: integer
+        format: int32
+        title: Total messages processed today
+      totalCommandsToday:
+        type: integer
+        format: int32
+        title: Total commands processed today
+      totalVoiceToday:
+        type: integer
+        format: int32
+        title: Total voice messages today
+      averageResponseTimeMs:
+        type: integer
+        format: int32
+        title: Average response time
+      errorRatePercent:
+        type: integer
+        format: int32
+        title: Error rate percentage
+      popularCommands:
+        type: object
+        additionalProperties:
+          type: integer
+          format: int32
+        title: Command usage statistics
+      errorTypes:
+        type: object
+        additionalProperties:
+          type: integer
+          format: int32
+        title: Error type statistics
+      lastUpdated:
+        type: string
+        format: date-time
+  servicesConvertTextToSpeechRequest:
+    type: object
+    properties:
+      text:
+        type: string
+        title: Text to convert to speech
+      language:
+        type: string
+        title: Language for TTS (ru, en)
+      voice:
+        type: string
+        title: Voice name/ID
+      provider:
+        $ref: '#/definitions/servicesSpeechProvider'
+        title: Preferred TTS provider
+      outputFormat:
+        $ref: '#/definitions/servicesAudioFormat'
+        title: Output audio format
+  servicesConvertTextToSpeechResponse:
+    type: object
+    properties:
+      success:
+        type: boolean
+      audioData:
+        type: string
+        format: byte
+        title: Generated audio data
+      audioFormat:
+        type: string
+        title: Audio format
+      durationSeconds:
+        type: integer
+        format: int32
+        title: Audio duration
+      errorMessage:
+        type: string
+      processingTimeMs:
+        type: integer
+        format: int32
   servicesCreateJWTRequest:
     type: object
     properties:
@@ -2980,6 +3521,26 @@ definitions:
         items:
           type: string
         title: List of errors encountered during fetching/storing
+  servicesGetBotStatsResponse:
+    type: object
+    properties:
+      stats:
+        $ref: '#/definitions/servicesBotStats'
+  servicesGetTelegramUserResponse:
+    type: object
+    properties:
+      telegramUser:
+        $ref: '#/definitions/modelsTelegramUser'
+      exists:
+        type: boolean
+  servicesGetUserSessionResponse:
+    type: object
+    properties:
+      session:
+        $ref: '#/definitions/modelsSessionContext'
+      exists:
+        type: boolean
+        title: Whether session exists
   servicesListAPIKeysResponse:
     type: object
     properties:
@@ -3081,6 +3642,34 @@ definitions:
           $ref: '#/definitions/modelsTransaction'
       nextPageToken:
         type: string
+  servicesManageAlertsRequest:
+    type: object
+    properties:
+      telegramId:
+        type: string
+      operation:
+        $ref: '#/definitions/servicesAlertOperation'
+        title: CREATE, UPDATE, DELETE, LIST
+      alert:
+        $ref: '#/definitions/modelsTelegramAlert'
+        title: Alert data (for CREATE/UPDATE)
+      alertId:
+        type: string
+        title: Alert ID (for UPDATE/DELETE)
+    title: Alert Management
+  servicesManageAlertsResponse:
+    type: object
+    properties:
+      success:
+        type: boolean
+      alerts:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/modelsTelegramAlert'
+        title: List of alerts (for LIST operation)
+      errorMessage:
+        type: string
   servicesPlannedTrade:
     type: object
     properties:
@@ -3132,6 +3721,72 @@ definitions:
         type: string
         format: date-time
         title: Could also include breakdown by asset
+  servicesProcessTelegramUpdateRequest:
+    type: object
+    properties:
+      updateJson:
+        type: string
+        title: Raw Telegram update JSON
+      webhookSecret:
+        type: string
+        title: Webhook verification secret
+    title: Telegram Update Processing
+  servicesProcessTelegramUpdateResponse:
+    type: object
+    properties:
+      success:
+        type: boolean
+        title: Whether update was processed successfully
+      errorMessage:
+        type: string
+        title: Error message if processing failed
+      responseSent:
+        type: string
+        title: Response that was sent to user (for logging)
+  servicesProcessVoiceMessageRequest:
+    type: object
+    properties:
+      telegramId:
+        type: string
+      audioData:
+        type: string
+        format: byte
+        title: Audio file data
+      audioFormat:
+        type: string
+        title: Audio format (ogg, mp3, wav, etc.)
+      durationSeconds:
+        type: integer
+        format: int32
+        title: Audio duration
+      languageHint:
+        type: string
+        title: Language hint for STT (ru, en, auto)
+      provider:
+        $ref: '#/definitions/servicesSpeechProvider'
+        title: Preferred STT provider
+    title: Speech Processing
+  servicesProcessVoiceMessageResponse:
+    type: object
+    properties:
+      success:
+        type: boolean
+      transcribedText:
+        type: string
+        title: Transcribed text from audio
+      detectedLanguage:
+        type: string
+        title: Detected language
+      confidence:
+        type: number
+        format: float
+        title: Transcription confidence (0.0-1.0)
+      errorMessage:
+        type: string
+      processingTimeMs:
+        type: integer
+        format: int32
+        title: Processing time in milliseconds
   servicesRebalancingSimulation:
     type: object
     properties:
@@ -3171,6 +3826,84 @@ definitions:
       expiresIn:
         type: string
         format: int64
+  servicesRegisterTelegramUserRequest:
+    type: object
+    properties:
+      telegramUser:
+        $ref: '#/definitions/modelsTelegramUser'
+      linkExistingUser:
+        type: boolean
+        title: Try to link with existing user by email/phone
+      existingUserId:
+        type: string
+        title: Explicit user ID to link with
+    title: User Registration
+  servicesRegisterTelegramUserResponse:
+    type: object
+    properties:
+      success:
+        type: boolean
+      userId:
+        type: string
+        title: System user ID that was linked
+      isNewUser:
+        type: boolean
+        title: Whether this is a new user registration
+      errorMessage:
+        type: string
+  servicesSendBulkNotificationsRequest:
+    type: object
+    properties:
+      notifications:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/modelsTelegramNotification'
+      batchSize:
+        type: integer
+        format: int32
+        title: 'Batch size for rate limiting (default: 30)'
+      delayMs:
+        type: integer
+        format: int32
+        title: 'Delay between batches in milliseconds (default: 1000)'
+  servicesSendBulkNotificationsResponse:
+    type: object
+    properties:
+      sentCount:
+        type: integer
+        format: int32
+        title: Number of notifications sent successfully
+      failedCount:
+        type: integer
+        format: int32
+        title: Number of failed notifications
+      errors:
+        type: array
+        items:
+          type: string
+        title: List of error messages for failed notifications
+  servicesSendNotificationRequest:
+    type: object
+    properties:
+      notification:
+        $ref: '#/definitions/modelsTelegramNotification'
+      forceSend:
+        type: boolean
+        title: Send even if user has notifications disabled
+    title: Notifications
+  servicesSendNotificationResponse:
+    type: object
+    properties:
+      sent:
+        type: boolean
+        title: Whether notification was sent successfully
+      messageId:
+        type: string
+        title: Telegram message ID if sent
+      errorMessage:
+        type: string
+        title: Error message if sending failed
   servicesSimulateRuleResponse:
     type: object
     properties:
@@ -3204,6 +3937,16 @@ definitions:
         $ref: '#/definitions/servicesStopLossSimulation'
       dca:
         $ref: '#/definitions/servicesDCASimulation'
+  servicesSpeechProvider:
+    type: string
+    enum:
+      - SPEECH_PROVIDER_UNSPECIFIED
+      - SPEECH_PROVIDER_GOOGLE
+      - SPEECH_PROVIDER_OPENAI
+      - SPEECH_PROVIDER_YANDEX
+      - SPEECH_PROVIDER_AUTO
+    default: SPEECH_PROVIDER_UNSPECIFIED
+    title: '- SPEECH_PROVIDER_AUTO: Automatically select best provider'
   servicesStopLossSimulation:
     type: object
     properties:
@@ -3223,6 +3966,13 @@ definitions:
         items:
           type: object
           $ref: '#/definitions/servicesAssetStopLoss'
+  servicesUpdateUserSessionResponse:
+    type: object
+    properties:
+      success:
+        type: boolean
+      errorMessage:
+        type: string
   servicesValidateJWTRequest:
     type: object
     properties:

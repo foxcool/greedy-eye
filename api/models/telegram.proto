@@ -1,0 +1,140 @@
+syntax = "proto3";
+
+package models;
+
+import "google/protobuf/timestamp.proto";
+option go_package = "github.com/foxcool/greedy-eye/internal/api/models";
+
+// TelegramUser represents a user linked between Telegram and the system
+message TelegramUser {
+    string telegram_id = 1;           // Telegram user ID
+    string user_id = 2;               // System User ID (link to User model)
+    string username = 3;              // Telegram username (@username)
+    string first_name = 4;            // User's first name in Telegram
+    string last_name = 5;             // User's last name in Telegram
+    string language_code = 6;         // User's language preference (ru, en)
+    bool notifications_enabled = 7;   // Whether notifications are enabled
+    repeated string subscribed_alerts = 8;  // List of alert types user subscribed to
+    google.protobuf.Timestamp created_at = 9;
+    google.protobuf.Timestamp last_active = 10;
+}
+
+// SessionContext represents user conversation state
+message SessionContext {
+    string telegram_id = 1;          // Telegram user ID
+    string current_operation = 2;    // Current operation: "trade", "portfolio_view", etc.
+    map<string, string> context_data = 3;  // Key-value context data
+    google.protobuf.Timestamp expires_at = 4;  // Session expiration time
+    repeated string conversation_history = 5;  // Recent conversation history
+    string state = 6;                // Current conversation state
+}
+
+// TelegramMessage represents incoming message from Telegram
+message TelegramMessage {
+    string message_id = 1;           // Telegram message ID
+    string telegram_id = 2;          // Sender's Telegram ID
+    MessageType type = 3;            // Message type
+    string content = 4;              // Message content (text or file path)
+    string language = 5;             // Detected language
+    google.protobuf.Timestamp received_at = 6;
+    map<string, string> metadata = 7;  // Additional metadata (file size, duration, etc.)
+}
+
+// TelegramResponse represents outgoing response to Telegram
+message TelegramResponse {
+    string telegram_id = 1;          // Target Telegram user ID
+    ResponseType type = 2;           // Response type
+    string content = 3;              // Response content
+    ResponseFormat format = 4;       // Response format
+    repeated InlineButton buttons = 5;  // Inline keyboard buttons
+    bool enable_voice_response = 6;  // Whether to also send voice response
+}
+
+// InlineButton represents Telegram inline keyboard button
+message InlineButton {
+    string text = 1;                 // Button text
+    string callback_data = 2;        // Callback data when pressed
+    string url = 3;                  // URL to open (mutually exclusive with callback_data)
+}
+
+// Notification represents push notification to user
+message TelegramNotification {
+    string telegram_id = 1;          // Target user Telegram ID
+    NotificationType type = 2;       // Notification type
+    string title = 3;                // Notification title
+    string message = 4;              // Notification message
+    string asset_symbol = 5;         // Related asset (if applicable)
+    string portfolio_id = 6;         // Related portfolio (if applicable)
+    double value = 7;                // Related value (price, change, etc.)
+    google.protobuf.Timestamp created_at = 8;
+    bool sent = 9;                   // Whether notification was sent successfully
+}
+
+// Alert represents user-configured alert
+message TelegramAlert {
+    string id = 1;                   // Alert ID
+    string telegram_id = 2;          // Owner Telegram ID
+    AlertType alert_type = 3;        // Type of alert
+    string asset_symbol = 4;         // Asset symbol (if applicable)
+    string portfolio_id = 5;         // Portfolio ID (if applicable)
+    AlertCondition condition = 6;    // Alert condition
+    double threshold_value = 7;      // Threshold value for alert
+    string custom_message = 8;       // Custom alert message
+    bool enabled = 9;                // Whether alert is active
+    google.protobuf.Timestamp created_at = 10;
+    google.protobuf.Timestamp last_triggered = 11;
+    int32 trigger_count = 12;        // How many times this alert was triggered
+}
+
+// Enums
+enum MessageType {
+    MESSAGE_TYPE_UNSPECIFIED = 0;
+    MESSAGE_TYPE_TEXT = 1;
+    MESSAGE_TYPE_VOICE = 2;
+    MESSAGE_TYPE_COMMAND = 3;
+    MESSAGE_TYPE_CALLBACK = 4;
+}
+
+enum ResponseType {
+    RESPONSE_TYPE_UNSPECIFIED = 0;
+    RESPONSE_TYPE_TEXT = 1;
+    RESPONSE_TYPE_VOICE = 2;
+    RESPONSE_TYPE_PHOTO = 3;
+    RESPONSE_TYPE_DOCUMENT = 4;
+}
+
+enum ResponseFormat {
+    RESPONSE_FORMAT_UNSPECIFIED = 0;
+    RESPONSE_FORMAT_PLAIN = 1;
+    RESPONSE_FORMAT_MARKDOWN = 2;
+    RESPONSE_FORMAT_HTML = 3;
+}
+
+enum NotificationType {
+    NOTIFICATION_TYPE_UNSPECIFIED = 0;
+    NOTIFICATION_TYPE_PRICE_ALERT = 1;
+    NOTIFICATION_TYPE_PORTFOLIO_CHANGE = 2;
+    NOTIFICATION_TYPE_TRADE_EXECUTED = 3;
+    NOTIFICATION_TYPE_SYNC_COMPLETED = 4;
+    NOTIFICATION_TYPE_SYSTEM_ALERT = 5;
+    NOTIFICATION_TYPE_WEEKLY_REPORT = 6;
+}
+
+enum AlertType {
+    ALERT_TYPE_UNSPECIFIED = 0;
+    ALERT_TYPE_PRICE_ABOVE = 1;
+    ALERT_TYPE_PRICE_BELOW = 2;
+    ALERT_TYPE_PRICE_CHANGE = 3;
+    ALERT_TYPE_PORTFOLIO_VALUE = 4;
+    ALERT_TYPE_PORTFOLIO_CHANGE = 5;
+    ALERT_TYPE_BALANCE_LOW = 6;
+}
+
+enum AlertCondition {
+    ALERT_CONDITION_UNSPECIFIED = 0;
+    ALERT_CONDITION_GREATER_THAN = 1;
+    ALERT_CONDITION_LESS_THAN = 2;
+    ALERT_CONDITION_EQUAL = 3;
+    ALERT_CONDITION_CHANGE_PERCENT = 4;
+    ALERT_CONDITION_CHANGE_ABSOLUTE = 5;
+}
