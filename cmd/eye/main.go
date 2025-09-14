@@ -181,7 +181,7 @@ func getAvailableServices() map[string]ServiceDefinition {
 			Type:         "user",
 			Dependencies: []string{"StorageService"},
 			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *zap.Logger) error {
-				services.RegisterUserServiceServer(server, user.NewService())
+				services.RegisterUserServiceServer(server, user.NewService(log))
 				return nil
 			},
 			GatewayRegister: services.RegisterUserServiceHandlerFromEndpoint,
@@ -191,7 +191,7 @@ func getAvailableServices() map[string]ServiceDefinition {
 			Type:         "asset",
 			Dependencies: []string{"StorageService"},
 			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *zap.Logger) error {
-				services.RegisterAssetServiceServer(server, asset.NewService())
+				services.RegisterAssetServiceServer(server, asset.NewService(log))
 				return nil
 			},
 			GatewayRegister: services.RegisterAssetServiceHandlerFromEndpoint,
@@ -201,7 +201,7 @@ func getAvailableServices() map[string]ServiceDefinition {
 			Type:         "portfolio",
 			Dependencies: []string{"StorageService", "AssetService"},
 			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *zap.Logger) error {
-				services.RegisterPortfolioServiceServer(server, portfolio.NewService())
+				services.RegisterPortfolioServiceServer(server, portfolio.NewService(log))
 				return nil
 			},
 			GatewayRegister: services.RegisterPortfolioServiceHandlerFromEndpoint,
@@ -211,7 +211,7 @@ func getAvailableServices() map[string]ServiceDefinition {
 			Type:         "price",
 			Dependencies: []string{"StorageService", "AssetService"},
 			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *zap.Logger) error {
-				services.RegisterPriceServiceServer(server, price.NewService())
+				services.RegisterPriceServiceServer(server, price.NewService(log))
 				return nil
 			},
 			GatewayRegister: services.RegisterPriceServiceHandlerFromEndpoint,
