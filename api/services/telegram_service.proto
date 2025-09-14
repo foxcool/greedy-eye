@@ -1,0 +1,277 @@
+syntax = "proto3";
+
+package services;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "google/api/annotations.proto";
+import "api/models/telegram.proto";
+
+option go_package = "github.com/foxcool/greedy-eye/internal/api/services";
+
+// TelegramBotService provides conversational interface through Telegram Bot API
+// Supports text messages, voice messages, inline commands, and notifications
+service TelegramBotService {
+    // Process incoming Telegram webhook updates
+    rpc ProcessTelegramUpdate(ProcessTelegramUpdateRequest) returns (ProcessTelegramUpdateResponse) {
+        option (google.api.http) = {
+            post: "/api/v1/telegram/webhook"
+            body: "*"
+        };
+    }
+
+    // Send notification to specific user
+    rpc SendNotification(SendNotificationRequest) returns (SendNotificationResponse) {
+        option (google.api.http) = {
+            post: "/api/v1/telegram/notifications"
+            body: "*"
+        };
+    }
+
+    // Send bulk notifications to multiple users
+    rpc SendBulkNotifications(SendBulkNotificationsRequest) returns (SendBulkNotificationsResponse) {
+        option (google.api.http) = {
+            post: "/api/v1/telegram/notifications/bulk"
+            body: "*"
+        };
+    }
+
+    // Manage user alert subscriptions
+    rpc ManageAlerts(ManageAlertsRequest) returns (ManageAlertsResponse) {
+        option (google.api.http) = {
+            post: "/api/v1/telegram/alerts"
+            body: "*"
+        };
+    }
+
+    // Get user session information
+    rpc GetUserSession(GetUserSessionRequest) returns (GetUserSessionResponse) {
+        option (google.api.http) = {
+            get: "/api/v1/telegram/sessions/{telegram_id}"
+        };
+    }
+
+    // Update user session context
+    rpc UpdateUserSession(UpdateUserSessionRequest) returns (UpdateUserSessionResponse) {
+        option (google.api.http) = {
+            put: "/api/v1/telegram/sessions/{session.telegram_id}"
+            body: "session"
+        };
+    }
+
+    // Register new Telegram user or update existing
+    rpc RegisterTelegramUser(RegisterTelegramUserRequest) returns (RegisterTelegramUserResponse) {
+        option (google.api.http) = {
+            post: "/api/v1/telegram/users"
+            body: "*"
+        };
+    }
+
+    // Get Telegram user information
+    rpc GetTelegramUser(GetTelegramUserRequest) returns (GetTelegramUserResponse) {
+        option (google.api.http) = {
+            get: "/api/v1/telegram/users/{telegram_id}"
+        };
+    }
+
+    // Process voice message (Speech-to-Text)
+    rpc ProcessVoiceMessage(ProcessVoiceMessageRequest) returns (ProcessVoiceMessageResponse) {
+        option (google.api.http) = {
+            post: "/api/v1/telegram/voice/process"
+            body: "*"
+        };
+    }
+
+    // Convert text to speech
+    rpc ConvertTextToSpeech(ConvertTextToSpeechRequest) returns (ConvertTextToSpeechResponse) {
+        option (google.api.http) = {
+            post: "/api/v1/telegram/voice/synthesize"
+            body: "*"
+        };
+    }
+
+    // Get bot statistics and health
+    rpc GetBotStats(GetBotStatsRequest) returns (GetBotStatsResponse) {
+        option (google.api.http) = {
+            get: "/api/v1/telegram/stats"
+        };
+    }
+}
+
+// Request/Response Messages
+
+// Telegram Update Processing
+message ProcessTelegramUpdateRequest {
+    string update_json = 1;          // Raw Telegram update JSON
+    string webhook_secret = 2;       // Webhook verification secret
+}
+
+message ProcessTelegramUpdateResponse {
+    bool success = 1;                // Whether update was processed successfully
+    string error_message = 2;        // Error message if processing failed
+    string response_sent = 3;        // Response that was sent to user (for logging)
+}
+
+// Notifications
+message SendNotificationRequest {
+    models.TelegramNotification notification = 1;
+    bool force_send = 2;             // Send even if user has notifications disabled
+}
+
+message SendNotificationResponse {
+    bool sent = 1;                   // Whether notification was sent successfully
+    string message_id = 2;           // Telegram message ID if sent
+    string error_message = 3;        // Error message if sending failed
+}
+
+message SendBulkNotificationsRequest {
+    repeated models.TelegramNotification notifications = 1;
+    int32 batch_size = 2;            // Batch size for rate limiting (default: 30)
+    int32 delay_ms = 3;              // Delay between batches in milliseconds (default: 1000)
+}
+
+message SendBulkNotificationsResponse {
+    int32 sent_count = 1;            // Number of notifications sent successfully
+    int32 failed_count = 2;          // Number of failed notifications
+    repeated string errors = 3;      // List of error messages for failed notifications
+}
+
+// Alert Management
+message ManageAlertsRequest {
+    string telegram_id = 1;
+    AlertOperation operation = 2;    // CREATE, UPDATE, DELETE, LIST
+    models.TelegramAlert alert = 3;  // Alert data (for CREATE/UPDATE)
+    string alert_id = 4;             // Alert ID (for UPDATE/DELETE)
+}
+
+message ManageAlertsResponse {
+    bool success = 1;
+    repeated models.TelegramAlert alerts = 2;  // List of alerts (for LIST operation)
+    string error_message = 3;
+}
+
+enum AlertOperation {
+    ALERT_OPERATION_UNSPECIFIED = 0;
+    ALERT_OPERATION_CREATE = 1;
+    ALERT_OPERATION_UPDATE = 2;
+    ALERT_OPERATION_DELETE = 3;
+    ALERT_OPERATION_LIST = 4;
+}
+
+// Session Management
+message GetUserSessionRequest {
+    string telegram_id = 1;
+}
+
+message GetUserSessionResponse {
+    models.SessionContext session = 1;
+    bool exists = 2;                 // Whether session exists
+}
+
+message UpdateUserSessionRequest {
+    models.SessionContext session = 1;
+}
+
+message UpdateUserSessionResponse {
+    bool success = 1;
+    string error_message = 2;
+}
+
+// User Registration
+message RegisterTelegramUserRequest {
+    models.TelegramUser telegram_user = 1;
+    bool link_existing_user = 2;     // Try to link with existing user by email/phone
+    string existing_user_id = 3;     // Explicit user ID to link with
+}
+
+message RegisterTelegramUserResponse {
+    bool success = 1;
+    string user_id = 2;              // System user ID that was linked
+    bool is_new_user = 3;            // Whether this is a new user registration
+    string error_message = 4;
+}
+
+message GetTelegramUserRequest {
+    string telegram_id = 1;
+}
+
+message GetTelegramUserResponse {
+    models.TelegramUser telegram_user = 1;
+    bool exists = 2;
+}
+
+// Speech Processing
+message ProcessVoiceMessageRequest {
+    string telegram_id = 1;
+    bytes audio_data = 2;            // Audio file data
+    string audio_format = 3;         // Audio format (ogg, mp3, wav, etc.)
+    int32 duration_seconds = 4;      // Audio duration
+    string language_hint = 5;        // Language hint for STT (ru, en, auto)
+    SpeechProvider provider = 6;     // Preferred STT provider
+}
+
+message ProcessVoiceMessageResponse {
+    bool success = 1;
+    string transcribed_text = 2;     // Transcribed text from audio
+    string detected_language = 3;    // Detected language
+    float confidence = 4;            // Transcription confidence (0.0-1.0)
+    string error_message = 5;
+    int32 processing_time_ms = 6;    // Processing time in milliseconds
+}
+
+message ConvertTextToSpeechRequest {
+    string text = 1;                 // Text to convert to speech
+    string language = 2;             // Language for TTS (ru, en)
+    string voice = 3;                // Voice name/ID
+    SpeechProvider provider = 4;     // Preferred TTS provider
+    AudioFormat output_format = 5;   // Output audio format
+}
+
+message ConvertTextToSpeechResponse {
+    bool success = 1;
+    bytes audio_data = 2;            // Generated audio data
+    string audio_format = 3;         // Audio format
+    int32 duration_seconds = 4;      // Audio duration
+    string error_message = 5;
+    int32 processing_time_ms = 6;
+}
+
+enum SpeechProvider {
+    SPEECH_PROVIDER_UNSPECIFIED = 0;
+    SPEECH_PROVIDER_GOOGLE = 1;
+    SPEECH_PROVIDER_OPENAI = 2;
+    SPEECH_PROVIDER_YANDEX = 3;
+    SPEECH_PROVIDER_AUTO = 4;        // Automatically select best provider
+}
+
+enum AudioFormat {
+    AUDIO_FORMAT_UNSPECIFIED = 0;
+    AUDIO_FORMAT_OGG = 1;
+    AUDIO_FORMAT_MP3 = 2;
+    AUDIO_FORMAT_WAV = 3;
+    AUDIO_FORMAT_M4A = 4;
+}
+
+// Bot Statistics
+message GetBotStatsRequest {
+    google.protobuf.Timestamp from = 1;  // Statistics from this time (optional)
+    google.protobuf.Timestamp to = 2;    // Statistics to this time (optional)
+}
+
+message GetBotStatsResponse {
+    BotStats stats = 1;
+}
+
+message BotStats {
+    int32 total_users = 1;           // Total registered users
+    int32 active_users_today = 2;    // Users active in last 24h
+    int32 active_users_week = 3;     // Users active in last 7 days
+    int32 total_messages_today = 4;  // Total messages processed today
+    int32 total_commands_today = 5;  // Total commands processed today
+    int32 total_voice_today = 6;     // Total voice messages today
+    int32 average_response_time_ms = 7;  // Average response time
+    int32 error_rate_percent = 8;    // Error rate percentage
+    map<string, int32> popular_commands = 9;  // Command usage statistics
+    map<string, int32> error_types = 10;      // Error type statistics
+    google.protobuf.Timestamp last_updated = 11;
+}

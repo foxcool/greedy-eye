@@ -17,6 +17,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/services/price"
 	"github.com/foxcool/greedy-eye/internal/services/storage"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent"
+	"github.com/foxcool/greedy-eye/internal/services/telegram"
 	"github.com/foxcool/greedy-eye/internal/services/user"
 	"github.com/getsentry/sentry-go"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -215,6 +216,16 @@ func getAvailableServices() map[string]ServiceDefinition {
 				return nil
 			},
 			GatewayRegister: services.RegisterPriceServiceHandlerFromEndpoint,
+		},
+		"TelegramBotService": {
+			Name:         "TelegramBotService",
+			Type:         "telegram",
+			Dependencies: []string{"StorageService", "UserService", "PortfolioService", "AssetService", "PriceService"},
+			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *zap.Logger) error {
+				services.RegisterTelegramBotServiceServer(server, telegram.NewService(log))
+				return nil
+			},
+			GatewayRegister: services.RegisterTelegramBotServiceHandlerFromEndpoint,
 		},
 	}
 }
