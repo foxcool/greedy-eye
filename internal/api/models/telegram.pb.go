@@ -185,37 +185,30 @@ func (ResponseFormat) EnumDescriptor() ([]byte, []int) {
 	return file_api_models_telegram_proto_rawDescGZIP(), []int{2}
 }
 
+// Simplified transport-focused notification types
+// Business logic conditions moved to Rule system
 type NotificationType int32
 
 const (
-	NotificationType_NOTIFICATION_TYPE_UNSPECIFIED      NotificationType = 0
-	NotificationType_NOTIFICATION_TYPE_PRICE_ALERT      NotificationType = 1
-	NotificationType_NOTIFICATION_TYPE_PORTFOLIO_CHANGE NotificationType = 2
-	NotificationType_NOTIFICATION_TYPE_TRADE_EXECUTED   NotificationType = 3
-	NotificationType_NOTIFICATION_TYPE_SYNC_COMPLETED   NotificationType = 4
-	NotificationType_NOTIFICATION_TYPE_SYSTEM_ALERT     NotificationType = 5
-	NotificationType_NOTIFICATION_TYPE_WEEKLY_REPORT    NotificationType = 6
+	NotificationType_NOTIFICATION_TYPE_UNSPECIFIED NotificationType = 0
+	NotificationType_NOTIFICATION_TYPE_ALERT       NotificationType = 1 // Rule-triggered alerts (price, portfolio, etc.)
+	NotificationType_NOTIFICATION_TYPE_SYSTEM      NotificationType = 2 // System status, sync, trade confirmations
+	NotificationType_NOTIFICATION_TYPE_REPORT      NotificationType = 3 // Scheduled reports (weekly, monthly)
 )
 
 // Enum value maps for NotificationType.
 var (
 	NotificationType_name = map[int32]string{
 		0: "NOTIFICATION_TYPE_UNSPECIFIED",
-		1: "NOTIFICATION_TYPE_PRICE_ALERT",
-		2: "NOTIFICATION_TYPE_PORTFOLIO_CHANGE",
-		3: "NOTIFICATION_TYPE_TRADE_EXECUTED",
-		4: "NOTIFICATION_TYPE_SYNC_COMPLETED",
-		5: "NOTIFICATION_TYPE_SYSTEM_ALERT",
-		6: "NOTIFICATION_TYPE_WEEKLY_REPORT",
+		1: "NOTIFICATION_TYPE_ALERT",
+		2: "NOTIFICATION_TYPE_SYSTEM",
+		3: "NOTIFICATION_TYPE_REPORT",
 	}
 	NotificationType_value = map[string]int32{
-		"NOTIFICATION_TYPE_UNSPECIFIED":      0,
-		"NOTIFICATION_TYPE_PRICE_ALERT":      1,
-		"NOTIFICATION_TYPE_PORTFOLIO_CHANGE": 2,
-		"NOTIFICATION_TYPE_TRADE_EXECUTED":   3,
-		"NOTIFICATION_TYPE_SYNC_COMPLETED":   4,
-		"NOTIFICATION_TYPE_SYSTEM_ALERT":     5,
-		"NOTIFICATION_TYPE_WEEKLY_REPORT":    6,
+		"NOTIFICATION_TYPE_UNSPECIFIED": 0,
+		"NOTIFICATION_TYPE_ALERT":       1,
+		"NOTIFICATION_TYPE_SYSTEM":      2,
+		"NOTIFICATION_TYPE_REPORT":      3,
 	}
 )
 
@@ -244,125 +237,6 @@ func (x NotificationType) Number() protoreflect.EnumNumber {
 // Deprecated: Use NotificationType.Descriptor instead.
 func (NotificationType) EnumDescriptor() ([]byte, []int) {
 	return file_api_models_telegram_proto_rawDescGZIP(), []int{3}
-}
-
-type AlertType int32
-
-const (
-	AlertType_ALERT_TYPE_UNSPECIFIED      AlertType = 0
-	AlertType_ALERT_TYPE_PRICE_ABOVE      AlertType = 1
-	AlertType_ALERT_TYPE_PRICE_BELOW      AlertType = 2
-	AlertType_ALERT_TYPE_PRICE_CHANGE     AlertType = 3
-	AlertType_ALERT_TYPE_PORTFOLIO_VALUE  AlertType = 4
-	AlertType_ALERT_TYPE_PORTFOLIO_CHANGE AlertType = 5
-	AlertType_ALERT_TYPE_BALANCE_LOW      AlertType = 6
-)
-
-// Enum value maps for AlertType.
-var (
-	AlertType_name = map[int32]string{
-		0: "ALERT_TYPE_UNSPECIFIED",
-		1: "ALERT_TYPE_PRICE_ABOVE",
-		2: "ALERT_TYPE_PRICE_BELOW",
-		3: "ALERT_TYPE_PRICE_CHANGE",
-		4: "ALERT_TYPE_PORTFOLIO_VALUE",
-		5: "ALERT_TYPE_PORTFOLIO_CHANGE",
-		6: "ALERT_TYPE_BALANCE_LOW",
-	}
-	AlertType_value = map[string]int32{
-		"ALERT_TYPE_UNSPECIFIED":      0,
-		"ALERT_TYPE_PRICE_ABOVE":      1,
-		"ALERT_TYPE_PRICE_BELOW":      2,
-		"ALERT_TYPE_PRICE_CHANGE":     3,
-		"ALERT_TYPE_PORTFOLIO_VALUE":  4,
-		"ALERT_TYPE_PORTFOLIO_CHANGE": 5,
-		"ALERT_TYPE_BALANCE_LOW":      6,
-	}
-)
-
-func (x AlertType) Enum() *AlertType {
-	p := new(AlertType)
-	*p = x
-	return p
-}
-
-func (x AlertType) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (AlertType) Descriptor() protoreflect.EnumDescriptor {
-	return file_api_models_telegram_proto_enumTypes[4].Descriptor()
-}
-
-func (AlertType) Type() protoreflect.EnumType {
-	return &file_api_models_telegram_proto_enumTypes[4]
-}
-
-func (x AlertType) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use AlertType.Descriptor instead.
-func (AlertType) EnumDescriptor() ([]byte, []int) {
-	return file_api_models_telegram_proto_rawDescGZIP(), []int{4}
-}
-
-type AlertCondition int32
-
-const (
-	AlertCondition_ALERT_CONDITION_UNSPECIFIED     AlertCondition = 0
-	AlertCondition_ALERT_CONDITION_GREATER_THAN    AlertCondition = 1
-	AlertCondition_ALERT_CONDITION_LESS_THAN       AlertCondition = 2
-	AlertCondition_ALERT_CONDITION_EQUAL           AlertCondition = 3
-	AlertCondition_ALERT_CONDITION_CHANGE_PERCENT  AlertCondition = 4
-	AlertCondition_ALERT_CONDITION_CHANGE_ABSOLUTE AlertCondition = 5
-)
-
-// Enum value maps for AlertCondition.
-var (
-	AlertCondition_name = map[int32]string{
-		0: "ALERT_CONDITION_UNSPECIFIED",
-		1: "ALERT_CONDITION_GREATER_THAN",
-		2: "ALERT_CONDITION_LESS_THAN",
-		3: "ALERT_CONDITION_EQUAL",
-		4: "ALERT_CONDITION_CHANGE_PERCENT",
-		5: "ALERT_CONDITION_CHANGE_ABSOLUTE",
-	}
-	AlertCondition_value = map[string]int32{
-		"ALERT_CONDITION_UNSPECIFIED":     0,
-		"ALERT_CONDITION_GREATER_THAN":    1,
-		"ALERT_CONDITION_LESS_THAN":       2,
-		"ALERT_CONDITION_EQUAL":           3,
-		"ALERT_CONDITION_CHANGE_PERCENT":  4,
-		"ALERT_CONDITION_CHANGE_ABSOLUTE": 5,
-	}
-)
-
-func (x AlertCondition) Enum() *AlertCondition {
-	p := new(AlertCondition)
-	*p = x
-	return p
-}
-
-func (x AlertCondition) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (AlertCondition) Descriptor() protoreflect.EnumDescriptor {
-	return file_api_models_telegram_proto_enumTypes[5].Descriptor()
-}
-
-func (AlertCondition) Type() protoreflect.EnumType {
-	return &file_api_models_telegram_proto_enumTypes[5]
-}
-
-func (x AlertCondition) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use AlertCondition.Descriptor instead.
-func (AlertCondition) EnumDescriptor() ([]byte, []int) {
-	return file_api_models_telegram_proto_rawDescGZIP(), []int{5}
 }
 
 // TelegramUser represents a user linked between Telegram and the system
@@ -915,23 +789,20 @@ func (x *TelegramNotification) GetSent() bool {
 	return false
 }
 
-// Alert represents user-configured alert
+// TelegramAlert represents transport-specific alert configuration
+// Business logic moved to Rule system - this handles only Telegram-specific concerns
 type TelegramAlert struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`                                                       // Alert ID
-	TelegramId     string                 `protobuf:"bytes,2,opt,name=telegram_id,json=telegramId,proto3" json:"telegram_id,omitempty"`                     // Owner Telegram ID
-	AlertType      AlertType              `protobuf:"varint,3,opt,name=alert_type,json=alertType,proto3,enum=models.AlertType" json:"alert_type,omitempty"` // Type of alert
-	AssetSymbol    string                 `protobuf:"bytes,4,opt,name=asset_symbol,json=assetSymbol,proto3" json:"asset_symbol,omitempty"`                  // Asset symbol (if applicable)
-	PortfolioId    string                 `protobuf:"bytes,5,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`                  // Portfolio ID (if applicable)
-	Condition      AlertCondition         `protobuf:"varint,6,opt,name=condition,proto3,enum=models.AlertCondition" json:"condition,omitempty"`             // Alert condition
-	ThresholdValue float64                `protobuf:"fixed64,7,opt,name=threshold_value,json=thresholdValue,proto3" json:"threshold_value,omitempty"`       // Threshold value for alert
-	CustomMessage  string                 `protobuf:"bytes,8,opt,name=custom_message,json=customMessage,proto3" json:"custom_message,omitempty"`            // Custom alert message
-	Enabled        bool                   `protobuf:"varint,9,opt,name=enabled,proto3" json:"enabled,omitempty"`                                            // Whether alert is active
-	CreatedAt      *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	LastTriggered  *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=last_triggered,json=lastTriggered,proto3" json:"last_triggered,omitempty"`
-	TriggerCount   int32                  `protobuf:"varint,12,opt,name=trigger_count,json=triggerCount,proto3" json:"trigger_count,omitempty"` // How many times this alert was triggered
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`                                            // Alert ID
+	TelegramId    string                 `protobuf:"bytes,2,opt,name=telegram_id,json=telegramId,proto3" json:"telegram_id,omitempty"`          // Owner Telegram ID
+	RuleId        string                 `protobuf:"bytes,3,opt,name=rule_id,json=ruleId,proto3" json:"rule_id,omitempty"`                      // Link to Rule (business logic)
+	CustomMessage string                 `protobuf:"bytes,4,opt,name=custom_message,json=customMessage,proto3" json:"custom_message,omitempty"` // Custom Telegram message template (optional)
+	Enabled       bool                   `protobuf:"varint,5,opt,name=enabled,proto3" json:"enabled,omitempty"`                                 // Whether Telegram delivery is enabled
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	LastTriggered *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=last_triggered,json=lastTriggered,proto3" json:"last_triggered,omitempty"`
+	TriggerCount  int32                  `protobuf:"varint,8,opt,name=trigger_count,json=triggerCount,proto3" json:"trigger_count,omitempty"` // Telegram delivery count
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TelegramAlert) Reset() {
@@ -978,39 +849,11 @@ func (x *TelegramAlert) GetTelegramId() string {
 	return ""
 }
 
-func (x *TelegramAlert) GetAlertType() AlertType {
+func (x *TelegramAlert) GetRuleId() string {
 	if x != nil {
-		return x.AlertType
-	}
-	return AlertType_ALERT_TYPE_UNSPECIFIED
-}
-
-func (x *TelegramAlert) GetAssetSymbol() string {
-	if x != nil {
-		return x.AssetSymbol
+		return x.RuleId
 	}
 	return ""
-}
-
-func (x *TelegramAlert) GetPortfolioId() string {
-	if x != nil {
-		return x.PortfolioId
-	}
-	return ""
-}
-
-func (x *TelegramAlert) GetCondition() AlertCondition {
-	if x != nil {
-		return x.Condition
-	}
-	return AlertCondition_ALERT_CONDITION_UNSPECIFIED
-}
-
-func (x *TelegramAlert) GetThresholdValue() float64 {
-	if x != nil {
-		return x.ThresholdValue
-	}
-	return 0
 }
 
 func (x *TelegramAlert) GetCustomMessage() string {
@@ -1118,24 +961,19 @@ const file_api_models_telegram_proto_rawDesc = "" +
 	"\x05value\x18\a \x01(\x01R\x05value\x129\n" +
 	"\n" +
 	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x12\n" +
-	"\x04sent\x18\t \x01(\bR\x04sent\"\xfb\x03\n" +
+	"\x04sent\x18\t \x01(\bR\x04sent\"\x87\x03\n" +
 	"\rTelegramAlert\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
 	"\vtelegram_id\x18\x02 \x01(\tR\n" +
-	"telegramId\x120\n" +
+	"telegramId\x12\x17\n" +
+	"\arule_id\x18\x03 \x01(\tR\x06ruleId\x12%\n" +
+	"\x0ecustom_message\x18\x04 \x01(\tR\rcustomMessage\x12\x18\n" +
+	"\aenabled\x18\x05 \x01(\bR\aenabled\x129\n" +
 	"\n" +
-	"alert_type\x18\x03 \x01(\x0e2\x11.models.AlertTypeR\talertType\x12!\n" +
-	"\fasset_symbol\x18\x04 \x01(\tR\vassetSymbol\x12!\n" +
-	"\fportfolio_id\x18\x05 \x01(\tR\vportfolioId\x124\n" +
-	"\tcondition\x18\x06 \x01(\x0e2\x16.models.AlertConditionR\tcondition\x12'\n" +
-	"\x0fthreshold_value\x18\a \x01(\x01R\x0ethresholdValue\x12%\n" +
-	"\x0ecustom_message\x18\b \x01(\tR\rcustomMessage\x12\x18\n" +
-	"\aenabled\x18\t \x01(\bR\aenabled\x129\n" +
-	"\n" +
-	"created_at\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12A\n" +
-	"\x0elast_triggered\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\rlastTriggered\x12#\n" +
-	"\rtrigger_count\x18\f \x01(\x05R\ftriggerCount*\x8f\x01\n" +
+	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12A\n" +
+	"\x0elast_triggered\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\rlastTriggered\x12#\n" +
+	"\rtrigger_count\x18\b \x01(\x05R\ftriggerCountJ\x04\b\t\x10\rR\n" +
+	"alert_typeR\fasset_symbolR\fportfolio_idR\tconditionR\x0fthreshold_value*\x8f\x01\n" +
 	"\vMessageType\x12\x1c\n" +
 	"\x18MESSAGE_TYPE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11MESSAGE_TYPE_TEXT\x10\x01\x12\x16\n" +
@@ -1152,30 +990,12 @@ const file_api_models_telegram_proto_rawDesc = "" +
 	"\x1bRESPONSE_FORMAT_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15RESPONSE_FORMAT_PLAIN\x10\x01\x12\x1c\n" +
 	"\x18RESPONSE_FORMAT_MARKDOWN\x10\x02\x12\x18\n" +
-	"\x14RESPONSE_FORMAT_HTML\x10\x03*\x95\x02\n" +
+	"\x14RESPONSE_FORMAT_HTML\x10\x03*\x8e\x01\n" +
 	"\x10NotificationType\x12!\n" +
-	"\x1dNOTIFICATION_TYPE_UNSPECIFIED\x10\x00\x12!\n" +
-	"\x1dNOTIFICATION_TYPE_PRICE_ALERT\x10\x01\x12&\n" +
-	"\"NOTIFICATION_TYPE_PORTFOLIO_CHANGE\x10\x02\x12$\n" +
-	" NOTIFICATION_TYPE_TRADE_EXECUTED\x10\x03\x12$\n" +
-	" NOTIFICATION_TYPE_SYNC_COMPLETED\x10\x04\x12\"\n" +
-	"\x1eNOTIFICATION_TYPE_SYSTEM_ALERT\x10\x05\x12#\n" +
-	"\x1fNOTIFICATION_TYPE_WEEKLY_REPORT\x10\x06*\xd9\x01\n" +
-	"\tAlertType\x12\x1a\n" +
-	"\x16ALERT_TYPE_UNSPECIFIED\x10\x00\x12\x1a\n" +
-	"\x16ALERT_TYPE_PRICE_ABOVE\x10\x01\x12\x1a\n" +
-	"\x16ALERT_TYPE_PRICE_BELOW\x10\x02\x12\x1b\n" +
-	"\x17ALERT_TYPE_PRICE_CHANGE\x10\x03\x12\x1e\n" +
-	"\x1aALERT_TYPE_PORTFOLIO_VALUE\x10\x04\x12\x1f\n" +
-	"\x1bALERT_TYPE_PORTFOLIO_CHANGE\x10\x05\x12\x1a\n" +
-	"\x16ALERT_TYPE_BALANCE_LOW\x10\x06*\xd6\x01\n" +
-	"\x0eAlertCondition\x12\x1f\n" +
-	"\x1bALERT_CONDITION_UNSPECIFIED\x10\x00\x12 \n" +
-	"\x1cALERT_CONDITION_GREATER_THAN\x10\x01\x12\x1d\n" +
-	"\x19ALERT_CONDITION_LESS_THAN\x10\x02\x12\x19\n" +
-	"\x15ALERT_CONDITION_EQUAL\x10\x03\x12\"\n" +
-	"\x1eALERT_CONDITION_CHANGE_PERCENT\x10\x04\x12#\n" +
-	"\x1fALERT_CONDITION_CHANGE_ABSOLUTE\x10\x05B\x86\x01\n" +
+	"\x1dNOTIFICATION_TYPE_UNSPECIFIED\x10\x00\x12\x1b\n" +
+	"\x17NOTIFICATION_TYPE_ALERT\x10\x01\x12\x1c\n" +
+	"\x18NOTIFICATION_TYPE_SYSTEM\x10\x02\x12\x1c\n" +
+	"\x18NOTIFICATION_TYPE_REPORT\x10\x03B\x86\x01\n" +
 	"\n" +
 	"com.modelsB\rTelegramProtoP\x01Z1github.com/foxcool/greedy-eye/internal/api/models\xa2\x02\x03MXX\xaa\x02\x06Models\xca\x02\x06Models\xe2\x02\x12Models\\GPBMetadata\xea\x02\x06Modelsb\x06proto3"
 
@@ -1191,48 +1011,44 @@ func file_api_models_telegram_proto_rawDescGZIP() []byte {
 	return file_api_models_telegram_proto_rawDescData
 }
 
-var file_api_models_telegram_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
+var file_api_models_telegram_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
 var file_api_models_telegram_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_api_models_telegram_proto_goTypes = []any{
 	(MessageType)(0),              // 0: models.MessageType
 	(ResponseType)(0),             // 1: models.ResponseType
 	(ResponseFormat)(0),           // 2: models.ResponseFormat
 	(NotificationType)(0),         // 3: models.NotificationType
-	(AlertType)(0),                // 4: models.AlertType
-	(AlertCondition)(0),           // 5: models.AlertCondition
-	(*TelegramUser)(nil),          // 6: models.TelegramUser
-	(*SessionContext)(nil),        // 7: models.SessionContext
-	(*TelegramMessage)(nil),       // 8: models.TelegramMessage
-	(*TelegramResponse)(nil),      // 9: models.TelegramResponse
-	(*InlineButton)(nil),          // 10: models.InlineButton
-	(*TelegramNotification)(nil),  // 11: models.TelegramNotification
-	(*TelegramAlert)(nil),         // 12: models.TelegramAlert
-	nil,                           // 13: models.SessionContext.ContextDataEntry
-	nil,                           // 14: models.TelegramMessage.MetadataEntry
-	(*timestamppb.Timestamp)(nil), // 15: google.protobuf.Timestamp
+	(*TelegramUser)(nil),          // 4: models.TelegramUser
+	(*SessionContext)(nil),        // 5: models.SessionContext
+	(*TelegramMessage)(nil),       // 6: models.TelegramMessage
+	(*TelegramResponse)(nil),      // 7: models.TelegramResponse
+	(*InlineButton)(nil),          // 8: models.InlineButton
+	(*TelegramNotification)(nil),  // 9: models.TelegramNotification
+	(*TelegramAlert)(nil),         // 10: models.TelegramAlert
+	nil,                           // 11: models.SessionContext.ContextDataEntry
+	nil,                           // 12: models.TelegramMessage.MetadataEntry
+	(*timestamppb.Timestamp)(nil), // 13: google.protobuf.Timestamp
 }
 var file_api_models_telegram_proto_depIdxs = []int32{
-	15, // 0: models.TelegramUser.created_at:type_name -> google.protobuf.Timestamp
-	15, // 1: models.TelegramUser.last_active:type_name -> google.protobuf.Timestamp
-	13, // 2: models.SessionContext.context_data:type_name -> models.SessionContext.ContextDataEntry
-	15, // 3: models.SessionContext.expires_at:type_name -> google.protobuf.Timestamp
+	13, // 0: models.TelegramUser.created_at:type_name -> google.protobuf.Timestamp
+	13, // 1: models.TelegramUser.last_active:type_name -> google.protobuf.Timestamp
+	11, // 2: models.SessionContext.context_data:type_name -> models.SessionContext.ContextDataEntry
+	13, // 3: models.SessionContext.expires_at:type_name -> google.protobuf.Timestamp
 	0,  // 4: models.TelegramMessage.type:type_name -> models.MessageType
-	15, // 5: models.TelegramMessage.received_at:type_name -> google.protobuf.Timestamp
-	14, // 6: models.TelegramMessage.metadata:type_name -> models.TelegramMessage.MetadataEntry
+	13, // 5: models.TelegramMessage.received_at:type_name -> google.protobuf.Timestamp
+	12, // 6: models.TelegramMessage.metadata:type_name -> models.TelegramMessage.MetadataEntry
 	1,  // 7: models.TelegramResponse.type:type_name -> models.ResponseType
 	2,  // 8: models.TelegramResponse.format:type_name -> models.ResponseFormat
-	10, // 9: models.TelegramResponse.buttons:type_name -> models.InlineButton
+	8,  // 9: models.TelegramResponse.buttons:type_name -> models.InlineButton
 	3,  // 10: models.TelegramNotification.type:type_name -> models.NotificationType
-	15, // 11: models.TelegramNotification.created_at:type_name -> google.protobuf.Timestamp
-	4,  // 12: models.TelegramAlert.alert_type:type_name -> models.AlertType
-	5,  // 13: models.TelegramAlert.condition:type_name -> models.AlertCondition
-	15, // 14: models.TelegramAlert.created_at:type_name -> google.protobuf.Timestamp
-	15, // 15: models.TelegramAlert.last_triggered:type_name -> google.protobuf.Timestamp
-	16, // [16:16] is the sub-list for method output_type
-	16, // [16:16] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	13, // 11: models.TelegramNotification.created_at:type_name -> google.protobuf.Timestamp
+	13, // 12: models.TelegramAlert.created_at:type_name -> google.protobuf.Timestamp
+	13, // 13: models.TelegramAlert.last_triggered:type_name -> google.protobuf.Timestamp
+	14, // [14:14] is the sub-list for method output_type
+	14, // [14:14] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_api_models_telegram_proto_init() }
@@ -1245,7 +1061,7 @@ func file_api_models_telegram_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_models_telegram_proto_rawDesc), len(file_api_models_telegram_proto_rawDesc)),
-			NumEnums:      6,
+			NumEnums:      4,
 			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,

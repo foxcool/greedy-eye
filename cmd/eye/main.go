@@ -15,6 +15,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/services/asset"
 	"github.com/foxcool/greedy-eye/internal/services/portfolio"
 	"github.com/foxcool/greedy-eye/internal/services/price"
+	"github.com/foxcool/greedy-eye/internal/services/rule"
 	"github.com/foxcool/greedy-eye/internal/services/storage"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent"
 	"github.com/foxcool/greedy-eye/internal/services/telegram"
@@ -217,10 +218,20 @@ func getAvailableServices() map[string]ServiceDefinition {
 			},
 			GatewayRegister: services.RegisterPriceServiceHandlerFromEndpoint,
 		},
+		"RuleService": {
+			Name:         "RuleService",
+			Type:         "rule",
+			Dependencies: []string{"StorageService", "UserService", "PortfolioService", "AssetService", "PriceService"},
+			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *zap.Logger) error {
+				services.RegisterRuleServiceServer(server, rule.NewService(log))
+				return nil
+			},
+			GatewayRegister: services.RegisterRuleServiceHandlerFromEndpoint,
+		},
 		"TelegramBotService": {
 			Name:         "TelegramBotService",
 			Type:         "telegram",
-			Dependencies: []string{"StorageService", "UserService", "PortfolioService", "AssetService", "PriceService"},
+			Dependencies: []string{"StorageService", "UserService", "PortfolioService", "AssetService", "PriceService", "RuleService"},
 			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *zap.Logger) error {
 				services.RegisterTelegramBotServiceServer(server, telegram.NewService(log))
 				return nil

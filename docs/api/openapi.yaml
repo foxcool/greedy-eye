@@ -2572,27 +2572,6 @@ definitions:
       - ACCOUNT_TYPE_BANK
       - ACCOUNT_TYPE_BROKER
     default: ACCOUNT_TYPE_UNSPECIFIED
-  modelsAlertCondition:
-    type: string
-    enum:
-      - ALERT_CONDITION_UNSPECIFIED
-      - ALERT_CONDITION_GREATER_THAN
-      - ALERT_CONDITION_LESS_THAN
-      - ALERT_CONDITION_EQUAL
-      - ALERT_CONDITION_CHANGE_PERCENT
-      - ALERT_CONDITION_CHANGE_ABSOLUTE
-    default: ALERT_CONDITION_UNSPECIFIED
-  modelsAlertType:
-    type: string
-    enum:
-      - ALERT_TYPE_UNSPECIFIED
-      - ALERT_TYPE_PRICE_ABOVE
-      - ALERT_TYPE_PRICE_BELOW
-      - ALERT_TYPE_PRICE_CHANGE
-      - ALERT_TYPE_PORTFOLIO_VALUE
-      - ALERT_TYPE_PORTFOLIO_CHANGE
-      - ALERT_TYPE_BALANCE_LOW
-    default: ALERT_TYPE_UNSPECIFIED
   modelsAsset:
     type: object
     properties:
@@ -2702,13 +2681,17 @@ definitions:
     type: string
     enum:
       - NOTIFICATION_TYPE_UNSPECIFIED
-      - NOTIFICATION_TYPE_PRICE_ALERT
-      - NOTIFICATION_TYPE_PORTFOLIO_CHANGE
-      - NOTIFICATION_TYPE_TRADE_EXECUTED
-      - NOTIFICATION_TYPE_SYNC_COMPLETED
-      - NOTIFICATION_TYPE_SYSTEM_ALERT
-      - NOTIFICATION_TYPE_WEEKLY_REPORT
+      - NOTIFICATION_TYPE_ALERT
+      - NOTIFICATION_TYPE_SYSTEM
+      - NOTIFICATION_TYPE_REPORT
     default: NOTIFICATION_TYPE_UNSPECIFIED
+    description: |-
+      - NOTIFICATION_TYPE_ALERT: Rule-triggered alerts (price, portfolio, etc.)
+       - NOTIFICATION_TYPE_SYSTEM: System status, sync, trade confirmations
+       - NOTIFICATION_TYPE_REPORT: Scheduled reports (weekly, monthly)
+    title: |-
+      Simplified transport-focused notification types
+      Business logic conditions moved to Rule system
   modelsPortfolio:
     type: object
     properties:
@@ -2940,28 +2923,15 @@ definitions:
       telegramId:
         type: string
         title: Owner Telegram ID
-      alertType:
-        $ref: '#/definitions/modelsAlertType'
-        title: Type of alert
-      assetSymbol:
+      ruleId:
         type: string
-        title: Asset symbol (if applicable)
-      portfolioId:
-        type: string
-        title: Portfolio ID (if applicable)
-      condition:
-        $ref: '#/definitions/modelsAlertCondition'
-        title: Alert condition
-      thresholdValue:
-        type: number
-        format: double
-        title: Threshold value for alert
+        title: Link to Rule (business logic)
       customMessage:
         type: string
-        title: Custom alert message
+        title: Custom Telegram message template (optional)
       enabled:
         type: boolean
-        title: Whether alert is active
+        title: Whether Telegram delivery is enabled
       createdAt:
         type: string
         format: date-time
@@ -2971,8 +2941,10 @@ definitions:
       triggerCount:
         type: integer
         format: int32
-        title: How many times this alert was triggered
-    title: Alert represents user-configured alert
+        title: Telegram delivery count
+    title: |-
+      TelegramAlert represents transport-specific alert configuration
+      Business logic moved to Rule system - this handles only Telegram-specific concerns
   modelsTelegramNotification:
     type: object
     properties:
