@@ -1,331 +1,146 @@
-# Greedy-Eye
+# Greedy Eye
 
-**Greedy-Eye** is a comprehensive portfolio management system with advanced trading features,
-analytics, notifications, and metrics, built using Go.
+**Universal portfolio management system** for managing diverse investment portfolios including cryptocurrencies, 
+securities, and other financial instruments - featuring conversational interface and voice support.
 
-## ⚠️ Status
+## 🚀 What is Greedy Eye?
 
-:warning: **Under development.**
+Greedy Eye helps you manage your investment portfolio through:
+- **Conversational Interface**: Chat with your portfolio via Telegram bot (with voice support)
+- **Rule-Based Automation**: Set up alerts, DCA strategies, rebalancing rules
+- **Multi-Platform Support**: Connect exchanges, brokerages, and other platforms to track all assets in one place
+- **Voice Commands**: Speak to your bot in Russian or English using advanced STT/TTS
+- **Real-Time Alerts**: Get notified about price changes, portfolio performance
 
-**Current state (v0.0.3-alpha):**
+## 🏛️ Supported Asset Types
 
-- ✅ Infrastructure foundation complete (storage, DB, CI/CD)
-- ✅ Application bootstrapping and configuration
-- ✅ Database schema with Ent ORM integration
-- ✅ Docker deployment with multiplatform support
-- ✅ gRPC-Gateway HTTP API implementation
-- ✅ Core service structure (Asset, Portfolio, Price, User, Storage)
-- ✅ Authentication service with API keys and JWT
-- ✅ Rule-based portfolio management system
+**Universal Design**: The system architecture supports diverse financial instruments:
 
-**Next phase:**
+- **Cryptocurrencies** - Bitcoin, Ethereum, altcoins (primary implementation focus)
+- **Securities** - Stocks, bonds, ETFs, mutual funds
+- **Derivatives** - Options, futures, swaps
+- **Alternative Assets** - REITs, commodities, forex pairs
+- **Custom Assets** - Any tradeable instrument with price data
 
-- Implementing external API integrations (Binance, CoinGecko)
-- Adding business logic to services
-- Integration testing and validation
+*Current implementation focuses on cryptocurrency exchanges and market data, with securities and other asset types 
+planned for future releases.*
 
-## 📜 Table of Contents
+## ⚡ Current Status
 
-- [Overview](#overview)
-- [Features](#features)
-- [Supported Services](#supported-services)
-- [Architecture](#architecture)
-- [Deployment Options](#deployment-options)
-- [Quickstart](#quickstart)
-- [Development](#development)
-- [Roadmap](#roadmap)
-- [License](#license)
+**Architecture**: ✅ **Complete** - All services implemented with comprehensive APIs  
+**Implementation**: 🔄 **Business Logic Phase** - Core functionality being added  
+**Production**: 📋 **Planned** - Full deployment preparation in progress  
 
-## Overview
+**Ready to use**: HTTP API Gateway, Database layer, Service architecture  
+**Coming soon**: External integrations (crypto exchanges, market data providers, brokerage APIs), Telegram bot activation
 
-Greedy-Eye is designed to help investment enthusiasts manage their portfolios efficiently.
-It integrates data fetching, analysis, trading, and real-time notifications to provide a
-seamless experience for tracking and optimizing your crypto investments.
+## 📖 Documentation
+
+**→ [Complete Documentation](docs/README.md)** - Architecture, development guides, service details
+
+### Quick Links
+- **[Getting Started](docs/DEVELOPMENT.md#quick-start)** - Setup and run the project
+- **[Architecture Overview](docs/ARCHITECTURE.md)** - System design and decisions  
+- **[Telegram Bot](docs/services/telegram-bot.md)** - Conversational interface details
+- **[Rule Engine](docs/services/rule-service.md)** - Automation and alerts system
+
+## 🏗️ Architecture
+
+**Pattern**: Modular Monolith with gRPC Services + HTTP API Gateway  
+**Deployment**: Single binary or microservices via configuration  
+**Database**: PostgreSQL with Ent ORM  
+**APIs**: Internal gRPC + External HTTP (auto-generated)
 
 ```mermaid
 graph TB
-    User[👤 User] --> API[🌐 gRPC/HTTP API]
-    API --> Services[📋 Business Services]
-    Services --> Storage[💾 Storage Layer]
+    User[👤 User] --> Telegram[📱 Telegram Bot<br/>Voice + Text]
+    User --> API[🌐 HTTP API<br/>:8080]
+    
+    Telegram --> TBot[🤖 TelegramBotService]
+    API --> Gateway[🌐 gRPC-Gateway]
+    Gateway --> Services[📋 Core Services]
+    TBot --> Services
+    
+    Services --> Storage[💾 StorageService]
     Storage --> DB[(🗄️ PostgreSQL)]
     
     Services --> External[🔌 External APIs]
-    External --> Binance[📊 Binance]
-    External --> CoinGecko[💰 CoinGecko]
-    External --> Telegram[📱 Telegram]
+    External --> Speech[🎤 STT/TTS<br/>Providers]
+    External --> Exchanges[📊 Exchanges &<br/>Brokerages]
+    External --> Price[💰 Market<br/>Data]
     
-    subgraph "Core Services"
-        Services --> Auth[🔐 AuthService]
-        Services --> Rules[⚙️ RuleService] 
-        Services --> Portfolio[📈 PortfolioService]
-        Services --> Assets[🏦 AssetService]
-        Services --> Prices[💲 PriceService]
-        Services --> Users[👥 UserService]
+    subgraph "8 Core Services"
+        Services --> Auth[🔐 Auth]
+        Services --> Rules[⚙️ Rules + Alerts] 
+        Services --> Portfolio[📈 Portfolio]
+        Services --> Assets[🏦 Multi-Asset<br/>Management]
+        Services --> Prices[💲 Prices]
+        Services --> Users[👥 Users]
     end
 ```
 
-## Features
+## ✨ Key Features
 
-- **Portfolio Management**:
-  - [x] Database schema and storage layer
-  - [ ] Basic portfolio structure and holdings
-  - [ ] Multiple portfolios support
-  - [ ] Advanced portfolio metrics and analytics
-  - [ ] Rebalancing suggestions
+### 🤖 Conversational Interface
+- **Telegram Bot** with comprehensive command support (`/portfolio`, `/balance`, `/alerts`)
+- **Voice Support** - Speak in Russian or English, get voice responses back
+- **Multi-Provider STT/TTS** - Google Cloud Speech, OpenAI Whisper, Yandex SpeechKit
+- **Session Management** - Stateful conversations with context preservation
 
-- **Data Integration**:
-  - [x] Storage layer for price data
-  - [ ] Basic price fetching from CoinGecko
-  - [ ] Balance synchronization with exchanges
-  - [ ] Transaction history import
+### ⚙️ Portfolio Automation  
+- **Rule Engine** - Set up automated strategies (DCA, rebalancing, stop-loss, dividend reinvestment)
+- **Smart Alerts** - Price alerts, portfolio change notifications, earnings announcements with rate limiting
+- **Flexible Scheduling** - Cron-based execution for regular operations across all asset types
+- **Simulation Mode** - Test strategies before applying real money to any asset class
 
-- **Notifications**:
-  - [x] Telegram client adapter structure
-  - [ ] Basic Telegram integration
-  - [ ] Price alerts
-  - [ ] Portfolio performance alerts
+### 🔌 Multi-Platform Integration
+- **Unified Interface** - Manage portfolios across exchanges, brokerages, and other platforms
+- **Real-Time Sync** - Keep balances and transactions synchronized across all asset types
+- **External APIs** - Crypto exchanges (Binance), market data (CoinGecko), securities brokerages (T-Bank Invest API)
+- **HTTP API** - RESTful endpoints auto-generated from gRPC definitions
 
-- **Trading Automation**:
-  - [ ] Automated trading strategies
-  - [ ] DCA and rebalancing automation
-  - [ ] Trade execution on exchanges
+### 🛡️ Enterprise-Ready
+- **Modular Architecture** - Run as monolith or microservices
+- **Authentication** - JWT-based auth with API key management
+- **Database Layer** - PostgreSQL with automated migrations
+- **Docker Support** - Multi-platform containers (AMD64/ARM64)
 
-*Note: Checked items [x] are implemented in the current version.*
+## 🚀 Quick Start
 
-## Supported Services
+**Prerequisites**: Docker and Docker Compose
 
-- **Exchanges**:
-  - Binance (in progress)
-  - GateIO (planned)
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/foxcool/greedy-eye.git
+   cd greedy-eye
+   ```
 
-- **Notification Channels**:
-  - Telegram (basic implementation)
+2. **Start the system**:
+   ```bash
+   docker-compose up -d
+   ```
 
-- **Price Providers**:
-  - CoinGecko (implemented)
+3. **Access the application**:
+   - HTTP API: http://localhost:8080
+   - Health check: http://localhost:8080/health
+   - gRPC endpoint: localhost:50051
 
-## Architecture
+**Next Steps**: Check [Getting Started Guide](docs/DEVELOPMENT.md#quick-start) for detailed setup and development instructions.
 
-Greedy-Eye follows a modular monolithic architecture with microservices deployment capability.
-Each component is responsible for a specific set of functionalities, and the system is designed
-to be extensible, allowing for easy integration of new services and features.
+## 💻 Development
 
-```mermaid
-graph TB
-    subgraph "Interface Layer"
-        API[🌐 gRPC-Gateway<br/>HTTP:8080]
-        gRPC[🔌 gRPC Server<br/>:50051]
-    end
-    
-    subgraph "Business Logic Layer"
-        Auth[🔐 AuthService<br/>JWT & Auth]
-        Rules[⚙️ RuleService<br/>Automation]
-        Portfolio[📈 PortfolioService<br/>Calculations]
-        Assets[🏦 AssetService<br/>Metadata]
-        Prices[💲 PriceService<br/>Data Fetching]
-        Users[👥 UserService<br/>Management]
-    end
-    
-    subgraph "Data Layer"
-        Storage[💾 StorageService<br/>CRUD Operations]
-    end
-    
-    subgraph "Database"
-        DB[(🗄️ PostgreSQL<br/>Persistent Storage)]
-    end
-    
-    API --> gRPC
-    gRPC --> Auth
-    gRPC --> Rules  
-    gRPC --> Portfolio
-    gRPC --> Assets
-    gRPC --> Prices
-    gRPC --> Users
-    
-    Auth --> Storage
-    Rules --> Storage
-    Portfolio --> Storage
-    Assets --> Storage
-    Prices --> Storage
-    Users --> Storage
-    
-    Storage --> DB
-```
+**Want to contribute?** See our [Development Guide](docs/DEVELOPMENT.md) for:
+- Setting up your development environment  
+- Running tests and linting
+- Contributing guidelines
+- Service architecture details
 
-### Key Components
-
-- **Asset Service**: Asset metadata and external data enrichment
-- **Portfolio Service**: Portfolio calculations, performance metrics, and analytics  
-- **Price Service**: Price data fetching from external providers (CoinGecko, exchanges)
-- **User Service**: User account management and preferences
-- **Auth Service**: JWT authentication and token management
-- **Rule Service**: Rule execution engine for portfolio automation (DCA, rebalancing, stop-loss)
-- **Storage Service**: Low-level CRUD operations and database abstraction
-
-### Service Layer Separation
-
-Greedy-Eye follows a layered architecture pattern with clear separation of concerns:
-
-#### Domain Services
-
-Services like `AssetService`, `PortfolioService`, `UserService`, `AuthService`, and `RuleService`
-represent the business domain and implement domain-specific logic:
-
-- Business rules validation
-- Domain workflows and operations
-- Cross-entity operations
-- External integrations
-
-#### Storage Service
-
-`StorageService` acts as an abstraction layer for persistent storage:
-
-- Low-level data CRUD operations
-- Database transaction management
-- Data versioning and history tracking
-- Query optimization
-
-Domain services depend on the Storage service for data persistence needs, never directly
-accessing the database.
-
-**Note**: All API Key CRUD operations are handled by StorageService, while AuthService 
-focuses on JWT business logic.
-
-## Deployment Options
-
-Greedy-Eye offers flexible deployment options:
-
-1. **Monolithic Mode**: Run all services in a single binary
-2. **Microservices Mode**: Run each service separately and communicate via gRPC
-
-Configure which services to run using either:
-
-- Configuration file with `-c [config file path]`
-- Environment variables (e.g., `EYE_SERVICES="asset,portfolio,price"`)
-
-## Quickstart
-
-### Docker
-
-Greedy-Eye provides multiplatform Docker images supporting:
-
-- `linux/amd64` (Intel/AMD 64-bit)
-- `linux/arm64` (ARM 64-bit, including Apple Silicon)
-
-To run Greedy-Eye using Docker, follow these steps:
-
-Create a docker-compose.yml file:
-
-```yaml
-version: '3.8'
-
-services:
-  greedy-eye:
-    image: foxcool/greedy-eye:latest
-    ports:
-      - "8080:80"
-    environment:
-      - EYE_LOGGING_LEVEL=DEBUG
-      - EYE_DATABASE_URL=postgresql://greedy-eye:password@db:5432/greedy-eye
-      - EYE_SERVICES="asset,portfolio,price,user"
-    depends_on:
-      - db
-    networks:
-      - greedy-eye
-
-  db:
-    image: postgres:13
-    environment:
-      - POSTGRES_USER=greedy-eye
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=greedy-eye
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - greedy-eye
-
-networks:
-  greedy-eye:
-
-volumes:
-  postgres_data:
-```
-
-Run the following command:
-
+**Key Commands**:
 ```bash
-docker-compose up -d
+make dev      # Start with live reload
+make test     # Run tests
+make buf-gen  # Generate protobuf code
 ```
-
-Greedy-Eye will be accessible at <http://localhost:8080>.
-
-### Manual Build
-
-To build and run Greedy-Eye manually:
-
-1. Clone the repository:
-
-```bash
-git clone https://github.com/foxcool/greedy-eye.git
-cd greedy-eye
-```
-
-2. Generate Go code from Protocol Buffers:
-
-```bash
-make buf-gen
-```
-
-3. Build the project:
-
-```bash
-make build
-```
-
-4. Run the application:
-
-```bash
-./bin/eye -c configs/config.yaml
-```
-
-## Development
-
-### Prerequisites
-
-- Go 1.23+
-- Protocol Buffers compiler
-- Docker and Docker Compose (for local development)
-
-### Development Commands
-
-```bash
-# Generate protobuf files
-make buf-gen
-
-# Run linting
-make lint
-
-# Run tests
-make test
-
-# Start development environment
-make up
-```
-
-## Roadmap
-
-- [x] Core architecture and service structure
-- [x] Basic gRPC interfaces
-- [x] Database schema and migrations
-- [x] Storage service implementation
-- [x] Docker containerization and CI/CD
-- [ ] Core business logic services (Asset, Portfolio, Price, User)
-- [ ] Basic portfolio tracking
-- [ ] Binance API integration
-- [ ] Telegram notifications
-- [ ] Portfolio analytics
-- [ ] Trading automation
-- [ ] Web interface
 
 ## License
 

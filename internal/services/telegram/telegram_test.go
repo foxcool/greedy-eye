@@ -51,7 +51,7 @@ func TestService_SendNotification(t *testing.T) {
 	req := &services.SendNotificationRequest{
 		Notification: &models.TelegramNotification{
 			TelegramId: "123456789",
-			Type:       models.NotificationType_NOTIFICATION_TYPE_PRICE_ALERT,
+			Type:       models.NotificationType_NOTIFICATION_TYPE_ALERT,
 			Title:      "Price Alert",
 			Message:    "BTC price reached $50000",
 		},
@@ -78,13 +78,13 @@ func TestService_SendBulkNotifications(t *testing.T) {
 		Notifications: []*models.TelegramNotification{
 			{
 				TelegramId: "123456789",
-				Type:       models.NotificationType_NOTIFICATION_TYPE_SYSTEM_ALERT,
+				Type:       models.NotificationType_NOTIFICATION_TYPE_SYSTEM,
 				Title:      "System Alert",
 				Message:    "System maintenance scheduled",
 			},
 			{
 				TelegramId: "987654321",
-				Type:       models.NotificationType_NOTIFICATION_TYPE_PORTFOLIO_CHANGE,
+				Type:       models.NotificationType_NOTIFICATION_TYPE_ALERT,
 				Title:      "Portfolio Update",
 				Message:    "Portfolio value changed",
 			},
@@ -113,13 +113,10 @@ func TestService_ManageAlerts(t *testing.T) {
 		TelegramId: "123456789",
 		Operation:  services.AlertOperation_ALERT_OPERATION_CREATE,
 		Alert: &models.TelegramAlert{
-			TelegramId:     "123456789",
-			AlertType:      models.AlertType_ALERT_TYPE_PRICE_ABOVE,
-			AssetSymbol:    "BTC",
-			Condition:      models.AlertCondition_ALERT_CONDITION_GREATER_THAN,
-			ThresholdValue: 50000,
-			CustomMessage:  "BTC above $50k",
-			Enabled:        true,
+			TelegramId:    "123456789",
+			RuleId:        "rule_123",
+			CustomMessage: "BTC above $50k",
+			Enabled:       true,
 		},
 	}
 

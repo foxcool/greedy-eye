@@ -7,7 +7,7 @@
 **Estimated Duration**: 4-5 weeks  
 **Architecture**: gRPC Service + Telegram Bot API + Speech Integration
 
-The Telegram Bot Service provides users with a conversational interface to interact with their Greedy Eye portfolio management system. Users can check balances, view performance, execute trades, and manage their financial data through natural language commands via Telegram.
+The Telegram Bot Service provides users with a conversational interface to interact with their Greedy Eye universal portfolio management system. Users can check balances, view performance, execute trades, and manage their multi-asset financial portfolios (crypto, securities, derivatives) through natural language commands via Telegram.
 
 ## Architecture Decisions
 
@@ -41,7 +41,7 @@ The Telegram Bot Service provides users with a conversational interface to inter
 - `/help` - Complete command reference
 
 ### 2. Text Message Processing
-- **Natural Language Queries**: "How much BTC do I have?", "Show me ETH price"
+- **Natural Language Queries**: "How much BTC do I have?", "Show me AAPL price", "Check my Sberbank stock"
 - **Context-Aware Responses**: Multi-turn conversations with state management
 - **Command Parsing**: Intelligent parsing of user intents from free text
 - **Error Handling**: Graceful handling of unclear or invalid requests
@@ -54,15 +54,20 @@ The Telegram Bot Service provides users with a conversational interface to inter
 
 ### 4. Data Integration
 - **User Context**: Seamless mapping between Telegram ID and system User ID
-- **Portfolio Data**: Real-time access to user portfolios and holdings
-- **Price Data**: Live market data integration
-- **Transaction History**: Complete transaction tracking and reporting
-- **Account Management**: Multi-account and multi-exchange support
+- **Portfolio Data**: Real-time access to user multi-asset portfolios and holdings
+- **Price Data**: Live market data integration (crypto exchanges, securities brokerages)
+- **Transaction History**: Complete transaction tracking across all asset types
+- **Account Management**: Multi-account support (exchanges, brokerages, banks)
 
 ## Technical Architecture
 
 ### Service Structure
 ```go
+type Service struct {
+    log *zap.Logger  // Current stub implementation
+}
+
+// Future full implementation structure:
 type TelegramBotService struct {
     log               *zap.Logger
     bot               *telebot.Bot
@@ -71,7 +76,7 @@ type TelegramBotService struct {
     portfolioClient   services.PortfolioServiceClient
     assetClient       services.AssetServiceClient
     priceClient       services.PriceServiceClient
-    authClient        services.AuthServiceClient
+    ruleClient        services.RuleServiceClient
     sessionManager    *SessionManager
     speechProvider    SpeechProvider
     commandHandler    *CommandHandler
@@ -215,23 +220,23 @@ service TelegramBotService {
 - **Opt-out Support**: Easy unsubscribe from notifications
 - **GDPR Compliance**: User data deletion and export support
 
-## Implementation Plan
+## Implementation Status
 
-### Phase 1: Core Infrastructure (Week 1-2)
-1. **Proto Definitions**: Define TelegramBotService gRPC interface
-2. **Basic Service**: Implement service skeleton with logging
-3. **Telegram Integration**: Connect to Telegram Bot API with basic commands
-4. **User Mapping**: Create Telegram ID ↔ User ID mapping system
-5. **Simple Commands**: Implement `/start`, `/help`, `/portfolio` commands
+### ✅ Phase 1: Architecture Foundation (COMPLETED)
+1. **Proto Definitions**: ✅ TelegramBotService gRPC interface defined
+2. **Service Stubs**: ✅ All 11 gRPC methods implemented as stubs
+3. **Component Architecture**: ✅ Handlers, context, formatters, speech components created
+4. **Testing**: ✅ Comprehensive tests for all components
+5. **Integration**: ✅ Service integrated into main.go with proper dependencies
 
-### Phase 2: Advanced Features (Week 3-4)
-1. **Speech Integration**: Implement STT/TTS with provider selection
-2. **Message Processing**: Add NLP for text message understanding
-3. **Session Management**: Implement stateful conversations
-4. **Rich Responses**: Add formatted responses with charts and tables
-5. **All Commands**: Complete implementation of all inline commands
+### 🔄 Phase 2: Business Logic Implementation (NEXT)
+1. **Telegram Integration**: Connect to Telegram Bot API with basic commands
+2. **User Mapping**: Create Telegram ID ↔ User ID mapping system
+3. **Simple Commands**: Implement `/start`, `/help`, `/portfolio` commands
+4. **Session Management**: Implement stateful conversations
+5. **Message Processing**: Add NLP for text message understanding
 
-### Phase 3: Production Features (Week 5)
+### 🔄 Phase 3: Advanced Features (FUTURE)
 1. **Notifications**: Push notifications for price alerts and portfolio changes
 2. **Performance Optimization**: Caching, connection pooling, response optimization
 3. **Monitoring**: Metrics, alerting, and health checks
@@ -307,6 +312,8 @@ RATE_LIMIT_VOICE=5/minute
 - **OpenAI API**: Whisper STT and TTS
 - **Yandex SpeechKit**: Russian-optimized STT/TTS
 - **Redis** (optional): Session persistence
+- **T-Bank Invest API**: Securities market data and trading
+- **Binance API**: Cryptocurrency market data and trading
 
 ### Internal Services
 - **StorageService**: User and portfolio data

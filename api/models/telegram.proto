@@ -70,20 +70,21 @@ message TelegramNotification {
     bool sent = 9;                   // Whether notification was sent successfully
 }
 
-// Alert represents user-configured alert
+// TelegramAlert represents transport-specific alert configuration
+// Business logic moved to Rule system - this handles only Telegram-specific concerns
 message TelegramAlert {
     string id = 1;                   // Alert ID
     string telegram_id = 2;          // Owner Telegram ID
-    AlertType alert_type = 3;        // Type of alert
-    string asset_symbol = 4;         // Asset symbol (if applicable)
-    string portfolio_id = 5;         // Portfolio ID (if applicable)
-    AlertCondition condition = 6;    // Alert condition
-    double threshold_value = 7;      // Threshold value for alert
-    string custom_message = 8;       // Custom alert message
-    bool enabled = 9;                // Whether alert is active
-    google.protobuf.Timestamp created_at = 10;
-    google.protobuf.Timestamp last_triggered = 11;
-    int32 trigger_count = 12;        // How many times this alert was triggered
+    string rule_id = 3;              // Link to Rule (business logic)
+    string custom_message = 4;       // Custom Telegram message template (optional)
+    bool enabled = 5;                // Whether Telegram delivery is enabled
+    google.protobuf.Timestamp created_at = 6;
+    google.protobuf.Timestamp last_triggered = 7;
+    int32 trigger_count = 8;         // Telegram delivery count
+    
+    // Deprecated fields - will be removed after migration
+    reserved 9 to 12;               // Reserved for old alert_type, condition, etc.
+    reserved "alert_type", "asset_symbol", "portfolio_id", "condition", "threshold_value";
 }
 
 // Enums
@@ -110,31 +111,13 @@ enum ResponseFormat {
     RESPONSE_FORMAT_HTML = 3;
 }
 
+// Simplified transport-focused notification types
+// Business logic conditions moved to Rule system
 enum NotificationType {
     NOTIFICATION_TYPE_UNSPECIFIED = 0;
-    NOTIFICATION_TYPE_PRICE_ALERT = 1;
-    NOTIFICATION_TYPE_PORTFOLIO_CHANGE = 2;
-    NOTIFICATION_TYPE_TRADE_EXECUTED = 3;
-    NOTIFICATION_TYPE_SYNC_COMPLETED = 4;
-    NOTIFICATION_TYPE_SYSTEM_ALERT = 5;
-    NOTIFICATION_TYPE_WEEKLY_REPORT = 6;
+    NOTIFICATION_TYPE_ALERT = 1;          // Rule-triggered alerts (price, portfolio, etc.)
+    NOTIFICATION_TYPE_SYSTEM = 2;         // System status, sync, trade confirmations
+    NOTIFICATION_TYPE_REPORT = 3;         // Scheduled reports (weekly, monthly)
 }
 
-enum AlertType {
-    ALERT_TYPE_UNSPECIFIED = 0;
-    ALERT_TYPE_PRICE_ABOVE = 1;
-    ALERT_TYPE_PRICE_BELOW = 2;
-    ALERT_TYPE_PRICE_CHANGE = 3;
-    ALERT_TYPE_PORTFOLIO_VALUE = 4;
-    ALERT_TYPE_PORTFOLIO_CHANGE = 5;
-    ALERT_TYPE_BALANCE_LOW = 6;
-}
 
-enum AlertCondition {
-    ALERT_CONDITION_UNSPECIFIED = 0;
-    ALERT_CONDITION_GREATER_THAN = 1;
-    ALERT_CONDITION_LESS_THAN = 2;
-    ALERT_CONDITION_EQUAL = 3;
-    ALERT_CONDITION_CHANGE_PERCENT = 4;
-    ALERT_CONDITION_CHANGE_ABSOLUTE = 5;
-}

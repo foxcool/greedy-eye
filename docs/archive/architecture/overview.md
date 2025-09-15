@@ -27,7 +27,8 @@
 ### External Integrations
 - **Cryptocurrency Exchange**: Binance API (planned)
 - **Price Data**: CoinGecko API (planned)
-- **Notifications**: Telegram Bot API (basic implementation)
+- **Telegram Bot**: Comprehensive bot with voice support (STT/TTS)
+- **Speech Services**: Google Cloud Speech, OpenAI Whisper, Yandex SpeechKit
 - **External Services**: HTTP API Gateway for data access
 - **Authentication**: API Key and JWT-based authentication
 - **Monitoring**: Sentry (error tracking, planned)
@@ -41,10 +42,11 @@
 4. **PriceService**: Price data fetching and storage
 5. **UserService**: User management and basic operations
 6. **AuthService**: Authentication, API keys, JWT tokens, external integrations
-7. **RuleService**: Rule-based portfolio automation (DCA, rebalancing, stop-loss)
+7. **RuleService**: Rule-based portfolio automation (DCA, rebalancing, stop-loss, alerts)
+8. **TelegramBotService**: Conversational interface with voice support
 
 ### HTTP API Gateway
-8. **HTTP API Gateway**: External HTTP API wrapper
+9. **HTTP API Gateway**: External HTTP API wrapper
    - RESTful endpoints for external integrations
    - Authentication and authorization
    - Rate limiting and security
@@ -59,8 +61,9 @@
 - **Authentication**: Internal service authentication
 
 ### External Communication
-- **External Services**: HTTP API Gateway → gRPC Services
-- **Data Access**: HTTP endpoints → JSON responses (auto-generated)
+- **HTTP API**: HTTP API Gateway → gRPC Services → JSON responses
+- **Telegram Bot**: TelegramBotService ↔ Telegram Bot API
+- **Speech Processing**: TelegramBotService ↔ STT/TTS providers
 - **Authentication**: API key-based access control
 
 ## Security Architecture
