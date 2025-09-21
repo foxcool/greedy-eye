@@ -15,7 +15,8 @@ services:
         _path: cmd/eye
     container_name: eye-dev
     ports:
-      - "50080:80"
+      - "50080:8080"
+      - "50051:50051"
     # Development specific configuration working with source code.
     volumes:
       # Mount source code for live reload.
@@ -43,7 +44,7 @@ services:
         _path: cmd/eye
     container_name: eye-debug
     ports:
-      - "50081:80"
+      - "50081:8080"
       - "40000:40000"
     volumes:
       - ..:/go/src/github.com/foxcool/greedy-eye
