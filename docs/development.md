@@ -89,6 +89,7 @@ docker build .    # Build Docker image
 | PortfolioService | 🔄 Stubs | API complete | ✅ | ✅ |
 | PriceService | ✅ Implemented | External API integration | ✅ | ✅ |
 | RuleService | 🔄 Stubs | API complete | ✅ | ✅ |
+<<<<<<< HEAD
 | **MessengerService** | 🔄 Stubs | Multi-platform architecture | ✅ | ✅ |
 | AuthService | 🔄 Proto | Proto only | ❌ | ❌ |
 
