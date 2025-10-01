@@ -13,16 +13,16 @@ Comprehensive portfolio management system for cryptocurrency investments built i
 
 ## Key Files
 
-- `docs/architecture/overview.md` - Architecture overview
-- `docs/architecture/data-models.md` - Data models documentation
-- `docs/development/progress.md` - Development progress
+- `docs/architecture.md` - Architecture overview
+- `docs/development.md` - Development progress
 - `cmd/eye/main.go` - Main application entry point
 
 ## Current Status
 
 - Phase 1: gRPC-Gateway foundation ✅ COMPLETED
 - Phase 2: Security + Rule Services ✅ COMPLETED
-- Phase 3: Integration Services + Testing 🔄 IN PROGRESS
+- Phase 3: Integration Services + Testing ✅ COMPLETED
+- Phase 4: Business Logic Implementation 🔄 IN PROGRESS
 
 ## Services Implemented
 
@@ -34,7 +34,6 @@ Comprehensive portfolio management system for cryptocurrency investments built i
 - **UserService**: User management and basic operations
 
 ### New Services (v0.0.3-alpha)
-- **AuthService**: JWT authentication and token management
 - **RuleService**: Rule execution and portfolio automation logic
 
 ### Data Models
@@ -56,7 +55,7 @@ Comprehensive portfolio management system for cryptocurrency investments built i
 - HTTP port: 8080
 - Health check: http://localhost:8080/health
 - Database: PostgreSQL on port 5432
-- OpenAPI docs: docs/api/openapi.yaml
+- OpenAPI docs: docs/openapi.yaml
 
 ## Current Sprint Focus
 

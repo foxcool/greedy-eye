@@ -17,10 +17,9 @@ ifndef BUF
 	go install github.com/bufbuild/buf/cmd/buf@latest
 endif
 	@echo "Generating protobuf files with buf..."
-	mkdir -p docs/api
 	buf generate --template buf.gen.yaml
 	@echo "Renaming OpenAPI spec to standard name..."
-	@if [ -f docs/api/openapi.swagger.yaml ]; then mv docs/api/openapi.swagger.yaml docs/api/openapi.yaml; fi
+	@if [ -f docs/openapi.swagger.yaml ]; then mv docs/openapi.swagger.yaml docs/openapi.yaml; fi
 	@echo "Protobuf files generated"
 
 # Generate OpenAPI documentation

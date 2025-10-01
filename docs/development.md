@@ -1,6 +1,7 @@
 # Development Guide - Greedy Eye
 
-Complete guide for developing and maintaining the Greedy Eye universal portfolio management system supporting diverse asset types including cryptocurrencies, securities, derivatives, and alternative assets.
+Complete guide for developing and maintaining the Greedy Eye universal portfolio management system supporting diverse
+asset types including cryptocurrencies, securities, derivatives, and alternative assets.
 
 ## Quick Start
 
@@ -29,10 +30,46 @@ make buf-gen
 make dev
 ```
 
+### Alternative Quick Start (Docker)
+```bash
+# Start entire system with Docker
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop system
+docker-compose down
+```
+
 The application starts:
 - gRPC server on port 50051
 - HTTP API on port 8080
 - Health check at http://localhost:8080/health
+
+### Essential Development Commands
+```bash
+# Development workflow
+make dev          # Start with live reload
+make test         # Run all tests
+make test-coverage # Run tests with coverage report
+make buf-gen      # Generate protobuf code
+
+# Code quality
+make fmt          # Format code
+make lint         # Run linter
+make vet          # Static analysis
+
+# Database operations
+make db-reset     # Reset database (dev only)
+make db-connect   # Connect to database
+go run cmd/eye/main.go migrate  # Run migrations
+
+# Build and deployment
+make build        # Build binary
+make clean        # Clean build artifacts
+docker build .    # Build Docker image
+```
 
 ## Current Development Status
 
@@ -43,24 +80,26 @@ The application starts:
 - **Current**: Business Logic Implementation 🔄
 
 ### Service Status
+
 | Service | Status | Implementation | Tests | Integration |
 |---------|--------|---------------|-------|-------------|
 | StorageService | ✅ Complete | Full Ent ORM | ✅ | ✅ |
-| UserService | ✅ Stubs | API complete | ✅ | ✅ |
-| AssetService | ✅ Stubs | API complete | ✅ | ✅ |
-| PortfolioService | ✅ Stubs | API complete | ✅ | ✅ |
-| PriceService | ✅ Stubs | API complete | ✅ | ✅ |
-| RuleService | ✅ Stubs | API complete | ✅ | ✅ |
-| TelegramBotService | ✅ Stubs | Full architecture | ✅ | ✅ |
-| AuthService | ✅ Proto | Proto only | ❌ | ❌ |
+| UserService | ✅ Implemented | Full business logic | ✅ | ✅ |
+| AssetService | ✅ Implemented | Full business logic | ✅ | ✅ |
+| PortfolioService | 🔄 Stubs | API complete | ✅ | ✅ |
+| PriceService | ✅ Implemented | External API integration | ✅ | ✅ |
+| RuleService | 🔄 Stubs | API complete | ✅ | ✅ |
+| MessengerBotService | 🔄 Stubs | Full architecture | ✅ | ✅ |
+| AuthService | 🔄 Proto | Proto only | ❌ | ❌ |
 
 ### Recent Achievements
+
+- ✅ UserService, AssetService, PriceService - full business logic implementation
+- ✅ External price data API integration with price fetching
+- ✅ Integration tests for all core services
 - ✅ Complete service architecture with dependency management
-- ✅ TelegramBotService with voice support (STT/TTS) architecture
-- ✅ RuleService with integrated alert system
 - ✅ HTTP API Gateway with gRPC-Gateway auto-generation
 - ✅ Comprehensive test coverage (>90%) for all implemented services
-- ✅ Clean architecture without over-engineering (YAGNI applied)
 
 ## Development Workflow
 
@@ -145,19 +184,58 @@ DB_URL=postgres://user:pass@localhost:5432/greedy_eye?sslmode=disable
 # Server
 GRPC_PORT=50051
 HTTP_PORT=8080
-LOG_LEVEL=info
+
+# Logging
+EYE_LOGGING_OUTPUT=STDOUT    # STDOUT or file path
+EYE_LOGGING_LEVEL=INFO       # DEBUG, INFO, WARN, ERROR, FATAL
+EYE_LOGGING_FORMAT=TEXT      # TEXT or JSON
 
 # External APIs
 BINANCE_API_KEY=your_key
 COINGECKO_API_KEY=your_key
 TBANK_INVEST_TOKEN=your_token
-TELEGRAM_BOT_TOKEN=your_token
+
+# Telegram Bot
+EYE_TELEGRAM_TOKEN=your_token
+EYE_TELEGRAM_CHATIDS="-1001234567890,987654321"
 
 # Speech Services (for TelegramBotService)
 OPENAI_API_KEY=your_key
 GOOGLE_CREDENTIALS_PATH=./credentials.json
 YANDEX_API_KEY=your_key
 ```
+
+### Configuration File Example (config.yaml)
+```yaml
+# Logging settings
+logging:
+  output: "STDOUT"     # Can be "STDOUT" or a file path
+  level: "INFO"        # DEBUG, INFO, WARN, ERROR, FATAL
+  format: "JSON"       # TEXT or JSON
+
+# Telegram Bot settings
+telegram:
+  token: "YOUR_TELEGRAM_BOT_TOKEN"
+  chatIDs:
+    - "-1001234567890"  # Group chat ID
+    - "987654321"       # Private chat ID
+
+# Enabled services (optional)
+services:
+  - asset
+  - portfolio
+  - price
+  - user
+  - storage
+  - telegram
+```
+
+### Money Precision and Decimal Handling
+All monetary amounts use decimal precision to avoid floating-point errors:
+```
+real_value = amount / 10^precision
+```
+This applies to transaction amounts, prices, holdings, and other financial values.
 
 ## Service Architecture
 
@@ -230,34 +308,162 @@ func TestService_Method(t *testing.T) {
 }
 ```
 
-## Next Development Steps
+## Development Roadmap
 
-### Immediate (Current Sprint)
-1. **Business Logic Implementation**
-   - Start with UserService (user management)
-   - Implement AssetService (universal asset metadata - crypto, securities, derivatives)
-   - Add PriceService (CoinGecko integration for crypto, T-Bank Invest for securities)
+### Roadmap Overview
 
-2. **External Integrations**
-   - CoinGecko API for cryptocurrency price data
-   - T-Bank Invest API for Russian securities market (stocks, bonds, ETFs)
-   - Basic Telegram Bot API integration
+```mermaid
+%%{init: {'theme':'base', 'themeVariables': { 'fontSize':'14px'}}}%%
+graph LR
+    subgraph Foundation["🏗️ Foundation"]
+        direction TB
+        F1[Infrastructure<br/>✅ Done]
+        F2[Database Schema<br/>✅ Done]
+        F3[gRPC Services<br/>✅ Done]
+        F4[HTTP Gateway<br/>✅ Done]
+    end
 
-### Medium Term
-1. **Universal Portfolio Logic**
-   - Multi-asset portfolio calculations and analytics (crypto + securities)
-   - Rule execution engine for all asset types
-   - Alert system implementation across all platforms
+    subgraph Core["⚙️ Core Services"]
+        direction TB
+        C1[StorageService<br/>✅ Done]
+        C2[UserService<br/>✅ Done]
+        C3[AssetService<br/>✅ Done]
+        C4[PriceService<br/>✅ Done]
+        C5[Price Data API<br/>✅ Done]
+    end
 
-2. **Production Readiness**
-   - Security hardening
-   - Performance optimization
-   - Monitoring and metrics
+    subgraph Portfolio["📊 Portfolio"]
+        direction TB
+        P1[PortfolioService<br/>🔄 In Progress]
+        P2[Holdings Logic<br/>📋 Planned]
+        P3[Transactions<br/>📋 Planned]
+        P4[Analytics<br/>📋 Planned]
+    end
 
-### Architecture Evolution
-- **Current**: Stubs with complete APIs ✅
-- **Next**: Business logic implementation 🔄
-- **Future**: External integrations and optimization
+    subgraph Automation["🤖 Automation"]
+        direction TB
+        A1[RuleService<br/>📋 Planned]
+        A2[DCA Engine<br/>📋 Planned]
+        A3[Rebalancing<br/>📋 Planned]
+        A4[Alerts<br/>📋 Planned]
+    end
+
+    subgraph Integration["🔌 Integration"]
+        direction TB
+        I1[Trading APIs<br/>📋 Planned]
+        I2[MessengerBot<br/>📋 Planned]
+        I3[Voice Support<br/>🎯 Future]
+        I4[Additional APIs<br/>🎯 Future]
+    end
+
+    subgraph Production["🚀 Production"]
+        direction TB
+        PR1[AuthService<br/>📋 Planned]
+        PR2[Security<br/>🎯 Future]
+        PR3[Monitoring<br/>🎯 Future]
+        PR4[Deploy<br/>🎯 Future]
+    end
+
+    Foundation --> Core
+    Core --> Portfolio
+    Portfolio --> Automation
+    Core --> Integration
+    Automation --> Production
+    Integration --> Production
+
+    classDef done fill:#10b981,stroke:#065f46,color:#fff,stroke-width:2px
+    classDef progress fill:#f59e0b,stroke:#92400e,color:#fff,stroke-width:2px
+    classDef planned fill:#6b7280,stroke:#374151,color:#fff,stroke-width:2px
+    classDef future fill:#3b82f6,stroke:#1e40af,color:#fff,stroke-width:2px
+
+    class F1,F2,F3,F4,C1,C2,C3,C4,C5 done
+    class P1 progress
+    class P2,P3,P4,A1,A2,A3,A4,I1,I2,PR1 planned
+    class I3,I4,PR2,PR3,PR4 future
+```
+
+### Service Implementation Status
+
+```mermaid
+%%{init: {'theme':'base'}}%%
+mindmap
+  root((Greedy Eye<br/>Services))
+    Foundation ✅
+      StorageService ✅
+        Ent ORM
+        Migrations
+        CRUD Operations
+      Database ✅
+        PostgreSQL
+        Connection Pool
+    Core Services
+      UserService ✅
+        User Management
+        External API Keys
+      AssetService ✅
+        Asset Metadata
+        Multi-type Support
+      PriceService ✅
+        Price Data APIs ✅
+        Price History
+        Trading APIs 📋
+    Business Logic
+      PortfolioService 🔄
+        Holdings 📋
+        Transactions 📋
+        Analytics 📋
+      RuleService 📋
+        Rule Engine 📋
+        DCA 📋
+        Rebalancing 📋
+        Alerts 📋
+    Integration
+      MessengerBot 📋
+        Commands 📋
+        Voice 🎯
+        Notifications 📋
+      External APIs
+        Price Data ✅
+        Trading 📋
+        Additional 🎯
+    Security 🎯
+      AuthService 📋
+        JWT Tokens 📋
+        API Keys 📋
+      Monitoring 🎯
+        Metrics 🎯
+        Logging 🎯
+```
+
+### Current Sprint Goals
+
+#### ✅ Completed
+
+- StorageService with full Ent ORM implementation
+- UserService with business logic and external API key management
+- AssetService with multi-asset type support
+- PriceService with external price data API integration
+- Integration tests for all core services
+
+#### 🔄 In Progress
+
+- PortfolioService business logic implementation
+- Additional external API integrations
+
+#### 📋 Next Up
+
+1. **PortfolioService** - Complete portfolio calculations and analytics
+2. **RuleService** - Implement rule engine and automation strategies
+3. **MessengerBot** - Basic command handling and notifications
+4. **AuthService** - JWT authentication and authorization
+
+#### 🎯 Future Milestones
+
+- Advanced analytics and risk management
+- Multi-provider price aggregation
+- Voice interface for messenger bot
+- Additional trading platform integrations
+- Production deployment with monitoring
 
 ## Common Development Tasks
 
@@ -326,4 +532,5 @@ make clean && make buf-gen && make build
 go mod why -m module_name
 ```
 
-This guide covers everything needed for effective development on the Greedy Eye project. The focus is on maintaining clean architecture while implementing business logic incrementally.
+This guide covers everything needed for effective development on the Greedy Eye project. The focus is on maintaining
+clean architecture while implementing business logic incrementally.
