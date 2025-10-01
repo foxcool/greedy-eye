@@ -21,7 +21,7 @@ plugins:
       - paths=source_relative
       - generate_unbound_methods=true
   - plugin: buf.build/grpc-ecosystem/openapiv2
-    out: docs/api
+    out: docs
     opt:
       - allow_merge=true
       - merge_file_name=openapi
