@@ -6,10 +6,10 @@ tags:
   - name: StorageService
   - name: AssetService
   - name: AuthService
+  - name: MessengerService
   - name: PortfolioService
   - name: PriceService
   - name: RuleService
-  - name: TelegramBotService
   - name: UserService
 consumes:
   - application/json
@@ -128,6 +128,16 @@ paths:
                 type: string
                 format: date-time
                 title: Timestamp of last update
+              subtype:
+                $ref: '#/definitions/modelsExchangeAccountSubtype'
+                description: Sub-type for exchange accounts (spot, futures, margin)
+                title: Exchange-specific fields (optional, only for ACCOUNT_TYPE_EXCHANGE)
+              parentAccountId:
+                type: string
+                title: Parent account ID for hierarchical structure (e.g., futures under main exchange account)
+              externalApiKeyId:
+                type: string
+                title: Direct reference to ExternalAPIKey for this account
             title: Must include ID and fields to update
         - name: updateMask
           in: query
@@ -661,6 +671,7 @@ paths:
             properties:
               userId:
                 type: string
+                title: User ID (null for system-wide keys)
               provider:
                 type: string
                 title: e.g., "binance", "gate.io", "coingecko"
@@ -680,6 +691,36 @@ paths:
               updatedAt:
                 type: string
                 format: date-time
+              isSystemKey:
+                type: boolean
+                description: True if this is a system-wide key (user_id should be null)
+                title: System key support
+              allowedUserIds:
+                type: array
+                items:
+                  type: string
+                title: Whitelist of users who can use this key (empty = all users)
+              permissions:
+                type: array
+                items:
+                  type: string
+                title: e.g., ["read", "trade", "withdraw"]
+              status:
+                $ref: '#/definitions/modelsKeyStatus'
+                description: Current status of the key
+                title: Lifecycle management
+              expiresAt:
+                type: string
+                format: date-time
+                title: Expiration time (optional)
+              lastUsedAt:
+                type: string
+                format: date-time
+                title: Last time key was used
+              usageCount:
+                type: integer
+                format: int32
+                title: Number of times key has been used
             title: Must include ID and fields to update
         - name: updateMask
           in: query
@@ -1846,7 +1887,7 @@ paths:
   /api/v1/telegram/alerts:
     post:
       summary: Manage user alert subscriptions
-      operationId: TelegramBotService_ManageAlerts
+      operationId: MessengerService_ManageAlerts
       responses:
         "200":
           description: A successful response.
@@ -1863,11 +1904,11 @@ paths:
           schema:
             $ref: '#/definitions/servicesManageAlertsRequest'
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/notifications:
     post:
       summary: Send notification to specific user
-      operationId: TelegramBotService_SendNotification
+      operationId: MessengerService_SendNotification
       responses:
         "200":
           description: A successful response.
@@ -1884,11 +1925,11 @@ paths:
           schema:
             $ref: '#/definitions/servicesSendNotificationRequest'
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/notifications/bulk:
     post:
       summary: Send bulk notifications to multiple users
-      operationId: TelegramBotService_SendBulkNotifications
+      operationId: MessengerService_SendBulkNotifications
       responses:
         "200":
           description: A successful response.
@@ -1905,11 +1946,11 @@ paths:
           schema:
             $ref: '#/definitions/servicesSendBulkNotificationsRequest'
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/sessions/{session.telegramId}:
     put:
       summary: Update user session context
-      operationId: TelegramBotService_UpdateUserSession
+      operationId: MessengerService_UpdateUserSession
       responses:
         "200":
           description: A successful response.
@@ -1954,11 +1995,11 @@ paths:
                 title: Current conversation state
             title: SessionContext represents user conversation state
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/sessions/{telegramId}:
     get:
       summary: Get user session information
-      operationId: TelegramBotService_GetUserSession
+      operationId: MessengerService_GetUserSession
       responses:
         "200":
           description: A successful response.
@@ -1974,11 +2015,11 @@ paths:
           required: true
           type: string
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/stats:
     get:
       summary: Get bot statistics and health
-      operationId: TelegramBotService_GetBotStats
+      operationId: MessengerService_GetBotStats
       responses:
         "200":
           description: A successful response.
@@ -2002,11 +2043,11 @@ paths:
           type: string
           format: date-time
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/users:
     post:
       summary: Register new Telegram user or update existing
-      operationId: TelegramBotService_RegisterTelegramUser
+      operationId: MessengerService_RegisterTelegramUser
       responses:
         "200":
           description: A successful response.
@@ -2023,11 +2064,11 @@ paths:
           schema:
             $ref: '#/definitions/servicesRegisterTelegramUserRequest'
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/users/{telegramId}:
     get:
       summary: Get Telegram user information
-      operationId: TelegramBotService_GetTelegramUser
+      operationId: MessengerService_GetTelegramUser
       responses:
         "200":
           description: A successful response.
@@ -2043,11 +2084,11 @@ paths:
           required: true
           type: string
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/voice/process:
     post:
       summary: Process voice message (Speech-to-Text)
-      operationId: TelegramBotService_ProcessVoiceMessage
+      operationId: MessengerService_ProcessVoiceMessage
       responses:
         "200":
           description: A successful response.
@@ -2064,11 +2105,11 @@ paths:
           schema:
             $ref: '#/definitions/servicesProcessVoiceMessageRequest'
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/voice/synthesize:
     post:
       summary: Convert text to speech
-      operationId: TelegramBotService_ConvertTextToSpeech
+      operationId: MessengerService_ConvertTextToSpeech
       responses:
         "200":
           description: A successful response.
@@ -2085,11 +2126,11 @@ paths:
           schema:
             $ref: '#/definitions/servicesConvertTextToSpeechRequest'
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/webhook:
     post:
       summary: Process incoming Telegram webhook updates
-      operationId: TelegramBotService_ProcessTelegramUpdate
+      operationId: MessengerService_ProcessTelegramUpdate
       responses:
         "200":
           description: A successful response.
@@ -2106,7 +2147,7 @@ paths:
           schema:
             $ref: '#/definitions/servicesProcessTelegramUpdateRequest'
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/transactions:
     get:
       operationId: StorageService_ListTransactions
@@ -2559,6 +2600,16 @@ definitions:
         type: string
         format: date-time
         title: Timestamp of last update
+      subtype:
+        $ref: '#/definitions/modelsExchangeAccountSubtype'
+        description: Sub-type for exchange accounts (spot, futures, margin)
+        title: Exchange-specific fields (optional, only for ACCOUNT_TYPE_EXCHANGE)
+      parentAccountId:
+        type: string
+        title: Parent account ID for hierarchical structure (e.g., futures under main exchange account)
+      externalApiKeyId:
+        type: string
+        title: Direct reference to ExternalAPIKey for this account
     description: |-
       Account represents a user's connection to an external financial entity
       (like an exchange account, bank account, or a self-custody wallet).
@@ -2605,6 +2656,21 @@ definitions:
       - ASSET_TYPE_FOREX
       - ASSET_TYPE_FUND
     default: ASSET_TYPE_UNSPECIFIED
+  modelsExchangeAccountSubtype:
+    type: string
+    enum:
+      - EXCHANGE_ACCOUNT_SUBTYPE_UNSPECIFIED
+      - EXCHANGE_ACCOUNT_SUBTYPE_SPOT
+      - EXCHANGE_ACCOUNT_SUBTYPE_FUTURES
+      - EXCHANGE_ACCOUNT_SUBTYPE_MARGIN
+      - EXCHANGE_ACCOUNT_SUBTYPE_SAVINGS
+    default: EXCHANGE_ACCOUNT_SUBTYPE_UNSPECIFIED
+    description: |-
+      - EXCHANGE_ACCOUNT_SUBTYPE_SPOT: Spot trading account
+       - EXCHANGE_ACCOUNT_SUBTYPE_FUTURES: Futures trading account
+       - EXCHANGE_ACCOUNT_SUBTYPE_MARGIN: Margin trading account
+       - EXCHANGE_ACCOUNT_SUBTYPE_SAVINGS: Savings/staking account
+    title: ExchangeAccountSubtype specifies the sub-type for exchange accounts
   modelsExecutionStatus:
     type: string
     enum:
@@ -2623,6 +2689,7 @@ definitions:
         type: string
       userId:
         type: string
+        title: User ID (null for system-wide keys)
       provider:
         type: string
         title: e.g., "binance", "gate.io", "coingecko"
@@ -2642,7 +2709,39 @@ definitions:
       updatedAt:
         type: string
         format: date-time
-    title: ExternalAPIKey stores encrypted external API credentials
+      isSystemKey:
+        type: boolean
+        description: True if this is a system-wide key (user_id should be null)
+        title: System key support
+      allowedUserIds:
+        type: array
+        items:
+          type: string
+        title: Whitelist of users who can use this key (empty = all users)
+      permissions:
+        type: array
+        items:
+          type: string
+        title: e.g., ["read", "trade", "withdraw"]
+      status:
+        $ref: '#/definitions/modelsKeyStatus'
+        description: Current status of the key
+        title: Lifecycle management
+      expiresAt:
+        type: string
+        format: date-time
+        title: Expiration time (optional)
+      lastUsedAt:
+        type: string
+        format: date-time
+        title: Last time key was used
+      usageCount:
+        type: integer
+        format: int32
+        title: Number of times key has been used
+    title: |-
+      ExternalAPIKey stores encrypted external API credentials
+      Supports both user-specific and system-wide API keys
   modelsHolding:
     type: object
     properties:
@@ -2677,6 +2776,16 @@ definitions:
     description: |-
       Holding represents a specific quantity of an Asset held within an Account
       and associated with a Portfolio.
+  modelsKeyStatus:
+    type: string
+    enum:
+      - KEY_STATUS_UNSPECIFIED
+      - KEY_STATUS_ACTIVE
+      - KEY_STATUS_DISABLED
+      - KEY_STATUS_EXPIRED
+      - KEY_STATUS_REVOKED
+    default: KEY_STATUS_UNSPECIFIED
+    title: KeyStatus represents the status of an API key
   modelsNotificationType:
     type: string
     enum:

@@ -281,23 +281,23 @@ graph TB
         Price[💲 PriceService<br/>Market Data]
         Rule[⚙️ RuleService<br/>Automation]
         Auth[🔐 AuthService<br/>Security]
-        Telegram[🤖 TelegramBotService<br/>Chat Interface]
+        Messenger[💬 MessengerService<br/>Multi-Platform Chat]
     end
 
     subgraph "External Adapters"
-        PriceAdapter[Price Data Client]
-        TradingAdapter[Trading Platform Client]
-        DataAdapter[Blockchain Data Client]
-        SpeechAdapter[Speech Providers]
+        MessengerAdapter[Messenger Adapters<br/>Telegram, WhatsApp, Discord]
+        PriceAdapter[Price Data Adapters<br/>CoinGecko, CoinMarketCap]
+        ExchangeAdapter[Exchange Adapters<br/>Binance, Gate.io, Bybit]
+        BlockchainAdapter[Blockchain Adapters<br/>Moralis, Etherscan]
     end
 
     Storage --> Database[(PostgreSQL)]
 
     Price --> PriceAdapter
-    Price --> TradingAdapter
-    Price --> DataAdapter
+    Price --> ExchangeAdapter
+    Price --> BlockchainAdapter
 
-    Telegram --> SpeechAdapter
+    Messenger --> MessengerAdapter
 
     Rule --> User
     Rule --> Portfolio
@@ -306,9 +306,11 @@ graph TB
 
     Portfolio --> Asset
     Portfolio --> Storage
+    Portfolio --> ExchangeAdapter
 
     User --> Storage
     Asset --> Storage
+    Asset --> BlockchainAdapter
     Price --> Storage
 ```
 
@@ -332,12 +334,35 @@ graph TB
 - Technologies: Rule engine, cron scheduler, alert manager
 - Dependencies: All other services for rule execution
 
-**TelegramBotService** (User Interface):
-- Responsibilities: Message processing, voice processing, notifications
-- Interfaces: Telegram Bot API, Speech APIs
-- Technologies: Session management, NLP, STT/TTS
-- Dependencies: All services for data access
+**MessengerService** (Multi-Platform User Interface):
+- Responsibilities: Message processing, voice processing, notifications across multiple platforms
+- Interfaces: Messenger adapters (Telegram, WhatsApp, Discord), Speech APIs
+- Technologies: Session management, NLP, STT/TTS, platform-agnostic handlers
+- Dependencies: All services for data access, messenger adapters for communication
 - Commands: `/start`, `/portfolio`, `/balance`, `/prices`, `/alerts`, `/transactions`, `/settings`, `/help`
+- See: [Adapters Documentation](adapters.md) for integration details
+
+**External Adapters** (Integration Layer):
+
+The system uses the **Adapter Pattern** for external integrations. See [adapters.md](adapters.md) for detailed documentation.
+
+- **Messenger Adapters** (`internal/adapters/messengers/`):
+  - Telegram Bot API integration
+  - Future: WhatsApp, Discord, Slack
+
+- **Price Data Adapters** (`internal/adapters/pricedata/`):
+  - CoinGecko API integration
+  - Future: CoinMarketCap, Cryptocompare
+
+- **Exchange Adapters** (`internal/adapters/exchanges/`):
+  - Binance API (spot, futures, margin)
+  - Future: Gate.io, Bybit, OKX, Coinbase
+
+- **Blockchain Adapters** (`internal/adapters/blockchain/`):
+  - Moralis multi-chain data
+  - Future: Etherscan, Blockcypher, Alchemy
+
+All adapters follow consistent patterns for configuration, error handling, and testing. Current status: **Stub implementations** with comprehensive test coverage.
 
 ---
 
@@ -345,16 +370,17 @@ graph TB
 
 ### 6.1 Execution Scenarios
 
-#### Scenario 1: Get Portfolio Balance via Telegram
+#### Scenario 1: Get Portfolio Balance via Messenger
 
 ```text
-User → Telegram Bot → TelegramBotService → PortfolioService → StorageService → Database
-  1. User sends "/portfolio"
-  2. TelegramBotService parses command and authenticates user
-  3. PortfolioService calculates current portfolio value
-  4. StorageService returns user holdings
-  5. PriceService provides current prices
-  6. Result is formatted and sent to user
+User → Messenger Platform → MessengerService → PortfolioService → StorageService → Database
+  1. User sends "/portfolio" command
+  2. MessengerService receives update via webhook (e.g., Telegram)
+  3. MessengerService parses command and authenticates user
+  4. PortfolioService calculates current portfolio value
+  5. StorageService returns user holdings
+  6. PriceService provides current prices
+  7. Result is formatted and sent via messenger adapter
 ```
 
 #### Scenario 2: Fetch Prices from External Provider

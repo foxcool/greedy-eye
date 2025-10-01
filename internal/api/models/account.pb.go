@@ -77,21 +77,81 @@ func (AccountType) EnumDescriptor() ([]byte, []int) {
 	return file_api_models_account_proto_rawDescGZIP(), []int{0}
 }
 
+// ExchangeAccountSubtype specifies the sub-type for exchange accounts
+type ExchangeAccountSubtype int32
+
+const (
+	ExchangeAccountSubtype_EXCHANGE_ACCOUNT_SUBTYPE_UNSPECIFIED ExchangeAccountSubtype = 0
+	ExchangeAccountSubtype_EXCHANGE_ACCOUNT_SUBTYPE_SPOT        ExchangeAccountSubtype = 1 // Spot trading account
+	ExchangeAccountSubtype_EXCHANGE_ACCOUNT_SUBTYPE_FUTURES     ExchangeAccountSubtype = 2 // Futures trading account
+	ExchangeAccountSubtype_EXCHANGE_ACCOUNT_SUBTYPE_MARGIN      ExchangeAccountSubtype = 3 // Margin trading account
+	ExchangeAccountSubtype_EXCHANGE_ACCOUNT_SUBTYPE_SAVINGS     ExchangeAccountSubtype = 4 // Savings/staking account
+)
+
+// Enum value maps for ExchangeAccountSubtype.
+var (
+	ExchangeAccountSubtype_name = map[int32]string{
+		0: "EXCHANGE_ACCOUNT_SUBTYPE_UNSPECIFIED",
+		1: "EXCHANGE_ACCOUNT_SUBTYPE_SPOT",
+		2: "EXCHANGE_ACCOUNT_SUBTYPE_FUTURES",
+		3: "EXCHANGE_ACCOUNT_SUBTYPE_MARGIN",
+		4: "EXCHANGE_ACCOUNT_SUBTYPE_SAVINGS",
+	}
+	ExchangeAccountSubtype_value = map[string]int32{
+		"EXCHANGE_ACCOUNT_SUBTYPE_UNSPECIFIED": 0,
+		"EXCHANGE_ACCOUNT_SUBTYPE_SPOT":        1,
+		"EXCHANGE_ACCOUNT_SUBTYPE_FUTURES":     2,
+		"EXCHANGE_ACCOUNT_SUBTYPE_MARGIN":      3,
+		"EXCHANGE_ACCOUNT_SUBTYPE_SAVINGS":     4,
+	}
+)
+
+func (x ExchangeAccountSubtype) Enum() *ExchangeAccountSubtype {
+	p := new(ExchangeAccountSubtype)
+	*p = x
+	return p
+}
+
+func (x ExchangeAccountSubtype) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ExchangeAccountSubtype) Descriptor() protoreflect.EnumDescriptor {
+	return file_api_models_account_proto_enumTypes[1].Descriptor()
+}
+
+func (ExchangeAccountSubtype) Type() protoreflect.EnumType {
+	return &file_api_models_account_proto_enumTypes[1]
+}
+
+func (x ExchangeAccountSubtype) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ExchangeAccountSubtype.Descriptor instead.
+func (ExchangeAccountSubtype) EnumDescriptor() ([]byte, []int) {
+	return file_api_models_account_proto_rawDescGZIP(), []int{1}
+}
+
 // Account represents a user's connection to an external financial entity
 // (like an exchange account, bank account, or a self-custody wallet).
 // It holds metadata and potentially credentials (in 'data' field) needed to interact.
 type Account struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`                                                                               // Unique identifier (UUID)
-	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`                                                         // ID of the user owning this account
-	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`                                                                           // User-defined name (e.g., "My Binance Spot", "Ledger Nano S")
-	Description   *string                `protobuf:"bytes,4,opt,name=description,proto3,oneof" json:"description,omitempty"`                                                       // Optional longer description
-	Type          AccountType            `protobuf:"varint,5,opt,name=type,proto3,enum=models.AccountType" json:"type,omitempty"`                                                  // Type of the account
-	Data          map[string]string      `protobuf:"bytes,6,rep,name=data,proto3" json:"data,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Flexible map for connection parameters, API keys, addresses etc. Needs careful handling due to sensitive data.
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`                                                // Timestamp of creation
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`                                                // Timestamp of last update
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Id          string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`                                                                               // Unique identifier (UUID)
+	UserId      string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`                                                         // ID of the user owning this account
+	Name        string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`                                                                           // User-defined name (e.g., "My Binance Spot", "Ledger Nano S")
+	Description *string                `protobuf:"bytes,4,opt,name=description,proto3,oneof" json:"description,omitempty"`                                                       // Optional longer description
+	Type        AccountType            `protobuf:"varint,5,opt,name=type,proto3,enum=models.AccountType" json:"type,omitempty"`                                                  // Type of the account
+	Data        map[string]string      `protobuf:"bytes,6,rep,name=data,proto3" json:"data,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Flexible map for connection parameters, API keys, addresses etc. Needs careful handling due to sensitive data.
+	CreatedAt   *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`                                                // Timestamp of creation
+	UpdatedAt   *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`                                                // Timestamp of last update
+	// Exchange-specific fields (optional, only for ACCOUNT_TYPE_EXCHANGE)
+	Subtype          *ExchangeAccountSubtype `protobuf:"varint,9,opt,name=subtype,proto3,enum=models.ExchangeAccountSubtype,oneof" json:"subtype,omitempty"`            // Sub-type for exchange accounts (spot, futures, margin)
+	ParentAccountId  *string                 `protobuf:"bytes,10,opt,name=parent_account_id,json=parentAccountId,proto3,oneof" json:"parent_account_id,omitempty"`      // Parent account ID for hierarchical structure (e.g., futures under main exchange account)
+	ExternalApiKeyId *string                 `protobuf:"bytes,11,opt,name=external_api_key_id,json=externalApiKeyId,proto3,oneof" json:"external_api_key_id,omitempty"` // Direct reference to ExternalAPIKey for this account
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Account) Reset() {
@@ -180,11 +240,32 @@ func (x *Account) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *Account) GetSubtype() ExchangeAccountSubtype {
+	if x != nil && x.Subtype != nil {
+		return *x.Subtype
+	}
+	return ExchangeAccountSubtype_EXCHANGE_ACCOUNT_SUBTYPE_UNSPECIFIED
+}
+
+func (x *Account) GetParentAccountId() string {
+	if x != nil && x.ParentAccountId != nil {
+		return *x.ParentAccountId
+	}
+	return ""
+}
+
+func (x *Account) GetExternalApiKeyId() string {
+	if x != nil && x.ExternalApiKeyId != nil {
+		return *x.ExternalApiKeyId
+	}
+	return ""
+}
+
 var File_api_models_account_proto protoreflect.FileDescriptor
 
 const file_api_models_account_proto_rawDesc = "" +
 	"\n" +
-	"\x18api/models/account.proto\x12\x06models\x1a\x1fgoogle/protobuf/timestamp.proto\"\x84\x03\n" +
+	"\x18api/models/account.proto\x12\x06models\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe2\x04\n" +
 	"\aAccount\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x12\n" +
@@ -195,17 +276,31 @@ const file_api_models_account_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x1a7\n" +
+	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12=\n" +
+	"\asubtype\x18\t \x01(\x0e2\x1e.models.ExchangeAccountSubtypeH\x01R\asubtype\x88\x01\x01\x12/\n" +
+	"\x11parent_account_id\x18\n" +
+	" \x01(\tH\x02R\x0fparentAccountId\x88\x01\x01\x122\n" +
+	"\x13external_api_key_id\x18\v \x01(\tH\x03R\x10externalApiKeyId\x88\x01\x01\x1a7\n" +
 	"\tDataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x0e\n" +
-	"\f_description*\x8f\x01\n" +
+	"\f_descriptionB\n" +
+	"\n" +
+	"\b_subtypeB\x14\n" +
+	"\x12_parent_account_idB\x16\n" +
+	"\x14_external_api_key_id*\x8f\x01\n" +
 	"\vAccountType\x12\x1c\n" +
 	"\x18ACCOUNT_TYPE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13ACCOUNT_TYPE_WALLET\x10\x01\x12\x19\n" +
 	"\x15ACCOUNT_TYPE_EXCHANGE\x10\x02\x12\x15\n" +
 	"\x11ACCOUNT_TYPE_BANK\x10\x03\x12\x17\n" +
-	"\x13ACCOUNT_TYPE_BROKER\x10\x04B\x85\x01\n" +
+	"\x13ACCOUNT_TYPE_BROKER\x10\x04*\xd6\x01\n" +
+	"\x16ExchangeAccountSubtype\x12(\n" +
+	"$EXCHANGE_ACCOUNT_SUBTYPE_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dEXCHANGE_ACCOUNT_SUBTYPE_SPOT\x10\x01\x12$\n" +
+	" EXCHANGE_ACCOUNT_SUBTYPE_FUTURES\x10\x02\x12#\n" +
+	"\x1fEXCHANGE_ACCOUNT_SUBTYPE_MARGIN\x10\x03\x12$\n" +
+	" EXCHANGE_ACCOUNT_SUBTYPE_SAVINGS\x10\x04B\x85\x01\n" +
 	"\n" +
 	"com.modelsB\fAccountProtoP\x01Z1github.com/foxcool/greedy-eye/internal/api/models\xa2\x02\x03MXX\xaa\x02\x06Models\xca\x02\x06Models\xe2\x02\x12Models\\GPBMetadata\xea\x02\x06Modelsb\x06proto3"
 
@@ -221,24 +316,26 @@ func file_api_models_account_proto_rawDescGZIP() []byte {
 	return file_api_models_account_proto_rawDescData
 }
 
-var file_api_models_account_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_api_models_account_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_api_models_account_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_api_models_account_proto_goTypes = []any{
 	(AccountType)(0),              // 0: models.AccountType
-	(*Account)(nil),               // 1: models.Account
-	nil,                           // 2: models.Account.DataEntry
-	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
+	(ExchangeAccountSubtype)(0),   // 1: models.ExchangeAccountSubtype
+	(*Account)(nil),               // 2: models.Account
+	nil,                           // 3: models.Account.DataEntry
+	(*timestamppb.Timestamp)(nil), // 4: google.protobuf.Timestamp
 }
 var file_api_models_account_proto_depIdxs = []int32{
 	0, // 0: models.Account.type:type_name -> models.AccountType
-	2, // 1: models.Account.data:type_name -> models.Account.DataEntry
-	3, // 2: models.Account.created_at:type_name -> google.protobuf.Timestamp
-	3, // 3: models.Account.updated_at:type_name -> google.protobuf.Timestamp
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	3, // 1: models.Account.data:type_name -> models.Account.DataEntry
+	4, // 2: models.Account.created_at:type_name -> google.protobuf.Timestamp
+	4, // 3: models.Account.updated_at:type_name -> google.protobuf.Timestamp
+	1, // 4: models.Account.subtype:type_name -> models.ExchangeAccountSubtype
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_api_models_account_proto_init() }
@@ -252,7 +349,7 @@ func file_api_models_account_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_models_account_proto_rawDesc), len(file_api_models_account_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,

@@ -22,6 +22,62 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// KeyStatus represents the status of an API key
+type KeyStatus int32
+
+const (
+	KeyStatus_KEY_STATUS_UNSPECIFIED KeyStatus = 0
+	KeyStatus_KEY_STATUS_ACTIVE      KeyStatus = 1
+	KeyStatus_KEY_STATUS_DISABLED    KeyStatus = 2
+	KeyStatus_KEY_STATUS_EXPIRED     KeyStatus = 3
+	KeyStatus_KEY_STATUS_REVOKED     KeyStatus = 4
+)
+
+// Enum value maps for KeyStatus.
+var (
+	KeyStatus_name = map[int32]string{
+		0: "KEY_STATUS_UNSPECIFIED",
+		1: "KEY_STATUS_ACTIVE",
+		2: "KEY_STATUS_DISABLED",
+		3: "KEY_STATUS_EXPIRED",
+		4: "KEY_STATUS_REVOKED",
+	}
+	KeyStatus_value = map[string]int32{
+		"KEY_STATUS_UNSPECIFIED": 0,
+		"KEY_STATUS_ACTIVE":      1,
+		"KEY_STATUS_DISABLED":    2,
+		"KEY_STATUS_EXPIRED":     3,
+		"KEY_STATUS_REVOKED":     4,
+	}
+)
+
+func (x KeyStatus) Enum() *KeyStatus {
+	p := new(KeyStatus)
+	*p = x
+	return p
+}
+
+func (x KeyStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (KeyStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_api_models_api_key_proto_enumTypes[0].Descriptor()
+}
+
+func (KeyStatus) Type() protoreflect.EnumType {
+	return &file_api_models_api_key_proto_enumTypes[0]
+}
+
+func (x KeyStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use KeyStatus.Descriptor instead.
+func (KeyStatus) EnumDescriptor() ([]byte, []int) {
+	return file_api_models_api_key_proto_rawDescGZIP(), []int{0}
+}
+
 // APIKey represents an API key for authentication
 type APIKey struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -217,19 +273,29 @@ func (x *RateLimitConfig) GetRequestsPerDay() int32 {
 }
 
 // ExternalAPIKey stores encrypted external API credentials
+// Supports both user-specific and system-wide API keys
 type ExternalAPIKey struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	Id                  string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	UserId              string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Provider            string                 `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"` // e.g., "binance", "gate.io", "coingecko"
+	UserId              *string                `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"` // User ID (null for system-wide keys)
+	Provider            string                 `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"`                 // e.g., "binance", "gate.io", "coingecko"
 	EncryptedApiKey     string                 `protobuf:"bytes,4,opt,name=encrypted_api_key,json=encryptedApiKey,proto3" json:"encrypted_api_key,omitempty"`
 	EncryptedApiSecret  string                 `protobuf:"bytes,5,opt,name=encrypted_api_secret,json=encryptedApiSecret,proto3" json:"encrypted_api_secret,omitempty"`
 	EncryptedPassphrase *string                `protobuf:"bytes,6,opt,name=encrypted_passphrase,json=encryptedPassphrase,proto3,oneof" json:"encrypted_passphrase,omitempty"` // For some exchanges
 	Sandbox             bool                   `protobuf:"varint,7,opt,name=sandbox,proto3" json:"sandbox,omitempty"`                                                         // Whether this is a sandbox/test key
 	CreatedAt           *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt           *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// System key support
+	IsSystemKey    bool     `protobuf:"varint,10,opt,name=is_system_key,json=isSystemKey,proto3" json:"is_system_key,omitempty"`         // True if this is a system-wide key (user_id should be null)
+	AllowedUserIds []string `protobuf:"bytes,11,rep,name=allowed_user_ids,json=allowedUserIds,proto3" json:"allowed_user_ids,omitempty"` // Whitelist of users who can use this key (empty = all users)
+	Permissions    []string `protobuf:"bytes,12,rep,name=permissions,proto3" json:"permissions,omitempty"`                               // e.g., ["read", "trade", "withdraw"]
+	// Lifecycle management
+	Status        KeyStatus              `protobuf:"varint,13,opt,name=status,proto3,enum=models.KeyStatus" json:"status,omitempty"`            // Current status of the key
+	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=expires_at,json=expiresAt,proto3,oneof" json:"expires_at,omitempty"`      // Expiration time (optional)
+	LastUsedAt    *timestamppb.Timestamp `protobuf:"bytes,15,opt,name=last_used_at,json=lastUsedAt,proto3,oneof" json:"last_used_at,omitempty"` // Last time key was used
+	UsageCount    int32                  `protobuf:"varint,16,opt,name=usage_count,json=usageCount,proto3" json:"usage_count,omitempty"`        // Number of times key has been used
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExternalAPIKey) Reset() {
@@ -270,8 +336,8 @@ func (x *ExternalAPIKey) GetId() string {
 }
 
 func (x *ExternalAPIKey) GetUserId() string {
-	if x != nil {
-		return x.UserId
+	if x != nil && x.UserId != nil {
+		return *x.UserId
 	}
 	return ""
 }
@@ -325,6 +391,55 @@ func (x *ExternalAPIKey) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *ExternalAPIKey) GetIsSystemKey() bool {
+	if x != nil {
+		return x.IsSystemKey
+	}
+	return false
+}
+
+func (x *ExternalAPIKey) GetAllowedUserIds() []string {
+	if x != nil {
+		return x.AllowedUserIds
+	}
+	return nil
+}
+
+func (x *ExternalAPIKey) GetPermissions() []string {
+	if x != nil {
+		return x.Permissions
+	}
+	return nil
+}
+
+func (x *ExternalAPIKey) GetStatus() KeyStatus {
+	if x != nil {
+		return x.Status
+	}
+	return KeyStatus_KEY_STATUS_UNSPECIFIED
+}
+
+func (x *ExternalAPIKey) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+func (x *ExternalAPIKey) GetLastUsedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastUsedAt
+	}
+	return nil
+}
+
+func (x *ExternalAPIKey) GetUsageCount() int32 {
+	if x != nil {
+		return x.UsageCount
+	}
+	return 0
+}
+
 var File_api_models_api_key_proto protoreflect.FileDescriptor
 
 const file_api_models_api_key_proto_rawDesc = "" +
@@ -353,20 +468,41 @@ const file_api_models_api_key_proto_rawDesc = "" +
 	"\x0fRateLimitConfig\x12.\n" +
 	"\x13requests_per_minute\x18\x01 \x01(\x05R\x11requestsPerMinute\x12*\n" +
 	"\x11requests_per_hour\x18\x02 \x01(\x05R\x0frequestsPerHour\x12(\n" +
-	"\x10requests_per_day\x18\x03 \x01(\x05R\x0erequestsPerDay\"\x94\x03\n" +
+	"\x10requests_per_day\x18\x03 \x01(\x05R\x0erequestsPerDay\"\x84\x06\n" +
 	"\x0eExternalAPIKey\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x1a\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
+	"\auser_id\x18\x02 \x01(\tH\x00R\x06userId\x88\x01\x01\x12\x1a\n" +
 	"\bprovider\x18\x03 \x01(\tR\bprovider\x12*\n" +
 	"\x11encrypted_api_key\x18\x04 \x01(\tR\x0fencryptedApiKey\x120\n" +
 	"\x14encrypted_api_secret\x18\x05 \x01(\tR\x12encryptedApiSecret\x126\n" +
-	"\x14encrypted_passphrase\x18\x06 \x01(\tH\x00R\x13encryptedPassphrase\x88\x01\x01\x12\x18\n" +
+	"\x14encrypted_passphrase\x18\x06 \x01(\tH\x01R\x13encryptedPassphrase\x88\x01\x01\x12\x18\n" +
 	"\asandbox\x18\a \x01(\bR\asandbox\x129\n" +
 	"\n" +
 	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAtB\x17\n" +
-	"\x15_encrypted_passphraseB\x84\x01\n" +
+	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\"\n" +
+	"\ris_system_key\x18\n" +
+	" \x01(\bR\visSystemKey\x12(\n" +
+	"\x10allowed_user_ids\x18\v \x03(\tR\x0eallowedUserIds\x12 \n" +
+	"\vpermissions\x18\f \x03(\tR\vpermissions\x12)\n" +
+	"\x06status\x18\r \x01(\x0e2\x11.models.KeyStatusR\x06status\x12>\n" +
+	"\n" +
+	"expires_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampH\x02R\texpiresAt\x88\x01\x01\x12A\n" +
+	"\flast_used_at\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampH\x03R\n" +
+	"lastUsedAt\x88\x01\x01\x12\x1f\n" +
+	"\vusage_count\x18\x10 \x01(\x05R\n" +
+	"usageCountB\n" +
+	"\n" +
+	"\b_user_idB\x17\n" +
+	"\x15_encrypted_passphraseB\r\n" +
+	"\v_expires_atB\x0f\n" +
+	"\r_last_used_at*\x87\x01\n" +
+	"\tKeyStatus\x12\x1a\n" +
+	"\x16KEY_STATUS_UNSPECIFIED\x10\x00\x12\x15\n" +
+	"\x11KEY_STATUS_ACTIVE\x10\x01\x12\x17\n" +
+	"\x13KEY_STATUS_DISABLED\x10\x02\x12\x16\n" +
+	"\x12KEY_STATUS_EXPIRED\x10\x03\x12\x16\n" +
+	"\x12KEY_STATUS_REVOKED\x10\x04B\x84\x01\n" +
 	"\n" +
 	"com.modelsB\vApiKeyProtoP\x01Z1github.com/foxcool/greedy-eye/internal/api/models\xa2\x02\x03MXX\xaa\x02\x06Models\xca\x02\x06Models\xe2\x02\x12Models\\GPBMetadata\xea\x02\x06Modelsb\x06proto3"
 
@@ -382,25 +518,30 @@ func file_api_models_api_key_proto_rawDescGZIP() []byte {
 	return file_api_models_api_key_proto_rawDescData
 }
 
+var file_api_models_api_key_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_api_models_api_key_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_api_models_api_key_proto_goTypes = []any{
-	(*APIKey)(nil),                // 0: models.APIKey
-	(*RateLimitConfig)(nil),       // 1: models.RateLimitConfig
-	(*ExternalAPIKey)(nil),        // 2: models.ExternalAPIKey
-	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
+	(KeyStatus)(0),                // 0: models.KeyStatus
+	(*APIKey)(nil),                // 1: models.APIKey
+	(*RateLimitConfig)(nil),       // 2: models.RateLimitConfig
+	(*ExternalAPIKey)(nil),        // 3: models.ExternalAPIKey
+	(*timestamppb.Timestamp)(nil), // 4: google.protobuf.Timestamp
 }
 var file_api_models_api_key_proto_depIdxs = []int32{
-	3, // 0: models.APIKey.created_at:type_name -> google.protobuf.Timestamp
-	3, // 1: models.APIKey.last_used_at:type_name -> google.protobuf.Timestamp
-	3, // 2: models.APIKey.expires_at:type_name -> google.protobuf.Timestamp
-	1, // 3: models.APIKey.rate_limit:type_name -> models.RateLimitConfig
-	3, // 4: models.ExternalAPIKey.created_at:type_name -> google.protobuf.Timestamp
-	3, // 5: models.ExternalAPIKey.updated_at:type_name -> google.protobuf.Timestamp
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	4, // 0: models.APIKey.created_at:type_name -> google.protobuf.Timestamp
+	4, // 1: models.APIKey.last_used_at:type_name -> google.protobuf.Timestamp
+	4, // 2: models.APIKey.expires_at:type_name -> google.protobuf.Timestamp
+	2, // 3: models.APIKey.rate_limit:type_name -> models.RateLimitConfig
+	4, // 4: models.ExternalAPIKey.created_at:type_name -> google.protobuf.Timestamp
+	4, // 5: models.ExternalAPIKey.updated_at:type_name -> google.protobuf.Timestamp
+	0, // 6: models.ExternalAPIKey.status:type_name -> models.KeyStatus
+	4, // 7: models.ExternalAPIKey.expires_at:type_name -> google.protobuf.Timestamp
+	4, // 8: models.ExternalAPIKey.last_used_at:type_name -> google.protobuf.Timestamp
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	9, // [9:9] is the sub-list for extension type_name
+	9, // [9:9] is the sub-list for extension extendee
+	0, // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_api_models_api_key_proto_init() }
@@ -414,13 +555,14 @@ func file_api_models_api_key_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_models_api_key_proto_rawDesc), len(file_api_models_api_key_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_api_models_api_key_proto_goTypes,
 		DependencyIndexes: file_api_models_api_key_proto_depIdxs,
+		EnumInfos:         file_api_models_api_key_proto_enumTypes,
 		MessageInfos:      file_api_models_api_key_proto_msgTypes,
 	}.Build()
 	File_api_models_api_key_proto = out.File

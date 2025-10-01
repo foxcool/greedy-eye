@@ -13,6 +13,15 @@ enum AccountType {
     ACCOUNT_TYPE_BROKER = 4;
 }
 
+// ExchangeAccountSubtype specifies the sub-type for exchange accounts
+enum ExchangeAccountSubtype {
+    EXCHANGE_ACCOUNT_SUBTYPE_UNSPECIFIED = 0;
+    EXCHANGE_ACCOUNT_SUBTYPE_SPOT = 1;      // Spot trading account
+    EXCHANGE_ACCOUNT_SUBTYPE_FUTURES = 2;   // Futures trading account
+    EXCHANGE_ACCOUNT_SUBTYPE_MARGIN = 3;    // Margin trading account
+    EXCHANGE_ACCOUNT_SUBTYPE_SAVINGS = 4;   // Savings/staking account
+}
+
 // Account represents a user's connection to an external financial entity
 // (like an exchange account, bank account, or a self-custody wallet).
 // It holds metadata and potentially credentials (in 'data' field) needed to interact.
@@ -25,4 +34,9 @@ message Account {
   map<string, string> data = 6; // Flexible map for connection parameters, API keys, addresses etc. Needs careful handling due to sensitive data.
   google.protobuf.Timestamp created_at = 7; // Timestamp of creation
   google.protobuf.Timestamp updated_at = 8; // Timestamp of last update
+
+  // Exchange-specific fields (optional, only for ACCOUNT_TYPE_EXCHANGE)
+  optional ExchangeAccountSubtype subtype = 9; // Sub-type for exchange accounts (spot, futures, margin)
+  optional string parent_account_id = 10; // Parent account ID for hierarchical structure (e.g., futures under main exchange account)
+  optional string external_api_key_id = 11; // Direct reference to ExternalAPIKey for this account
 }

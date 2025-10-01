@@ -89,11 +89,33 @@ docker build .    # Build Docker image
 | PortfolioService | 🔄 Stubs | API complete | ✅ | ✅ |
 | PriceService | ✅ Implemented | External API integration | ✅ | ✅ |
 | RuleService | 🔄 Stubs | API complete | ✅ | ✅ |
-| MessengerBotService | 🔄 Stubs | Full architecture | ✅ | ✅ |
+| **MessengerService** | 🔄 Stubs | Multi-platform architecture | ✅ | ✅ |
 | AuthService | 🔄 Proto | Proto only | ❌ | ❌ |
+
+### External Adapters Status
+
+See [adapters.md](adapters.md) for detailed adapter documentation.
+
+| Adapter | Provider | Status | Tests | Coverage |
+|---------|----------|--------|-------|----------|
+| Messenger | Telegram | ⚠️ Stubs | ✅ | 45.5% |
+| Price Data | CoinGecko | ⚠️ Stubs | ✅ | 64.3% |
+| Exchange | Binance | ⚠️ Stubs | ✅ | 57.1% |
+| Blockchain | Moralis | ⚠️ Stubs | ✅ | 66.7% |
+
+**Legend**: ⚠️ Stubs = Stub implementation with unimplemented methods, tests verify error handling
 
 ### Recent Achievements
 
+**v0.0.4-alpha - Adapter Pattern & MessengerService Refactoring**
+- ✅ **Adapter Architecture**: Designed and implemented adapter pattern for external integrations
+- ✅ **MessengerService**: Renamed TelegramBotService → MessengerService for multi-platform support
+- ✅ **4 Adapter Categories**: Messenger, Price Data, Exchange, Blockchain adapters with stub implementations
+- ✅ **Comprehensive Tests**: All adapters have test coverage (45-67%)
+- ✅ **Proto Extensions**: Extended ExternalAPIKey and Account models for system-wide API keys and account hierarchy
+- ✅ **Documentation**: Created detailed [adapters.md](adapters.md) with usage examples and architecture patterns
+
+**v0.0.3-alpha - Core Services Implementation**
 - ✅ UserService, AssetService, PriceService - full business logic implementation
 - ✅ External price data API integration with price fetching
 - ✅ Integration tests for all core services

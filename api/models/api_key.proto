@@ -29,10 +29,20 @@ message RateLimitConfig {
   int32 requests_per_day = 3;
 }
 
+// KeyStatus represents the status of an API key
+enum KeyStatus {
+  KEY_STATUS_UNSPECIFIED = 0;
+  KEY_STATUS_ACTIVE = 1;
+  KEY_STATUS_DISABLED = 2;
+  KEY_STATUS_EXPIRED = 3;
+  KEY_STATUS_REVOKED = 4;
+}
+
 // ExternalAPIKey stores encrypted external API credentials
+// Supports both user-specific and system-wide API keys
 message ExternalAPIKey {
   string id = 1;
-  string user_id = 2;
+  optional string user_id = 2; // User ID (null for system-wide keys)
   string provider = 3; // e.g., "binance", "gate.io", "coingecko"
   string encrypted_api_key = 4;
   string encrypted_api_secret = 5;
@@ -40,4 +50,15 @@ message ExternalAPIKey {
   bool sandbox = 7; // Whether this is a sandbox/test key
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
+
+  // System key support
+  bool is_system_key = 10; // True if this is a system-wide key (user_id should be null)
+  repeated string allowed_user_ids = 11; // Whitelist of users who can use this key (empty = all users)
+  repeated string permissions = 12; // e.g., ["read", "trade", "withdraw"]
+
+  // Lifecycle management
+  KeyStatus status = 13; // Current status of the key
+  optional google.protobuf.Timestamp expires_at = 14; // Expiration time (optional)
+  optional google.protobuf.Timestamp last_used_at = 15; // Last time key was used
+  int32 usage_count = 16; // Number of times key has been used
 }
