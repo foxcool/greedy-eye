@@ -7,7 +7,6 @@
 package services
 
 import (
-	_ "github.com/foxcool/greedy-eye/internal/api/models"
 	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -516,7 +515,7 @@ var File_api_services_auth_service_proto protoreflect.FileDescriptor
 
 const file_api_services_auth_service_proto_rawDesc = "" +
 	"\n" +
-	"\x1fapi/services/auth_service.proto\x12\bservices\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x18api/models/api_key.proto\"\x8f\x01\n" +
+	"\x1fapi/services/auth_service.proto\x12\bservices\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/api/annotations.proto\"\x8f\x01\n" +
 	"\x10CreateJWTRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x16\n" +
 	"\x06scopes\x18\x02 \x03(\tR\x06scopes\x12,\n" +

@@ -29,7 +29,6 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // AuthService provides authentication and authorization business logic
-// For API Key CRUD operations, use StorageService
 type AuthServiceClient interface {
 	// JWT management
 	CreateJWT(ctx context.Context, in *CreateJWTRequest, opts ...grpc.CallOption) (*CreateJWTResponse, error)
@@ -80,7 +79,6 @@ func (c *authServiceClient) RefreshJWT(ctx context.Context, in *RefreshJWTReques
 // for forward compatibility.
 //
 // AuthService provides authentication and authorization business logic
-// For API Key CRUD operations, use StorageService
 type AuthServiceServer interface {
 	// JWT management
 	CreateJWT(context.Context, *CreateJWTRequest) (*CreateJWTResponse, error)

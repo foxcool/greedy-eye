@@ -15,7 +15,6 @@ import "api/models/transaction.proto";
 import "api/models/user.proto";
 import "api/models/rule.proto";
 import "api/models/rule_execution.proto";
-import "api/models/api_key.proto";
 
 option go_package = "github.com/foxcool/greedy-eye/internal/api/services";
 
@@ -273,64 +272,6 @@ service StorageService {
       get: "/api/v1/rule-executions"
     };
   }
-
-  // --- APIKey operations ---
-  rpc CreateAPIKey(CreateAPIKeyRequest) returns (models.APIKey) {
-    option (google.api.http) = {
-      post: "/api/v1/api-keys"
-      body: "api_key"
-    };
-  }
-  rpc GetAPIKey(GetAPIKeyRequest) returns (models.APIKey) {
-    option (google.api.http) = {
-      get: "/api/v1/api-keys/{id}"
-    };
-  }
-  rpc UpdateAPIKey(UpdateAPIKeyRequest) returns (models.APIKey) {
-    option (google.api.http) = {
-      put: "/api/v1/api-keys/{api_key.id}"
-      body: "api_key"
-    };
-  }
-  rpc DeleteAPIKey(DeleteAPIKeyRequest) returns (google.protobuf.Empty) {
-    option (google.api.http) = {
-      delete: "/api/v1/api-keys/{id}"
-    };
-  }
-  rpc ListAPIKeys(ListAPIKeysRequest) returns (ListAPIKeysResponse) {
-    option (google.api.http) = {
-      get: "/api/v1/api-keys"
-    };
-  }
-
-  // --- ExternalAPIKey operations ---
-  rpc CreateExternalAPIKey(CreateExternalAPIKeyRequest) returns (models.ExternalAPIKey) {
-    option (google.api.http) = {
-      post: "/api/v1/external-api-keys"
-      body: "external_api_key"
-    };
-  }
-  rpc GetExternalAPIKey(GetExternalAPIKeyRequest) returns (models.ExternalAPIKey) {
-    option (google.api.http) = {
-      get: "/api/v1/external-api-keys/{id}"
-    };
-  }
-  rpc UpdateExternalAPIKey(UpdateExternalAPIKeyRequest) returns (models.ExternalAPIKey) {
-    option (google.api.http) = {
-      put: "/api/v1/external-api-keys/{external_api_key.id}"
-      body: "external_api_key"
-    };
-  }
-  rpc DeleteExternalAPIKey(DeleteExternalAPIKeyRequest) returns (google.protobuf.Empty) {
-    option (google.api.http) = {
-      delete: "/api/v1/external-api-keys/{id}"
-    };
-  }
-  rpc ListExternalAPIKeys(ListExternalAPIKeysRequest) returns (ListExternalAPIKeysResponse) {
-    option (google.api.http) = {
-      get: "/api/v1/external-api-keys"
-    };
-  }
 }
 
 // --- Asset Messages ---
@@ -569,56 +510,5 @@ message ListRuleExecutionsRequest {
 }
 message ListRuleExecutionsResponse {
   repeated models.RuleExecution rule_executions = 1;
-  string next_page_token = 2;
-}
-
-// --- APIKey Messages ---
-message CreateAPIKeyRequest {
-  models.APIKey api_key = 1; // name, user_id, scopes required. ID empty.
-}
-message GetAPIKeyRequest {
-  string id = 1;
-}
-message UpdateAPIKeyRequest {
-  models.APIKey api_key = 1; // Must include ID and fields to update
-  google.protobuf.FieldMask update_mask = 2;
-}
-message DeleteAPIKeyRequest {
-  string id = 1;
-}
-message ListAPIKeysRequest {
-  optional string user_id = 1;
-  optional bool enabled = 2;
-  optional int32 page_size = 3;
-  optional string page_token = 4;
-}
-message ListAPIKeysResponse {
-  repeated models.APIKey api_keys = 1;
-  string next_page_token = 2;
-}
-
-// --- ExternalAPIKey Messages ---
-message CreateExternalAPIKeyRequest {
-  models.ExternalAPIKey external_api_key = 1; // user_id, provider required. ID empty.
-}
-message GetExternalAPIKeyRequest {
-  string id = 1;
-}
-message UpdateExternalAPIKeyRequest {
-  models.ExternalAPIKey external_api_key = 1; // Must include ID and fields to update
-  google.protobuf.FieldMask update_mask = 2;
-}
-message DeleteExternalAPIKeyRequest {
-  string id = 1;
-}
-message ListExternalAPIKeysRequest {
-  optional string user_id = 1;
-  optional string provider = 2;
-  optional bool sandbox = 3;
-  optional int32 page_size = 4;
-  optional string page_token = 5;
-}
-message ListExternalAPIKeysResponse {
-  repeated models.ExternalAPIKey external_api_keys = 1;
   string next_page_token = 2;
 }

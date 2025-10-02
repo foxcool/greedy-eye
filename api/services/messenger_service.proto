@@ -9,9 +9,10 @@ import "api/models/telegram.proto";
 
 option go_package = "github.com/foxcool/greedy-eye/internal/api/services";
 
-// TelegramBotService provides conversational interface through Telegram Bot API
-// Supports text messages, voice messages, inline commands, and notifications
-service TelegramBotService {
+// MessengerService provides conversational interface through messenger platforms
+// Supports Telegram, WhatsApp, Discord and other messaging platforms
+// Handles text messages, voice messages, inline commands, and notifications
+service MessengerService {
     // Process incoming Telegram webhook updates
     rpc ProcessTelegramUpdate(ProcessTelegramUpdateRequest) returns (ProcessTelegramUpdateResponse) {
         option (google.api.http) = {

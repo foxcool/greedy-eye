@@ -64,16 +64,6 @@ const (
 	StorageService_GetRuleExecution_FullMethodName     = "/services.StorageService/GetRuleExecution"
 	StorageService_UpdateRuleExecution_FullMethodName  = "/services.StorageService/UpdateRuleExecution"
 	StorageService_ListRuleExecutions_FullMethodName   = "/services.StorageService/ListRuleExecutions"
-	StorageService_CreateAPIKey_FullMethodName         = "/services.StorageService/CreateAPIKey"
-	StorageService_GetAPIKey_FullMethodName            = "/services.StorageService/GetAPIKey"
-	StorageService_UpdateAPIKey_FullMethodName         = "/services.StorageService/UpdateAPIKey"
-	StorageService_DeleteAPIKey_FullMethodName         = "/services.StorageService/DeleteAPIKey"
-	StorageService_ListAPIKeys_FullMethodName          = "/services.StorageService/ListAPIKeys"
-	StorageService_CreateExternalAPIKey_FullMethodName = "/services.StorageService/CreateExternalAPIKey"
-	StorageService_GetExternalAPIKey_FullMethodName    = "/services.StorageService/GetExternalAPIKey"
-	StorageService_UpdateExternalAPIKey_FullMethodName = "/services.StorageService/UpdateExternalAPIKey"
-	StorageService_DeleteExternalAPIKey_FullMethodName = "/services.StorageService/DeleteExternalAPIKey"
-	StorageService_ListExternalAPIKeys_FullMethodName  = "/services.StorageService/ListExternalAPIKeys"
 )
 
 // StorageServiceClient is the client API for StorageService service.
@@ -136,18 +126,6 @@ type StorageServiceClient interface {
 	GetRuleExecution(ctx context.Context, in *GetRuleExecutionRequest, opts ...grpc.CallOption) (*models.RuleExecution, error)
 	UpdateRuleExecution(ctx context.Context, in *UpdateRuleExecutionRequest, opts ...grpc.CallOption) (*models.RuleExecution, error)
 	ListRuleExecutions(ctx context.Context, in *ListRuleExecutionsRequest, opts ...grpc.CallOption) (*ListRuleExecutionsResponse, error)
-	// --- APIKey operations ---
-	CreateAPIKey(ctx context.Context, in *CreateAPIKeyRequest, opts ...grpc.CallOption) (*models.APIKey, error)
-	GetAPIKey(ctx context.Context, in *GetAPIKeyRequest, opts ...grpc.CallOption) (*models.APIKey, error)
-	UpdateAPIKey(ctx context.Context, in *UpdateAPIKeyRequest, opts ...grpc.CallOption) (*models.APIKey, error)
-	DeleteAPIKey(ctx context.Context, in *DeleteAPIKeyRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	ListAPIKeys(ctx context.Context, in *ListAPIKeysRequest, opts ...grpc.CallOption) (*ListAPIKeysResponse, error)
-	// --- ExternalAPIKey operations ---
-	CreateExternalAPIKey(ctx context.Context, in *CreateExternalAPIKeyRequest, opts ...grpc.CallOption) (*models.ExternalAPIKey, error)
-	GetExternalAPIKey(ctx context.Context, in *GetExternalAPIKeyRequest, opts ...grpc.CallOption) (*models.ExternalAPIKey, error)
-	UpdateExternalAPIKey(ctx context.Context, in *UpdateExternalAPIKeyRequest, opts ...grpc.CallOption) (*models.ExternalAPIKey, error)
-	DeleteExternalAPIKey(ctx context.Context, in *DeleteExternalAPIKeyRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	ListExternalAPIKeys(ctx context.Context, in *ListExternalAPIKeysRequest, opts ...grpc.CallOption) (*ListExternalAPIKeysResponse, error)
 }
 
 type storageServiceClient struct {
@@ -588,106 +566,6 @@ func (c *storageServiceClient) ListRuleExecutions(ctx context.Context, in *ListR
 	return out, nil
 }
 
-func (c *storageServiceClient) CreateAPIKey(ctx context.Context, in *CreateAPIKeyRequest, opts ...grpc.CallOption) (*models.APIKey, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(models.APIKey)
-	err := c.cc.Invoke(ctx, StorageService_CreateAPIKey_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *storageServiceClient) GetAPIKey(ctx context.Context, in *GetAPIKeyRequest, opts ...grpc.CallOption) (*models.APIKey, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(models.APIKey)
-	err := c.cc.Invoke(ctx, StorageService_GetAPIKey_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *storageServiceClient) UpdateAPIKey(ctx context.Context, in *UpdateAPIKeyRequest, opts ...grpc.CallOption) (*models.APIKey, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(models.APIKey)
-	err := c.cc.Invoke(ctx, StorageService_UpdateAPIKey_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *storageServiceClient) DeleteAPIKey(ctx context.Context, in *DeleteAPIKeyRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
-	err := c.cc.Invoke(ctx, StorageService_DeleteAPIKey_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *storageServiceClient) ListAPIKeys(ctx context.Context, in *ListAPIKeysRequest, opts ...grpc.CallOption) (*ListAPIKeysResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListAPIKeysResponse)
-	err := c.cc.Invoke(ctx, StorageService_ListAPIKeys_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *storageServiceClient) CreateExternalAPIKey(ctx context.Context, in *CreateExternalAPIKeyRequest, opts ...grpc.CallOption) (*models.ExternalAPIKey, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(models.ExternalAPIKey)
-	err := c.cc.Invoke(ctx, StorageService_CreateExternalAPIKey_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *storageServiceClient) GetExternalAPIKey(ctx context.Context, in *GetExternalAPIKeyRequest, opts ...grpc.CallOption) (*models.ExternalAPIKey, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(models.ExternalAPIKey)
-	err := c.cc.Invoke(ctx, StorageService_GetExternalAPIKey_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *storageServiceClient) UpdateExternalAPIKey(ctx context.Context, in *UpdateExternalAPIKeyRequest, opts ...grpc.CallOption) (*models.ExternalAPIKey, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(models.ExternalAPIKey)
-	err := c.cc.Invoke(ctx, StorageService_UpdateExternalAPIKey_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *storageServiceClient) DeleteExternalAPIKey(ctx context.Context, in *DeleteExternalAPIKeyRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
-	err := c.cc.Invoke(ctx, StorageService_DeleteExternalAPIKey_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *storageServiceClient) ListExternalAPIKeys(ctx context.Context, in *ListExternalAPIKeysRequest, opts ...grpc.CallOption) (*ListExternalAPIKeysResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListExternalAPIKeysResponse)
-	err := c.cc.Invoke(ctx, StorageService_ListExternalAPIKeys_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // StorageServiceServer is the server API for StorageService service.
 // All implementations should embed UnimplementedStorageServiceServer
 // for forward compatibility.
@@ -748,18 +626,6 @@ type StorageServiceServer interface {
 	GetRuleExecution(context.Context, *GetRuleExecutionRequest) (*models.RuleExecution, error)
 	UpdateRuleExecution(context.Context, *UpdateRuleExecutionRequest) (*models.RuleExecution, error)
 	ListRuleExecutions(context.Context, *ListRuleExecutionsRequest) (*ListRuleExecutionsResponse, error)
-	// --- APIKey operations ---
-	CreateAPIKey(context.Context, *CreateAPIKeyRequest) (*models.APIKey, error)
-	GetAPIKey(context.Context, *GetAPIKeyRequest) (*models.APIKey, error)
-	UpdateAPIKey(context.Context, *UpdateAPIKeyRequest) (*models.APIKey, error)
-	DeleteAPIKey(context.Context, *DeleteAPIKeyRequest) (*emptypb.Empty, error)
-	ListAPIKeys(context.Context, *ListAPIKeysRequest) (*ListAPIKeysResponse, error)
-	// --- ExternalAPIKey operations ---
-	CreateExternalAPIKey(context.Context, *CreateExternalAPIKeyRequest) (*models.ExternalAPIKey, error)
-	GetExternalAPIKey(context.Context, *GetExternalAPIKeyRequest) (*models.ExternalAPIKey, error)
-	UpdateExternalAPIKey(context.Context, *UpdateExternalAPIKeyRequest) (*models.ExternalAPIKey, error)
-	DeleteExternalAPIKey(context.Context, *DeleteExternalAPIKeyRequest) (*emptypb.Empty, error)
-	ListExternalAPIKeys(context.Context, *ListExternalAPIKeysRequest) (*ListExternalAPIKeysResponse, error)
 }
 
 // UnimplementedStorageServiceServer should be embedded to have
@@ -897,36 +763,6 @@ func (UnimplementedStorageServiceServer) UpdateRuleExecution(context.Context, *U
 }
 func (UnimplementedStorageServiceServer) ListRuleExecutions(context.Context, *ListRuleExecutionsRequest) (*ListRuleExecutionsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListRuleExecutions not implemented")
-}
-func (UnimplementedStorageServiceServer) CreateAPIKey(context.Context, *CreateAPIKeyRequest) (*models.APIKey, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method CreateAPIKey not implemented")
-}
-func (UnimplementedStorageServiceServer) GetAPIKey(context.Context, *GetAPIKeyRequest) (*models.APIKey, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetAPIKey not implemented")
-}
-func (UnimplementedStorageServiceServer) UpdateAPIKey(context.Context, *UpdateAPIKeyRequest) (*models.APIKey, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method UpdateAPIKey not implemented")
-}
-func (UnimplementedStorageServiceServer) DeleteAPIKey(context.Context, *DeleteAPIKeyRequest) (*emptypb.Empty, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DeleteAPIKey not implemented")
-}
-func (UnimplementedStorageServiceServer) ListAPIKeys(context.Context, *ListAPIKeysRequest) (*ListAPIKeysResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListAPIKeys not implemented")
-}
-func (UnimplementedStorageServiceServer) CreateExternalAPIKey(context.Context, *CreateExternalAPIKeyRequest) (*models.ExternalAPIKey, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method CreateExternalAPIKey not implemented")
-}
-func (UnimplementedStorageServiceServer) GetExternalAPIKey(context.Context, *GetExternalAPIKeyRequest) (*models.ExternalAPIKey, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetExternalAPIKey not implemented")
-}
-func (UnimplementedStorageServiceServer) UpdateExternalAPIKey(context.Context, *UpdateExternalAPIKeyRequest) (*models.ExternalAPIKey, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method UpdateExternalAPIKey not implemented")
-}
-func (UnimplementedStorageServiceServer) DeleteExternalAPIKey(context.Context, *DeleteExternalAPIKeyRequest) (*emptypb.Empty, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DeleteExternalAPIKey not implemented")
-}
-func (UnimplementedStorageServiceServer) ListExternalAPIKeys(context.Context, *ListExternalAPIKeysRequest) (*ListExternalAPIKeysResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListExternalAPIKeys not implemented")
 }
 func (UnimplementedStorageServiceServer) testEmbeddedByValue() {}
 
@@ -1722,186 +1558,6 @@ func _StorageService_ListRuleExecutions_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
-func _StorageService_CreateAPIKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreateAPIKeyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StorageServiceServer).CreateAPIKey(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: StorageService_CreateAPIKey_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StorageServiceServer).CreateAPIKey(ctx, req.(*CreateAPIKeyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _StorageService_GetAPIKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetAPIKeyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StorageServiceServer).GetAPIKey(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: StorageService_GetAPIKey_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StorageServiceServer).GetAPIKey(ctx, req.(*GetAPIKeyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _StorageService_UpdateAPIKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UpdateAPIKeyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StorageServiceServer).UpdateAPIKey(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: StorageService_UpdateAPIKey_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StorageServiceServer).UpdateAPIKey(ctx, req.(*UpdateAPIKeyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _StorageService_DeleteAPIKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeleteAPIKeyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StorageServiceServer).DeleteAPIKey(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: StorageService_DeleteAPIKey_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StorageServiceServer).DeleteAPIKey(ctx, req.(*DeleteAPIKeyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _StorageService_ListAPIKeys_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListAPIKeysRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StorageServiceServer).ListAPIKeys(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: StorageService_ListAPIKeys_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StorageServiceServer).ListAPIKeys(ctx, req.(*ListAPIKeysRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _StorageService_CreateExternalAPIKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreateExternalAPIKeyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StorageServiceServer).CreateExternalAPIKey(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: StorageService_CreateExternalAPIKey_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StorageServiceServer).CreateExternalAPIKey(ctx, req.(*CreateExternalAPIKeyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _StorageService_GetExternalAPIKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetExternalAPIKeyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StorageServiceServer).GetExternalAPIKey(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: StorageService_GetExternalAPIKey_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StorageServiceServer).GetExternalAPIKey(ctx, req.(*GetExternalAPIKeyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _StorageService_UpdateExternalAPIKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UpdateExternalAPIKeyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StorageServiceServer).UpdateExternalAPIKey(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: StorageService_UpdateExternalAPIKey_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StorageServiceServer).UpdateExternalAPIKey(ctx, req.(*UpdateExternalAPIKeyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _StorageService_DeleteExternalAPIKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeleteExternalAPIKeyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StorageServiceServer).DeleteExternalAPIKey(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: StorageService_DeleteExternalAPIKey_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StorageServiceServer).DeleteExternalAPIKey(ctx, req.(*DeleteExternalAPIKeyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _StorageService_ListExternalAPIKeys_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListExternalAPIKeysRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StorageServiceServer).ListExternalAPIKeys(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: StorageService_ListExternalAPIKeys_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StorageServiceServer).ListExternalAPIKeys(ctx, req.(*ListExternalAPIKeysRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // StorageService_ServiceDesc is the grpc.ServiceDesc for StorageService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -2080,46 +1736,6 @@ var StorageService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListRuleExecutions",
 			Handler:    _StorageService_ListRuleExecutions_Handler,
-		},
-		{
-			MethodName: "CreateAPIKey",
-			Handler:    _StorageService_CreateAPIKey_Handler,
-		},
-		{
-			MethodName: "GetAPIKey",
-			Handler:    _StorageService_GetAPIKey_Handler,
-		},
-		{
-			MethodName: "UpdateAPIKey",
-			Handler:    _StorageService_UpdateAPIKey_Handler,
-		},
-		{
-			MethodName: "DeleteAPIKey",
-			Handler:    _StorageService_DeleteAPIKey_Handler,
-		},
-		{
-			MethodName: "ListAPIKeys",
-			Handler:    _StorageService_ListAPIKeys_Handler,
-		},
-		{
-			MethodName: "CreateExternalAPIKey",
-			Handler:    _StorageService_CreateExternalAPIKey_Handler,
-		},
-		{
-			MethodName: "GetExternalAPIKey",
-			Handler:    _StorageService_GetExternalAPIKey_Handler,
-		},
-		{
-			MethodName: "UpdateExternalAPIKey",
-			Handler:    _StorageService_UpdateExternalAPIKey_Handler,
-		},
-		{
-			MethodName: "DeleteExternalAPIKey",
-			Handler:    _StorageService_DeleteExternalAPIKey_Handler,
-		},
-		{
-			MethodName: "ListExternalAPIKeys",
-			Handler:    _StorageService_ListExternalAPIKeys_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

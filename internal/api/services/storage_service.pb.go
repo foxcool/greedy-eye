@@ -2836,629 +2836,11 @@ func (x *ListRuleExecutionsResponse) GetNextPageToken() string {
 	return ""
 }
 
-// --- APIKey Messages ---
-type CreateAPIKeyRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ApiKey        *models.APIKey         `protobuf:"bytes,1,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"` // name, user_id, scopes required. ID empty.
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *CreateAPIKeyRequest) Reset() {
-	*x = CreateAPIKeyRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[52]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *CreateAPIKeyRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*CreateAPIKeyRequest) ProtoMessage() {}
-
-func (x *CreateAPIKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[52]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use CreateAPIKeyRequest.ProtoReflect.Descriptor instead.
-func (*CreateAPIKeyRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{52}
-}
-
-func (x *CreateAPIKeyRequest) GetApiKey() *models.APIKey {
-	if x != nil {
-		return x.ApiKey
-	}
-	return nil
-}
-
-type GetAPIKeyRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *GetAPIKeyRequest) Reset() {
-	*x = GetAPIKeyRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[53]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *GetAPIKeyRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GetAPIKeyRequest) ProtoMessage() {}
-
-func (x *GetAPIKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[53]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use GetAPIKeyRequest.ProtoReflect.Descriptor instead.
-func (*GetAPIKeyRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{53}
-}
-
-func (x *GetAPIKeyRequest) GetId() string {
-	if x != nil {
-		return x.Id
-	}
-	return ""
-}
-
-type UpdateAPIKeyRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ApiKey        *models.APIKey         `protobuf:"bytes,1,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"` // Must include ID and fields to update
-	UpdateMask    *fieldmaskpb.FieldMask `protobuf:"bytes,2,opt,name=update_mask,json=updateMask,proto3" json:"update_mask,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *UpdateAPIKeyRequest) Reset() {
-	*x = UpdateAPIKeyRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[54]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *UpdateAPIKeyRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*UpdateAPIKeyRequest) ProtoMessage() {}
-
-func (x *UpdateAPIKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[54]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use UpdateAPIKeyRequest.ProtoReflect.Descriptor instead.
-func (*UpdateAPIKeyRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{54}
-}
-
-func (x *UpdateAPIKeyRequest) GetApiKey() *models.APIKey {
-	if x != nil {
-		return x.ApiKey
-	}
-	return nil
-}
-
-func (x *UpdateAPIKeyRequest) GetUpdateMask() *fieldmaskpb.FieldMask {
-	if x != nil {
-		return x.UpdateMask
-	}
-	return nil
-}
-
-type DeleteAPIKeyRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DeleteAPIKeyRequest) Reset() {
-	*x = DeleteAPIKeyRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[55]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DeleteAPIKeyRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DeleteAPIKeyRequest) ProtoMessage() {}
-
-func (x *DeleteAPIKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[55]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DeleteAPIKeyRequest.ProtoReflect.Descriptor instead.
-func (*DeleteAPIKeyRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{55}
-}
-
-func (x *DeleteAPIKeyRequest) GetId() string {
-	if x != nil {
-		return x.Id
-	}
-	return ""
-}
-
-type ListAPIKeysRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        *string                `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`
-	Enabled       *bool                  `protobuf:"varint,2,opt,name=enabled,proto3,oneof" json:"enabled,omitempty"`
-	PageSize      *int32                 `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
-	PageToken     *string                `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ListAPIKeysRequest) Reset() {
-	*x = ListAPIKeysRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[56]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListAPIKeysRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListAPIKeysRequest) ProtoMessage() {}
-
-func (x *ListAPIKeysRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[56]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ListAPIKeysRequest.ProtoReflect.Descriptor instead.
-func (*ListAPIKeysRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{56}
-}
-
-func (x *ListAPIKeysRequest) GetUserId() string {
-	if x != nil && x.UserId != nil {
-		return *x.UserId
-	}
-	return ""
-}
-
-func (x *ListAPIKeysRequest) GetEnabled() bool {
-	if x != nil && x.Enabled != nil {
-		return *x.Enabled
-	}
-	return false
-}
-
-func (x *ListAPIKeysRequest) GetPageSize() int32 {
-	if x != nil && x.PageSize != nil {
-		return *x.PageSize
-	}
-	return 0
-}
-
-func (x *ListAPIKeysRequest) GetPageToken() string {
-	if x != nil && x.PageToken != nil {
-		return *x.PageToken
-	}
-	return ""
-}
-
-type ListAPIKeysResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ApiKeys       []*models.APIKey       `protobuf:"bytes,1,rep,name=api_keys,json=apiKeys,proto3" json:"api_keys,omitempty"`
-	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ListAPIKeysResponse) Reset() {
-	*x = ListAPIKeysResponse{}
-	mi := &file_api_services_storage_service_proto_msgTypes[57]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListAPIKeysResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListAPIKeysResponse) ProtoMessage() {}
-
-func (x *ListAPIKeysResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[57]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ListAPIKeysResponse.ProtoReflect.Descriptor instead.
-func (*ListAPIKeysResponse) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{57}
-}
-
-func (x *ListAPIKeysResponse) GetApiKeys() []*models.APIKey {
-	if x != nil {
-		return x.ApiKeys
-	}
-	return nil
-}
-
-func (x *ListAPIKeysResponse) GetNextPageToken() string {
-	if x != nil {
-		return x.NextPageToken
-	}
-	return ""
-}
-
-// --- ExternalAPIKey Messages ---
-type CreateExternalAPIKeyRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	ExternalApiKey *models.ExternalAPIKey `protobuf:"bytes,1,opt,name=external_api_key,json=externalApiKey,proto3" json:"external_api_key,omitempty"` // user_id, provider required. ID empty.
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
-}
-
-func (x *CreateExternalAPIKeyRequest) Reset() {
-	*x = CreateExternalAPIKeyRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[58]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *CreateExternalAPIKeyRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*CreateExternalAPIKeyRequest) ProtoMessage() {}
-
-func (x *CreateExternalAPIKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[58]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use CreateExternalAPIKeyRequest.ProtoReflect.Descriptor instead.
-func (*CreateExternalAPIKeyRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{58}
-}
-
-func (x *CreateExternalAPIKeyRequest) GetExternalApiKey() *models.ExternalAPIKey {
-	if x != nil {
-		return x.ExternalApiKey
-	}
-	return nil
-}
-
-type GetExternalAPIKeyRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *GetExternalAPIKeyRequest) Reset() {
-	*x = GetExternalAPIKeyRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[59]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *GetExternalAPIKeyRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GetExternalAPIKeyRequest) ProtoMessage() {}
-
-func (x *GetExternalAPIKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[59]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use GetExternalAPIKeyRequest.ProtoReflect.Descriptor instead.
-func (*GetExternalAPIKeyRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{59}
-}
-
-func (x *GetExternalAPIKeyRequest) GetId() string {
-	if x != nil {
-		return x.Id
-	}
-	return ""
-}
-
-type UpdateExternalAPIKeyRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	ExternalApiKey *models.ExternalAPIKey `protobuf:"bytes,1,opt,name=external_api_key,json=externalApiKey,proto3" json:"external_api_key,omitempty"` // Must include ID and fields to update
-	UpdateMask     *fieldmaskpb.FieldMask `protobuf:"bytes,2,opt,name=update_mask,json=updateMask,proto3" json:"update_mask,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
-}
-
-func (x *UpdateExternalAPIKeyRequest) Reset() {
-	*x = UpdateExternalAPIKeyRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[60]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *UpdateExternalAPIKeyRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*UpdateExternalAPIKeyRequest) ProtoMessage() {}
-
-func (x *UpdateExternalAPIKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[60]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use UpdateExternalAPIKeyRequest.ProtoReflect.Descriptor instead.
-func (*UpdateExternalAPIKeyRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{60}
-}
-
-func (x *UpdateExternalAPIKeyRequest) GetExternalApiKey() *models.ExternalAPIKey {
-	if x != nil {
-		return x.ExternalApiKey
-	}
-	return nil
-}
-
-func (x *UpdateExternalAPIKeyRequest) GetUpdateMask() *fieldmaskpb.FieldMask {
-	if x != nil {
-		return x.UpdateMask
-	}
-	return nil
-}
-
-type DeleteExternalAPIKeyRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DeleteExternalAPIKeyRequest) Reset() {
-	*x = DeleteExternalAPIKeyRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[61]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DeleteExternalAPIKeyRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DeleteExternalAPIKeyRequest) ProtoMessage() {}
-
-func (x *DeleteExternalAPIKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[61]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DeleteExternalAPIKeyRequest.ProtoReflect.Descriptor instead.
-func (*DeleteExternalAPIKeyRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{61}
-}
-
-func (x *DeleteExternalAPIKeyRequest) GetId() string {
-	if x != nil {
-		return x.Id
-	}
-	return ""
-}
-
-type ListExternalAPIKeysRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        *string                `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`
-	Provider      *string                `protobuf:"bytes,2,opt,name=provider,proto3,oneof" json:"provider,omitempty"`
-	Sandbox       *bool                  `protobuf:"varint,3,opt,name=sandbox,proto3,oneof" json:"sandbox,omitempty"`
-	PageSize      *int32                 `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
-	PageToken     *string                `protobuf:"bytes,5,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ListExternalAPIKeysRequest) Reset() {
-	*x = ListExternalAPIKeysRequest{}
-	mi := &file_api_services_storage_service_proto_msgTypes[62]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListExternalAPIKeysRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListExternalAPIKeysRequest) ProtoMessage() {}
-
-func (x *ListExternalAPIKeysRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[62]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ListExternalAPIKeysRequest.ProtoReflect.Descriptor instead.
-func (*ListExternalAPIKeysRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{62}
-}
-
-func (x *ListExternalAPIKeysRequest) GetUserId() string {
-	if x != nil && x.UserId != nil {
-		return *x.UserId
-	}
-	return ""
-}
-
-func (x *ListExternalAPIKeysRequest) GetProvider() string {
-	if x != nil && x.Provider != nil {
-		return *x.Provider
-	}
-	return ""
-}
-
-func (x *ListExternalAPIKeysRequest) GetSandbox() bool {
-	if x != nil && x.Sandbox != nil {
-		return *x.Sandbox
-	}
-	return false
-}
-
-func (x *ListExternalAPIKeysRequest) GetPageSize() int32 {
-	if x != nil && x.PageSize != nil {
-		return *x.PageSize
-	}
-	return 0
-}
-
-func (x *ListExternalAPIKeysRequest) GetPageToken() string {
-	if x != nil && x.PageToken != nil {
-		return *x.PageToken
-	}
-	return ""
-}
-
-type ListExternalAPIKeysResponse struct {
-	state           protoimpl.MessageState   `protogen:"open.v1"`
-	ExternalApiKeys []*models.ExternalAPIKey `protobuf:"bytes,1,rep,name=external_api_keys,json=externalApiKeys,proto3" json:"external_api_keys,omitempty"`
-	NextPageToken   string                   `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
-}
-
-func (x *ListExternalAPIKeysResponse) Reset() {
-	*x = ListExternalAPIKeysResponse{}
-	mi := &file_api_services_storage_service_proto_msgTypes[63]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListExternalAPIKeysResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListExternalAPIKeysResponse) ProtoMessage() {}
-
-func (x *ListExternalAPIKeysResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_storage_service_proto_msgTypes[63]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ListExternalAPIKeysResponse.ProtoReflect.Descriptor instead.
-func (*ListExternalAPIKeysResponse) Descriptor() ([]byte, []int) {
-	return file_api_services_storage_service_proto_rawDescGZIP(), []int{63}
-}
-
-func (x *ListExternalAPIKeysResponse) GetExternalApiKeys() []*models.ExternalAPIKey {
-	if x != nil {
-		return x.ExternalApiKeys
-	}
-	return nil
-}
-
-func (x *ListExternalAPIKeysResponse) GetNextPageToken() string {
-	if x != nil {
-		return x.NextPageToken
-	}
-	return ""
-}
-
 var File_api_services_storage_service_proto protoreflect.FileDescriptor
 
 const file_api_services_storage_service_proto_rawDesc = "" +
 	"\n" +
-	"\"api/services/storage_service.proto\x12\bservices\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x18api/models/account.proto\x1a\x16api/models/asset.proto\x1a\x18api/models/holding.proto\x1a\x1aapi/models/portfolio.proto\x1a\x16api/models/price.proto\x1a\x1capi/models/transaction.proto\x1a\x15api/models/user.proto\x1a\x15api/models/rule.proto\x1a\x1fapi/models/rule_execution.proto\x1a\x18api/models/api_key.proto\"9\n" +
+	"\"api/services/storage_service.proto\x12\bservices\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x18api/models/account.proto\x1a\x16api/models/asset.proto\x1a\x18api/models/holding.proto\x1a\x1aapi/models/portfolio.proto\x1a\x16api/models/price.proto\x1a\x1capi/models/transaction.proto\x1a\x15api/models/user.proto\x1a\x15api/models/rule.proto\x1a\x1fapi/models/rule_execution.proto\"9\n" +
 	"\x12CreateAssetRequest\x12#\n" +
 	"\x05asset\x18\x01 \x01(\v2\r.models.AssetR\x05asset\"!\n" +
 	"\x0fGetAssetRequest\x12\x0e\n" +
@@ -3717,61 +3099,7 @@ const file_api_services_storage_service_proto_rawDesc = "" +
 	"\v_page_token\"\x84\x01\n" +
 	"\x1aListRuleExecutionsResponse\x12>\n" +
 	"\x0frule_executions\x18\x01 \x03(\v2\x15.models.RuleExecutionR\x0eruleExecutions\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\">\n" +
-	"\x13CreateAPIKeyRequest\x12'\n" +
-	"\aapi_key\x18\x01 \x01(\v2\x0e.models.APIKeyR\x06apiKey\"\"\n" +
-	"\x10GetAPIKeyRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"{\n" +
-	"\x13UpdateAPIKeyRequest\x12'\n" +
-	"\aapi_key\x18\x01 \x01(\v2\x0e.models.APIKeyR\x06apiKey\x12;\n" +
-	"\vupdate_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
-	"updateMask\"%\n" +
-	"\x13DeleteAPIKeyRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xcc\x01\n" +
-	"\x12ListAPIKeysRequest\x12\x1c\n" +
-	"\auser_id\x18\x01 \x01(\tH\x00R\x06userId\x88\x01\x01\x12\x1d\n" +
-	"\aenabled\x18\x02 \x01(\bH\x01R\aenabled\x88\x01\x01\x12 \n" +
-	"\tpage_size\x18\x03 \x01(\x05H\x02R\bpageSize\x88\x01\x01\x12\"\n" +
-	"\n" +
-	"page_token\x18\x04 \x01(\tH\x03R\tpageToken\x88\x01\x01B\n" +
-	"\n" +
-	"\b_user_idB\n" +
-	"\n" +
-	"\b_enabledB\f\n" +
-	"\n" +
-	"_page_sizeB\r\n" +
-	"\v_page_token\"h\n" +
-	"\x13ListAPIKeysResponse\x12)\n" +
-	"\bapi_keys\x18\x01 \x03(\v2\x0e.models.APIKeyR\aapiKeys\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"_\n" +
-	"\x1bCreateExternalAPIKeyRequest\x12@\n" +
-	"\x10external_api_key\x18\x01 \x01(\v2\x16.models.ExternalAPIKeyR\x0eexternalApiKey\"*\n" +
-	"\x18GetExternalAPIKeyRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x9c\x01\n" +
-	"\x1bUpdateExternalAPIKeyRequest\x12@\n" +
-	"\x10external_api_key\x18\x01 \x01(\v2\x16.models.ExternalAPIKeyR\x0eexternalApiKey\x12;\n" +
-	"\vupdate_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
-	"updateMask\"-\n" +
-	"\x1bDeleteExternalAPIKeyRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x82\x02\n" +
-	"\x1aListExternalAPIKeysRequest\x12\x1c\n" +
-	"\auser_id\x18\x01 \x01(\tH\x00R\x06userId\x88\x01\x01\x12\x1f\n" +
-	"\bprovider\x18\x02 \x01(\tH\x01R\bprovider\x88\x01\x01\x12\x1d\n" +
-	"\asandbox\x18\x03 \x01(\bH\x02R\asandbox\x88\x01\x01\x12 \n" +
-	"\tpage_size\x18\x04 \x01(\x05H\x03R\bpageSize\x88\x01\x01\x12\"\n" +
-	"\n" +
-	"page_token\x18\x05 \x01(\tH\x04R\tpageToken\x88\x01\x01B\n" +
-	"\n" +
-	"\b_user_idB\v\n" +
-	"\t_providerB\n" +
-	"\n" +
-	"\b_sandboxB\f\n" +
-	"\n" +
-	"_page_sizeB\r\n" +
-	"\v_page_token\"\x89\x01\n" +
-	"\x1bListExternalAPIKeysResponse\x12B\n" +
-	"\x11external_api_keys\x18\x01 \x03(\v2\x16.models.ExternalAPIKeyR\x0fexternalApiKeys\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken2\xc1-\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken2\x9c$\n" +
 	"\x0eStorageService\x12Y\n" +
 	"\vCreateAsset\x12\x1c.services.CreateAssetRequest\x1a\r.models.Asset\"\x1d\x82\xd3\xe4\x93\x02\x17:\x05asset\"\x0e/api/v1/assets\x12Q\n" +
 	"\bGetAsset\x12\x19.services.GetAssetRequest\x1a\r.models.Asset\"\x1b\x82\xd3\xe4\x93\x02\x15\x12\x13/api/v1/assets/{id}\x12d\n" +
@@ -3824,17 +3152,7 @@ const file_api_services_storage_service_proto_rawDesc = "" +
 	"\x13CreateRuleExecution\x12$.services.CreateRuleExecutionRequest\x1a\x15.models.RuleExecution\"/\x82\xd3\xe4\x93\x02):\x0erule_execution\"\x17/api/v1/rule-executions\x12r\n" +
 	"\x10GetRuleExecution\x12!.services.GetRuleExecutionRequest\x1a\x15.models.RuleExecution\"$\x82\xd3\xe4\x93\x02\x1e\x12\x1c/api/v1/rule-executions/{id}\x12\x97\x01\n" +
 	"\x13UpdateRuleExecution\x12$.services.UpdateRuleExecutionRequest\x1a\x15.models.RuleExecution\"C\x82\xd3\xe4\x93\x02=:\x0erule_execution\x1a+/api/v1/rule-executions/{rule_execution.id}\x12\x80\x01\n" +
-	"\x12ListRuleExecutions\x12#.services.ListRuleExecutionsRequest\x1a$.services.ListRuleExecutionsResponse\"\x1f\x82\xd3\xe4\x93\x02\x19\x12\x17/api/v1/rule-executions\x12`\n" +
-	"\fCreateAPIKey\x12\x1d.services.CreateAPIKeyRequest\x1a\x0e.models.APIKey\"!\x82\xd3\xe4\x93\x02\x1b:\aapi_key\"\x10/api/v1/api-keys\x12V\n" +
-	"\tGetAPIKey\x12\x1a.services.GetAPIKeyRequest\x1a\x0e.models.APIKey\"\x1d\x82\xd3\xe4\x93\x02\x17\x12\x15/api/v1/api-keys/{id}\x12m\n" +
-	"\fUpdateAPIKey\x12\x1d.services.UpdateAPIKeyRequest\x1a\x0e.models.APIKey\".\x82\xd3\xe4\x93\x02(:\aapi_key\x1a\x1d/api/v1/api-keys/{api_key.id}\x12d\n" +
-	"\fDeleteAPIKey\x12\x1d.services.DeleteAPIKeyRequest\x1a\x16.google.protobuf.Empty\"\x1d\x82\xd3\xe4\x93\x02\x17*\x15/api/v1/api-keys/{id}\x12d\n" +
-	"\vListAPIKeys\x12\x1c.services.ListAPIKeysRequest\x1a\x1d.services.ListAPIKeysResponse\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/api/v1/api-keys\x12\x8a\x01\n" +
-	"\x14CreateExternalAPIKey\x12%.services.CreateExternalAPIKeyRequest\x1a\x16.models.ExternalAPIKey\"3\x82\xd3\xe4\x93\x02-:\x10external_api_key\"\x19/api/v1/external-api-keys\x12w\n" +
-	"\x11GetExternalAPIKey\x12\".services.GetExternalAPIKeyRequest\x1a\x16.models.ExternalAPIKey\"&\x82\xd3\xe4\x93\x02 \x12\x1e/api/v1/external-api-keys/{id}\x12\xa0\x01\n" +
-	"\x14UpdateExternalAPIKey\x12%.services.UpdateExternalAPIKeyRequest\x1a\x16.models.ExternalAPIKey\"I\x82\xd3\xe4\x93\x02C:\x10external_api_key\x1a//api/v1/external-api-keys/{external_api_key.id}\x12}\n" +
-	"\x14DeleteExternalAPIKey\x12%.services.DeleteExternalAPIKeyRequest\x1a\x16.google.protobuf.Empty\"&\x82\xd3\xe4\x93\x02 *\x1e/api/v1/external-api-keys/{id}\x12\x85\x01\n" +
-	"\x13ListExternalAPIKeys\x12$.services.ListExternalAPIKeysRequest\x1a%.services.ListExternalAPIKeysResponse\"!\x82\xd3\xe4\x93\x02\x1b\x12\x19/api/v1/external-api-keysB\x98\x01\n" +
+	"\x12ListRuleExecutions\x12#.services.ListRuleExecutionsRequest\x1a$.services.ListRuleExecutionsResponse\"\x1f\x82\xd3\xe4\x93\x02\x19\x12\x17/api/v1/rule-executionsB\x98\x01\n" +
 	"\fcom.servicesB\x13StorageServiceProtoP\x01Z3github.com/foxcool/greedy-eye/internal/api/services\xa2\x02\x03SXX\xaa\x02\bServices\xca\x02\bServices\xe2\x02\x14Services\\GPBMetadata\xea\x02\bServicesb\x06proto3"
 
 var (
@@ -3849,7 +3167,7 @@ func file_api_services_storage_service_proto_rawDescGZIP() []byte {
 	return file_api_services_storage_service_proto_rawDescData
 }
 
-var file_api_services_storage_service_proto_msgTypes = make([]protoimpl.MessageInfo, 64)
+var file_api_services_storage_service_proto_msgTypes = make([]protoimpl.MessageInfo, 52)
 var file_api_services_storage_service_proto_goTypes = []any{
 	(*CreateAssetRequest)(nil),          // 0: services.CreateAssetRequest
 	(*GetAssetRequest)(nil),             // 1: services.GetAssetRequest
@@ -3903,207 +3221,165 @@ var file_api_services_storage_service_proto_goTypes = []any{
 	(*UpdateRuleExecutionRequest)(nil),  // 49: services.UpdateRuleExecutionRequest
 	(*ListRuleExecutionsRequest)(nil),   // 50: services.ListRuleExecutionsRequest
 	(*ListRuleExecutionsResponse)(nil),  // 51: services.ListRuleExecutionsResponse
-	(*CreateAPIKeyRequest)(nil),         // 52: services.CreateAPIKeyRequest
-	(*GetAPIKeyRequest)(nil),            // 53: services.GetAPIKeyRequest
-	(*UpdateAPIKeyRequest)(nil),         // 54: services.UpdateAPIKeyRequest
-	(*DeleteAPIKeyRequest)(nil),         // 55: services.DeleteAPIKeyRequest
-	(*ListAPIKeysRequest)(nil),          // 56: services.ListAPIKeysRequest
-	(*ListAPIKeysResponse)(nil),         // 57: services.ListAPIKeysResponse
-	(*CreateExternalAPIKeyRequest)(nil), // 58: services.CreateExternalAPIKeyRequest
-	(*GetExternalAPIKeyRequest)(nil),    // 59: services.GetExternalAPIKeyRequest
-	(*UpdateExternalAPIKeyRequest)(nil), // 60: services.UpdateExternalAPIKeyRequest
-	(*DeleteExternalAPIKeyRequest)(nil), // 61: services.DeleteExternalAPIKeyRequest
-	(*ListExternalAPIKeysRequest)(nil),  // 62: services.ListExternalAPIKeysRequest
-	(*ListExternalAPIKeysResponse)(nil), // 63: services.ListExternalAPIKeysResponse
-	(*models.Asset)(nil),                // 64: models.Asset
-	(*fieldmaskpb.FieldMask)(nil),       // 65: google.protobuf.FieldMask
-	(*models.Price)(nil),                // 66: models.Price
-	(*timestamppb.Timestamp)(nil),       // 67: google.protobuf.Timestamp
-	(*models.Portfolio)(nil),            // 68: models.Portfolio
-	(*models.Holding)(nil),              // 69: models.Holding
-	(*models.User)(nil),                 // 70: models.User
-	(*models.Account)(nil),              // 71: models.Account
-	(models.AccountType)(0),             // 72: models.AccountType
-	(*models.Transaction)(nil),          // 73: models.Transaction
-	(models.TransactionType)(0),         // 74: models.TransactionType
-	(models.TransactionStatus)(0),       // 75: models.TransactionStatus
-	(*models.Rule)(nil),                 // 76: models.Rule
-	(models.RuleStatus)(0),              // 77: models.RuleStatus
-	(*models.RuleExecution)(nil),        // 78: models.RuleExecution
-	(models.ExecutionStatus)(0),         // 79: models.ExecutionStatus
-	(*models.APIKey)(nil),               // 80: models.APIKey
-	(*models.ExternalAPIKey)(nil),       // 81: models.ExternalAPIKey
-	(*emptypb.Empty)(nil),               // 82: google.protobuf.Empty
+	(*models.Asset)(nil),                // 52: models.Asset
+	(*fieldmaskpb.FieldMask)(nil),       // 53: google.protobuf.FieldMask
+	(*models.Price)(nil),                // 54: models.Price
+	(*timestamppb.Timestamp)(nil),       // 55: google.protobuf.Timestamp
+	(*models.Portfolio)(nil),            // 56: models.Portfolio
+	(*models.Holding)(nil),              // 57: models.Holding
+	(*models.User)(nil),                 // 58: models.User
+	(*models.Account)(nil),              // 59: models.Account
+	(models.AccountType)(0),             // 60: models.AccountType
+	(*models.Transaction)(nil),          // 61: models.Transaction
+	(models.TransactionType)(0),         // 62: models.TransactionType
+	(models.TransactionStatus)(0),       // 63: models.TransactionStatus
+	(*models.Rule)(nil),                 // 64: models.Rule
+	(models.RuleStatus)(0),              // 65: models.RuleStatus
+	(*models.RuleExecution)(nil),        // 66: models.RuleExecution
+	(models.ExecutionStatus)(0),         // 67: models.ExecutionStatus
+	(*emptypb.Empty)(nil),               // 68: google.protobuf.Empty
 }
 var file_api_services_storage_service_proto_depIdxs = []int32{
-	64,  // 0: services.CreateAssetRequest.asset:type_name -> models.Asset
-	64,  // 1: services.UpdateAssetRequest.asset:type_name -> models.Asset
-	65,  // 2: services.UpdateAssetRequest.update_mask:type_name -> google.protobuf.FieldMask
-	64,  // 3: services.ListAssetsResponse.assets:type_name -> models.Asset
-	66,  // 4: services.CreatePriceRequest.price:type_name -> models.Price
-	66,  // 5: services.CreatePricesRequest.prices:type_name -> models.Price
-	67,  // 6: services.ListPriceHistoryRequest.from:type_name -> google.protobuf.Timestamp
-	67,  // 7: services.ListPriceHistoryRequest.to:type_name -> google.protobuf.Timestamp
-	66,  // 8: services.ListPriceHistoryResponse.prices:type_name -> models.Price
-	67,  // 9: services.ListPricesByIntervalRequest.from:type_name -> google.protobuf.Timestamp
-	67,  // 10: services.ListPricesByIntervalRequest.to:type_name -> google.protobuf.Timestamp
-	67,  // 11: services.DeletePricesRequest.from:type_name -> google.protobuf.Timestamp
-	67,  // 12: services.DeletePricesRequest.to:type_name -> google.protobuf.Timestamp
-	68,  // 13: services.CreatePortfolioRequest.portfolio:type_name -> models.Portfolio
-	68,  // 14: services.UpdatePortfolioRequest.portfolio:type_name -> models.Portfolio
-	65,  // 15: services.UpdatePortfolioRequest.update_mask:type_name -> google.protobuf.FieldMask
-	68,  // 16: services.ListPortfoliosResponse.portfolios:type_name -> models.Portfolio
-	69,  // 17: services.CreateHoldingRequest.holding:type_name -> models.Holding
-	69,  // 18: services.UpdateHoldingRequest.holding:type_name -> models.Holding
-	65,  // 19: services.UpdateHoldingRequest.update_mask:type_name -> google.protobuf.FieldMask
-	69,  // 20: services.ListHoldingsResponse.holdings:type_name -> models.Holding
-	70,  // 21: services.CreateUserRequest.user:type_name -> models.User
-	70,  // 22: services.UpdateUserRequest.user:type_name -> models.User
-	65,  // 23: services.UpdateUserRequest.update_mask:type_name -> google.protobuf.FieldMask
-	71,  // 24: services.CreateAccountRequest.account:type_name -> models.Account
-	71,  // 25: services.UpdateAccountRequest.account:type_name -> models.Account
-	65,  // 26: services.UpdateAccountRequest.update_mask:type_name -> google.protobuf.FieldMask
-	72,  // 27: services.ListAccountsRequest.type:type_name -> models.AccountType
-	71,  // 28: services.ListAccountsResponse.accounts:type_name -> models.Account
-	73,  // 29: services.CreateTransactionRequest.transaction:type_name -> models.Transaction
-	73,  // 30: services.UpdateTransactionRequest.transaction:type_name -> models.Transaction
-	65,  // 31: services.UpdateTransactionRequest.update_mask:type_name -> google.protobuf.FieldMask
-	74,  // 32: services.ListTransactionsRequest.type:type_name -> models.TransactionType
-	75,  // 33: services.ListTransactionsRequest.status:type_name -> models.TransactionStatus
-	67,  // 34: services.ListTransactionsRequest.from:type_name -> google.protobuf.Timestamp
-	67,  // 35: services.ListTransactionsRequest.to:type_name -> google.protobuf.Timestamp
-	73,  // 36: services.ListTransactionsResponse.transactions:type_name -> models.Transaction
-	76,  // 37: services.CreateRuleRequest.rule:type_name -> models.Rule
-	76,  // 38: services.UpdateRuleRequest.rule:type_name -> models.Rule
-	65,  // 39: services.UpdateRuleRequest.update_mask:type_name -> google.protobuf.FieldMask
-	77,  // 40: services.ListRulesRequest.status:type_name -> models.RuleStatus
-	76,  // 41: services.ListRulesResponse.rules:type_name -> models.Rule
-	78,  // 42: services.CreateRuleExecutionRequest.rule_execution:type_name -> models.RuleExecution
-	78,  // 43: services.UpdateRuleExecutionRequest.rule_execution:type_name -> models.RuleExecution
-	65,  // 44: services.UpdateRuleExecutionRequest.update_mask:type_name -> google.protobuf.FieldMask
-	79,  // 45: services.ListRuleExecutionsRequest.status:type_name -> models.ExecutionStatus
-	67,  // 46: services.ListRuleExecutionsRequest.from:type_name -> google.protobuf.Timestamp
-	67,  // 47: services.ListRuleExecutionsRequest.to:type_name -> google.protobuf.Timestamp
-	78,  // 48: services.ListRuleExecutionsResponse.rule_executions:type_name -> models.RuleExecution
-	80,  // 49: services.CreateAPIKeyRequest.api_key:type_name -> models.APIKey
-	80,  // 50: services.UpdateAPIKeyRequest.api_key:type_name -> models.APIKey
-	65,  // 51: services.UpdateAPIKeyRequest.update_mask:type_name -> google.protobuf.FieldMask
-	80,  // 52: services.ListAPIKeysResponse.api_keys:type_name -> models.APIKey
-	81,  // 53: services.CreateExternalAPIKeyRequest.external_api_key:type_name -> models.ExternalAPIKey
-	81,  // 54: services.UpdateExternalAPIKeyRequest.external_api_key:type_name -> models.ExternalAPIKey
-	65,  // 55: services.UpdateExternalAPIKeyRequest.update_mask:type_name -> google.protobuf.FieldMask
-	81,  // 56: services.ListExternalAPIKeysResponse.external_api_keys:type_name -> models.ExternalAPIKey
-	0,   // 57: services.StorageService.CreateAsset:input_type -> services.CreateAssetRequest
-	1,   // 58: services.StorageService.GetAsset:input_type -> services.GetAssetRequest
-	2,   // 59: services.StorageService.UpdateAsset:input_type -> services.UpdateAssetRequest
-	3,   // 60: services.StorageService.DeleteAsset:input_type -> services.DeleteAssetRequest
-	4,   // 61: services.StorageService.ListAssets:input_type -> services.ListAssetsRequest
-	6,   // 62: services.StorageService.CreatePrice:input_type -> services.CreatePriceRequest
-	7,   // 63: services.StorageService.CreatePrices:input_type -> services.CreatePricesRequest
-	9,   // 64: services.StorageService.GetLatestPrice:input_type -> services.GetLatestPriceRequest
-	10,  // 65: services.StorageService.ListPriceHistory:input_type -> services.ListPriceHistoryRequest
-	12,  // 66: services.StorageService.ListPricesByInterval:input_type -> services.ListPricesByIntervalRequest
-	13,  // 67: services.StorageService.DeletePrice:input_type -> services.DeletePriceRequest
-	14,  // 68: services.StorageService.DeletePrices:input_type -> services.DeletePricesRequest
-	15,  // 69: services.StorageService.CreatePortfolio:input_type -> services.CreatePortfolioRequest
-	16,  // 70: services.StorageService.GetPortfolio:input_type -> services.GetPortfolioRequest
-	17,  // 71: services.StorageService.UpdatePortfolio:input_type -> services.UpdatePortfolioRequest
-	18,  // 72: services.StorageService.DeletePortfolio:input_type -> services.DeletePortfolioRequest
-	19,  // 73: services.StorageService.ListPortfolios:input_type -> services.ListPortfoliosRequest
-	21,  // 74: services.StorageService.CreateHolding:input_type -> services.CreateHoldingRequest
-	22,  // 75: services.StorageService.GetHolding:input_type -> services.GetHoldingRequest
-	23,  // 76: services.StorageService.UpdateHolding:input_type -> services.UpdateHoldingRequest
-	24,  // 77: services.StorageService.ListHoldings:input_type -> services.ListHoldingsRequest
-	26,  // 78: services.StorageService.CreateUser:input_type -> services.CreateUserRequest
-	27,  // 79: services.StorageService.GetUser:input_type -> services.GetUserRequest
-	28,  // 80: services.StorageService.UpdateUser:input_type -> services.UpdateUserRequest
-	29,  // 81: services.StorageService.DeleteUser:input_type -> services.DeleteUserRequest
-	30,  // 82: services.StorageService.CreateAccount:input_type -> services.CreateAccountRequest
-	31,  // 83: services.StorageService.GetAccount:input_type -> services.GetAccountRequest
-	32,  // 84: services.StorageService.UpdateAccount:input_type -> services.UpdateAccountRequest
-	33,  // 85: services.StorageService.DeleteAccount:input_type -> services.DeleteAccountRequest
-	34,  // 86: services.StorageService.ListAccounts:input_type -> services.ListAccountsRequest
-	36,  // 87: services.StorageService.CreateTransaction:input_type -> services.CreateTransactionRequest
-	37,  // 88: services.StorageService.GetTransaction:input_type -> services.GetTransactionRequest
-	38,  // 89: services.StorageService.UpdateTransaction:input_type -> services.UpdateTransactionRequest
-	39,  // 90: services.StorageService.ListTransactions:input_type -> services.ListTransactionsRequest
-	41,  // 91: services.StorageService.CreateRule:input_type -> services.CreateRuleRequest
-	42,  // 92: services.StorageService.GetRule:input_type -> services.GetRuleRequest
-	43,  // 93: services.StorageService.UpdateRule:input_type -> services.UpdateRuleRequest
-	44,  // 94: services.StorageService.DeleteRule:input_type -> services.DeleteRuleRequest
-	45,  // 95: services.StorageService.ListRules:input_type -> services.ListRulesRequest
-	47,  // 96: services.StorageService.CreateRuleExecution:input_type -> services.CreateRuleExecutionRequest
-	48,  // 97: services.StorageService.GetRuleExecution:input_type -> services.GetRuleExecutionRequest
-	49,  // 98: services.StorageService.UpdateRuleExecution:input_type -> services.UpdateRuleExecutionRequest
-	50,  // 99: services.StorageService.ListRuleExecutions:input_type -> services.ListRuleExecutionsRequest
-	52,  // 100: services.StorageService.CreateAPIKey:input_type -> services.CreateAPIKeyRequest
-	53,  // 101: services.StorageService.GetAPIKey:input_type -> services.GetAPIKeyRequest
-	54,  // 102: services.StorageService.UpdateAPIKey:input_type -> services.UpdateAPIKeyRequest
-	55,  // 103: services.StorageService.DeleteAPIKey:input_type -> services.DeleteAPIKeyRequest
-	56,  // 104: services.StorageService.ListAPIKeys:input_type -> services.ListAPIKeysRequest
-	58,  // 105: services.StorageService.CreateExternalAPIKey:input_type -> services.CreateExternalAPIKeyRequest
-	59,  // 106: services.StorageService.GetExternalAPIKey:input_type -> services.GetExternalAPIKeyRequest
-	60,  // 107: services.StorageService.UpdateExternalAPIKey:input_type -> services.UpdateExternalAPIKeyRequest
-	61,  // 108: services.StorageService.DeleteExternalAPIKey:input_type -> services.DeleteExternalAPIKeyRequest
-	62,  // 109: services.StorageService.ListExternalAPIKeys:input_type -> services.ListExternalAPIKeysRequest
-	64,  // 110: services.StorageService.CreateAsset:output_type -> models.Asset
-	64,  // 111: services.StorageService.GetAsset:output_type -> models.Asset
-	64,  // 112: services.StorageService.UpdateAsset:output_type -> models.Asset
-	82,  // 113: services.StorageService.DeleteAsset:output_type -> google.protobuf.Empty
-	5,   // 114: services.StorageService.ListAssets:output_type -> services.ListAssetsResponse
-	66,  // 115: services.StorageService.CreatePrice:output_type -> models.Price
-	8,   // 116: services.StorageService.CreatePrices:output_type -> services.CreatePricesResponse
-	66,  // 117: services.StorageService.GetLatestPrice:output_type -> models.Price
-	11,  // 118: services.StorageService.ListPriceHistory:output_type -> services.ListPriceHistoryResponse
-	11,  // 119: services.StorageService.ListPricesByInterval:output_type -> services.ListPriceHistoryResponse
-	82,  // 120: services.StorageService.DeletePrice:output_type -> google.protobuf.Empty
-	82,  // 121: services.StorageService.DeletePrices:output_type -> google.protobuf.Empty
-	68,  // 122: services.StorageService.CreatePortfolio:output_type -> models.Portfolio
-	68,  // 123: services.StorageService.GetPortfolio:output_type -> models.Portfolio
-	68,  // 124: services.StorageService.UpdatePortfolio:output_type -> models.Portfolio
-	82,  // 125: services.StorageService.DeletePortfolio:output_type -> google.protobuf.Empty
-	20,  // 126: services.StorageService.ListPortfolios:output_type -> services.ListPortfoliosResponse
-	69,  // 127: services.StorageService.CreateHolding:output_type -> models.Holding
-	69,  // 128: services.StorageService.GetHolding:output_type -> models.Holding
-	69,  // 129: services.StorageService.UpdateHolding:output_type -> models.Holding
-	25,  // 130: services.StorageService.ListHoldings:output_type -> services.ListHoldingsResponse
-	70,  // 131: services.StorageService.CreateUser:output_type -> models.User
-	70,  // 132: services.StorageService.GetUser:output_type -> models.User
-	70,  // 133: services.StorageService.UpdateUser:output_type -> models.User
-	82,  // 134: services.StorageService.DeleteUser:output_type -> google.protobuf.Empty
-	71,  // 135: services.StorageService.CreateAccount:output_type -> models.Account
-	71,  // 136: services.StorageService.GetAccount:output_type -> models.Account
-	71,  // 137: services.StorageService.UpdateAccount:output_type -> models.Account
-	82,  // 138: services.StorageService.DeleteAccount:output_type -> google.protobuf.Empty
-	35,  // 139: services.StorageService.ListAccounts:output_type -> services.ListAccountsResponse
-	73,  // 140: services.StorageService.CreateTransaction:output_type -> models.Transaction
-	73,  // 141: services.StorageService.GetTransaction:output_type -> models.Transaction
-	73,  // 142: services.StorageService.UpdateTransaction:output_type -> models.Transaction
-	40,  // 143: services.StorageService.ListTransactions:output_type -> services.ListTransactionsResponse
-	76,  // 144: services.StorageService.CreateRule:output_type -> models.Rule
-	76,  // 145: services.StorageService.GetRule:output_type -> models.Rule
-	76,  // 146: services.StorageService.UpdateRule:output_type -> models.Rule
-	82,  // 147: services.StorageService.DeleteRule:output_type -> google.protobuf.Empty
-	46,  // 148: services.StorageService.ListRules:output_type -> services.ListRulesResponse
-	78,  // 149: services.StorageService.CreateRuleExecution:output_type -> models.RuleExecution
-	78,  // 150: services.StorageService.GetRuleExecution:output_type -> models.RuleExecution
-	78,  // 151: services.StorageService.UpdateRuleExecution:output_type -> models.RuleExecution
-	51,  // 152: services.StorageService.ListRuleExecutions:output_type -> services.ListRuleExecutionsResponse
-	80,  // 153: services.StorageService.CreateAPIKey:output_type -> models.APIKey
-	80,  // 154: services.StorageService.GetAPIKey:output_type -> models.APIKey
-	80,  // 155: services.StorageService.UpdateAPIKey:output_type -> models.APIKey
-	82,  // 156: services.StorageService.DeleteAPIKey:output_type -> google.protobuf.Empty
-	57,  // 157: services.StorageService.ListAPIKeys:output_type -> services.ListAPIKeysResponse
-	81,  // 158: services.StorageService.CreateExternalAPIKey:output_type -> models.ExternalAPIKey
-	81,  // 159: services.StorageService.GetExternalAPIKey:output_type -> models.ExternalAPIKey
-	81,  // 160: services.StorageService.UpdateExternalAPIKey:output_type -> models.ExternalAPIKey
-	82,  // 161: services.StorageService.DeleteExternalAPIKey:output_type -> google.protobuf.Empty
-	63,  // 162: services.StorageService.ListExternalAPIKeys:output_type -> services.ListExternalAPIKeysResponse
-	110, // [110:163] is the sub-list for method output_type
-	57,  // [57:110] is the sub-list for method input_type
-	57,  // [57:57] is the sub-list for extension type_name
-	57,  // [57:57] is the sub-list for extension extendee
-	0,   // [0:57] is the sub-list for field type_name
+	52, // 0: services.CreateAssetRequest.asset:type_name -> models.Asset
+	52, // 1: services.UpdateAssetRequest.asset:type_name -> models.Asset
+	53, // 2: services.UpdateAssetRequest.update_mask:type_name -> google.protobuf.FieldMask
+	52, // 3: services.ListAssetsResponse.assets:type_name -> models.Asset
+	54, // 4: services.CreatePriceRequest.price:type_name -> models.Price
+	54, // 5: services.CreatePricesRequest.prices:type_name -> models.Price
+	55, // 6: services.ListPriceHistoryRequest.from:type_name -> google.protobuf.Timestamp
+	55, // 7: services.ListPriceHistoryRequest.to:type_name -> google.protobuf.Timestamp
+	54, // 8: services.ListPriceHistoryResponse.prices:type_name -> models.Price
+	55, // 9: services.ListPricesByIntervalRequest.from:type_name -> google.protobuf.Timestamp
+	55, // 10: services.ListPricesByIntervalRequest.to:type_name -> google.protobuf.Timestamp
+	55, // 11: services.DeletePricesRequest.from:type_name -> google.protobuf.Timestamp
+	55, // 12: services.DeletePricesRequest.to:type_name -> google.protobuf.Timestamp
+	56, // 13: services.CreatePortfolioRequest.portfolio:type_name -> models.Portfolio
+	56, // 14: services.UpdatePortfolioRequest.portfolio:type_name -> models.Portfolio
+	53, // 15: services.UpdatePortfolioRequest.update_mask:type_name -> google.protobuf.FieldMask
+	56, // 16: services.ListPortfoliosResponse.portfolios:type_name -> models.Portfolio
+	57, // 17: services.CreateHoldingRequest.holding:type_name -> models.Holding
+	57, // 18: services.UpdateHoldingRequest.holding:type_name -> models.Holding
+	53, // 19: services.UpdateHoldingRequest.update_mask:type_name -> google.protobuf.FieldMask
+	57, // 20: services.ListHoldingsResponse.holdings:type_name -> models.Holding
+	58, // 21: services.CreateUserRequest.user:type_name -> models.User
+	58, // 22: services.UpdateUserRequest.user:type_name -> models.User
+	53, // 23: services.UpdateUserRequest.update_mask:type_name -> google.protobuf.FieldMask
+	59, // 24: services.CreateAccountRequest.account:type_name -> models.Account
+	59, // 25: services.UpdateAccountRequest.account:type_name -> models.Account
+	53, // 26: services.UpdateAccountRequest.update_mask:type_name -> google.protobuf.FieldMask
+	60, // 27: services.ListAccountsRequest.type:type_name -> models.AccountType
+	59, // 28: services.ListAccountsResponse.accounts:type_name -> models.Account
+	61, // 29: services.CreateTransactionRequest.transaction:type_name -> models.Transaction
+	61, // 30: services.UpdateTransactionRequest.transaction:type_name -> models.Transaction
+	53, // 31: services.UpdateTransactionRequest.update_mask:type_name -> google.protobuf.FieldMask
+	62, // 32: services.ListTransactionsRequest.type:type_name -> models.TransactionType
+	63, // 33: services.ListTransactionsRequest.status:type_name -> models.TransactionStatus
+	55, // 34: services.ListTransactionsRequest.from:type_name -> google.protobuf.Timestamp
+	55, // 35: services.ListTransactionsRequest.to:type_name -> google.protobuf.Timestamp
+	61, // 36: services.ListTransactionsResponse.transactions:type_name -> models.Transaction
+	64, // 37: services.CreateRuleRequest.rule:type_name -> models.Rule
+	64, // 38: services.UpdateRuleRequest.rule:type_name -> models.Rule
+	53, // 39: services.UpdateRuleRequest.update_mask:type_name -> google.protobuf.FieldMask
+	65, // 40: services.ListRulesRequest.status:type_name -> models.RuleStatus
+	64, // 41: services.ListRulesResponse.rules:type_name -> models.Rule
+	66, // 42: services.CreateRuleExecutionRequest.rule_execution:type_name -> models.RuleExecution
+	66, // 43: services.UpdateRuleExecutionRequest.rule_execution:type_name -> models.RuleExecution
+	53, // 44: services.UpdateRuleExecutionRequest.update_mask:type_name -> google.protobuf.FieldMask
+	67, // 45: services.ListRuleExecutionsRequest.status:type_name -> models.ExecutionStatus
+	55, // 46: services.ListRuleExecutionsRequest.from:type_name -> google.protobuf.Timestamp
+	55, // 47: services.ListRuleExecutionsRequest.to:type_name -> google.protobuf.Timestamp
+	66, // 48: services.ListRuleExecutionsResponse.rule_executions:type_name -> models.RuleExecution
+	0,  // 49: services.StorageService.CreateAsset:input_type -> services.CreateAssetRequest
+	1,  // 50: services.StorageService.GetAsset:input_type -> services.GetAssetRequest
+	2,  // 51: services.StorageService.UpdateAsset:input_type -> services.UpdateAssetRequest
+	3,  // 52: services.StorageService.DeleteAsset:input_type -> services.DeleteAssetRequest
+	4,  // 53: services.StorageService.ListAssets:input_type -> services.ListAssetsRequest
+	6,  // 54: services.StorageService.CreatePrice:input_type -> services.CreatePriceRequest
+	7,  // 55: services.StorageService.CreatePrices:input_type -> services.CreatePricesRequest
+	9,  // 56: services.StorageService.GetLatestPrice:input_type -> services.GetLatestPriceRequest
+	10, // 57: services.StorageService.ListPriceHistory:input_type -> services.ListPriceHistoryRequest
+	12, // 58: services.StorageService.ListPricesByInterval:input_type -> services.ListPricesByIntervalRequest
+	13, // 59: services.StorageService.DeletePrice:input_type -> services.DeletePriceRequest
+	14, // 60: services.StorageService.DeletePrices:input_type -> services.DeletePricesRequest
+	15, // 61: services.StorageService.CreatePortfolio:input_type -> services.CreatePortfolioRequest
+	16, // 62: services.StorageService.GetPortfolio:input_type -> services.GetPortfolioRequest
+	17, // 63: services.StorageService.UpdatePortfolio:input_type -> services.UpdatePortfolioRequest
+	18, // 64: services.StorageService.DeletePortfolio:input_type -> services.DeletePortfolioRequest
+	19, // 65: services.StorageService.ListPortfolios:input_type -> services.ListPortfoliosRequest
+	21, // 66: services.StorageService.CreateHolding:input_type -> services.CreateHoldingRequest
+	22, // 67: services.StorageService.GetHolding:input_type -> services.GetHoldingRequest
+	23, // 68: services.StorageService.UpdateHolding:input_type -> services.UpdateHoldingRequest
+	24, // 69: services.StorageService.ListHoldings:input_type -> services.ListHoldingsRequest
+	26, // 70: services.StorageService.CreateUser:input_type -> services.CreateUserRequest
+	27, // 71: services.StorageService.GetUser:input_type -> services.GetUserRequest
+	28, // 72: services.StorageService.UpdateUser:input_type -> services.UpdateUserRequest
+	29, // 73: services.StorageService.DeleteUser:input_type -> services.DeleteUserRequest
+	30, // 74: services.StorageService.CreateAccount:input_type -> services.CreateAccountRequest
+	31, // 75: services.StorageService.GetAccount:input_type -> services.GetAccountRequest
+	32, // 76: services.StorageService.UpdateAccount:input_type -> services.UpdateAccountRequest
+	33, // 77: services.StorageService.DeleteAccount:input_type -> services.DeleteAccountRequest
+	34, // 78: services.StorageService.ListAccounts:input_type -> services.ListAccountsRequest
+	36, // 79: services.StorageService.CreateTransaction:input_type -> services.CreateTransactionRequest
+	37, // 80: services.StorageService.GetTransaction:input_type -> services.GetTransactionRequest
+	38, // 81: services.StorageService.UpdateTransaction:input_type -> services.UpdateTransactionRequest
+	39, // 82: services.StorageService.ListTransactions:input_type -> services.ListTransactionsRequest
+	41, // 83: services.StorageService.CreateRule:input_type -> services.CreateRuleRequest
+	42, // 84: services.StorageService.GetRule:input_type -> services.GetRuleRequest
+	43, // 85: services.StorageService.UpdateRule:input_type -> services.UpdateRuleRequest
+	44, // 86: services.StorageService.DeleteRule:input_type -> services.DeleteRuleRequest
+	45, // 87: services.StorageService.ListRules:input_type -> services.ListRulesRequest
+	47, // 88: services.StorageService.CreateRuleExecution:input_type -> services.CreateRuleExecutionRequest
+	48, // 89: services.StorageService.GetRuleExecution:input_type -> services.GetRuleExecutionRequest
+	49, // 90: services.StorageService.UpdateRuleExecution:input_type -> services.UpdateRuleExecutionRequest
+	50, // 91: services.StorageService.ListRuleExecutions:input_type -> services.ListRuleExecutionsRequest
+	52, // 92: services.StorageService.CreateAsset:output_type -> models.Asset
+	52, // 93: services.StorageService.GetAsset:output_type -> models.Asset
+	52, // 94: services.StorageService.UpdateAsset:output_type -> models.Asset
+	68, // 95: services.StorageService.DeleteAsset:output_type -> google.protobuf.Empty
+	5,  // 96: services.StorageService.ListAssets:output_type -> services.ListAssetsResponse
+	54, // 97: services.StorageService.CreatePrice:output_type -> models.Price
+	8,  // 98: services.StorageService.CreatePrices:output_type -> services.CreatePricesResponse
+	54, // 99: services.StorageService.GetLatestPrice:output_type -> models.Price
+	11, // 100: services.StorageService.ListPriceHistory:output_type -> services.ListPriceHistoryResponse
+	11, // 101: services.StorageService.ListPricesByInterval:output_type -> services.ListPriceHistoryResponse
+	68, // 102: services.StorageService.DeletePrice:output_type -> google.protobuf.Empty
+	68, // 103: services.StorageService.DeletePrices:output_type -> google.protobuf.Empty
+	56, // 104: services.StorageService.CreatePortfolio:output_type -> models.Portfolio
+	56, // 105: services.StorageService.GetPortfolio:output_type -> models.Portfolio
+	56, // 106: services.StorageService.UpdatePortfolio:output_type -> models.Portfolio
+	68, // 107: services.StorageService.DeletePortfolio:output_type -> google.protobuf.Empty
+	20, // 108: services.StorageService.ListPortfolios:output_type -> services.ListPortfoliosResponse
+	57, // 109: services.StorageService.CreateHolding:output_type -> models.Holding
+	57, // 110: services.StorageService.GetHolding:output_type -> models.Holding
+	57, // 111: services.StorageService.UpdateHolding:output_type -> models.Holding
+	25, // 112: services.StorageService.ListHoldings:output_type -> services.ListHoldingsResponse
+	58, // 113: services.StorageService.CreateUser:output_type -> models.User
+	58, // 114: services.StorageService.GetUser:output_type -> models.User
+	58, // 115: services.StorageService.UpdateUser:output_type -> models.User
+	68, // 116: services.StorageService.DeleteUser:output_type -> google.protobuf.Empty
+	59, // 117: services.StorageService.CreateAccount:output_type -> models.Account
+	59, // 118: services.StorageService.GetAccount:output_type -> models.Account
+	59, // 119: services.StorageService.UpdateAccount:output_type -> models.Account
+	68, // 120: services.StorageService.DeleteAccount:output_type -> google.protobuf.Empty
+	35, // 121: services.StorageService.ListAccounts:output_type -> services.ListAccountsResponse
+	61, // 122: services.StorageService.CreateTransaction:output_type -> models.Transaction
+	61, // 123: services.StorageService.GetTransaction:output_type -> models.Transaction
+	61, // 124: services.StorageService.UpdateTransaction:output_type -> models.Transaction
+	40, // 125: services.StorageService.ListTransactions:output_type -> services.ListTransactionsResponse
+	64, // 126: services.StorageService.CreateRule:output_type -> models.Rule
+	64, // 127: services.StorageService.GetRule:output_type -> models.Rule
+	64, // 128: services.StorageService.UpdateRule:output_type -> models.Rule
+	68, // 129: services.StorageService.DeleteRule:output_type -> google.protobuf.Empty
+	46, // 130: services.StorageService.ListRules:output_type -> services.ListRulesResponse
+	66, // 131: services.StorageService.CreateRuleExecution:output_type -> models.RuleExecution
+	66, // 132: services.StorageService.GetRuleExecution:output_type -> models.RuleExecution
+	66, // 133: services.StorageService.UpdateRuleExecution:output_type -> models.RuleExecution
+	51, // 134: services.StorageService.ListRuleExecutions:output_type -> services.ListRuleExecutionsResponse
+	92, // [92:135] is the sub-list for method output_type
+	49, // [49:92] is the sub-list for method input_type
+	49, // [49:49] is the sub-list for extension type_name
+	49, // [49:49] is the sub-list for extension extendee
+	0,  // [0:49] is the sub-list for field type_name
 }
 
 func init() { file_api_services_storage_service_proto_init() }
@@ -4122,15 +3398,13 @@ func file_api_services_storage_service_proto_init() {
 	file_api_services_storage_service_proto_msgTypes[39].OneofWrappers = []any{}
 	file_api_services_storage_service_proto_msgTypes[45].OneofWrappers = []any{}
 	file_api_services_storage_service_proto_msgTypes[50].OneofWrappers = []any{}
-	file_api_services_storage_service_proto_msgTypes[56].OneofWrappers = []any{}
-	file_api_services_storage_service_proto_msgTypes[62].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_services_storage_service_proto_rawDesc), len(file_api_services_storage_service_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   64,
+			NumMessages:   52,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -89,11 +89,33 @@ docker build .    # Build Docker image
 | PortfolioService | 🔄 Stubs | API complete | ✅ | ✅ |
 | PriceService | ✅ Implemented | External API integration | ✅ | ✅ |
 | RuleService | 🔄 Stubs | API complete | ✅ | ✅ |
-| MessengerBotService | 🔄 Stubs | Full architecture | ✅ | ✅ |
+| **MessengerService** | 🔄 Stubs | Multi-platform architecture | ✅ | ✅ |
 | AuthService | 🔄 Proto | Proto only | ❌ | ❌ |
+
+### External Adapters Status
+
+Adapter pattern isolates external API dependencies from core logic.
+All adapters use gRPC status codes and interface-based design.
+
+| Adapter | Provider | Status | Tests | Coverage |
+|---------|----------|--------|-------|----------|
+| Messenger | Telegram | ⚠️ Stubs | ✅ | 45.5% |
+| Price Data | CoinGecko | ⚠️ Stubs | ✅ | 64.3% |
+| Exchange | Binance | ⚠️ Stubs | ✅ | 57.1% |
+| Blockchain | Moralis | ⚠️ Stubs | ✅ | 66.7% |
+
+**Legend**: ⚠️ Stubs = Stub implementation with unimplemented methods, tests verify error handling
 
 ### Recent Achievements
 
+#### v0.0.4-alpha - Adapter Pattern & MessengerService Refactoring
+
+- ✅ **Adapter Architecture**: Implemented adapter pattern for external integrations (Messenger, Price Data, Exchange, Blockchain)
+- ✅ **MessengerService**: Renamed TelegramBotService → MessengerService for multi-platform support
+- ✅ **Stub Implementations**: All 4 adapter categories with comprehensive test coverage (45-67%)
+- ✅ **Proto Simplification**: Simplified Account model to use flexible data maps for provider-specific parameters
+
+#### v0.0.3-alpha - Core Services Implementation
 - ✅ UserService, AssetService, PriceService - full business logic implementation
 - ✅ External price data API integration with price fetching
 - ✅ Integration tests for all core services
@@ -440,7 +462,7 @@ mindmap
 #### ✅ Completed
 
 - StorageService with full Ent ORM implementation
-- UserService with business logic and external API key management
+- UserService with business logic and preference management
 - AssetService with multi-asset type support
 - PriceService with external price data API integration
 - Integration tests for all core services
@@ -532,5 +554,3 @@ make clean && make buf-gen && make build
 go mod why -m module_name
 ```
 
-This guide covers everything needed for effective development on the Greedy Eye project. The focus is on maintaining
-clean architecture while implementing business logic incrementally.

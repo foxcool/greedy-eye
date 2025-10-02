@@ -6,10 +6,10 @@ tags:
   - name: StorageService
   - name: AssetService
   - name: AuthService
+  - name: MessengerService
   - name: PortfolioService
   - name: PriceService
   - name: RuleService
-  - name: TelegramBotService
   - name: UserService
 consumes:
   - application/json
@@ -156,157 +156,6 @@ paths:
         - StorageService
     delete:
       operationId: StorageService_DeleteAccount
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            type: object
-            properties: {}
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: id
-          in: path
-          required: true
-          type: string
-      tags:
-        - StorageService
-  /api/v1/api-keys:
-    get:
-      operationId: StorageService_ListAPIKeys
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            $ref: '#/definitions/servicesListAPIKeysResponse'
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: userId
-          in: query
-          required: false
-          type: string
-        - name: enabled
-          in: query
-          required: false
-          type: boolean
-        - name: pageSize
-          in: query
-          required: false
-          type: integer
-          format: int32
-        - name: pageToken
-          in: query
-          required: false
-          type: string
-      tags:
-        - StorageService
-    post:
-      summary: '--- APIKey operations ---'
-      operationId: StorageService_CreateAPIKey
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            $ref: '#/definitions/modelsAPIKey'
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: apiKey
-          description: name, user_id, scopes required. ID empty.
-          in: body
-          required: true
-          schema:
-            $ref: '#/definitions/modelsAPIKey'
-      tags:
-        - StorageService
-  /api/v1/api-keys/{apiKey.id}:
-    put:
-      operationId: StorageService_UpdateAPIKey
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            $ref: '#/definitions/modelsAPIKey'
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: apiKey.id
-          in: path
-          required: true
-          type: string
-        - name: apiKey
-          description: Must include ID and fields to update
-          in: body
-          required: true
-          schema:
-            type: object
-            properties:
-              name:
-                type: string
-              description:
-                type: string
-              userId:
-                type: string
-              scopes:
-                type: array
-                items:
-                  type: string
-              createdAt:
-                type: string
-                format: date-time
-              lastUsedAt:
-                type: string
-                format: date-time
-              expiresAt:
-                type: string
-                format: date-time
-              enabled:
-                type: boolean
-              keyPrefix:
-                type: string
-                title: First 8 characters for display
-              usageCount:
-                type: integer
-                format: int32
-              rateLimit:
-                $ref: '#/definitions/modelsRateLimitConfig'
-            title: Must include ID and fields to update
-        - name: updateMask
-          in: query
-          required: false
-          type: string
-      tags:
-        - StorageService
-  /api/v1/api-keys/{id}:
-    get:
-      operationId: StorageService_GetAPIKey
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            $ref: '#/definitions/modelsAPIKey'
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: id
-          in: path
-          required: true
-          type: string
-      tags:
-        - StorageService
-    delete:
-      operationId: StorageService_DeleteAPIKey
       responses:
         "200":
           description: A successful response.
@@ -578,153 +427,6 @@ paths:
             $ref: '#/definitions/servicesValidateJWTRequest'
       tags:
         - AuthService
-  /api/v1/external-api-keys:
-    get:
-      operationId: StorageService_ListExternalAPIKeys
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            $ref: '#/definitions/servicesListExternalAPIKeysResponse'
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: userId
-          in: query
-          required: false
-          type: string
-        - name: provider
-          in: query
-          required: false
-          type: string
-        - name: sandbox
-          in: query
-          required: false
-          type: boolean
-        - name: pageSize
-          in: query
-          required: false
-          type: integer
-          format: int32
-        - name: pageToken
-          in: query
-          required: false
-          type: string
-      tags:
-        - StorageService
-    post:
-      summary: '--- ExternalAPIKey operations ---'
-      operationId: StorageService_CreateExternalAPIKey
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            $ref: '#/definitions/modelsExternalAPIKey'
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: externalApiKey
-          description: user_id, provider required. ID empty.
-          in: body
-          required: true
-          schema:
-            $ref: '#/definitions/modelsExternalAPIKey'
-      tags:
-        - StorageService
-  /api/v1/external-api-keys/{externalApiKey.id}:
-    put:
-      operationId: StorageService_UpdateExternalAPIKey
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            $ref: '#/definitions/modelsExternalAPIKey'
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: externalApiKey.id
-          in: path
-          required: true
-          type: string
-        - name: externalApiKey
-          description: Must include ID and fields to update
-          in: body
-          required: true
-          schema:
-            type: object
-            properties:
-              userId:
-                type: string
-              provider:
-                type: string
-                title: e.g., "binance", "gate.io", "coingecko"
-              encryptedApiKey:
-                type: string
-              encryptedApiSecret:
-                type: string
-              encryptedPassphrase:
-                type: string
-                title: For some exchanges
-              sandbox:
-                type: boolean
-                title: Whether this is a sandbox/test key
-              createdAt:
-                type: string
-                format: date-time
-              updatedAt:
-                type: string
-                format: date-time
-            title: Must include ID and fields to update
-        - name: updateMask
-          in: query
-          required: false
-          type: string
-      tags:
-        - StorageService
-  /api/v1/external-api-keys/{id}:
-    get:
-      operationId: StorageService_GetExternalAPIKey
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            $ref: '#/definitions/modelsExternalAPIKey'
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: id
-          in: path
-          required: true
-          type: string
-      tags:
-        - StorageService
-    delete:
-      operationId: StorageService_DeleteExternalAPIKey
-      responses:
-        "200":
-          description: A successful response.
-          schema:
-            type: object
-            properties: {}
-        default:
-          description: An unexpected error response.
-          schema:
-            $ref: '#/definitions/rpcStatus'
-      parameters:
-        - name: id
-          in: path
-          required: true
-          type: string
-      tags:
-        - StorageService
   /api/v1/holdings:
     get:
       operationId: StorageService_ListHoldings
@@ -1846,7 +1548,7 @@ paths:
   /api/v1/telegram/alerts:
     post:
       summary: Manage user alert subscriptions
-      operationId: TelegramBotService_ManageAlerts
+      operationId: MessengerService_ManageAlerts
       responses:
         "200":
           description: A successful response.
@@ -1863,11 +1565,11 @@ paths:
           schema:
             $ref: '#/definitions/servicesManageAlertsRequest'
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/notifications:
     post:
       summary: Send notification to specific user
-      operationId: TelegramBotService_SendNotification
+      operationId: MessengerService_SendNotification
       responses:
         "200":
           description: A successful response.
@@ -1884,11 +1586,11 @@ paths:
           schema:
             $ref: '#/definitions/servicesSendNotificationRequest'
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/notifications/bulk:
     post:
       summary: Send bulk notifications to multiple users
-      operationId: TelegramBotService_SendBulkNotifications
+      operationId: MessengerService_SendBulkNotifications
       responses:
         "200":
           description: A successful response.
@@ -1905,11 +1607,11 @@ paths:
           schema:
             $ref: '#/definitions/servicesSendBulkNotificationsRequest'
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/sessions/{session.telegramId}:
     put:
       summary: Update user session context
-      operationId: TelegramBotService_UpdateUserSession
+      operationId: MessengerService_UpdateUserSession
       responses:
         "200":
           description: A successful response.
@@ -1954,11 +1656,11 @@ paths:
                 title: Current conversation state
             title: SessionContext represents user conversation state
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/sessions/{telegramId}:
     get:
       summary: Get user session information
-      operationId: TelegramBotService_GetUserSession
+      operationId: MessengerService_GetUserSession
       responses:
         "200":
           description: A successful response.
@@ -1974,11 +1676,11 @@ paths:
           required: true
           type: string
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/stats:
     get:
       summary: Get bot statistics and health
-      operationId: TelegramBotService_GetBotStats
+      operationId: MessengerService_GetBotStats
       responses:
         "200":
           description: A successful response.
@@ -2002,11 +1704,11 @@ paths:
           type: string
           format: date-time
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/users:
     post:
       summary: Register new Telegram user or update existing
-      operationId: TelegramBotService_RegisterTelegramUser
+      operationId: MessengerService_RegisterTelegramUser
       responses:
         "200":
           description: A successful response.
@@ -2023,11 +1725,11 @@ paths:
           schema:
             $ref: '#/definitions/servicesRegisterTelegramUserRequest'
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/users/{telegramId}:
     get:
       summary: Get Telegram user information
-      operationId: TelegramBotService_GetTelegramUser
+      operationId: MessengerService_GetTelegramUser
       responses:
         "200":
           description: A successful response.
@@ -2043,11 +1745,11 @@ paths:
           required: true
           type: string
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/voice/process:
     post:
       summary: Process voice message (Speech-to-Text)
-      operationId: TelegramBotService_ProcessVoiceMessage
+      operationId: MessengerService_ProcessVoiceMessage
       responses:
         "200":
           description: A successful response.
@@ -2064,11 +1766,11 @@ paths:
           schema:
             $ref: '#/definitions/servicesProcessVoiceMessageRequest'
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/voice/synthesize:
     post:
       summary: Convert text to speech
-      operationId: TelegramBotService_ConvertTextToSpeech
+      operationId: MessengerService_ConvertTextToSpeech
       responses:
         "200":
           description: A successful response.
@@ -2085,11 +1787,11 @@ paths:
           schema:
             $ref: '#/definitions/servicesConvertTextToSpeechRequest'
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/telegram/webhook:
     post:
       summary: Process incoming Telegram webhook updates
-      operationId: TelegramBotService_ProcessTelegramUpdate
+      operationId: MessengerService_ProcessTelegramUpdate
       responses:
         "200":
           description: A successful response.
@@ -2106,7 +1808,7 @@ paths:
           schema:
             $ref: '#/definitions/servicesProcessTelegramUpdateRequest'
       tags:
-        - TelegramBotService
+        - MessengerService
   /api/v1/transactions:
     get:
       operationId: StorageService_ListTransactions
@@ -2493,41 +2195,6 @@ definitions:
       updateMask:
         type: string
         title: Alternatively, use a mask to specify which keys in the map to update/delete
-  modelsAPIKey:
-    type: object
-    properties:
-      id:
-        type: string
-      name:
-        type: string
-      description:
-        type: string
-      userId:
-        type: string
-      scopes:
-        type: array
-        items:
-          type: string
-      createdAt:
-        type: string
-        format: date-time
-      lastUsedAt:
-        type: string
-        format: date-time
-      expiresAt:
-        type: string
-        format: date-time
-      enabled:
-        type: boolean
-      keyPrefix:
-        type: string
-        title: First 8 characters for display
-      usageCount:
-        type: integer
-        format: int32
-      rateLimit:
-        $ref: '#/definitions/modelsRateLimitConfig'
-    title: APIKey represents an API key for authentication
   modelsAccount:
     type: object
     properties:
@@ -2616,33 +2283,6 @@ definitions:
       - EXECUTION_STATUS_CANCELLED
     default: EXECUTION_STATUS_UNKNOWN
     title: ExecutionStatus indicates the status of a rule execution
-  modelsExternalAPIKey:
-    type: object
-    properties:
-      id:
-        type: string
-      userId:
-        type: string
-      provider:
-        type: string
-        title: e.g., "binance", "gate.io", "coingecko"
-      encryptedApiKey:
-        type: string
-      encryptedApiSecret:
-        type: string
-      encryptedPassphrase:
-        type: string
-        title: For some exchanges
-      sandbox:
-        type: boolean
-        title: Whether this is a sandbox/test key
-      createdAt:
-        type: string
-        format: date-time
-      updatedAt:
-        type: string
-        format: date-time
-    title: ExternalAPIKey stores encrypted external API credentials
   modelsHolding:
     type: object
     properties:
@@ -2778,19 +2418,6 @@ definitions:
     description: |-
       Represents the price action of an Asset against a base Asset
       over a specific interval (candle/OHLCV) or as a latest snapshot.
-  modelsRateLimitConfig:
-    type: object
-    properties:
-      requestsPerMinute:
-        type: integer
-        format: int32
-      requestsPerHour:
-        type: integer
-        format: int32
-      requestsPerDay:
-        type: integer
-        format: int32
-    title: RateLimitConfig defines rate limiting for API keys
   modelsRule:
     type: object
     properties:
@@ -3513,16 +3140,6 @@ definitions:
       exists:
         type: boolean
         title: Whether session exists
-  servicesListAPIKeysResponse:
-    type: object
-    properties:
-      apiKeys:
-        type: array
-        items:
-          type: object
-          $ref: '#/definitions/modelsAPIKey'
-      nextPageToken:
-        type: string
   servicesListAccountsResponse:
     type: object
     properties:
@@ -3544,16 +3161,6 @@ definitions:
       nextPageToken:
         type: string
         title: Token for the next page, empty if no more pages
-  servicesListExternalAPIKeysResponse:
-    type: object
-    properties:
-      externalApiKeys:
-        type: array
-        items:
-          type: object
-          $ref: '#/definitions/modelsExternalAPIKey'
-      nextPageToken:
-        type: string
   servicesListHoldingsResponse:
     type: object
     properties:
