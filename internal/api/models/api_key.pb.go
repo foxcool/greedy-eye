@@ -216,115 +216,6 @@ func (x *RateLimitConfig) GetRequestsPerDay() int32 {
 	return 0
 }
 
-// ExternalAPIKey stores encrypted external API credentials
-type ExternalAPIKey struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	Id                  string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	UserId              string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Provider            string                 `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"` // e.g., "binance", "gate.io", "coingecko"
-	EncryptedApiKey     string                 `protobuf:"bytes,4,opt,name=encrypted_api_key,json=encryptedApiKey,proto3" json:"encrypted_api_key,omitempty"`
-	EncryptedApiSecret  string                 `protobuf:"bytes,5,opt,name=encrypted_api_secret,json=encryptedApiSecret,proto3" json:"encrypted_api_secret,omitempty"`
-	EncryptedPassphrase *string                `protobuf:"bytes,6,opt,name=encrypted_passphrase,json=encryptedPassphrase,proto3,oneof" json:"encrypted_passphrase,omitempty"` // For some exchanges
-	Sandbox             bool                   `protobuf:"varint,7,opt,name=sandbox,proto3" json:"sandbox,omitempty"`                                                         // Whether this is a sandbox/test key
-	CreatedAt           *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt           *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
-}
-
-func (x *ExternalAPIKey) Reset() {
-	*x = ExternalAPIKey{}
-	mi := &file_api_models_api_key_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ExternalAPIKey) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ExternalAPIKey) ProtoMessage() {}
-
-func (x *ExternalAPIKey) ProtoReflect() protoreflect.Message {
-	mi := &file_api_models_api_key_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ExternalAPIKey.ProtoReflect.Descriptor instead.
-func (*ExternalAPIKey) Descriptor() ([]byte, []int) {
-	return file_api_models_api_key_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *ExternalAPIKey) GetId() string {
-	if x != nil {
-		return x.Id
-	}
-	return ""
-}
-
-func (x *ExternalAPIKey) GetUserId() string {
-	if x != nil {
-		return x.UserId
-	}
-	return ""
-}
-
-func (x *ExternalAPIKey) GetProvider() string {
-	if x != nil {
-		return x.Provider
-	}
-	return ""
-}
-
-func (x *ExternalAPIKey) GetEncryptedApiKey() string {
-	if x != nil {
-		return x.EncryptedApiKey
-	}
-	return ""
-}
-
-func (x *ExternalAPIKey) GetEncryptedApiSecret() string {
-	if x != nil {
-		return x.EncryptedApiSecret
-	}
-	return ""
-}
-
-func (x *ExternalAPIKey) GetEncryptedPassphrase() string {
-	if x != nil && x.EncryptedPassphrase != nil {
-		return *x.EncryptedPassphrase
-	}
-	return ""
-}
-
-func (x *ExternalAPIKey) GetSandbox() bool {
-	if x != nil {
-		return x.Sandbox
-	}
-	return false
-}
-
-func (x *ExternalAPIKey) GetCreatedAt() *timestamppb.Timestamp {
-	if x != nil {
-		return x.CreatedAt
-	}
-	return nil
-}
-
-func (x *ExternalAPIKey) GetUpdatedAt() *timestamppb.Timestamp {
-	if x != nil {
-		return x.UpdatedAt
-	}
-	return nil
-}
-
 var File_api_models_api_key_proto protoreflect.FileDescriptor
 
 const file_api_models_api_key_proto_rawDesc = "" +
@@ -353,20 +244,7 @@ const file_api_models_api_key_proto_rawDesc = "" +
 	"\x0fRateLimitConfig\x12.\n" +
 	"\x13requests_per_minute\x18\x01 \x01(\x05R\x11requestsPerMinute\x12*\n" +
 	"\x11requests_per_hour\x18\x02 \x01(\x05R\x0frequestsPerHour\x12(\n" +
-	"\x10requests_per_day\x18\x03 \x01(\x05R\x0erequestsPerDay\"\x94\x03\n" +
-	"\x0eExternalAPIKey\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x1a\n" +
-	"\bprovider\x18\x03 \x01(\tR\bprovider\x12*\n" +
-	"\x11encrypted_api_key\x18\x04 \x01(\tR\x0fencryptedApiKey\x120\n" +
-	"\x14encrypted_api_secret\x18\x05 \x01(\tR\x12encryptedApiSecret\x126\n" +
-	"\x14encrypted_passphrase\x18\x06 \x01(\tH\x00R\x13encryptedPassphrase\x88\x01\x01\x12\x18\n" +
-	"\asandbox\x18\a \x01(\bR\asandbox\x129\n" +
-	"\n" +
-	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
-	"\n" +
-	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAtB\x17\n" +
-	"\x15_encrypted_passphraseB\x84\x01\n" +
+	"\x10requests_per_day\x18\x03 \x01(\x05R\x0erequestsPerDayB\x84\x01\n" +
 	"\n" +
 	"com.modelsB\vApiKeyProtoP\x01Z1github.com/foxcool/greedy-eye/internal/api/models\xa2\x02\x03MXX\xaa\x02\x06Models\xca\x02\x06Models\xe2\x02\x12Models\\GPBMetadata\xea\x02\x06Modelsb\x06proto3"
 
@@ -382,25 +260,22 @@ func file_api_models_api_key_proto_rawDescGZIP() []byte {
 	return file_api_models_api_key_proto_rawDescData
 }
 
-var file_api_models_api_key_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_api_models_api_key_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_api_models_api_key_proto_goTypes = []any{
 	(*APIKey)(nil),                // 0: models.APIKey
 	(*RateLimitConfig)(nil),       // 1: models.RateLimitConfig
-	(*ExternalAPIKey)(nil),        // 2: models.ExternalAPIKey
-	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
+	(*timestamppb.Timestamp)(nil), // 2: google.protobuf.Timestamp
 }
 var file_api_models_api_key_proto_depIdxs = []int32{
-	3, // 0: models.APIKey.created_at:type_name -> google.protobuf.Timestamp
-	3, // 1: models.APIKey.last_used_at:type_name -> google.protobuf.Timestamp
-	3, // 2: models.APIKey.expires_at:type_name -> google.protobuf.Timestamp
+	2, // 0: models.APIKey.created_at:type_name -> google.protobuf.Timestamp
+	2, // 1: models.APIKey.last_used_at:type_name -> google.protobuf.Timestamp
+	2, // 2: models.APIKey.expires_at:type_name -> google.protobuf.Timestamp
 	1, // 3: models.APIKey.rate_limit:type_name -> models.RateLimitConfig
-	3, // 4: models.ExternalAPIKey.created_at:type_name -> google.protobuf.Timestamp
-	3, // 5: models.ExternalAPIKey.updated_at:type_name -> google.protobuf.Timestamp
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_api_models_api_key_proto_init() }
@@ -408,14 +283,13 @@ func file_api_models_api_key_proto_init() {
 	if File_api_models_api_key_proto != nil {
 		return
 	}
-	file_api_models_api_key_proto_msgTypes[2].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_models_api_key_proto_rawDesc), len(file_api_models_api_key_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

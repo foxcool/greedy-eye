@@ -13,12 +13,12 @@ import (
 
 	"github.com/foxcool/greedy-eye/internal/api/services"
 	"github.com/foxcool/greedy-eye/internal/services/asset"
+	"github.com/foxcool/greedy-eye/internal/services/messenger"
 	"github.com/foxcool/greedy-eye/internal/services/portfolio"
 	"github.com/foxcool/greedy-eye/internal/services/price"
 	"github.com/foxcool/greedy-eye/internal/services/rule"
 	"github.com/foxcool/greedy-eye/internal/services/storage"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent"
-	"github.com/foxcool/greedy-eye/internal/services/telegram"
 	"github.com/foxcool/greedy-eye/internal/services/user"
 	"github.com/getsentry/sentry-go"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -165,7 +165,7 @@ type ServiceDefinition struct {
 }
 
 // getAvailableServices returns all available service definitions as a map
-func getAvailableServices() map[string]ServiceDefinition {
+func getAvailableServices(storageClient services.StorageServiceClient) map[string]ServiceDefinition {
 	return map[string]ServiceDefinition{
 		"StorageService": {
 			Name:         "StorageService",
@@ -183,7 +183,7 @@ func getAvailableServices() map[string]ServiceDefinition {
 			Type:         "user",
 			Dependencies: []string{"StorageService"},
 			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *zap.Logger) error {
-				services.RegisterUserServiceServer(server, user.NewService(log))
+				services.RegisterUserServiceServer(server, user.NewService(log, storageClient))
 				return nil
 			},
 			GatewayRegister: services.RegisterUserServiceHandlerFromEndpoint,
@@ -193,7 +193,7 @@ func getAvailableServices() map[string]ServiceDefinition {
 			Type:         "asset",
 			Dependencies: []string{"StorageService"},
 			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *zap.Logger) error {
-				services.RegisterAssetServiceServer(server, asset.NewService(log))
+				services.RegisterAssetServiceServer(server, asset.NewService(log, storageClient))
 				return nil
 			},
 			GatewayRegister: services.RegisterAssetServiceHandlerFromEndpoint,
@@ -213,7 +213,8 @@ func getAvailableServices() map[string]ServiceDefinition {
 			Type:         "price",
 			Dependencies: []string{"StorageService", "AssetService"},
 			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *zap.Logger) error {
-				services.RegisterPriceServiceServer(server, price.NewService(log))
+				// TODO: Create AssetService client adapter if needed
+				services.RegisterPriceServiceServer(server, price.NewService(log, storageClient, nil))
 				return nil
 			},
 			GatewayRegister: services.RegisterPriceServiceHandlerFromEndpoint,
@@ -228,15 +229,15 @@ func getAvailableServices() map[string]ServiceDefinition {
 			},
 			GatewayRegister: services.RegisterRuleServiceHandlerFromEndpoint,
 		},
-		"TelegramBotService": {
-			Name:         "TelegramBotService",
-			Type:         "telegram",
+		"MessengerService": {
+			Name:         "MessengerService",
+			Type:         "messenger",
 			Dependencies: []string{"StorageService", "UserService", "PortfolioService", "AssetService", "PriceService", "RuleService"},
 			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *zap.Logger) error {
-				services.RegisterTelegramBotServiceServer(server, telegram.NewService(log))
+				services.RegisterMessengerServiceServer(server, messenger.NewService(log))
 				return nil
 			},
-			GatewayRegister: services.RegisterTelegramBotServiceHandlerFromEndpoint,
+			GatewayRegister: services.RegisterMessengerServiceHandlerFromEndpoint,
 		},
 	}
 }
@@ -244,7 +245,12 @@ func getAvailableServices() map[string]ServiceDefinition {
 // registerServicesAndCreateServers registers services and creates both gRPC and HTTP servers in one pass
 func registerServicesAndCreateServers(ctx context.Context, config *Config, client *ent.Client, log *zap.Logger) (*grpc.Server, *http.Server) {
 	grpcServer := grpc.NewServer()
-	availableServices := getAvailableServices()
+
+	// Create storage service first as it's needed by other services
+	storageService := storage.NewService(client, log)
+	storageClient := storage.NewLocalClient(storageService)
+
+	availableServices := getAvailableServices(storageClient)
 
 	// Create service type to name mapping for faster lookup
 	typeToName := make(map[string]string)

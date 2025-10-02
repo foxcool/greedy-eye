@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.9
 // 	protoc        (unknown)
-// source: api/services/telegram_service.proto
+// source: api/services/messenger_service.proto
 
 package services
 
@@ -64,11 +64,11 @@ func (x AlertOperation) String() string {
 }
 
 func (AlertOperation) Descriptor() protoreflect.EnumDescriptor {
-	return file_api_services_telegram_service_proto_enumTypes[0].Descriptor()
+	return file_api_services_messenger_service_proto_enumTypes[0].Descriptor()
 }
 
 func (AlertOperation) Type() protoreflect.EnumType {
-	return &file_api_services_telegram_service_proto_enumTypes[0]
+	return &file_api_services_messenger_service_proto_enumTypes[0]
 }
 
 func (x AlertOperation) Number() protoreflect.EnumNumber {
@@ -77,7 +77,7 @@ func (x AlertOperation) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use AlertOperation.Descriptor instead.
 func (AlertOperation) EnumDescriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{0}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{0}
 }
 
 type SpeechProvider int32
@@ -119,11 +119,11 @@ func (x SpeechProvider) String() string {
 }
 
 func (SpeechProvider) Descriptor() protoreflect.EnumDescriptor {
-	return file_api_services_telegram_service_proto_enumTypes[1].Descriptor()
+	return file_api_services_messenger_service_proto_enumTypes[1].Descriptor()
 }
 
 func (SpeechProvider) Type() protoreflect.EnumType {
-	return &file_api_services_telegram_service_proto_enumTypes[1]
+	return &file_api_services_messenger_service_proto_enumTypes[1]
 }
 
 func (x SpeechProvider) Number() protoreflect.EnumNumber {
@@ -132,7 +132,7 @@ func (x SpeechProvider) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SpeechProvider.Descriptor instead.
 func (SpeechProvider) EnumDescriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{1}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{1}
 }
 
 type AudioFormat int32
@@ -174,11 +174,11 @@ func (x AudioFormat) String() string {
 }
 
 func (AudioFormat) Descriptor() protoreflect.EnumDescriptor {
-	return file_api_services_telegram_service_proto_enumTypes[2].Descriptor()
+	return file_api_services_messenger_service_proto_enumTypes[2].Descriptor()
 }
 
 func (AudioFormat) Type() protoreflect.EnumType {
-	return &file_api_services_telegram_service_proto_enumTypes[2]
+	return &file_api_services_messenger_service_proto_enumTypes[2]
 }
 
 func (x AudioFormat) Number() protoreflect.EnumNumber {
@@ -187,7 +187,7 @@ func (x AudioFormat) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use AudioFormat.Descriptor instead.
 func (AudioFormat) EnumDescriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{2}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{2}
 }
 
 // Telegram Update Processing
@@ -201,7 +201,7 @@ type ProcessTelegramUpdateRequest struct {
 
 func (x *ProcessTelegramUpdateRequest) Reset() {
 	*x = ProcessTelegramUpdateRequest{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[0]
+	mi := &file_api_services_messenger_service_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -213,7 +213,7 @@ func (x *ProcessTelegramUpdateRequest) String() string {
 func (*ProcessTelegramUpdateRequest) ProtoMessage() {}
 
 func (x *ProcessTelegramUpdateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[0]
+	mi := &file_api_services_messenger_service_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -226,7 +226,7 @@ func (x *ProcessTelegramUpdateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessTelegramUpdateRequest.ProtoReflect.Descriptor instead.
 func (*ProcessTelegramUpdateRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{0}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *ProcessTelegramUpdateRequest) GetUpdateJson() string {
@@ -254,7 +254,7 @@ type ProcessTelegramUpdateResponse struct {
 
 func (x *ProcessTelegramUpdateResponse) Reset() {
 	*x = ProcessTelegramUpdateResponse{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[1]
+	mi := &file_api_services_messenger_service_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -266,7 +266,7 @@ func (x *ProcessTelegramUpdateResponse) String() string {
 func (*ProcessTelegramUpdateResponse) ProtoMessage() {}
 
 func (x *ProcessTelegramUpdateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[1]
+	mi := &file_api_services_messenger_service_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -279,7 +279,7 @@ func (x *ProcessTelegramUpdateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessTelegramUpdateResponse.ProtoReflect.Descriptor instead.
 func (*ProcessTelegramUpdateResponse) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{1}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *ProcessTelegramUpdateResponse) GetSuccess() bool {
@@ -314,7 +314,7 @@ type SendNotificationRequest struct {
 
 func (x *SendNotificationRequest) Reset() {
 	*x = SendNotificationRequest{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[2]
+	mi := &file_api_services_messenger_service_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -326,7 +326,7 @@ func (x *SendNotificationRequest) String() string {
 func (*SendNotificationRequest) ProtoMessage() {}
 
 func (x *SendNotificationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[2]
+	mi := &file_api_services_messenger_service_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -339,7 +339,7 @@ func (x *SendNotificationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendNotificationRequest.ProtoReflect.Descriptor instead.
 func (*SendNotificationRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{2}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *SendNotificationRequest) GetNotification() *models.TelegramNotification {
@@ -367,7 +367,7 @@ type SendNotificationResponse struct {
 
 func (x *SendNotificationResponse) Reset() {
 	*x = SendNotificationResponse{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[3]
+	mi := &file_api_services_messenger_service_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -379,7 +379,7 @@ func (x *SendNotificationResponse) String() string {
 func (*SendNotificationResponse) ProtoMessage() {}
 
 func (x *SendNotificationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[3]
+	mi := &file_api_services_messenger_service_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -392,7 +392,7 @@ func (x *SendNotificationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendNotificationResponse.ProtoReflect.Descriptor instead.
 func (*SendNotificationResponse) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{3}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *SendNotificationResponse) GetSent() bool {
@@ -427,7 +427,7 @@ type SendBulkNotificationsRequest struct {
 
 func (x *SendBulkNotificationsRequest) Reset() {
 	*x = SendBulkNotificationsRequest{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[4]
+	mi := &file_api_services_messenger_service_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -439,7 +439,7 @@ func (x *SendBulkNotificationsRequest) String() string {
 func (*SendBulkNotificationsRequest) ProtoMessage() {}
 
 func (x *SendBulkNotificationsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[4]
+	mi := &file_api_services_messenger_service_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -452,7 +452,7 @@ func (x *SendBulkNotificationsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendBulkNotificationsRequest.ProtoReflect.Descriptor instead.
 func (*SendBulkNotificationsRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{4}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *SendBulkNotificationsRequest) GetNotifications() []*models.TelegramNotification {
@@ -487,7 +487,7 @@ type SendBulkNotificationsResponse struct {
 
 func (x *SendBulkNotificationsResponse) Reset() {
 	*x = SendBulkNotificationsResponse{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[5]
+	mi := &file_api_services_messenger_service_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -499,7 +499,7 @@ func (x *SendBulkNotificationsResponse) String() string {
 func (*SendBulkNotificationsResponse) ProtoMessage() {}
 
 func (x *SendBulkNotificationsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[5]
+	mi := &file_api_services_messenger_service_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -512,7 +512,7 @@ func (x *SendBulkNotificationsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendBulkNotificationsResponse.ProtoReflect.Descriptor instead.
 func (*SendBulkNotificationsResponse) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{5}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SendBulkNotificationsResponse) GetSentCount() int32 {
@@ -549,7 +549,7 @@ type ManageAlertsRequest struct {
 
 func (x *ManageAlertsRequest) Reset() {
 	*x = ManageAlertsRequest{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[6]
+	mi := &file_api_services_messenger_service_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -561,7 +561,7 @@ func (x *ManageAlertsRequest) String() string {
 func (*ManageAlertsRequest) ProtoMessage() {}
 
 func (x *ManageAlertsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[6]
+	mi := &file_api_services_messenger_service_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -574,7 +574,7 @@ func (x *ManageAlertsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ManageAlertsRequest.ProtoReflect.Descriptor instead.
 func (*ManageAlertsRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{6}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ManageAlertsRequest) GetTelegramId() string {
@@ -616,7 +616,7 @@ type ManageAlertsResponse struct {
 
 func (x *ManageAlertsResponse) Reset() {
 	*x = ManageAlertsResponse{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[7]
+	mi := &file_api_services_messenger_service_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -628,7 +628,7 @@ func (x *ManageAlertsResponse) String() string {
 func (*ManageAlertsResponse) ProtoMessage() {}
 
 func (x *ManageAlertsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[7]
+	mi := &file_api_services_messenger_service_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -641,7 +641,7 @@ func (x *ManageAlertsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ManageAlertsResponse.ProtoReflect.Descriptor instead.
 func (*ManageAlertsResponse) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{7}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ManageAlertsResponse) GetSuccess() bool {
@@ -675,7 +675,7 @@ type GetUserSessionRequest struct {
 
 func (x *GetUserSessionRequest) Reset() {
 	*x = GetUserSessionRequest{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[8]
+	mi := &file_api_services_messenger_service_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -687,7 +687,7 @@ func (x *GetUserSessionRequest) String() string {
 func (*GetUserSessionRequest) ProtoMessage() {}
 
 func (x *GetUserSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[8]
+	mi := &file_api_services_messenger_service_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -700,7 +700,7 @@ func (x *GetUserSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUserSessionRequest.ProtoReflect.Descriptor instead.
 func (*GetUserSessionRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{8}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetUserSessionRequest) GetTelegramId() string {
@@ -720,7 +720,7 @@ type GetUserSessionResponse struct {
 
 func (x *GetUserSessionResponse) Reset() {
 	*x = GetUserSessionResponse{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[9]
+	mi := &file_api_services_messenger_service_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -732,7 +732,7 @@ func (x *GetUserSessionResponse) String() string {
 func (*GetUserSessionResponse) ProtoMessage() {}
 
 func (x *GetUserSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[9]
+	mi := &file_api_services_messenger_service_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -745,7 +745,7 @@ func (x *GetUserSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUserSessionResponse.ProtoReflect.Descriptor instead.
 func (*GetUserSessionResponse) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{9}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetUserSessionResponse) GetSession() *models.SessionContext {
@@ -771,7 +771,7 @@ type UpdateUserSessionRequest struct {
 
 func (x *UpdateUserSessionRequest) Reset() {
 	*x = UpdateUserSessionRequest{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[10]
+	mi := &file_api_services_messenger_service_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -783,7 +783,7 @@ func (x *UpdateUserSessionRequest) String() string {
 func (*UpdateUserSessionRequest) ProtoMessage() {}
 
 func (x *UpdateUserSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[10]
+	mi := &file_api_services_messenger_service_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -796,7 +796,7 @@ func (x *UpdateUserSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateUserSessionRequest.ProtoReflect.Descriptor instead.
 func (*UpdateUserSessionRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{10}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *UpdateUserSessionRequest) GetSession() *models.SessionContext {
@@ -816,7 +816,7 @@ type UpdateUserSessionResponse struct {
 
 func (x *UpdateUserSessionResponse) Reset() {
 	*x = UpdateUserSessionResponse{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[11]
+	mi := &file_api_services_messenger_service_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -828,7 +828,7 @@ func (x *UpdateUserSessionResponse) String() string {
 func (*UpdateUserSessionResponse) ProtoMessage() {}
 
 func (x *UpdateUserSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[11]
+	mi := &file_api_services_messenger_service_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -841,7 +841,7 @@ func (x *UpdateUserSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateUserSessionResponse.ProtoReflect.Descriptor instead.
 func (*UpdateUserSessionResponse) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{11}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *UpdateUserSessionResponse) GetSuccess() bool {
@@ -870,7 +870,7 @@ type RegisterTelegramUserRequest struct {
 
 func (x *RegisterTelegramUserRequest) Reset() {
 	*x = RegisterTelegramUserRequest{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[12]
+	mi := &file_api_services_messenger_service_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -882,7 +882,7 @@ func (x *RegisterTelegramUserRequest) String() string {
 func (*RegisterTelegramUserRequest) ProtoMessage() {}
 
 func (x *RegisterTelegramUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[12]
+	mi := &file_api_services_messenger_service_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -895,7 +895,7 @@ func (x *RegisterTelegramUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterTelegramUserRequest.ProtoReflect.Descriptor instead.
 func (*RegisterTelegramUserRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{12}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *RegisterTelegramUserRequest) GetTelegramUser() *models.TelegramUser {
@@ -931,7 +931,7 @@ type RegisterTelegramUserResponse struct {
 
 func (x *RegisterTelegramUserResponse) Reset() {
 	*x = RegisterTelegramUserResponse{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[13]
+	mi := &file_api_services_messenger_service_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -943,7 +943,7 @@ func (x *RegisterTelegramUserResponse) String() string {
 func (*RegisterTelegramUserResponse) ProtoMessage() {}
 
 func (x *RegisterTelegramUserResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[13]
+	mi := &file_api_services_messenger_service_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -956,7 +956,7 @@ func (x *RegisterTelegramUserResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterTelegramUserResponse.ProtoReflect.Descriptor instead.
 func (*RegisterTelegramUserResponse) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{13}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RegisterTelegramUserResponse) GetSuccess() bool {
@@ -996,7 +996,7 @@ type GetTelegramUserRequest struct {
 
 func (x *GetTelegramUserRequest) Reset() {
 	*x = GetTelegramUserRequest{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[14]
+	mi := &file_api_services_messenger_service_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1008,7 +1008,7 @@ func (x *GetTelegramUserRequest) String() string {
 func (*GetTelegramUserRequest) ProtoMessage() {}
 
 func (x *GetTelegramUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[14]
+	mi := &file_api_services_messenger_service_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1021,7 +1021,7 @@ func (x *GetTelegramUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTelegramUserRequest.ProtoReflect.Descriptor instead.
 func (*GetTelegramUserRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{14}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GetTelegramUserRequest) GetTelegramId() string {
@@ -1041,7 +1041,7 @@ type GetTelegramUserResponse struct {
 
 func (x *GetTelegramUserResponse) Reset() {
 	*x = GetTelegramUserResponse{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[15]
+	mi := &file_api_services_messenger_service_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1053,7 +1053,7 @@ func (x *GetTelegramUserResponse) String() string {
 func (*GetTelegramUserResponse) ProtoMessage() {}
 
 func (x *GetTelegramUserResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[15]
+	mi := &file_api_services_messenger_service_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1066,7 +1066,7 @@ func (x *GetTelegramUserResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTelegramUserResponse.ProtoReflect.Descriptor instead.
 func (*GetTelegramUserResponse) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{15}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *GetTelegramUserResponse) GetTelegramUser() *models.TelegramUser {
@@ -1098,7 +1098,7 @@ type ProcessVoiceMessageRequest struct {
 
 func (x *ProcessVoiceMessageRequest) Reset() {
 	*x = ProcessVoiceMessageRequest{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[16]
+	mi := &file_api_services_messenger_service_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1110,7 +1110,7 @@ func (x *ProcessVoiceMessageRequest) String() string {
 func (*ProcessVoiceMessageRequest) ProtoMessage() {}
 
 func (x *ProcessVoiceMessageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[16]
+	mi := &file_api_services_messenger_service_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1123,7 +1123,7 @@ func (x *ProcessVoiceMessageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessVoiceMessageRequest.ProtoReflect.Descriptor instead.
 func (*ProcessVoiceMessageRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{16}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ProcessVoiceMessageRequest) GetTelegramId() string {
@@ -1182,7 +1182,7 @@ type ProcessVoiceMessageResponse struct {
 
 func (x *ProcessVoiceMessageResponse) Reset() {
 	*x = ProcessVoiceMessageResponse{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[17]
+	mi := &file_api_services_messenger_service_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1194,7 +1194,7 @@ func (x *ProcessVoiceMessageResponse) String() string {
 func (*ProcessVoiceMessageResponse) ProtoMessage() {}
 
 func (x *ProcessVoiceMessageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[17]
+	mi := &file_api_services_messenger_service_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1207,7 +1207,7 @@ func (x *ProcessVoiceMessageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessVoiceMessageResponse.ProtoReflect.Descriptor instead.
 func (*ProcessVoiceMessageResponse) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{17}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ProcessVoiceMessageResponse) GetSuccess() bool {
@@ -1265,7 +1265,7 @@ type ConvertTextToSpeechRequest struct {
 
 func (x *ConvertTextToSpeechRequest) Reset() {
 	*x = ConvertTextToSpeechRequest{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[18]
+	mi := &file_api_services_messenger_service_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1277,7 +1277,7 @@ func (x *ConvertTextToSpeechRequest) String() string {
 func (*ConvertTextToSpeechRequest) ProtoMessage() {}
 
 func (x *ConvertTextToSpeechRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[18]
+	mi := &file_api_services_messenger_service_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1290,7 +1290,7 @@ func (x *ConvertTextToSpeechRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConvertTextToSpeechRequest.ProtoReflect.Descriptor instead.
 func (*ConvertTextToSpeechRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{18}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ConvertTextToSpeechRequest) GetText() string {
@@ -1342,7 +1342,7 @@ type ConvertTextToSpeechResponse struct {
 
 func (x *ConvertTextToSpeechResponse) Reset() {
 	*x = ConvertTextToSpeechResponse{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[19]
+	mi := &file_api_services_messenger_service_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1354,7 +1354,7 @@ func (x *ConvertTextToSpeechResponse) String() string {
 func (*ConvertTextToSpeechResponse) ProtoMessage() {}
 
 func (x *ConvertTextToSpeechResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[19]
+	mi := &file_api_services_messenger_service_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1367,7 +1367,7 @@ func (x *ConvertTextToSpeechResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConvertTextToSpeechResponse.ProtoReflect.Descriptor instead.
 func (*ConvertTextToSpeechResponse) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{19}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ConvertTextToSpeechResponse) GetSuccess() bool {
@@ -1423,7 +1423,7 @@ type GetBotStatsRequest struct {
 
 func (x *GetBotStatsRequest) Reset() {
 	*x = GetBotStatsRequest{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[20]
+	mi := &file_api_services_messenger_service_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1435,7 +1435,7 @@ func (x *GetBotStatsRequest) String() string {
 func (*GetBotStatsRequest) ProtoMessage() {}
 
 func (x *GetBotStatsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[20]
+	mi := &file_api_services_messenger_service_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1448,7 +1448,7 @@ func (x *GetBotStatsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBotStatsRequest.ProtoReflect.Descriptor instead.
 func (*GetBotStatsRequest) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{20}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *GetBotStatsRequest) GetFrom() *timestamppb.Timestamp {
@@ -1474,7 +1474,7 @@ type GetBotStatsResponse struct {
 
 func (x *GetBotStatsResponse) Reset() {
 	*x = GetBotStatsResponse{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[21]
+	mi := &file_api_services_messenger_service_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1486,7 +1486,7 @@ func (x *GetBotStatsResponse) String() string {
 func (*GetBotStatsResponse) ProtoMessage() {}
 
 func (x *GetBotStatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[21]
+	mi := &file_api_services_messenger_service_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1499,7 +1499,7 @@ func (x *GetBotStatsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBotStatsResponse.ProtoReflect.Descriptor instead.
 func (*GetBotStatsResponse) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{21}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *GetBotStatsResponse) GetStats() *BotStats {
@@ -1528,7 +1528,7 @@ type BotStats struct {
 
 func (x *BotStats) Reset() {
 	*x = BotStats{}
-	mi := &file_api_services_telegram_service_proto_msgTypes[22]
+	mi := &file_api_services_messenger_service_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1540,7 +1540,7 @@ func (x *BotStats) String() string {
 func (*BotStats) ProtoMessage() {}
 
 func (x *BotStats) ProtoReflect() protoreflect.Message {
-	mi := &file_api_services_telegram_service_proto_msgTypes[22]
+	mi := &file_api_services_messenger_service_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1553,7 +1553,7 @@ func (x *BotStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BotStats.ProtoReflect.Descriptor instead.
 func (*BotStats) Descriptor() ([]byte, []int) {
-	return file_api_services_telegram_service_proto_rawDescGZIP(), []int{22}
+	return file_api_services_messenger_service_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *BotStats) GetTotalUsers() int32 {
@@ -1633,11 +1633,11 @@ func (x *BotStats) GetLastUpdated() *timestamppb.Timestamp {
 	return nil
 }
 
-var File_api_services_telegram_service_proto protoreflect.FileDescriptor
+var File_api_services_messenger_service_proto protoreflect.FileDescriptor
 
-const file_api_services_telegram_service_proto_rawDesc = "" +
+const file_api_services_messenger_service_proto_rawDesc = "" +
 	"\n" +
-	"#api/services/telegram_service.proto\x12\bservices\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x19api/models/telegram.proto\"f\n" +
+	"$api/services/messenger_service.proto\x12\bservices\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x19api/models/telegram.proto\"f\n" +
 	"\x1cProcessTelegramUpdateRequest\x12\x1f\n" +
 	"\vupdate_json\x18\x01 \x01(\tR\n" +
 	"updateJson\x12%\n" +
@@ -1776,8 +1776,8 @@ const file_api_services_telegram_service_proto_rawDesc = "" +
 	"\x10AUDIO_FORMAT_OGG\x10\x01\x12\x14\n" +
 	"\x10AUDIO_FORMAT_MP3\x10\x02\x12\x14\n" +
 	"\x10AUDIO_FORMAT_WAV\x10\x03\x12\x14\n" +
-	"\x10AUDIO_FORMAT_M4A\x10\x042\x82\f\n" +
-	"\x12TelegramBotService\x12\x8d\x01\n" +
+	"\x10AUDIO_FORMAT_M4A\x10\x042\x80\f\n" +
+	"\x10MessengerService\x12\x8d\x01\n" +
 	"\x15ProcessTelegramUpdate\x12&.services.ProcessTelegramUpdateRequest\x1a'.services.ProcessTelegramUpdateResponse\"#\x82\xd3\xe4\x93\x02\x1d:\x01*\"\x18/api/v1/telegram/webhook\x12\x84\x01\n" +
 	"\x10SendNotification\x12!.services.SendNotificationRequest\x1a\".services.SendNotificationResponse\")\x82\xd3\xe4\x93\x02#:\x01*\"\x1e/api/v1/telegram/notifications\x12\x98\x01\n" +
 	"\x15SendBulkNotifications\x12&.services.SendBulkNotificationsRequest\x1a'.services.SendBulkNotificationsResponse\".\x82\xd3\xe4\x93\x02(:\x01*\"#/api/v1/telegram/notifications/bulk\x12q\n" +
@@ -1788,24 +1788,24 @@ const file_api_services_telegram_service_proto_rawDesc = "" +
 	"\x0fGetTelegramUser\x12 .services.GetTelegramUserRequest\x1a!.services.GetTelegramUserResponse\",\x82\xd3\xe4\x93\x02&\x12$/api/v1/telegram/users/{telegram_id}\x12\x8d\x01\n" +
 	"\x13ProcessVoiceMessage\x12$.services.ProcessVoiceMessageRequest\x1a%.services.ProcessVoiceMessageResponse\")\x82\xd3\xe4\x93\x02#:\x01*\"\x1e/api/v1/telegram/voice/process\x12\x90\x01\n" +
 	"\x13ConvertTextToSpeech\x12$.services.ConvertTextToSpeechRequest\x1a%.services.ConvertTextToSpeechResponse\",\x82\xd3\xe4\x93\x02&:\x01*\"!/api/v1/telegram/voice/synthesize\x12j\n" +
-	"\vGetBotStats\x12\x1c.services.GetBotStatsRequest\x1a\x1d.services.GetBotStatsResponse\"\x1e\x82\xd3\xe4\x93\x02\x18\x12\x16/api/v1/telegram/statsB\x99\x01\n" +
-	"\fcom.servicesB\x14TelegramServiceProtoP\x01Z3github.com/foxcool/greedy-eye/internal/api/services\xa2\x02\x03SXX\xaa\x02\bServices\xca\x02\bServices\xe2\x02\x14Services\\GPBMetadata\xea\x02\bServicesb\x06proto3"
+	"\vGetBotStats\x12\x1c.services.GetBotStatsRequest\x1a\x1d.services.GetBotStatsResponse\"\x1e\x82\xd3\xe4\x93\x02\x18\x12\x16/api/v1/telegram/statsB\x9a\x01\n" +
+	"\fcom.servicesB\x15MessengerServiceProtoP\x01Z3github.com/foxcool/greedy-eye/internal/api/services\xa2\x02\x03SXX\xaa\x02\bServices\xca\x02\bServices\xe2\x02\x14Services\\GPBMetadata\xea\x02\bServicesb\x06proto3"
 
 var (
-	file_api_services_telegram_service_proto_rawDescOnce sync.Once
-	file_api_services_telegram_service_proto_rawDescData []byte
+	file_api_services_messenger_service_proto_rawDescOnce sync.Once
+	file_api_services_messenger_service_proto_rawDescData []byte
 )
 
-func file_api_services_telegram_service_proto_rawDescGZIP() []byte {
-	file_api_services_telegram_service_proto_rawDescOnce.Do(func() {
-		file_api_services_telegram_service_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_api_services_telegram_service_proto_rawDesc), len(file_api_services_telegram_service_proto_rawDesc)))
+func file_api_services_messenger_service_proto_rawDescGZIP() []byte {
+	file_api_services_messenger_service_proto_rawDescOnce.Do(func() {
+		file_api_services_messenger_service_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_api_services_messenger_service_proto_rawDesc), len(file_api_services_messenger_service_proto_rawDesc)))
 	})
-	return file_api_services_telegram_service_proto_rawDescData
+	return file_api_services_messenger_service_proto_rawDescData
 }
 
-var file_api_services_telegram_service_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_api_services_telegram_service_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
-var file_api_services_telegram_service_proto_goTypes = []any{
+var file_api_services_messenger_service_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_api_services_messenger_service_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_api_services_messenger_service_proto_goTypes = []any{
 	(AlertOperation)(0),                   // 0: services.AlertOperation
 	(SpeechProvider)(0),                   // 1: services.SpeechProvider
 	(AudioFormat)(0),                      // 2: services.AudioFormat
@@ -1840,7 +1840,7 @@ var file_api_services_telegram_service_proto_goTypes = []any{
 	(*models.TelegramUser)(nil),           // 31: models.TelegramUser
 	(*timestamppb.Timestamp)(nil),         // 32: google.protobuf.Timestamp
 }
-var file_api_services_telegram_service_proto_depIdxs = []int32{
+var file_api_services_messenger_service_proto_depIdxs = []int32{
 	28, // 0: services.SendNotificationRequest.notification:type_name -> models.TelegramNotification
 	28, // 1: services.SendBulkNotificationsRequest.notifications:type_name -> models.TelegramNotification
 	0,  // 2: services.ManageAlertsRequest.operation:type_name -> services.AlertOperation
@@ -1859,28 +1859,28 @@ var file_api_services_telegram_service_proto_depIdxs = []int32{
 	26, // 15: services.BotStats.popular_commands:type_name -> services.BotStats.PopularCommandsEntry
 	27, // 16: services.BotStats.error_types:type_name -> services.BotStats.ErrorTypesEntry
 	32, // 17: services.BotStats.last_updated:type_name -> google.protobuf.Timestamp
-	3,  // 18: services.TelegramBotService.ProcessTelegramUpdate:input_type -> services.ProcessTelegramUpdateRequest
-	5,  // 19: services.TelegramBotService.SendNotification:input_type -> services.SendNotificationRequest
-	7,  // 20: services.TelegramBotService.SendBulkNotifications:input_type -> services.SendBulkNotificationsRequest
-	9,  // 21: services.TelegramBotService.ManageAlerts:input_type -> services.ManageAlertsRequest
-	11, // 22: services.TelegramBotService.GetUserSession:input_type -> services.GetUserSessionRequest
-	13, // 23: services.TelegramBotService.UpdateUserSession:input_type -> services.UpdateUserSessionRequest
-	15, // 24: services.TelegramBotService.RegisterTelegramUser:input_type -> services.RegisterTelegramUserRequest
-	17, // 25: services.TelegramBotService.GetTelegramUser:input_type -> services.GetTelegramUserRequest
-	19, // 26: services.TelegramBotService.ProcessVoiceMessage:input_type -> services.ProcessVoiceMessageRequest
-	21, // 27: services.TelegramBotService.ConvertTextToSpeech:input_type -> services.ConvertTextToSpeechRequest
-	23, // 28: services.TelegramBotService.GetBotStats:input_type -> services.GetBotStatsRequest
-	4,  // 29: services.TelegramBotService.ProcessTelegramUpdate:output_type -> services.ProcessTelegramUpdateResponse
-	6,  // 30: services.TelegramBotService.SendNotification:output_type -> services.SendNotificationResponse
-	8,  // 31: services.TelegramBotService.SendBulkNotifications:output_type -> services.SendBulkNotificationsResponse
-	10, // 32: services.TelegramBotService.ManageAlerts:output_type -> services.ManageAlertsResponse
-	12, // 33: services.TelegramBotService.GetUserSession:output_type -> services.GetUserSessionResponse
-	14, // 34: services.TelegramBotService.UpdateUserSession:output_type -> services.UpdateUserSessionResponse
-	16, // 35: services.TelegramBotService.RegisterTelegramUser:output_type -> services.RegisterTelegramUserResponse
-	18, // 36: services.TelegramBotService.GetTelegramUser:output_type -> services.GetTelegramUserResponse
-	20, // 37: services.TelegramBotService.ProcessVoiceMessage:output_type -> services.ProcessVoiceMessageResponse
-	22, // 38: services.TelegramBotService.ConvertTextToSpeech:output_type -> services.ConvertTextToSpeechResponse
-	24, // 39: services.TelegramBotService.GetBotStats:output_type -> services.GetBotStatsResponse
+	3,  // 18: services.MessengerService.ProcessTelegramUpdate:input_type -> services.ProcessTelegramUpdateRequest
+	5,  // 19: services.MessengerService.SendNotification:input_type -> services.SendNotificationRequest
+	7,  // 20: services.MessengerService.SendBulkNotifications:input_type -> services.SendBulkNotificationsRequest
+	9,  // 21: services.MessengerService.ManageAlerts:input_type -> services.ManageAlertsRequest
+	11, // 22: services.MessengerService.GetUserSession:input_type -> services.GetUserSessionRequest
+	13, // 23: services.MessengerService.UpdateUserSession:input_type -> services.UpdateUserSessionRequest
+	15, // 24: services.MessengerService.RegisterTelegramUser:input_type -> services.RegisterTelegramUserRequest
+	17, // 25: services.MessengerService.GetTelegramUser:input_type -> services.GetTelegramUserRequest
+	19, // 26: services.MessengerService.ProcessVoiceMessage:input_type -> services.ProcessVoiceMessageRequest
+	21, // 27: services.MessengerService.ConvertTextToSpeech:input_type -> services.ConvertTextToSpeechRequest
+	23, // 28: services.MessengerService.GetBotStats:input_type -> services.GetBotStatsRequest
+	4,  // 29: services.MessengerService.ProcessTelegramUpdate:output_type -> services.ProcessTelegramUpdateResponse
+	6,  // 30: services.MessengerService.SendNotification:output_type -> services.SendNotificationResponse
+	8,  // 31: services.MessengerService.SendBulkNotifications:output_type -> services.SendBulkNotificationsResponse
+	10, // 32: services.MessengerService.ManageAlerts:output_type -> services.ManageAlertsResponse
+	12, // 33: services.MessengerService.GetUserSession:output_type -> services.GetUserSessionResponse
+	14, // 34: services.MessengerService.UpdateUserSession:output_type -> services.UpdateUserSessionResponse
+	16, // 35: services.MessengerService.RegisterTelegramUser:output_type -> services.RegisterTelegramUserResponse
+	18, // 36: services.MessengerService.GetTelegramUser:output_type -> services.GetTelegramUserResponse
+	20, // 37: services.MessengerService.ProcessVoiceMessage:output_type -> services.ProcessVoiceMessageResponse
+	22, // 38: services.MessengerService.ConvertTextToSpeech:output_type -> services.ConvertTextToSpeechResponse
+	24, // 39: services.MessengerService.GetBotStats:output_type -> services.GetBotStatsResponse
 	29, // [29:40] is the sub-list for method output_type
 	18, // [18:29] is the sub-list for method input_type
 	18, // [18:18] is the sub-list for extension type_name
@@ -1888,27 +1888,27 @@ var file_api_services_telegram_service_proto_depIdxs = []int32{
 	0,  // [0:18] is the sub-list for field type_name
 }
 
-func init() { file_api_services_telegram_service_proto_init() }
-func file_api_services_telegram_service_proto_init() {
-	if File_api_services_telegram_service_proto != nil {
+func init() { file_api_services_messenger_service_proto_init() }
+func file_api_services_messenger_service_proto_init() {
+	if File_api_services_messenger_service_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_services_telegram_service_proto_rawDesc), len(file_api_services_telegram_service_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_services_messenger_service_proto_rawDesc), len(file_api_services_messenger_service_proto_rawDesc)),
 			NumEnums:      3,
 			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_api_services_telegram_service_proto_goTypes,
-		DependencyIndexes: file_api_services_telegram_service_proto_depIdxs,
-		EnumInfos:         file_api_services_telegram_service_proto_enumTypes,
-		MessageInfos:      file_api_services_telegram_service_proto_msgTypes,
+		GoTypes:           file_api_services_messenger_service_proto_goTypes,
+		DependencyIndexes: file_api_services_messenger_service_proto_depIdxs,
+		EnumInfos:         file_api_services_messenger_service_proto_enumTypes,
+		MessageInfos:      file_api_services_messenger_service_proto_msgTypes,
 	}.Build()
-	File_api_services_telegram_service_proto = out.File
-	file_api_services_telegram_service_proto_goTypes = nil
-	file_api_services_telegram_service_proto_depIdxs = nil
+	File_api_services_messenger_service_proto = out.File
+	file_api_services_messenger_service_proto_goTypes = nil
+	file_api_services_messenger_service_proto_depIdxs = nil
 }
