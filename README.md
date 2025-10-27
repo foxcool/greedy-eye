@@ -1,183 +1,169 @@
 # 🦅 Greedy Eye
 
-**Universal portfolio management platform** with automated DCA strategies, rebalancing, and multi-asset tracking.
+Personal investment intelligence platform. Aggregate data from multiple sources, track your portfolio, and make informed financial decisions.
 
-Track crypto, stocks, bonds, and derivatives in one place. Automate your investment strategy through Telegram bot with optional voice commands.
-
-![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 ![Go Version](https://img.shields.io/badge/go-1.23+-00ADD8?logo=go)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Status](https://img.shields.io/badge/status-alpha-orange)
 
 ---
 
-## What Makes It Different
+## What It Does
 
-⚡ **Automation First** — Set DCA strategies, rebalancing rules, stop-loss alerts and let the system work
-🌐 **Universal Assets** — Crypto, stocks, bonds, derivatives tracked in one unified portfolio
-🏗️ **Production Ready Architecture** — Modular monolith with gRPC services, horizontal scaling ready
-🤖 **Conversational Interface** — Manage everything through Telegram bot (optional voice support)
+Think of it as a personal Bloomberg Terminal on a budget — aggregate financial data from exchanges, brokers, and price feeds into one place. Track all your investments (crypto, stocks, bonds) and get insights to make better decisions.
 
----
-
-## Get Started by Role
-
-<table>
-<tr>
-<td width="33%" valign="top">
-
-### 👨‍💻 Developer
-
-**[→ Setup Guide](docs/development.md)**
-
-```bash
-git clone https://github.com/foxcool/greedy-eye.git
-cd greedy-eye
-docker-compose up -d
-```
-
-**Health:** `localhost:8080/health`
-**gRPC:** `localhost:50051`
-
-</td>
-<td width="33%" valign="top">
-
-### 🏗️ Architect
-
-**[→ Architecture](docs/architecture.md)**
-
-**Stack:**
-- Modular monolith
-- 8 gRPC services
-- PostgreSQL + Ent ORM
-- gRPC-Gateway
-
-**Design:** C4 diagrams, ADRs, service topology
-
-</td>
-<td width="33%" valign="top">
-
-### 📱 User
-
-**[→ Try Production](https://eye.darkfox.info)**
-
-**Commands:**
-`/portfolio` — View balance
-`/dca` — Setup automated buying
-`/alerts` — Price notifications
-`/rebalance` — Portfolio optimization
-
-</td>
-</tr>
-</table>
+Built as a learning project to demonstrate production-ready Go architecture for financial applications.
 
 ---
 
-## Key Features
+## Core Capabilities
 
-### Portfolio Tracking
-- **Multi-asset support:** Cryptocurrencies, stocks, bonds, derivatives
-- **Real-time prices:** CoinGecko, Binance, T-Bank Invest integrations
-- **Performance analytics:** P&L, ROI, cost basis tracking
-- **Multi-account:** Aggregate positions across exchanges and brokerages
+**Data Aggregation**
+- Pull data from exchanges (Binance), price feeds (CoinGecko), and brokerages
+- Unified view of crypto, stocks, bonds, and derivatives
+- Historical price tracking and performance analytics
 
-### Investment Automation
-- **DCA Strategies:** Schedule periodic purchases with custom rules
-- **Rebalancing Rules:** Maintain target asset allocation automatically
-- **Price Alerts:** Get notified when assets hit target prices
-- **Stop-Loss Orders:** Automatic risk management rules
+**Portfolio Intelligence**
+- Multi-account position tracking across platforms
+- P&L calculations and cost basis tracking
+- Asset allocation analysis
 
-### Integration Ecosystem
-- **Exchanges:** Binance, more coming
-- **Brokerages:** T-Bank Invest, more coming
-- **Price Data:** CoinGecko, exchange APIs
-- **Messaging:** Telegram bot with Russian/English support
+**Extensible Architecture**
+- Modular gRPC services for different data sources
+- Easy to add new adapters for exchanges or price feeds
+- REST API via gRPC-Gateway for external integrations
 
 ---
 
 ## Technology Stack
 
-**Core:**
-Go 1.23+ • gRPC • Protocol Buffers • PostgreSQL • Ent ORM
+**Backend:**
+- Go 1.23+ with gRPC and Protocol Buffers
+- PostgreSQL with Ent ORM
+- gRPC-Gateway for HTTP API
 
-**APIs:**
-gRPC-Gateway (auto-generated HTTP) • REST • OpenAPI 3.0
-
-**Deployment:**
-Docker • Single binary or microservices • Horizontal scaling ready
+**Infrastructure:**
+- Docker & Docker Compose
+- Atlas migrations
+- Structured logging (Zap, Sentry)
 
 **Integrations:**
-CoinGecko • Binance • T-Bank Invest • Telegram Bot API
-
-→ [Full Architecture Details](docs/architecture.md) | [API Reference](docs/openapi.yaml)
-
----
-
-## Current Status
-
-**Phase 1-3:** Foundation & Services ✅ Complete
-**Phase 4:** Business Logic Implementation 🔄 In Progress
-**Phase 5:** Production Hardening 📋 Planned
-
-**Recent Milestones:**
-- ✅ Core services: User, Asset, Portfolio, Price with full business logic
-- ✅ External API integration: CoinGecko, Binance price feeds
-- ✅ Integration tests for all services
-- ✅ Rule engine foundation for automation
-
-→ [Detailed Roadmap](docs/development.md#roadmap-overview)
+- CoinGecko, Binance APIs
+- Telegram Bot (optional interface)
+- OpenAPI 3.0 spec
 
 ---
 
-## Quick Start Examples
+## Quick Start
 
-### Start Local Development
+### Prerequisites
+- Go 1.23+
+- Docker and Docker Compose
+
+### Run Locally
+
 ```bash
+# Clone and start
+git clone https://github.com/foxcool/greedy-eye.git
+cd greedy-eye
 docker-compose up -d postgres
 make dev
-# Server starts on :8080 (HTTP) and :50051 (gRPC)
+
+# Servers:
+# HTTP API: http://localhost:8080
+# gRPC:     localhost:50051
 ```
 
-### Check System Health
+### Health Check
+
 ```bash
 curl http://localhost:8080/health
 ```
 
 ### Run Tests
+
 ```bash
 make test                    # All tests
-make test-integration       # Integration tests only
-```
-
-### Generate API Code
-```bash
-make buf-gen                # Regenerate protobuf and gRPC code
+make test-integration        # Integration tests only
 ```
 
 ---
 
-## Contributing
+## Project Structure
 
-Found a bug? Have an idea? **PRs welcome!**
+```
+greedy-eye/
+├── api/                    # Protocol Buffer definitions
+├── cmd/eye/               # Main application
+├── internal/
+│   ├── services/          # Business logic (asset, portfolio, price)
+│   ├── adapters/          # External API clients (Binance, CoinGecko)
+│   └── api/               # Generated gRPC/HTTP code
+├── docs/                  # Architecture documentation
+└── deploy/                # Docker configs
+```
 
-- 🐛 [Report Issues](https://github.com/foxcool/greedy-eye/issues)
-- 💡 [Suggest Features](https://github.com/foxcool/greedy-eye/discussions)
-- 📖 [Development Guide](docs/development.md)
+---
 
-**Quick Wins for Contributors:**
-- Add new price data providers
-- Implement exchange connectors (Kraken, Coinbase, etc.)
-- Improve Telegram bot commands
-- Write integration tests
+## Documentation
+
+- **[Architecture Guide](docs/architecture.md)** — System design, C4 diagrams, service structure
+- **[Development Guide](docs/development.md)** — Setup, workflow, roadmap
+- **[OpenAPI Spec](docs/openapi.yaml)** — HTTP API reference
+
+---
+
+## Development Status
+
+**Phase 1-3:** ✅ Complete — Foundation, services, API gateway
+**Phase 4:** 🔄 In Progress — Core business logic implementation
+**Phase 5:** 📋 Planned — Production hardening
+
+Current implementation:
+- ✅ gRPC service architecture with 7+ services
+- ✅ Database layer with Ent ORM
+- ✅ External API adapters (CoinGecko, Binance)
+- ✅ Integration test coverage
+- 🔄 Portfolio analytics and insights
+
+---
+
+## Key Features
+
+### Multi-Source Data
+- Aggregate price data from exchanges and feeds
+- Support for crypto, stocks, bonds, derivatives
+- Extensible adapter pattern for new sources
+
+### Portfolio Tracking
+- Multi-account position aggregation
+- Performance analytics and P&L
+- Historical tracking
+
+### Architecture
+- Modular monolith (microservice-ready)
+- Clean separation: services, adapters, domain
+- Comprehensive testing
+
+---
+
+## Development
+
+```bash
+make dev          # Start with live reload
+make test         # Run tests
+make buf-gen      # Generate protobuf code
+make lint         # Run linter
+```
+
+See [Development Guide](docs/development.md) for details.
 
 ---
 
 ## License
 
-MIT License — use it, fork it, commercialize it.
+MIT License
 
 ---
 
-**Production:** https://eye.darkfox.info
-**Documentation:** [Architecture](docs/architecture.md) • [Development](docs/development.md)
-**API:** [OpenAPI Spec](docs/openapi.yaml)
+**Docs:** [Architecture](docs/architecture.md) • [Development](docs/development.md) • [API](docs/openapi.yaml)
