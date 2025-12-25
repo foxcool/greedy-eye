@@ -32,3 +32,5 @@ tree.md
 .streamlit
 *.backup
 .devcontainer.json
+features.json
+.DS_Store
