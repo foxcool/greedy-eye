@@ -9,15 +9,12 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.1
 	github.com/knadh/koanf v1.5.0
 	github.com/lib/pq v1.10.9
-	github.com/mattn/go-sqlite3 v1.14.16
 	github.com/shopspring/decimal v1.4.0
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.10.0
-	go.uber.org/zap v1.27.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20250603155806-513f23925822
 	google.golang.org/grpc v1.73.0
 	google.golang.org/protobuf v1.36.6
-	gopkg.in/tucnak/telebot.v2 v2.5.0
 )
 
 require (
@@ -36,12 +33,10 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/pelletier/go-toml v1.7.0 // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	github.com/zclconf/go-cty v1.14.4 // indirect
 	github.com/zclconf/go-cty-yaml v1.1.0 // indirect
-	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/mod v0.25.0 // indirect
 	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect

@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/base64"
+	"log/slog"
 	"time"
 
 	"github.com/foxcool/greedy-eye/internal/api/models"
@@ -10,7 +11,6 @@ import (
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/account"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/user"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -47,7 +47,7 @@ func (s *StorageService) CreateAccount(ctx context.Context, req *services.Create
 		SetNillableDescription(req.Account.Description).
 		Save(ctx)
 	if err != nil {
-		s.log.Error("Failed to create account", zap.Error(err))
+		s.log.Error("Failed to create account", slog.Any("error",err))
 		if ent.IsConstraintError(err) {
 			return nil, status.Errorf(codes.AlreadyExists, "account creation constraint failed: %v", err)
 		}
@@ -56,13 +56,13 @@ func (s *StorageService) CreateAccount(ctx context.Context, req *services.Create
 
 	account, err := s.dbClient.Account.Query().Where(account.ID(created.ID)).WithUser().Only(ctx)
 	if err != nil {
-		s.log.Error("Can't get createed account", zap.String("uuid", created.UUID.String()), zap.Error(err))
+		s.log.Error("Can't get createed account", slog.String("uuid", created.UUID.String()), slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve account: %v", err)
 	}
 
 	protoAcccount, err := entAccountToProtoAccount(account)
 	if err != nil {
-		s.log.Error("Failed to convert account to proto", zap.Error(err))
+		s.log.Error("Failed to convert account to proto", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to convert account to proto: %v", err)
 	}
 
@@ -82,11 +82,11 @@ func (s *StorageService) GetAccount(ctx context.Context, req *services.GetAccoun
 	account, err := s.dbClient.Account.Query().Where(account.UUID(parsedUUID)).WithUser().Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
-			s.log.Warn("Account not found", zap.String("uuid", req.Id))
+			s.log.Warn("Account not found", slog.String("uuid", req.Id))
 			return nil, status.Errorf(codes.NotFound, "account with ID %s not found", req.Id)
 		}
 
-		s.log.Error("Failed to get account", zap.Error(err))
+		s.log.Error("Failed to get account", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve account: %v", err)
 	}
 
@@ -112,11 +112,11 @@ func (s *StorageService) UpdateAccount(ctx context.Context, req *services.Update
 	entAccount, err := s.dbClient.Account.Query().Where(account.UUID(parsedUUID)).Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
-			s.log.Warn("Account not found", zap.String("uuid", req.Account.Id))
+			s.log.Warn("Account not found", slog.String("uuid", req.Account.Id))
 			return nil, status.Errorf(codes.NotFound, "account with ID %s not found", req.Account.Id)
 		}
 
-		s.log.Error("Failed to get account", zap.Error(err))
+		s.log.Error("Failed to get account", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve account: %v", err)
 	}
 
@@ -139,23 +139,23 @@ func (s *StorageService) UpdateAccount(ctx context.Context, req *services.Update
 		case "data":
 			mutation.SetData(req.Account.Data)
 		default:
-			s.log.Warn("UpdateAccount unknown field", zap.String("path", path))
+			s.log.Warn("UpdateAccount unknown field", slog.String("path", path))
 		}
 	}
 	_, err = mutation.Save(ctx)
 	if err != nil {
-		s.log.Error("Failed to update account", zap.Error(err))
+		s.log.Error("Failed to update account", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to update account: %v", err)
 	}
 
 	entAccount, err = s.dbClient.Account.Query().Where(account.UUID(parsedUUID)).WithUser().Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
-			s.log.Warn("Account not found", zap.String("uuid", req.Account.Id))
+			s.log.Warn("Account not found", slog.String("uuid", req.Account.Id))
 			return nil, status.Errorf(codes.NotFound, "account with ID %s not found", req.Account.Id)
 		}
 
-		s.log.Error("Failed to get account", zap.Error(err))
+		s.log.Error("Failed to get account", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve account: %v", err)
 	}
 
@@ -173,7 +173,7 @@ func (s *StorageService) DeleteAccount(ctx context.Context, req *services.Delete
 	delCount, err := s.dbClient.Account.Delete().Where(account.UUID(parsedUUID)).Exec(ctx)
 	if err != nil {
 		if ent.IsConstraintError(err) {
-			s.log.Error("Failed to delete account due to constraint", zap.Error(err))
+			s.log.Error("Failed to delete account due to constraint", slog.Any("error",err))
 			return nil, status.Errorf(codes.FailedPrecondition, "cannot delete account due to existing dependencies: %v", err)
 		}
 		return nil, status.Errorf(codes.Internal, "failed to delete account: %v", err)

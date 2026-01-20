@@ -4,6 +4,7 @@ package price
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -15,7 +16,6 @@ import (
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/enttest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap/zaptest"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	_ "github.com/lib/pq"
@@ -36,7 +36,7 @@ func TestPriceService_FetchExternalPrices_Integration(t *testing.T) {
 	defer client.Close()
 
 	// Setup logger
-	logger := zaptest.NewLogger(t)
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	// Create storage service
 	storageService := storage.NewService(client, logger)
@@ -124,7 +124,7 @@ func TestPriceService_GetLatestPrice_Integration(t *testing.T) {
 	defer client.Close()
 
 	// Setup logger
-	logger := zaptest.NewLogger(t)
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	// Create storage service
 	storageService := storage.NewService(client, logger)
@@ -204,7 +204,7 @@ func TestPriceService_GetPriceHistory_Integration(t *testing.T) {
 	defer client.Close()
 
 	// Setup logger
-	logger := zaptest.NewLogger(t)
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	// Create storage service
 	storageService := storage.NewService(client, logger)
@@ -301,7 +301,7 @@ func TestPriceService_FindOrCreateAsset_Integration(t *testing.T) {
 	defer client.Close()
 
 	// Setup logger
-	logger := zaptest.NewLogger(t)
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	// Create storage service
 	storageService := storage.NewService(client, logger)

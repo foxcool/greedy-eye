@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"log/slog"
 
 	"entgo.io/ent/dialect/sql"
 	"github.com/foxcool/greedy-eye/internal/api/models"
@@ -11,7 +12,6 @@ import (
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/predicate"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -45,7 +45,7 @@ func (s *StorageService) CreateAsset(ctx context.Context, req *services.CreateAs
 		SetTags(req.Asset.Tags).
 		Save(ctx)
 	if err != nil {
-		s.log.Error("Failed to create asset", zap.Error(err))
+		s.log.Error("Failed to create asset", slog.Any("error",err))
 
 		if ent.IsConstraintError(err) {
 			return nil, status.Errorf(codes.AlreadyExists, "asset creation constraint failed: %v", err)
@@ -55,11 +55,11 @@ func (s *StorageService) CreateAsset(ctx context.Context, req *services.CreateAs
 
 	protoAsset, err := entAssetToProtoAsset(createdEntAsset)
 	if err != nil {
-		s.log.Error("Failed to convert asset to proto", zap.Error(err))
+		s.log.Error("Failed to convert asset to proto", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to convert asset to proto: %v", err)
 	}
 
-	s.log.Info("Asset created successfully", zap.String("uuid", createdEntAsset.UUID.String()))
+	s.log.Info("Asset created successfully", slog.String("uuid", createdEntAsset.UUID.String()))
 	return protoAsset, nil
 }
 
@@ -79,16 +79,16 @@ func (s *StorageService) GetAsset(ctx context.Context, req *services.GetAssetReq
 		Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
-			s.log.Warn("Asset not found", zap.String("uuid", req.Id))
+			s.log.Warn("Asset not found", slog.String("uuid", req.Id))
 			return nil, status.Errorf(codes.NotFound, "asset with ID %s not found", req.Id)
 		}
-		s.log.Error("Failed to get asset", zap.String("uuid", req.Id), zap.Error(err))
+		s.log.Error("Failed to get asset", slog.String("uuid", req.Id), slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve asset: %v", err)
 	}
 
 	protoAsset, err := entAssetToProtoAsset(entAsset)
 	if err != nil {
-		s.log.Error("Failed to convert asset to proto", zap.Error(err))
+		s.log.Error("Failed to convert asset to proto", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to convert asset to proto: %v", err)
 	}
 
@@ -111,10 +111,10 @@ func (s *StorageService) UpdateAsset(ctx context.Context, req *services.UpdateAs
 	entAsset, err := s.dbClient.Asset.Query().Where(asset.UUID(parsedUUID)).Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
-			s.log.Warn("Asset not found", zap.String("uuid", req.Asset.Id))
+			s.log.Warn("Asset not found", slog.String("uuid", req.Asset.Id))
 			return nil, status.Errorf(codes.NotFound, "asset with ID %s not found for update", req.Asset.Id)
 		}
-		s.log.Error("Failed to get asset", zap.String("uuid", req.Asset.Id), zap.Error(err))
+		s.log.Error("Failed to get asset", slog.String("uuid", req.Asset.Id), slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve asset: %v", err)
 	}
 
@@ -141,25 +141,25 @@ func (s *StorageService) UpdateAsset(ctx context.Context, req *services.UpdateAs
 		case "tags":
 			mutation.SetTags(req.Asset.Tags)
 		default:
-			s.log.Warn("UpdateAsset requested with unknown field in mask", zap.String("path", path))
+			s.log.Warn("UpdateAsset requested with unknown field in mask", slog.String("path", path))
 		}
 	}
 	if _, err := mutation.Save(ctx); err != nil {
-		s.log.Error("Failed to update asset", zap.String("uuid", req.Asset.Id), zap.Error(err))
+		s.log.Error("Failed to update asset", slog.String("uuid", req.Asset.Id), slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to update asset: %v", err)
 	}
 	entAsset, err = s.dbClient.Asset.Query().Where(asset.UUID(parsedUUID)).Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
-			s.log.Error("Asset not found", zap.String("uuid", req.Asset.Id))
+			s.log.Error("Asset not found", slog.String("uuid", req.Asset.Id))
 			return nil, status.Errorf(codes.NotFound, "asset with ID %s not found after update", req.Asset.Id)
 		}
-		s.log.Error("Failed to get asset after update", zap.String("uuid", req.Asset.Id), zap.Error(err))
+		s.log.Error("Failed to get asset after update", slog.String("uuid", req.Asset.Id), slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve asset: %v", err)
 	}
 	protoAsset, err := entAssetToProtoAsset(entAsset)
 	if err != nil {
-		s.log.Error("Failed to convert asset to proto after update", zap.String("uuid", req.Asset.Id), zap.Error(err))
+		s.log.Error("Failed to convert asset to proto after update", slog.String("uuid", req.Asset.Id), slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to convert asset to proto: %v", err)
 	}
 
@@ -183,19 +183,19 @@ func (s *StorageService) DeleteAsset(ctx context.Context, req *services.DeleteAs
 	if err != nil {
 		// Handle constraint error
 		if ent.IsConstraintError(err) {
-			s.log.Error("Failed to delete asset due to constraint", zap.String("uuid", req.Id), zap.Error(err))
+			s.log.Error("Failed to delete asset due to constraint", slog.String("uuid", req.Id), slog.Any("error",err))
 			return nil, status.Errorf(codes.FailedPrecondition, "cannot delete asset due to existing dependencies: %v", err)
 		}
-		s.log.Error("Failed to delete asset", zap.String("uuid", req.Id), zap.Error(err))
+		s.log.Error("Failed to delete asset", slog.String("uuid", req.Id), slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to delete asset: %v", err)
 	}
 
 	if deletedCount == 0 {
-		s.log.Warn("Attempted to delete non-existent asset", zap.String("uuid", req.Id))
+		s.log.Warn("Attempted to delete non-existent asset", slog.String("uuid", req.Id))
 		return nil, status.Errorf(codes.NotFound, "asset with ID %s not found", req.Id)
 	}
 
-	s.log.Info("Asset deleted successfully", zap.String("uuid", req.Id))
+	s.log.Info("Asset deleted successfully", slog.String("uuid", req.Id))
 	return &emptypb.Empty{}, nil
 }
 
@@ -232,7 +232,7 @@ func (s *StorageService) ListAssets(ctx context.Context, req *services.ListAsset
 
 	assets, err := query.All(ctx)
 	if err != nil {
-		s.log.Error("Failed to list assets", zap.Error(err))
+		s.log.Error("Failed to list assets", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to list assets: %v", err)
 	}
 
@@ -244,7 +244,7 @@ func (s *StorageService) ListAssets(ctx context.Context, req *services.ListAsset
 		}
 		protoAsset, err := entAssetToProtoAsset(entAsset)
 		if err != nil {
-			s.log.Error("Failed to convert asset to proto", zap.String("uuid", entAsset.UUID.String()), zap.Error(err))
+			s.log.Error("Failed to convert asset to proto", slog.String("uuid", entAsset.UUID.String()), slog.Any("error",err))
 			continue
 		}
 		protoAssets = append(protoAssets, protoAsset)

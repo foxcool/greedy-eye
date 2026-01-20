@@ -3,7 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/base64"
-
+	"log/slog"
 	"time"
 
 	"github.com/foxcool/greedy-eye/internal/api/models"
@@ -11,7 +11,6 @@ import (
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/price"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -83,7 +82,7 @@ func (s *StorageService) CreatePrice(ctx context.Context, req *services.CreatePr
 
 	entPrice, err := newPrice.Save(ctx)
 	if err != nil {
-		s.log.Error("Failed to create price", zap.Error(err))
+		s.log.Error("Failed to create price", slog.Any("error",err))
 		if ent.IsConstraintError(err) {
 			return nil, status.Errorf(codes.AlreadyExists, "price constraint failed: %v", err)
 		}
@@ -92,13 +91,13 @@ func (s *StorageService) CreatePrice(ctx context.Context, req *services.CreatePr
 
 	entPrice, err = s.dbClient.Price.Query().Where(price.UUID(entPrice.UUID)).WithAsset().WithBaseAsset().Only(ctx)
 	if err != nil {
-		s.log.Error("Failed to get created price", zap.Error(err))
+		s.log.Error("Failed to get created price", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve price: %v", err)
 	}
 
 	protoPrice, err := entPriceToProtoPrice(entPrice)
 	if err != nil {
-		s.log.Error("Failed to convert price to proto", zap.Error(err))
+		s.log.Error("Failed to convert price to proto", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to convert price to proto: %v", err)
 	}
 

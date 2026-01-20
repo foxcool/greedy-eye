@@ -3,22 +3,22 @@ package price
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/foxcool/greedy-eye/internal/api/models"
 	"github.com/foxcool/greedy-eye/internal/api/services"
-	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type PriceService struct {
-	log           *zap.Logger
+	log           *slog.Logger
 	storageClient services.StorageServiceClient
 	assetClient   services.AssetServiceClient
 }
 
-func NewService(logger *zap.Logger, storageClient services.StorageServiceClient, assetClient services.AssetServiceClient) *PriceService {
+func NewService(logger *slog.Logger, storageClient services.StorageServiceClient, assetClient services.AssetServiceClient) *PriceService {
 	return &PriceService{
 		log:           logger,
 		storageClient: storageClient,
@@ -29,8 +29,8 @@ func NewService(logger *zap.Logger, storageClient services.StorageServiceClient,
 // FetchExternalPrices triggers fetching of latest prices from external sources
 func (s *PriceService) FetchExternalPrices(ctx context.Context, req *services.FetchExternalPricesRequest) (*services.FetchExternalPricesResponse, error) {
 	s.log.Info("FetchExternalPrices called",
-		zap.Strings("source_ids", req.SourceIds),
-		zap.Strings("asset_ids", req.AssetIds))
+		slog.Any("source_ids", req.SourceIds),
+		slog.Any("asset_ids", req.AssetIds))
 
 	var fetchedCount int64
 	var errors []string
@@ -41,21 +41,21 @@ func (s *PriceService) FetchExternalPrices(ctx context.Context, req *services.Fe
 		case "coingecko":
 			count, err := s.fetchFromCoinGecko(ctx, req.AssetIds)
 			if err != nil {
-				s.log.Error("Failed to fetch from CoinGecko", zap.Error(err))
+				s.log.Error("Failed to fetch from CoinGecko", slog.Any("error",err))
 				errors = append(errors, fmt.Sprintf("CoinGecko: %v", err))
 			} else {
 				fetchedCount += count
-				s.log.Info("Successfully fetched from CoinGecko", zap.Int64("count", count))
+				s.log.Info("Successfully fetched from CoinGecko", slog.Int64("count", count))
 			}
 
 		case "binance":
 			count, err := s.fetchFromBinance(ctx, req.AssetIds)
 			if err != nil {
-				s.log.Error("Failed to fetch from Binance", zap.Error(err))
+				s.log.Error("Failed to fetch from Binance", slog.Any("error",err))
 				errors = append(errors, fmt.Sprintf("Binance: %v", err))
 			} else {
 				fetchedCount += count
-				s.log.Info("Successfully fetched from Binance", zap.Int64("count", count))
+				s.log.Info("Successfully fetched from Binance", slog.Int64("count", count))
 			}
 
 		default:
@@ -72,9 +72,9 @@ func (s *PriceService) FetchExternalPrices(ctx context.Context, req *services.Fe
 	}
 
 	s.log.Info("FetchExternalPrices completed",
-		zap.Int64("fetched_count", fetchedCount),
-		zap.Bool("success", len(errors) == 0),
-		zap.Strings("errors", response.Errors))
+		slog.Int64("fetched_count", fetchedCount),
+		slog.Bool("success", len(errors) == 0),
+		slog.Any("errors", response.Errors))
 
 	return response, nil
 }
@@ -133,7 +133,7 @@ func (s *PriceService) FindOrCreateAsset(ctx context.Context, symbol string, ass
 		return nil, fmt.Errorf("failed to create asset: %w", err)
 	}
 
-	s.log.Info("Created new asset", zap.String("symbol", symbol), zap.String("asset_id", createdAsset.Id))
+	s.log.Info("Created new asset", slog.String("symbol", symbol), slog.String("asset_id", createdAsset.Id))
 	return createdAsset, nil
 }
 

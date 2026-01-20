@@ -3,20 +3,20 @@ package user
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/foxcool/greedy-eye/internal/api/models"
 	"github.com/foxcool/greedy-eye/internal/api/services"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type UserService struct {
-	log           *zap.Logger
+	log           *slog.Logger
 	storageClient services.StorageServiceClient
 }
 
-func NewService(logger *zap.Logger, storageClient services.StorageServiceClient) *UserService {
+func NewService(logger *slog.Logger, storageClient services.StorageServiceClient) *UserService {
 	return &UserService{
 		log:           logger,
 		storageClient: storageClient,
@@ -26,13 +26,13 @@ func NewService(logger *zap.Logger, storageClient services.StorageServiceClient)
 // UpdateUserPreferences updates user-specific preferences
 func (s *UserService) UpdateUserPreferences(ctx context.Context, req *services.UpdateUserPreferencesRequest) (*models.User, error) {
 	s.log.Info("UpdateUserPreferences called",
-		zap.String("user_id", req.UserId),
-		zap.Any("preferences", req.PreferencesToUpdate))
+		slog.String("user_id", req.UserId),
+		slog.Any("preferences", req.PreferencesToUpdate))
 
 	// Validate user exists
 	user, err := s.storageClient.GetUser(ctx, &services.GetUserRequest{Id: req.UserId})
 	if err != nil {
-		s.log.Error("Failed to get user", zap.String("user_id", req.UserId), zap.Error(err))
+		s.log.Error("Failed to get user", slog.String("user_id", req.UserId), slog.Any("error",err))
 		return nil, status.Errorf(codes.NotFound, "User not found: %v", err)
 	}
 
@@ -93,11 +93,11 @@ func (s *UserService) UpdateUserPreferences(ctx context.Context, req *services.U
 
 	updatedUser, err := s.storageClient.UpdateUser(ctx, updateReq)
 	if err != nil {
-		s.log.Error("Failed to update user", zap.String("user_id", req.UserId), zap.Error(err))
+		s.log.Error("Failed to update user", slog.String("user_id", req.UserId), slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "Failed to update user preferences: %v", err)
 	}
 
-	s.log.Info("User preferences updated successfully", zap.String("user_id", req.UserId))
+	s.log.Info("User preferences updated successfully", slog.String("user_id", req.UserId))
 	return updatedUser, nil
 }
 
