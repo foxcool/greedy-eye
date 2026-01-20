@@ -2,12 +2,12 @@ package storage
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/foxcool/greedy-eye/internal/api/models"
 	"github.com/foxcool/greedy-eye/internal/api/services"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/user"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -34,7 +34,7 @@ func (s *StorageService) CreateUser(ctx context.Context, req *services.CreateUse
 		SetPreferences(preferences).
 		Save(ctx)
 	if err != nil {
-		s.log.Error("Failed to create user", zap.Error(err))
+		s.log.Error("Failed to create user", slog.Any("error",err))
 
 		if ent.IsConstraintError(err) {
 			return nil, status.Errorf(codes.AlreadyExists, "user creation constraint failed: %v", err)
@@ -45,11 +45,11 @@ func (s *StorageService) CreateUser(ctx context.Context, req *services.CreateUse
 
 	protoUser, err := entUserToProtoUser(createdEntUser)
 	if err != nil {
-		s.log.Error("Failed to convert user to proto", zap.Error(err))
+		s.log.Error("Failed to convert user to proto", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to convert user to proto: %v", err)
 	}
 
-	s.log.Info("User created successfully", zap.String("uuid", createdEntUser.UUID.String()))
+	s.log.Info("User created successfully", slog.String("uuid", createdEntUser.UUID.String()))
 	return protoUser, nil
 }
 
@@ -69,17 +69,17 @@ func (s *StorageService) GetUser(ctx context.Context, req *services.GetUserReque
 		Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
-			s.log.Warn("User not found", zap.String("uuid", req.Id))
+			s.log.Warn("User not found", slog.String("uuid", req.Id))
 			return nil, status.Errorf(codes.NotFound, "user with ID %s not found", req.Id)
 		}
 
-		s.log.Error("Failed to get user", zap.String("uuid", req.Id), zap.Error(err))
+		s.log.Error("Failed to get user", slog.String("uuid", req.Id), slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve user: %v", err)
 	}
 
 	protoUser, err := entUserToProtoUser(entUser)
 	if err != nil {
-		s.log.Error("Failed to convert user to proto", zap.Error(err))
+		s.log.Error("Failed to convert user to proto", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to convert user to proto: %v", err)
 	}
 
@@ -102,10 +102,10 @@ func (s *StorageService) UpdateUser(ctx context.Context, req *services.UpdateUse
 	entUser, err := s.dbClient.User.Query().Where(user.UUID(parsedUUID)).Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
-			s.log.Warn("User not found", zap.String("uuid", req.User.Id))
+			s.log.Warn("User not found", slog.String("uuid", req.User.Id))
 			return nil, status.Errorf(codes.NotFound, "user with ID %s not found for update", req.User.Id)
 		}
-		s.log.Error("Failed to get user", zap.String("uuid", req.User.Id), zap.Error(err))
+		s.log.Error("Failed to get user", slog.String("uuid", req.User.Id), slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve user: %v", err)
 	}
 
@@ -131,25 +131,25 @@ func (s *StorageService) UpdateUser(ctx context.Context, req *services.UpdateUse
 				mutation.SetPreferences(req.User.Preferences)
 			}
 		default:
-			s.log.Warn("UpdateUser requested with unknown field in mask", zap.String("path", path))
+			s.log.Warn("UpdateUser requested with unknown field in mask", slog.String("path", path))
 		}
 	}
 	if _, err := mutation.Save(ctx); err != nil {
-		s.log.Error("Failed to update user", zap.String("uuid", req.User.Id), zap.Error(err))
+		s.log.Error("Failed to update user", slog.String("uuid", req.User.Id), slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to update user: %v", err)
 	}
 	entUser, err = s.dbClient.User.Query().Where(user.UUID(parsedUUID)).Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
-			s.log.Warn("User not found", zap.String("uuid", req.User.Id))
+			s.log.Warn("User not found", slog.String("uuid", req.User.Id))
 			return nil, status.Errorf(codes.NotFound, "user with ID %s not found after update", req.User.Id)
 		}
-		s.log.Error("Failed to get user after update", zap.String("uuid", req.User.Id), zap.Error(err))
+		s.log.Error("Failed to get user after update", slog.String("uuid", req.User.Id), slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve user: %v", err)
 	}
 	protoUser, err := entUserToProtoUser(entUser)
 	if err != nil {
-		s.log.Error("Failed to convert user to proto", zap.Error(err))
+		s.log.Error("Failed to convert user to proto", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to convert user to proto: %v", err)
 	}
 	return protoUser, nil
@@ -173,18 +173,18 @@ func (s *StorageService) DeleteUser(ctx context.Context, req *services.DeleteUse
 	if err != nil {
 		// Handle constraint error
 		if ent.IsConstraintError(err) {
-			s.log.Error("Failed to delete user due to constraint", zap.String("uuid", req.Id), zap.Error(err))
+			s.log.Error("Failed to delete user due to constraint", slog.String("uuid", req.Id), slog.Any("error",err))
 			return nil, status.Errorf(codes.FailedPrecondition, "cannot delete user due to existing dependencies: %v", err)
 		}
-		s.log.Error("Failed to delete user", zap.String("uuid", req.Id), zap.Error(err))
+		s.log.Error("Failed to delete user", slog.String("uuid", req.Id), slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to delete user: %v", err)
 	}
 
 	if deletedCount == 0 {
-		s.log.Warn("Attempted to delete non-existent user", zap.String("uuid", req.Id))
+		s.log.Warn("Attempted to delete non-existent user", slog.String("uuid", req.Id))
 		return nil, status.Errorf(codes.NotFound, "user with ID %s not found", req.Id)
 	}
 
-	s.log.Info("User deleted successfully", zap.String("uuid", req.Id))
+	s.log.Info("User deleted successfully", slog.String("uuid", req.Id))
 	return &emptypb.Empty{}, nil
 }

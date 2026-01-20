@@ -4,27 +4,20 @@ package storage
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/enttest"
 	_ "github.com/lib/pq"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest"
 )
 
 var dbURL string
 
 // TestMain sets up and tears down the test environment for all test files in the package.
 func TestMain(m *testing.M) {
-	log := zap.Must(zap.NewDevelopment())
-	defer func() {
-		err := log.Sync()
-		if err != nil {
-			log.Error("syncing logger failed", zap.Error(err))
-		}
-	}()
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	// Check if running in a Docker Compose environment.
 	if os.Getenv("DOCKER_COMPOSE_TEST") != "true" {
@@ -34,7 +27,8 @@ func TestMain(m *testing.M) {
 	// DB is needed for testing.
 	dbURL = os.Getenv("EYE_DB_URL")
 	if dbURL == "" {
-		log.Fatal("EYE_DB_URL environment variable not set")
+		log.Error("EYE_DB_URL environment variable not set")
+		os.Exit(1)
 	}
 
 	// Run the tests
@@ -46,19 +40,19 @@ func TestMain(m *testing.M) {
 // getTransactionedService is a helper function that returns a StorageService with a transaction client and a rollback function.
 // service, rollback := getTransactionedService(t.Context(), "accounts", "assets", "holdings", "portfolios", "prices", "transactions", "users")
 func getTransactionedService(t *testing.T, truncateTables ...string) *StorageService {
-	log := zaptest.NewLogger(t)
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	client := enttest.Open(t, "postgres", dbURL)
 
 	tx, err := client.Tx(t.Context())
 	if err != nil {
-		t.Fatal("starting transaction failed", zap.Error(err))
+		t.Fatalf("starting transaction failed: %v", err)
 	}
 
 	// Cleanup tables. May be necessary for some tests.
 	for _, table := range truncateTables {
 		if _, err := tx.ExecContext(t.Context(), fmt.Sprintf("TRUNCATE TABLE %s CASCADE", table)); err != nil {
-			t.Fatal("truncating table failed", zap.Error(err))
+			t.Fatalf("truncating table failed: %v", err)
 		}
 	}
 
@@ -71,12 +65,12 @@ func getTransactionedService(t *testing.T, truncateTables ...string) *StorageSer
 				// don't fail on connection problems
 				t.Logf("Note: connection issue during rollback: %v", err)
 			} else {
-				t.Fatal("rolling back transaction failed", zap.Error(err))
+				t.Fatalf("rolling back transaction failed: %v", err)
 			}
 		}
 
 		if err := client.Close(); err != nil {
-			t.Fatal("closing database connection failed", zap.Error(err))
+			t.Fatalf("closing database connection failed: %v", err)
 		}
 	})
 

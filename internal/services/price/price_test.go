@@ -2,16 +2,17 @@ package price
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/foxcool/greedy-eye/internal/api/services"
 	"github.com/foxcool/greedy-eye/internal/services/storage"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 )
 
 func TestPriceService_FetchExternalPrices(t *testing.T) {
-	logger := zap.NewNop()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	mockStorage := storage.NewLocalClient(nil)
 	var mockAsset services.AssetServiceClient // Not needed for this test
 	service := NewService(logger, mockStorage, mockAsset)

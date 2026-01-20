@@ -2,23 +2,23 @@ package asset
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	"github.com/foxcool/greedy-eye/internal/api/models"
 	"github.com/foxcool/greedy-eye/internal/api/services"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 // Service implements the AssetService gRPC service.
 type Service struct {
-	log           *zap.Logger
+	log           *slog.Logger
 	storageClient services.StorageServiceClient
 }
 
 // NewService creates a new AssetService.
-func NewService(logger *zap.Logger, storageClient services.StorageServiceClient) *Service {
+func NewService(logger *slog.Logger, storageClient services.StorageServiceClient) *Service {
 	return &Service{
 		log:           logger,
 		storageClient: storageClient,
@@ -27,12 +27,12 @@ func NewService(logger *zap.Logger, storageClient services.StorageServiceClient)
 
 // EnrichAssetData enriches asset data from external sources
 func (s *Service) EnrichAssetData(ctx context.Context, req *services.EnrichAssetDataRequest) (*models.Asset, error) {
-	s.log.Info("EnrichAssetData called", zap.String("asset_id", req.AssetId))
+	s.log.Info("EnrichAssetData called", slog.String("asset_id", req.AssetId))
 
 	// Get existing asset data
 	asset, err := s.storageClient.GetAsset(ctx, &services.GetAssetRequest{Id: req.AssetId})
 	if err != nil {
-		s.log.Error("Failed to get asset", zap.String("asset_id", req.AssetId), zap.Error(err))
+		s.log.Error("Failed to get asset", slog.String("asset_id", req.AssetId), slog.Any("error",err))
 		return nil, status.Errorf(codes.NotFound, "Asset not found: %v", err)
 	}
 
@@ -42,19 +42,19 @@ func (s *Service) EnrichAssetData(ctx context.Context, req *services.EnrichAsset
 
 	// For non-crypto assets, return as-is for now
 	s.log.Info("Asset enrichment skipped for non-crypto asset",
-		zap.String("asset_id", req.AssetId),
-		zap.String("type", asset.Type.String()))
+		slog.String("asset_id", req.AssetId),
+		slog.String("type", asset.Type.String()))
 	return asset, nil
 }
 
 // FindSimilarAssets finds assets similar to the given one
 func (s *Service) FindSimilarAssets(ctx context.Context, req *services.FindSimilarAssetsRequest) (*services.ListAssetsResponse, error) {
-	s.log.Info("FindSimilarAssets called", zap.String("asset_id", req.AssetId))
+	s.log.Info("FindSimilarAssets called", slog.String("asset_id", req.AssetId))
 
 	// Get the source asset
 	asset, err := s.storageClient.GetAsset(ctx, &services.GetAssetRequest{Id: req.AssetId})
 	if err != nil {
-		s.log.Error("Failed to get asset", zap.String("asset_id", req.AssetId), zap.Error(err))
+		s.log.Error("Failed to get asset", slog.String("asset_id", req.AssetId), slog.Any("error",err))
 		return nil, status.Errorf(codes.NotFound, "Asset not found: %v", err)
 	}
 
@@ -68,7 +68,7 @@ func (s *Service) FindSimilarAssets(ctx context.Context, req *services.FindSimil
 
 	response, err := s.storageClient.ListAssets(ctx, listReq)
 	if err != nil {
-		s.log.Error("Failed to list assets by type", zap.Error(err))
+		s.log.Error("Failed to list assets by type", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "Failed to find similar assets: %v", err)
 	}
 
@@ -90,8 +90,8 @@ func (s *Service) FindSimilarAssets(ctx context.Context, req *services.FindSimil
 	}
 
 	s.log.Info("Found similar assets",
-		zap.String("asset_id", req.AssetId),
-		zap.Int("count", len(similarAssets)))
+		slog.String("asset_id", req.AssetId),
+		slog.Int("count", len(similarAssets)))
 
 	return &services.ListAssetsResponse{
 		Assets: similarAssets,

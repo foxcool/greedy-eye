@@ -3,17 +3,18 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/foxcool/greedy-eye/internal/api/services"
 	"github.com/foxcool/greedy-eye/internal/services/asset"
-	"github.com/foxcool/greedy-eye/internal/services/messenger"
 	"github.com/foxcool/greedy-eye/internal/services/portfolio"
 	"github.com/foxcool/greedy-eye/internal/services/price"
 	"github.com/foxcool/greedy-eye/internal/services/rule"
@@ -23,8 +24,6 @@ import (
 	"github.com/getsentry/sentry-go"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	_ "github.com/lib/pq"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -32,14 +31,20 @@ import (
 const ServiceName = "EYE"
 
 func main() {
+	if err := run(); err != nil {
+		// Use basic stderr logging since structured logger may not be initialized
+		fmt.Fprintf(os.Stderr, "fatal error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	config, err := getConfig()
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("load config: %w", err)
 	}
-	log, err := createLogger(config.Logger.Level)
-	if err != nil {
-		panic(err)
-	}
+
+	log := createLogger(config.Logger.Level)
 
 	// Init sentry
 	if config.Sentry.DSN != "" {
@@ -48,31 +53,29 @@ func main() {
 			TracesSampleRate: config.Sentry.TracesSampleRate,
 		})
 		if err != nil {
-			panic(err)
+			return fmt.Errorf("init sentry: %w", err)
 		}
 	}
 
 	// Initialize database client
 	if config.DB.URL == "" {
-		log.Fatal("Database URL cannot be empty")
+		return fmt.Errorf("database URL cannot be empty")
 	}
+
 	client, err := ent.Open("postgres", config.DB.URL)
 	if err != nil {
-		log.Fatal("Failed opening connection to postgres", zap.Error(err))
+		return fmt.Errorf("connect to database: %w", err)
 	}
 
 	defer func() {
-		log.Info("Closing DB connection, flushing Sentry events, syncing logger...")
+		log.Info("Closing DB connection, flushing Sentry events...")
 		if err := client.Close(); err != nil {
-			log.Error("Failed closing ent client", zap.Error(err))
+			log.Error("Failed closing ent client", slog.Any("error", err))
 		} else {
 			log.Info("Ent client closed successfully")
 		}
 		sentry.Flush(2 * time.Second)
 		log.Info("Bye")
-		if err := log.Sync(); err != nil {
-			log.Error("Failed to sync logger", zap.Error(err))
-		}
 	}()
 
 	// Create context for server lifecycle
@@ -80,7 +83,13 @@ func main() {
 	defer cancel()
 
 	// Register services and create servers
-	grpcServer, httpServer := registerServicesAndCreateServers(ctx, config, client, log)
+	grpcServer, httpServer, err := registerServicesAndCreateServers(ctx, config, client, log)
+	if err != nil {
+		return fmt.Errorf("register services: %w", err)
+	}
+
+	// Channel to collect errors from goroutines
+	errCh := make(chan error, 2)
 	var wg sync.WaitGroup
 
 	// Start gRPC server
@@ -89,11 +98,12 @@ func main() {
 		defer wg.Done()
 		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", config.GRPC.Port))
 		if err != nil {
-			log.Fatal("Failed to listen gRPC", zap.Error(err))
+			errCh <- fmt.Errorf("listen gRPC: %w", err)
+			return
 		}
-		log.Info("gRPC server started", zap.String("address", listener.Addr().String()), zap.Int("port", config.GRPC.Port))
+		log.Info("gRPC server started", slog.String("address", listener.Addr().String()), slog.Int("port", config.GRPC.Port))
 		if err := grpcServer.Serve(listener); err != nil && err != grpc.ErrServerStopped {
-			log.Fatal("Failed to serve gRPC", zap.Error(err))
+			errCh <- fmt.Errorf("serve gRPC: %w", err)
 		}
 	}()
 
@@ -102,18 +112,23 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			log.Info("HTTP server starting", zap.Int("port", config.HTTP.Port))
+			log.Info("HTTP server starting", slog.Int("port", config.HTTP.Port))
 			if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				log.Fatal("Failed to serve HTTP", zap.Error(err))
+				errCh <- fmt.Errorf("serve HTTP: %w", err)
 			}
 		}()
 	}
 
-	// Wait for shutdown signal
+	// Wait for shutdown signal or error
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-quit
-	log.Info("Received shutdown signal", zap.String("signal", sig.String()))
+
+	select {
+	case sig := <-quit:
+		log.Info("Received shutdown signal", slog.String("signal", sig.String()))
+	case err := <-errCh:
+		log.Error("Server error, initiating shutdown", slog.Any("error", err))
+	}
 
 	// Cancel context to stop HTTP server
 	cancel()
@@ -132,7 +147,7 @@ func main() {
 	// Wait for servers graceful shutdown
 	select {
 	case <-shutdownCtx.Done():
-		log.Error("gRPC server graceful shutdown timed out", zap.Error(shutdownCtx.Err()))
+		log.Error("gRPC server graceful shutdown timed out", slog.Any("error", shutdownCtx.Err()))
 		grpcServer.Stop()
 	case <-stopped:
 		log.Info("gRPC server stopped gracefully")
@@ -141,18 +156,23 @@ func main() {
 	// Wait for all goroutines to finish
 	wg.Wait()
 	log.Info("All servers stopped")
+
+	return nil
 }
 
-func createLogger(level string) (*zap.Logger, error) {
-	cfg := zap.NewProductionConfig()
-	if level != "" {
-		lvl, err := zapcore.ParseLevel(level)
-		if err != nil {
-			return nil, err
-		}
-		cfg.Level.SetLevel(lvl)
+func createLogger(level string) *slog.Logger {
+	var logLevel slog.Level
+	switch strings.ToLower(level) {
+	case "debug":
+		logLevel = slog.LevelDebug
+	case "warn":
+		logLevel = slog.LevelWarn
+	case "error":
+		logLevel = slog.LevelError
+	default:
+		logLevel = slog.LevelInfo
 	}
-	return cfg.Build()
+	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 }
 
 // ServiceDefinition defines a service and its registration functions
@@ -160,7 +180,7 @@ type ServiceDefinition struct {
 	Name            string
 	Type            string
 	Dependencies    []string
-	GRPCRegister    func(*grpc.Server, *ent.Client, *zap.Logger) error
+	GRPCRegister    func(*grpc.Server, *ent.Client, *slog.Logger) error
 	GatewayRegister func(context.Context, *runtime.ServeMux, string, []grpc.DialOption) error
 }
 
@@ -171,7 +191,7 @@ func getAvailableServices(storageClient services.StorageServiceClient) map[strin
 			Name:         "StorageService",
 			Type:         "storage",
 			Dependencies: []string{},
-			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *zap.Logger) error {
+			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *slog.Logger) error {
 				storageService := storage.NewService(client, log)
 				services.RegisterStorageServiceServer(server, storageService)
 				return nil
@@ -182,7 +202,7 @@ func getAvailableServices(storageClient services.StorageServiceClient) map[strin
 			Name:         "UserService",
 			Type:         "user",
 			Dependencies: []string{"StorageService"},
-			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *zap.Logger) error {
+			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *slog.Logger) error {
 				services.RegisterUserServiceServer(server, user.NewService(log, storageClient))
 				return nil
 			},
@@ -192,7 +212,7 @@ func getAvailableServices(storageClient services.StorageServiceClient) map[strin
 			Name:         "AssetService",
 			Type:         "asset",
 			Dependencies: []string{"StorageService"},
-			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *zap.Logger) error {
+			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *slog.Logger) error {
 				services.RegisterAssetServiceServer(server, asset.NewService(log, storageClient))
 				return nil
 			},
@@ -202,7 +222,7 @@ func getAvailableServices(storageClient services.StorageServiceClient) map[strin
 			Name:         "PortfolioService",
 			Type:         "portfolio",
 			Dependencies: []string{"StorageService", "AssetService"},
-			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *zap.Logger) error {
+			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *slog.Logger) error {
 				services.RegisterPortfolioServiceServer(server, portfolio.NewService(log))
 				return nil
 			},
@@ -212,7 +232,7 @@ func getAvailableServices(storageClient services.StorageServiceClient) map[strin
 			Name:         "PriceService",
 			Type:         "price",
 			Dependencies: []string{"StorageService", "AssetService"},
-			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *zap.Logger) error {
+			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *slog.Logger) error {
 				// TODO: Create AssetService client adapter if needed
 				services.RegisterPriceServiceServer(server, price.NewService(log, storageClient, nil))
 				return nil
@@ -223,27 +243,17 @@ func getAvailableServices(storageClient services.StorageServiceClient) map[strin
 			Name:         "RuleService",
 			Type:         "rule",
 			Dependencies: []string{"StorageService", "UserService", "PortfolioService", "AssetService", "PriceService"},
-			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *zap.Logger) error {
+			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *slog.Logger) error {
 				services.RegisterRuleServiceServer(server, rule.NewService(log))
 				return nil
 			},
 			GatewayRegister: services.RegisterRuleServiceHandlerFromEndpoint,
 		},
-		"MessengerService": {
-			Name:         "MessengerService",
-			Type:         "messenger",
-			Dependencies: []string{"StorageService", "UserService", "PortfolioService", "AssetService", "PriceService", "RuleService"},
-			GRPCRegister: func(server *grpc.Server, client *ent.Client, log *zap.Logger) error {
-				services.RegisterMessengerServiceServer(server, messenger.NewService(log))
-				return nil
-			},
-			GatewayRegister: services.RegisterMessengerServiceHandlerFromEndpoint,
-		},
 	}
 }
 
 // registerServicesAndCreateServers registers services and creates both gRPC and HTTP servers in one pass
-func registerServicesAndCreateServers(ctx context.Context, config *Config, client *ent.Client, log *zap.Logger) (*grpc.Server, *http.Server) {
+func registerServicesAndCreateServers(ctx context.Context, config *Config, client *ent.Client, log *slog.Logger) (*grpc.Server, *http.Server, error) {
 	grpcServer := grpc.NewServer()
 
 	// Create storage service first as it's needed by other services
@@ -268,12 +278,12 @@ func registerServicesAndCreateServers(ctx context.Context, config *Config, clien
 		}
 	} else {
 		// Microservice mode - enable only configured services
-		log.Info("Running in microservice mode", zap.Int("configured_services", len(config.Services)))
+		log.Info("Running in microservice mode", slog.Int("configured_services", len(config.Services)))
 		for _, svcConfig := range config.Services {
 			if name, exists := typeToName[svcConfig.Type]; exists {
 				servicesToEnable = append(servicesToEnable, name)
 			} else {
-				log.Warn("Unknown service type in config", zap.String("type", svcConfig.Type))
+				log.Warn("Unknown service type in config", slog.String("type", svcConfig.Type))
 			}
 		}
 	}
@@ -297,7 +307,7 @@ func registerServicesAndCreateServers(ctx context.Context, config *Config, clien
 			serviceName := servicesToEnable[i]
 			svc, exists := availableServices[serviceName]
 			if !exists {
-				log.Fatal("Unknown service", zap.String("service", serviceName))
+				return nil, nil, fmt.Errorf("unknown service: %s", serviceName)
 			}
 
 			// Check if all dependencies are satisfied
@@ -312,16 +322,16 @@ func registerServicesAndCreateServers(ctx context.Context, config *Config, clien
 			if depsOk {
 				// Register gRPC service
 				if err := svc.GRPCRegister(grpcServer, client, log); err != nil {
-					log.Fatal("Failed to register gRPC service", zap.String("service", serviceName), zap.Error(err))
+					return nil, nil, fmt.Errorf("register gRPC service %s: %w", serviceName, err)
 				}
-				log.Info("Registered gRPC service", zap.String("service", serviceName))
+				log.Info("Registered gRPC service", slog.String("service", serviceName))
 
 				// Register gateway handler immediately if HTTP is enabled
 				if mux != nil {
 					if err := svc.GatewayRegister(ctx, mux, grpcEndpoint, opts); err != nil {
-						log.Warn("Failed to register gateway handler", zap.String("service", svc.Name), zap.Error(err))
+						log.Warn("Failed to register gateway handler", slog.String("service", svc.Name), slog.Any("error",err))
 					} else {
-						log.Info("Registered gateway handler", zap.String("service", svc.Name))
+						log.Info("Registered gateway handler", slog.String("service", svc.Name))
 					}
 				}
 
@@ -335,7 +345,7 @@ func registerServicesAndCreateServers(ctx context.Context, config *Config, clien
 		}
 
 		if !progress {
-			log.Fatal("Circular dependency or missing dependency detected", zap.Strings("pending_services", servicesToEnable))
+			return nil, nil, fmt.Errorf("circular dependency or missing dependency detected: pending services %v", servicesToEnable)
 		}
 	}
 
@@ -346,7 +356,7 @@ func registerServicesAndCreateServers(ctx context.Context, config *Config, clien
 		http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			if _, err := w.Write([]byte(`{"status":"ok","service":"greedy-eye"}`)); err != nil {
-				log.Error("Failed to write health response", zap.Error(err))
+				log.Error("Failed to write health response", slog.Any("error",err))
 			}
 		})
 
@@ -355,5 +365,5 @@ func registerServicesAndCreateServers(ctx context.Context, config *Config, clien
 			Handler: mux,
 		}
 	}
-	return grpcServer, httpServer
+	return grpcServer, httpServer, nil
 }

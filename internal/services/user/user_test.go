@@ -2,12 +2,13 @@ package user
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/foxcool/greedy-eye/internal/api/models"
 	"github.com/foxcool/greedy-eye/internal/api/services"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -153,7 +154,7 @@ func (m *mockStorageClient) ListRuleExecutions(context.Context, *services.ListRu
 }
 
 func TestUserService_UpdateUserPreferences(t *testing.T) {
-	logger := zap.NewNop()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	mockClient := &mockStorageClient{}
 	service := NewService(logger, mockClient)
 

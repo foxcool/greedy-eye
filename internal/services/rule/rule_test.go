@@ -2,11 +2,12 @@ package rule
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap/zaptest"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -15,7 +16,7 @@ import (
 )
 
 func TestNewService(t *testing.T) {
-	log := zaptest.NewLogger(t)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	service := NewService(log)
 
 	require.NotNil(t, service)
@@ -23,7 +24,7 @@ func TestNewService(t *testing.T) {
 }
 
 func TestService_ExecuteRule(t *testing.T) {
-	log := zaptest.NewLogger(t)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	service := NewService(log)
 	ctx := context.Background()
 
@@ -44,7 +45,7 @@ func TestService_ExecuteRule(t *testing.T) {
 }
 
 func TestService_ExecuteRuleAsync(t *testing.T) {
-	log := zaptest.NewLogger(t)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	service := NewService(log)
 	ctx := context.Background()
 
@@ -65,7 +66,7 @@ func TestService_ExecuteRuleAsync(t *testing.T) {
 }
 
 func TestService_CancelRuleExecution(t *testing.T) {
-	log := zaptest.NewLogger(t)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	service := NewService(log)
 	ctx := context.Background()
 
@@ -86,7 +87,7 @@ func TestService_CancelRuleExecution(t *testing.T) {
 }
 
 func TestService_ValidateRule(t *testing.T) {
-	log := zaptest.NewLogger(t)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	service := NewService(log)
 	ctx := context.Background()
 
@@ -110,7 +111,7 @@ func TestService_ValidateRule(t *testing.T) {
 }
 
 func TestService_SimulateRule(t *testing.T) {
-	log := zaptest.NewLogger(t)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	service := NewService(log)
 	ctx := context.Background()
 
@@ -131,7 +132,7 @@ func TestService_SimulateRule(t *testing.T) {
 }
 
 func TestService_EnableRule(t *testing.T) {
-	log := zaptest.NewLogger(t)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	service := NewService(log)
 	ctx := context.Background()
 
@@ -151,7 +152,7 @@ func TestService_EnableRule(t *testing.T) {
 }
 
 func TestService_DisableRule(t *testing.T) {
-	log := zaptest.NewLogger(t)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	service := NewService(log)
 	ctx := context.Background()
 
@@ -171,7 +172,7 @@ func TestService_DisableRule(t *testing.T) {
 }
 
 func TestService_PauseRule(t *testing.T) {
-	log := zaptest.NewLogger(t)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	service := NewService(log)
 	ctx := context.Background()
 
@@ -192,7 +193,7 @@ func TestService_PauseRule(t *testing.T) {
 }
 
 func TestService_ResumeRule(t *testing.T) {
-	log := zaptest.NewLogger(t)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	service := NewService(log)
 	ctx := context.Background()
 

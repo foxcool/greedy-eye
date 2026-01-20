@@ -2,13 +2,13 @@ package storage
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/foxcool/greedy-eye/internal/api/models"
 	"github.com/foxcool/greedy-eye/internal/api/services"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/portfolio"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/user"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -38,7 +38,7 @@ func (s *StorageService) CreatePortfolio(ctx context.Context, req *services.Crea
 		SetNillableDescription(req.Portfolio.Description)
 	entPortfolio, err := create.Save(ctx)
 	if err != nil {
-		s.log.Error("Failed to create portfolio", zap.Error(err))
+		s.log.Error("Failed to create portfolio", slog.Any("error",err))
 		if ent.IsConstraintError(err) {
 			return nil, status.Errorf(codes.AlreadyExists, "portfolio creation constraint failed: %v", err)
 		}
@@ -47,13 +47,13 @@ func (s *StorageService) CreatePortfolio(ctx context.Context, req *services.Crea
 
 	entPortfolio, err = s.dbClient.Portfolio.Query().Where(portfolio.ID(entPortfolio.ID)).WithUser().Only(ctx)
 	if err != nil {
-		s.log.Error("Failed to get created portfolio", zap.String("uuid", entPortfolio.UUID.String()), zap.Error(err))
+		s.log.Error("Failed to get created portfolio", slog.String("uuid", entPortfolio.UUID.String()), slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve portfolio: %v", err)
 	}
 
 	protoPortfolio, err := entPortfolioToProtoPortfolio(entPortfolio)
 	if err != nil {
-		s.log.Error("Failed to convert portfolio to proto", zap.Error(err))
+		s.log.Error("Failed to convert portfolio to proto", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to convert portfolio to proto: %v", err)
 	}
 	return protoPortfolio, nil
@@ -71,15 +71,15 @@ func (s *StorageService) GetPortfolio(ctx context.Context, req *services.GetPort
 	port, err := s.dbClient.Portfolio.Query().Where(portfolio.UUID(parsedUUID)).WithUser().Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
-			s.log.Warn("Portfolio not found", zap.String("uuid", req.Id))
+			s.log.Warn("Portfolio not found", slog.String("uuid", req.Id))
 			return nil, status.Errorf(codes.NotFound, "portfolio with ID %s not found", req.Id)
 		}
-		s.log.Error("Failed to get portfolio", zap.Error(err))
+		s.log.Error("Failed to get portfolio", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve portfolio: %v", err)
 	}
 	protoPortfolio, err := entPortfolioToProtoPortfolio(port)
 	if err != nil {
-		s.log.Error("Failed to convert portfolio to proto", zap.Error(err))
+		s.log.Error("Failed to convert portfolio to proto", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to convert portfolio: %v", err)
 	}
 	return protoPortfolio, nil
@@ -101,11 +101,11 @@ func (s *StorageService) UpdatePortfolio(ctx context.Context, req *services.Upda
 	entPortfolio, err := s.dbClient.Portfolio.Query().Where(portfolio.UUID(parsedUUID)).Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
-			s.log.Warn("Portfolio not found", zap.String("uuid", req.Portfolio.Id))
+			s.log.Warn("Portfolio not found", slog.String("uuid", req.Portfolio.Id))
 			return nil, status.Errorf(codes.NotFound, "portfolio with ID %s not found", req.Portfolio.Id)
 		}
 
-		s.log.Error("Failed to get portfolio", zap.Error(err))
+		s.log.Error("Failed to get portfolio", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve portfolio: %v", err)
 	}
 
@@ -120,22 +120,22 @@ func (s *StorageService) UpdatePortfolio(ctx context.Context, req *services.Upda
 		case "description":
 			mutation.SetNillableDescription(req.Portfolio.Description)
 		default:
-			s.log.Warn("UpdatePortfolio unknown field", zap.String("path", path))
+			s.log.Warn("UpdatePortfolio unknown field", slog.String("path", path))
 		}
 	}
 	if _, err := mutation.Save(ctx); err != nil {
-		s.log.Error("Failed to update portfolio", zap.Error(err))
+		s.log.Error("Failed to update portfolio", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to update portfolio: %v", err)
 	}
 
 	entPortfolio, err = s.dbClient.Portfolio.Query().Where(portfolio.UUID(parsedUUID)).WithUser().Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
-			s.log.Warn("Portfolio not found", zap.String("uuid", req.Portfolio.Id))
+			s.log.Warn("Portfolio not found", slog.String("uuid", req.Portfolio.Id))
 			return nil, status.Errorf(codes.NotFound, "portfolio with ID %s not found", req.Portfolio.Id)
 		}
 
-		s.log.Error("Failed to get portfolio", zap.Error(err))
+		s.log.Error("Failed to get portfolio", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve portfolio: %v", err)
 	}
 	return entPortfolioToProtoPortfolio(entPortfolio)
@@ -153,7 +153,7 @@ func (s *StorageService) DeletePortfolio(ctx context.Context, req *services.Dele
 	delCount, err := s.dbClient.Portfolio.Delete().Where(portfolio.UUID(parsedUUID)).Exec(ctx)
 	if err != nil {
 		if ent.IsConstraintError(err) {
-			s.log.Error("Failed to delete portfolio due to constraint", zap.Error(err))
+			s.log.Error("Failed to delete portfolio due to constraint", slog.Any("error",err))
 			return nil, status.Errorf(codes.FailedPrecondition, "cannot delete portfolio due to existing dependencies: %v", err)
 		}
 		return nil, status.Errorf(codes.Internal, "failed to delete portfolio: %v", err)
@@ -197,7 +197,7 @@ func (s *StorageService) ListPortfolios(ctx context.Context, req *services.ListP
 
 	portfolios, err := query.All(ctx)
 	if err != nil {
-		s.log.Error("Failed to list portfolios", zap.Error(err))
+		s.log.Error("Failed to list portfolios", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to list portfolios: %v", err)
 	}
 	protos := make([]*models.Portfolio, 0, len(portfolios))

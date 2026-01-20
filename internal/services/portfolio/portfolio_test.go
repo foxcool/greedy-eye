@@ -2,18 +2,19 @@ package portfolio
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/foxcool/greedy-eye/internal/api/services"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestPortfolioService_CalculatePortfolioValue(t *testing.T) {
-	logger := zap.NewNop()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	service := NewService(logger)
 	
 	t.Run("should return unimplemented", func(t *testing.T) {
@@ -33,7 +34,7 @@ func TestPortfolioService_CalculatePortfolioValue(t *testing.T) {
 }
 
 func TestPortfolioService_GetPortfolioPerformance(t *testing.T) {
-	logger := zap.NewNop()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	service := NewService(logger)
 	
 	t.Run("should return unimplemented", func(t *testing.T) {

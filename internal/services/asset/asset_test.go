@@ -2,18 +2,19 @@ package asset
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/foxcool/greedy-eye/internal/api/services"
 	"github.com/foxcool/greedy-eye/internal/services/storage"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 func TestAssetService_EnrichAssetData(t *testing.T) {
-	logger := zap.NewNop()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	// Create a mock storage client - using nil for tests that don't need it
 	mockStorage := storage.NewLocalClient(nil)
 	service := NewService(logger, mockStorage)
@@ -34,7 +35,7 @@ func TestAssetService_EnrichAssetData(t *testing.T) {
 }
 
 func TestAssetService_FindSimilarAssets(t *testing.T) {
-	logger := zap.NewNop()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	mockStorage := storage.NewLocalClient(nil)
 	service := NewService(logger, mockStorage)
 

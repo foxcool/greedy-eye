@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/base64"
+	"log/slog"
 	"time"
 
 	"github.com/foxcool/greedy-eye/internal/api/models"
@@ -10,7 +11,6 @@ import (
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/account"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/transaction"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -57,7 +57,7 @@ func (s *StorageService) CreateTransaction(ctx context.Context, req *services.Cr
 	}
 	entTx, err := createTx.Save(ctx)
 	if err != nil {
-		s.log.Error("Failed to create transaction", zap.Error(err))
+		s.log.Error("Failed to create transaction", slog.Any("error",err))
 		if ent.IsConstraintError(err) {
 			return nil, status.Errorf(codes.AlreadyExists, "transaction constraint failed: %v", err)
 		}
@@ -66,13 +66,13 @@ func (s *StorageService) CreateTransaction(ctx context.Context, req *services.Cr
 
 	entTx, err = s.dbClient.Transaction.Query().Where(transaction.ID(entTx.ID)).WithAccount().Only(ctx)
 	if err != nil {
-		s.log.Error("Failed to get created transaction", zap.String("uuid", entTx.UUID.String()), zap.Error(err))
+		s.log.Error("Failed to get created transaction", slog.String("uuid", entTx.UUID.String()), slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve transaction: %v", err)
 	}
 
 	protoTx, err := entTransactionToProtoTransaction(entTx)
 	if err != nil {
-		s.log.Error("Failed to convert transaction to proto", zap.Error(err))
+		s.log.Error("Failed to convert transaction to proto", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to convert transaction to proto: %v", err)
 	}
 
@@ -119,7 +119,7 @@ func (s *StorageService) UpdateTransaction(ctx context.Context, req *services.Up
 		if ent.IsNotFound(err) {
 			return nil, status.Errorf(codes.NotFound, "transaction with ID %s not found", req.Transaction.Id)
 		}
-		s.log.Error("Failed to get transaction", zap.Error(err))
+		s.log.Error("Failed to get transaction", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve transaction: %v", err)
 	}
 
@@ -157,11 +157,11 @@ func (s *StorageService) UpdateTransaction(ctx context.Context, req *services.Up
 			}
 			mutation.SetAccount(entAccount)
 		default:
-			s.log.Warn("UpdateTransaction: unknown field in mask", zap.String("path", path))
+			s.log.Warn("UpdateTransaction: unknown field in mask", slog.String("path", path))
 		}
 	}
 	if _, err := mutation.Save(ctx); err != nil {
-		s.log.Error("Failed to update transaction", zap.Error(err))
+		s.log.Error("Failed to update transaction", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to update transaction: %v", err)
 	}
 	entTx, err = s.dbClient.Transaction.Query().Where(transaction.UUID(txUUID)).WithAccount().Only(ctx)
@@ -169,12 +169,12 @@ func (s *StorageService) UpdateTransaction(ctx context.Context, req *services.Up
 		if ent.IsNotFound(err) {
 			return nil, status.Errorf(codes.NotFound, "transaction with ID %s not found", req.Transaction.Id)
 		}
-		s.log.Error("Failed to get transaction", zap.Error(err))
+		s.log.Error("Failed to get transaction", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve transaction: %v", err)
 	}
 	protoTx, err := entTransactionToProtoTransaction(entTx)
 	if err != nil {
-		s.log.Error("Failed to convert transaction to proto", zap.Error(err))
+		s.log.Error("Failed to convert transaction to proto", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to convert transaction to proto: %v", err)
 	}
 	return protoTx, nil

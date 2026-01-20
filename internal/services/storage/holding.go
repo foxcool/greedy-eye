@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/foxcool/greedy-eye/internal/api/models"
 	"github.com/foxcool/greedy-eye/internal/api/services"
@@ -10,7 +11,6 @@ import (
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/asset"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/holding"
 	"github.com/foxcool/greedy-eye/internal/services/storage/ent/portfolio"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -128,7 +128,7 @@ func (s *StorageService) UpdateHolding(ctx context.Context, req *services.Update
 		if ent.IsNotFound(err) {
 			return nil, status.Errorf(codes.NotFound, "holding with ID %s not found", req.Holding.Id)
 		}
-		s.log.Error("Failed to get holding", zap.Error(err))
+		s.log.Error("Failed to get holding", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve holding: %v", err)
 	}
 
@@ -179,12 +179,12 @@ func (s *StorageService) UpdateHolding(ctx context.Context, req *services.Update
 			}
 			mutation.SetAccount(entAccount)
 		default:
-			s.log.Warn("UpdateHolding requested with unknown field in mask", zap.String("path", path))
+			s.log.Warn("UpdateHolding requested with unknown field in mask", slog.String("path", path))
 		}
 	}
 
 	if _, err := mutation.Save(ctx); err != nil {
-		s.log.Error("Failed to update holding", zap.Error(err))
+		s.log.Error("Failed to update holding", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to update holding: %v", err)
 	}
 	entHolding, err = s.dbClient.Holding.Query().
@@ -197,7 +197,7 @@ func (s *StorageService) UpdateHolding(ctx context.Context, req *services.Update
 		if ent.IsNotFound(err) {
 			return nil, status.Errorf(codes.NotFound, "holding with ID %s not found", req.Holding.Id)
 		}
-		s.log.Error("Failed to get holding", zap.Error(err))
+		s.log.Error("Failed to get holding", slog.Any("error",err))
 		return nil, status.Errorf(codes.Internal, "failed to retrieve holding: %v", err)
 	}
 	return entHoldingToProtoHolding(entHolding)
