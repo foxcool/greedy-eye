@@ -34,3 +34,7 @@ tree.md
 .devcontainer.json
 features.json
 .DS_Store
+
+# Claude-specific files (not part of repo)
+CLAUDE.md
+.claude
