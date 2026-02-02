@@ -1,0 +1,384 @@
+syntax = "proto3";
+
+package greedy_eye.v1;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/field_mask.proto";
+import "google/api/annotations.proto";
+
+option go_package = "github.com/foxcool/greedy-eye/internal/api/v1;apiv1";
+
+// =============================================================================
+// TYPES
+// =============================================================================
+
+enum AccountType {
+  ACCOUNT_TYPE_UNSPECIFIED = 0;
+  ACCOUNT_TYPE_WALLET = 1;
+  ACCOUNT_TYPE_EXCHANGE = 2;
+  ACCOUNT_TYPE_BANK = 3;
+  ACCOUNT_TYPE_BROKER = 4;
+}
+
+enum TransactionType {
+  TRANSACTION_TYPE_UNSPECIFIED = 0;
+  TRANSACTION_TYPE_EXTENDED = 1;   // Complex transactions: DeFi, NFT, Governance, Gaming, etc.
+  TRANSACTION_TYPE_TRADE = 2;      // Exchanging one asset for another
+  TRANSACTION_TYPE_TRANSFER = 3;   // Transferring asset between accounts
+  TRANSACTION_TYPE_DEPOSIT = 4;    // Depositing asset into an account
+  TRANSACTION_TYPE_WITHDRAWAL = 5; // Withdrawing asset from an account
+}
+
+enum TransactionStatus {
+  TRANSACTION_STATUS_UNSPECIFIED = 0;
+  TRANSACTION_STATUS_PENDING = 1;
+  TRANSACTION_STATUS_PROCESSING = 2;
+  TRANSACTION_STATUS_COMPLETED = 3;
+  TRANSACTION_STATUS_FAILED = 4;
+  TRANSACTION_STATUS_CANCELLED = 5;
+}
+
+// Portfolio represents a collection of holdings managed by a user.
+message Portfolio {
+  string id = 1;
+  string user_id = 2;
+  string name = 3;
+  optional string description = 4;
+  map<string, google.protobuf.Any> data = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+// Holding represents a specific quantity of an Asset held within an Account.
+message Holding {
+  string id = 1;
+  int64 amount = 2;
+  uint32 decimals = 3;
+  string asset_id = 4;
+  string account_id = 5;
+  optional string portfolio_id = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+// Account represents a user's connection to an external financial entity.
+message Account {
+  string id = 1;
+  string user_id = 2;
+  string name = 3;
+  optional string description = 4;
+  AccountType type = 5;
+  map<string, string> data = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+// Transaction represents a financial event involving assets, accounts, and portfolios.
+message Transaction {
+  string id = 1;
+  google.protobuf.Timestamp created_at = 2;
+  google.protobuf.Timestamp updated_at = 3;
+  TransactionType type = 4;
+  TransactionStatus status = 5;
+  string account_id = 6;
+  map<string, string> data = 7;
+}
+
+// =============================================================================
+// SERVICE
+// =============================================================================
+
+// PortfolioService manages portfolios, holdings, accounts and transactions.
+service PortfolioService {
+  // --- Portfolio CRUD ---
+  rpc CreatePortfolio(CreatePortfolioRequest) returns (Portfolio) {
+    option (google.api.http) = {
+      post: "/api/v1/portfolios"
+      body: "portfolio"
+    };
+  }
+
+  rpc GetPortfolio(GetPortfolioRequest) returns (Portfolio) {
+    option (google.api.http) = {
+      get: "/api/v1/portfolios/{id}"
+    };
+  }
+
+  rpc UpdatePortfolio(UpdatePortfolioRequest) returns (Portfolio) {
+    option (google.api.http) = {
+      put: "/api/v1/portfolios/{portfolio.id}"
+      body: "portfolio"
+    };
+  }
+
+  rpc DeletePortfolio(DeletePortfolioRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/api/v1/portfolios/{id}"
+    };
+  }
+
+  rpc ListPortfolios(ListPortfoliosRequest) returns (ListPortfoliosResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/portfolios"
+    };
+  }
+
+  // --- Portfolio business logic ---
+  rpc CalculatePortfolioValue(CalculatePortfolioValueRequest) returns (PortfolioValueResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/portfolios/{portfolio_id}/calculate-value"
+      body: "*"
+    };
+  }
+
+  rpc GetPortfolioPerformance(GetPortfolioPerformanceRequest) returns (PortfolioPerformanceResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/portfolios/{portfolio_id}/performance"
+      body: "*"
+    };
+  }
+
+  // --- Holding CRUD ---
+  rpc CreateHolding(CreateHoldingRequest) returns (Holding) {
+    option (google.api.http) = {
+      post: "/api/v1/holdings"
+      body: "holding"
+    };
+  }
+
+  rpc GetHolding(GetHoldingRequest) returns (Holding) {
+    option (google.api.http) = {
+      get: "/api/v1/holdings/{id}"
+    };
+  }
+
+  rpc UpdateHolding(UpdateHoldingRequest) returns (Holding) {
+    option (google.api.http) = {
+      put: "/api/v1/holdings/{holding.id}"
+      body: "holding"
+    };
+  }
+
+  rpc ListHoldings(ListHoldingsRequest) returns (ListHoldingsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/holdings"
+    };
+  }
+
+  // --- Account CRUD ---
+  rpc CreateAccount(CreateAccountRequest) returns (Account) {
+    option (google.api.http) = {
+      post: "/api/v1/accounts"
+      body: "account"
+    };
+  }
+
+  rpc GetAccount(GetAccountRequest) returns (Account) {
+    option (google.api.http) = {
+      get: "/api/v1/accounts/{id}"
+    };
+  }
+
+  rpc UpdateAccount(UpdateAccountRequest) returns (Account) {
+    option (google.api.http) = {
+      put: "/api/v1/accounts/{account.id}"
+      body: "account"
+    };
+  }
+
+  rpc DeleteAccount(DeleteAccountRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/api/v1/accounts/{id}"
+    };
+  }
+
+  rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/accounts"
+    };
+  }
+
+  // --- Transaction CRUD ---
+  rpc CreateTransaction(CreateTransactionRequest) returns (Transaction) {
+    option (google.api.http) = {
+      post: "/api/v1/transactions"
+      body: "transaction"
+    };
+  }
+
+  rpc GetTransaction(GetTransactionRequest) returns (Transaction) {
+    option (google.api.http) = {
+      get: "/api/v1/transactions/{id}"
+    };
+  }
+
+  rpc UpdateTransaction(UpdateTransactionRequest) returns (Transaction) {
+    option (google.api.http) = {
+      put: "/api/v1/transactions/{transaction.id}"
+      body: "transaction"
+    };
+  }
+
+  rpc ListTransactions(ListTransactionsRequest) returns (ListTransactionsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/transactions"
+    };
+  }
+}
+
+// =============================================================================
+// PORTFOLIO MESSAGES
+// =============================================================================
+
+message CreatePortfolioRequest {
+  Portfolio portfolio = 1;
+}
+
+message GetPortfolioRequest {
+  string id = 1;
+}
+
+message UpdatePortfolioRequest {
+  Portfolio portfolio = 1;
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message DeletePortfolioRequest {
+  string id = 1;
+}
+
+message ListPortfoliosRequest {
+  optional string user_id = 1;
+  optional int32 page_size = 2;
+  optional string page_token = 3;
+}
+
+message ListPortfoliosResponse {
+  repeated Portfolio portfolios = 1;
+  string next_page_token = 2;
+}
+
+message CalculatePortfolioValueRequest {
+  string portfolio_id = 1;
+  string quote_asset_id = 2;
+  google.protobuf.Timestamp at_time = 3;
+}
+
+message PortfolioValueResponse {
+  string portfolio_id = 1;
+  string quote_asset_id = 2;
+  int64 total_value_amount = 3;
+  uint32 decimals = 4;
+  google.protobuf.Timestamp calculation_time = 5;
+}
+
+message GetPortfolioPerformanceRequest {
+  string portfolio_id = 1;
+  google.protobuf.Timestamp from = 2;
+  google.protobuf.Timestamp to = 3;
+  string benchmark_asset_id = 4;
+}
+
+message PortfolioPerformanceResponse {
+  string portfolio_id = 1;
+  double return_percentage = 2;
+  double volatility = 3;
+  double sharpe_ratio = 4;
+}
+
+// =============================================================================
+// HOLDING MESSAGES
+// =============================================================================
+
+message CreateHoldingRequest {
+  Holding holding = 1;
+}
+
+message GetHoldingRequest {
+  string id = 1;
+}
+
+message UpdateHoldingRequest {
+  Holding holding = 1;
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message ListHoldingsRequest {
+  optional string portfolio_id = 1;
+  optional string account_id = 2;
+  optional string asset_id = 3;
+  optional int32 page_size = 4;
+  optional string page_token = 5;
+}
+
+message ListHoldingsResponse {
+  repeated Holding holdings = 1;
+  string next_page_token = 2;
+}
+
+// =============================================================================
+// ACCOUNT MESSAGES
+// =============================================================================
+
+message CreateAccountRequest {
+  Account account = 1;
+}
+
+message GetAccountRequest {
+  string id = 1;
+}
+
+message UpdateAccountRequest {
+  Account account = 1;
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message DeleteAccountRequest {
+  string id = 1;
+}
+
+message ListAccountsRequest {
+  optional string user_id = 1;
+  optional AccountType type = 2;
+  optional int32 page_size = 3;
+  optional string page_token = 4;
+}
+
+message ListAccountsResponse {
+  repeated Account accounts = 1;
+  string next_page_token = 2;
+}
+
+// =============================================================================
+// TRANSACTION MESSAGES
+// =============================================================================
+
+message CreateTransactionRequest {
+  Transaction transaction = 1;
+}
+
+message GetTransactionRequest {
+  string id = 1;
+}
+
+message UpdateTransactionRequest {
+  Transaction transaction = 1;
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message ListTransactionsRequest {
+  optional TransactionType type = 1;
+  optional TransactionStatus status = 2;
+  optional string account_id = 3;
+  optional google.protobuf.Timestamp from = 4;
+  optional google.protobuf.Timestamp to = 5;
+  optional int32 page_size = 6;
+  optional string page_token = 7;
+}
+
+message ListTransactionsResponse {
+  repeated Transaction transactions = 1;
+  string next_page_token = 2;
+}
