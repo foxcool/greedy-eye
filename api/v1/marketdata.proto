@@ -1,0 +1,276 @@
+syntax = "proto3";
+
+package greedy_eye.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/field_mask.proto";
+import "google/api/annotations.proto";
+
+option go_package = "github.com/foxcool/greedy-eye/internal/api/v1;apiv1";
+
+// =============================================================================
+// TYPES
+// =============================================================================
+
+enum AssetType {
+  ASSET_TYPE_UNSPECIFIED = 0;
+  ASSET_TYPE_CRYPTOCURRENCY = 1;
+  ASSET_TYPE_STOCK = 2;
+  ASSET_TYPE_BOND = 3;
+  ASSET_TYPE_COMMODITY = 4;
+  ASSET_TYPE_FOREX = 5;
+  ASSET_TYPE_FUND = 6;
+}
+
+// Asset represents financial instrument (crypto, stock, etc.).
+message Asset {
+  string id = 1;
+  string name = 2;
+  AssetType type = 3;
+  optional string symbol = 4;
+  repeated string tags = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+// Price represents the price action of an Asset against a base Asset
+// over a specific interval (candle/OHLCV) or as a latest snapshot.
+message Price {
+  string id = 1;
+  string source_id = 2;     // Identifier for the source (e.g., "coingecko", "binance")
+  string asset_id = 3;      // ID of the Asset whose price is represented
+  string base_asset_id = 4; // ID of the Asset against which the price is quoted
+  // Interval defines the time period this price data represents.
+  // Examples: "1m", "5m", "1h", "4h", "1d", "tick", "latest".
+  string interval = 5;
+  uint32 decimals = 6;
+  int64 last = 7;
+  // OHLCV data - applicable when 'interval' represents a standard candle type.
+  optional int64 open = 8;
+  optional int64 high = 9;
+  optional int64 low = 10;
+  optional int64 close = 11;
+  optional int64 volume = 12;
+  google.protobuf.Timestamp timestamp = 13;
+}
+
+// =============================================================================
+// SERVICE
+// =============================================================================
+
+// MarketDataService manages assets and price data.
+service MarketDataService {
+  // --- Asset CRUD ---
+  rpc CreateAsset(CreateAssetRequest) returns (Asset) {
+    option (google.api.http) = {
+      post: "/api/v1/assets"
+      body: "asset"
+    };
+  }
+
+  rpc GetAsset(GetAssetRequest) returns (Asset) {
+    option (google.api.http) = {
+      get: "/api/v1/assets/{id}"
+    };
+  }
+
+  rpc UpdateAsset(UpdateAssetRequest) returns (Asset) {
+    option (google.api.http) = {
+      put: "/api/v1/assets/{asset.id}"
+      body: "asset"
+    };
+  }
+
+  rpc DeleteAsset(DeleteAssetRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/api/v1/assets/{id}"
+    };
+  }
+
+  rpc ListAssets(ListAssetsRequest) returns (ListAssetsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/assets"
+    };
+  }
+
+  // --- Asset business logic ---
+  rpc EnrichAssetData(EnrichAssetDataRequest) returns (Asset) {
+    option (google.api.http) = {
+      post: "/api/v1/assets/{asset_id}/enrich"
+      body: "*"
+    };
+  }
+
+  rpc FindSimilarAssets(FindSimilarAssetsRequest) returns (ListAssetsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/assets/{asset_id}/similar"
+    };
+  }
+
+  // --- Price CRUD ---
+  rpc CreatePrice(CreatePriceRequest) returns (Price) {
+    option (google.api.http) = {
+      post: "/api/v1/prices"
+      body: "price"
+    };
+  }
+
+  rpc CreatePrices(CreatePricesRequest) returns (CreatePricesResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/prices/bulk"
+      body: "prices"
+    };
+  }
+
+  rpc GetLatestPrice(GetLatestPriceRequest) returns (Price) {
+    option (google.api.http) = {
+      get: "/api/v1/prices/{asset_id}/{base_asset_id}/latest"
+    };
+  }
+
+  rpc ListPriceHistory(ListPriceHistoryRequest) returns (ListPriceHistoryResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/prices/{asset_id}/{base_asset_id}/history"
+    };
+  }
+
+  rpc ListPricesByInterval(ListPricesByIntervalRequest) returns (ListPriceHistoryResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/prices/{asset_id}/{base_asset_id}/intervals"
+    };
+  }
+
+  rpc DeletePrice(DeletePriceRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/api/v1/prices/{id}"
+    };
+  }
+
+  rpc DeletePrices(DeletePricesRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/api/v1/prices"
+    };
+  }
+
+  // --- Price business logic ---
+  rpc FetchExternalPrices(FetchExternalPricesRequest) returns (FetchExternalPricesResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/prices/fetch-external"
+      body: "*"
+    };
+  }
+}
+
+// =============================================================================
+// ASSET MESSAGES
+// =============================================================================
+
+message CreateAssetRequest {
+  Asset asset = 1;
+}
+
+message GetAssetRequest {
+  string id = 1;
+}
+
+message UpdateAssetRequest {
+  Asset asset = 1;
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message DeleteAssetRequest {
+  string id = 1;
+}
+
+message ListAssetsRequest {
+  optional int32 page_size = 1;
+  optional string page_token = 2;
+  repeated string tags = 3;
+}
+
+message ListAssetsResponse {
+  repeated Asset assets = 1;
+  string next_page_token = 2;
+}
+
+message EnrichAssetDataRequest {
+  string asset_id = 1;
+  repeated string sources = 2;
+}
+
+message FindSimilarAssetsRequest {
+  string asset_id = 1;
+  int32 limit = 2;
+}
+
+// =============================================================================
+// PRICE MESSAGES
+// =============================================================================
+
+message CreatePriceRequest {
+  Price price = 1;
+}
+
+message CreatePricesRequest {
+  repeated Price prices = 1;
+}
+
+message CreatePricesResponse {
+  int32 created_count = 1;
+}
+
+message GetLatestPriceRequest {
+  string asset_id = 1;
+  string base_asset_id = 2;
+  optional string source_id = 3;
+}
+
+message ListPriceHistoryRequest {
+  string asset_id = 1;
+  string base_asset_id = 2;
+  optional google.protobuf.Timestamp from = 3;
+  optional google.protobuf.Timestamp to = 4;
+  optional string source_id = 5;
+  optional int32 page_size = 6;
+  optional string page_token = 7;
+}
+
+message ListPriceHistoryResponse {
+  repeated Price prices = 1;
+  string next_page_token = 2;
+}
+
+message ListPricesByIntervalRequest {
+  string asset_id = 1;
+  string base_asset_id = 2;
+  optional google.protobuf.Timestamp from = 3;
+  optional google.protobuf.Timestamp to = 4;
+  string interval = 5;
+  optional string source_id = 6;
+  optional int32 page_size = 7;
+  optional string page_token = 8;
+}
+
+message DeletePriceRequest {
+  string id = 1;
+}
+
+message DeletePricesRequest {
+  optional string asset_id = 1;
+  optional string base_asset_id = 2;
+  optional google.protobuf.Timestamp from = 3;
+  optional google.protobuf.Timestamp to = 4;
+  optional string source_id = 5;
+}
+
+message FetchExternalPricesRequest {
+  repeated string source_ids = 1;
+  repeated string asset_ids = 2;
+}
+
+message FetchExternalPricesResponse {
+  int32 prices_fetched = 1;
+  int32 prices_stored = 2;
+  repeated string errors = 3;
+}

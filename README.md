@@ -39,13 +39,13 @@ Built as a learning project to demonstrate production-ready Go architecture for 
 
 **Backend:**
 - Go 1.23+ with gRPC and Protocol Buffers
-- PostgreSQL with Ent ORM
+- PostgreSQL with pgx
 - gRPC-Gateway for HTTP API
 
 **Infrastructure:**
 - Docker & Docker Compose
 - Atlas migrations
-- Structured logging (Zap, Sentry)
+- Structured logging (slog, Sentry)
 
 **Integrations:**
 - CoinGecko, Binance APIs
@@ -93,10 +93,13 @@ make test-integration        # Integration tests only
 
 ```
 greedy-eye/
-├── api/                    # Protocol Buffer definitions
+├── api/v1/                # Protocol Buffer definitions (domain-based)
+│   ├── marketdata.proto   # Asset + Price management
+│   ├── portfolio.proto    # Portfolio + Holding + Account + Transaction
+│   └── automation.proto   # Rule + RuleExecution
 ├── cmd/eye/               # Main application
 ├── internal/
-│   ├── services/          # Business logic (asset, portfolio, price)
+│   ├── services/          # Business logic
 │   ├── adapters/          # External API clients (Binance, CoinGecko)
 │   └── api/               # Generated gRPC/HTTP code
 ├── docs/                  # Architecture documentation
@@ -120,8 +123,8 @@ greedy-eye/
 **Phase 5:** 📋 Planned — Production hardening
 
 Current implementation:
-- ✅ gRPC service architecture with 7+ services
-- ✅ Database layer with Ent ORM
+- ✅ gRPC service architecture with 3 domain services
+- ✅ Database layer with pgx
 - ✅ External API adapters (CoinGecko, Binance)
 - ✅ Integration test coverage
 - 🔄 Portfolio analytics and insights
