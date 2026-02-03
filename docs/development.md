@@ -6,9 +6,9 @@ asset types including cryptocurrencies, securities, derivatives, and alternative
 ## Quick Start
 
 ### Prerequisites
-- Go 1.23+
-- Docker and Docker Compose
-- PostgreSQL (or Docker container)
+- Go 1.25+
+- Docker (for testcontainers and dev environment)
+- Atlas CLI (`curl -sSf https://atlasgo.sh | sh`)
 - buf CLI (for Protocol Buffers)
 - Make (for build automation)
 
@@ -20,26 +20,27 @@ cd greedy-eye
 # Install dependencies
 go mod download
 
-# Start database
-docker-compose up -d postgres
-
 # Generate protobuf code
 make buf-gen
 
-# Run with live reload
-make dev
+# Start dev environment
+make up
+make schema-apply
 ```
 
-### Alternative Quick Start (Docker)
+### Alternative Quick Start (Docker Compose)
 ```bash
 # Start entire system with Docker
-docker-compose up -d
+make up
+
+# Apply database schema
+make schema-apply
 
 # View logs
-docker-compose logs -f
+make logs
 
 # Stop system
-docker-compose down
+make down
 ```
 
 The application starts:
@@ -50,25 +51,22 @@ The application starts:
 ### Essential Development Commands
 ```bash
 # Development workflow
-make dev          # Start with live reload
-make test         # Run all tests
-make test-coverage # Run tests with coverage report
-make buf-gen      # Generate protobuf code
+make up               # Start dev environment
+make schema-apply     # Apply database schema (Atlas)
+make buf-gen          # Generate protobuf code
 
-# Code quality
-make fmt          # Format code
-make lint         # Run linter
-make vet          # Static analysis
+# Testing
+make test             # Run all tests (unit + integration)
+make test-unit        # Run unit tests only
+make test-integration # Run integration tests (uses testcontainers)
 
 # Database operations
-make db-reset     # Reset database (dev only)
-make db-connect   # Connect to database
-go run cmd/eye/main.go migrate  # Run migrations
+make schema-apply     # Apply schema to dev database
+make schema-diff      # Show schema changes
 
 # Build and deployment
-make build        # Build binary
-make clean        # Clean build artifacts
-docker build .    # Build Docker image
+make clean            # Clean up docker resources
+docker build .        # Build Docker image
 ```
 
 ## Current Development Status
@@ -83,13 +81,15 @@ docker build .    # Build Docker image
 
 | Service | Status | Implementation | Tests | Integration |
 |---------|--------|---------------|-------|-------------|
-| StorageService | ✅ Complete | Full Ent ORM | ✅ | ✅ |
+| MarketDataStore | ✅ Complete | pgx + raw SQL | ✅ | ✅ |
+| PortfolioStore | 🔄 In Progress | pgx + raw SQL | ❌ | ❌ |
+| SettingsStore | 🔄 In Progress | pgx + raw SQL | ❌ | ❌ |
 | UserService | ✅ Implemented | Full business logic | ✅ | ✅ |
 | AssetService | ✅ Implemented | Full business logic | ✅ | ✅ |
-| PortfolioService | 🔄 Stubs | API complete | ✅ | ✅ |
+| PortfolioService | 🔄 Stubs | API complete | ✅ | ❌ |
 | PriceService | ✅ Implemented | External API integration | ✅ | ✅ |
-| RuleService | 🔄 Stubs | API complete | ✅ | ✅ |
-| **MessengerService** | 🔄 Stubs | Multi-platform architecture | ✅ | ✅ |
+| RuleService | 🔄 Stubs | API complete | ✅ | ❌ |
+| **MessengerService** | 🔄 Stubs | Multi-platform architecture | ✅ | ❌ |
 | AuthService | 🔄 Proto | Proto only | ❌ | ❌ |
 
 ### External Adapters Status
@@ -139,14 +139,14 @@ make buf-format
 
 ### Database Operations
 ```bash
-# Run migrations
-go run cmd/eye/main.go migrate
+# Apply schema to dev database (Atlas)
+make schema-apply
 
-# Reset database (dev only)
-make db-reset
+# Show schema diff
+make schema-diff
 
-# Connect to database
-make db-connect
+# Inspect current schema
+atlas schema inspect --url "file://schema.hcl"
 ```
 
 ### Testing
@@ -154,46 +154,48 @@ make db-connect
 # Run all tests
 make test
 
-# Run with coverage
-make test-coverage
+# Run unit tests only
+make test-unit
 
-# Run specific service tests
-go test ./internal/services/telegram/...
-```
+# Run integration tests (uses testcontainers - ephemeral PostgreSQL)
+make test-integration
 
-### Code Quality
-```bash
-# Format code
-make fmt
-
-# Run linter
-make lint
-
-# Static analysis
-make vet
+# Run specific store tests
+go test -v -tags=integration ./internal/store/postgres/...
 ```
 
 ## Project Structure
 
 ```
 greedy-eye/
-├── api/                    # Protocol Buffer definitions
-│   ├── models/            # Data models (user.proto, asset.proto, etc.)
-│   └── services/          # Service definitions (user_service.proto, etc.)
-├── cmd/eye/               # Main application entry point
+├── api/v1/                 # Protocol Buffer definitions (domain-based)
+│   ├── marketdata.proto    # Asset + Price management
+│   ├── portfolio.proto     # Portfolio + Holding + Account + Transaction
+│   └── automation.proto    # Rule + RuleExecution
+├── cmd/eye/                # Main application entry point
 ├── internal/
-│   ├── api/              # Generated protobuf code
-│   ├── services/         # Business logic services
-│   │   ├── storage/      # StorageService (full implementation)
-│   │   ├── user/         # UserService (stubs)
-│   │   ├── asset/        # AssetService (stubs)
-│   │   ├── portfolio/    # PortfolioService (stubs)
-│   │   ├── price/        # PriceService (stubs)
-│   │   ├── rule/         # RuleService (stubs)
-│   │   └── telegram/     # TelegramBotService (stubs + architecture)
-│   └── adapters/         # External service adapters
-├── docs/                 # Documentation (simplified structure)
-└── deploy/              # Docker and deployment configs
+│   ├── adapter/            # External service adapters
+│   │   ├── binance/        # Binance exchange client
+│   │   ├── coingecko/      # CoinGecko price data client
+│   │   ├── moralis/        # Moralis blockchain client
+│   │   └── telegram/       # Telegram bot client
+│   ├── api/v1/             # Generated protobuf/connect code
+│   ├── entity/             # Domain entities
+│   ├── service/            # Business logic services
+│   │   ├── asset/          # AssetService
+│   │   ├── marketdata/     # MarketData gRPC handler
+│   │   ├── portfolio/      # Portfolio gRPC handler
+│   │   ├── price/          # PriceService
+│   │   ├── rule/           # RuleService
+│   │   ├── settings/       # SettingsStore
+│   │   └── user/           # UserService
+│   ├── store/              # Data persistence layer
+│   │   └── postgres/       # PostgreSQL implementation (pgx)
+│   └── testutil/           # Test utilities (testcontainers)
+├── schema.hcl              # Database schema (Atlas HCL)
+├── atlas.hcl               # Atlas configuration
+├── docs/                   # Documentation
+└── deploy/                 # Docker and deployment configs
 ```
 
 ## Configuration
@@ -263,20 +265,26 @@ This applies to transaction amounts, prices, holdings, and other financial value
 
 ### Dependency Graph
 ```
-StorageService (base)
+Store Layer (PostgreSQL + pgx)
+├── MarketDataStore (assets, prices)
+├── PortfolioStore (portfolios, holdings, accounts, transactions)
+└── SettingsStore (user preferences)
+
+Service Layer
 ├── UserService
-├── AssetService  
-├── PriceService → AssetService
-├── PortfolioService → AssetService, StorageService
+├── AssetService → MarketDataStore
+├── PriceService → MarketDataStore, AssetService
+├── PortfolioService → PortfolioStore, AssetService
 ├── RuleService → UserService, PortfolioService, AssetService, PriceService
-└── TelegramBotService → All services
+└── MessengerService → All services
 ```
 
 ### Service Communication
-- **Internal**: gRPC with Protocol Buffers
-- **External**: HTTP API via gRPC-Gateway
-- **Database**: PostgreSQL with Ent ORM
-- **External APIs**: HTTP clients (future implementation)
+- **Internal**: gRPC with Protocol Buffers (Connect-RPC)
+- **External**: HTTP API via Connect-RPC
+- **Database**: PostgreSQL with pgx (raw SQL)
+- **Schema Management**: Atlas declarative migrations
+- **External APIs**: HTTP clients in adapter layer
 
 ## Implementation Guidelines
 
@@ -297,37 +305,45 @@ return nil, status.Errorf(codes.Internal, "database error: %v", err)
 
 ### Logging
 ```go
-// Use structured logging with zap
-s.log.Info("method called", 
-    zap.String("user_id", req.UserId),
-    zap.String("operation", "create_portfolio"))
+// Use structured logging with slog
+log.Info("method called",
+    slog.String("user_id", req.UserId),
+    slog.String("operation", "create_portfolio"))
 
-s.log.Error("operation failed",
-    zap.Error(err),
-    zap.String("context", "database_query"))
+log.Error("operation failed",
+    slog.Any("error", err),
+    slog.String("context", "database_query"))
 ```
 
 ### Testing Pattern
+
+**Unit tests** (no build tag):
 ```go
 func TestService_Method(t *testing.T) {
-    log := zaptest.NewLogger(t)
-    service := NewService(log)
+    service := NewService()
     ctx := context.Background()
-
-    req := &services.MethodRequest{
-        Field: "test_value",
-    }
 
     resp, err := service.Method(ctx, req)
 
     // For stubs: expect Unimplemented
     assert.Nil(t, resp)
     assert.Error(t, err)
-    
-    st, ok := status.FromError(err)
-    require.True(t, ok)
-    assert.Equal(t, codes.Unimplemented, st.Code())
 }
+```
+
+**Integration tests** (with testcontainers):
+```go
+//go:build integration
+
+func TestStore_CreateAsset(t *testing.T) {
+    pool := getTestPool(t)  // Uses testcontainers, truncates tables
+    store := NewStore(pool)
+
+    asset, err := store.CreateAsset(ctx, &entity.Asset{...})
+    require.NoError(t, err)
+    assert.NotEmpty(t, asset.ID)
+}
+```
 ```
 
 ## Development Roadmap
@@ -507,7 +523,7 @@ mindmap
 ### Debugging Tips
 ```bash
 # Run with debug logging
-LOG_LEVEL=debug go run cmd/eye/main.go
+go run cmd/eye/main.go
 
 # Use delve debugger
 dlv debug cmd/eye/main.go
@@ -515,9 +531,11 @@ dlv debug cmd/eye/main.go
 # Check service health
 curl http://localhost:8080/health
 
-# Test gRPC methods with grpcurl
-grpcurl -plaintext localhost:50051 list
-grpcurl -plaintext localhost:50051 services.StorageService/CreateUser
+# Verify Atlas schema
+atlas schema inspect --url "file://schema.hcl"
+
+# Run single integration test
+go test -v -tags=integration -run TestCreateAsset ./internal/store/postgres/...
 ```
 
 ## Performance Considerations
@@ -541,6 +559,8 @@ grpcurl -plaintext localhost:50051 services.StorageService/CreateUser
 2. **Database connection**: Check PostgreSQL status and credentials
 3. **Proto generation**: Ensure buf is installed and updated
 4. **Module issues**: Run `go mod tidy` and `go mod download`
+5. **Integration tests fail**: Ensure Docker is running and Atlas CLI is installed
+6. **Schema issues**: Run `atlas schema inspect --url "file://schema.hcl"` to validate
 
 ### Build Issues
 ```bash
@@ -548,9 +568,24 @@ grpcurl -plaintext localhost:50051 services.StorageService/CreateUser
 go clean -cache -modcache
 
 # Regenerate everything
-make clean && make buf-gen && make build
+make clean && make buf-gen
 
 # Check dependencies
 go mod why -m module_name
+
+# Verify Atlas CLI
+which atlas || curl -sSf https://atlasgo.sh | sh
+```
+
+### Testing Issues
+```bash
+# Integration tests require Docker and Atlas CLI
+make test-integration
+
+# If testcontainers fail, check Docker daemon
+docker ps
+
+# Run with verbose output
+go test -v -tags=integration ./internal/store/postgres/...
 ```
 

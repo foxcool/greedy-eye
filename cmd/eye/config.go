@@ -27,12 +27,9 @@ type Config struct {
 	DB struct {
 		URL string `koanf:"url"`
 	} `koanf:"db"`
-	GRPC struct {
+	Server struct {
 		Port int `koanf:"port"`
-	} `koanf:"grpc"`
-	HTTP struct {
-		Port int `koanf:"port"`
-	} `koanf:"http"`
+	} `koanf:"server"`
 	Services []ServiceConfig `koanf:"services"`
 }
 
@@ -58,8 +55,7 @@ func getConfig() (*Config, error) {
 
 	defaults := map[string]interface{}{
 		"sentry.tracesSampleRate": 1.0,
-		"grpc.port":               50051,
-		"http.port":               8080,
+		"server.port":             8080,
 	}
 	err = k.Load(confmap.Provider(defaults, "."), nil)
 	if err != nil {

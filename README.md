@@ -2,7 +2,7 @@
 
 Personal investment intelligence platform. Aggregate data from multiple sources, track your portfolio, and make informed financial decisions.
 
-![Go Version](https://img.shields.io/badge/go-1.23+-00ADD8?logo=go)
+![Go Version](https://img.shields.io/badge/go-1.25+-00ADD8?logo=go)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Status](https://img.shields.io/badge/status-alpha-orange)
 
@@ -38,13 +38,14 @@ Built as a learning project to demonstrate production-ready Go architecture for 
 ## Technology Stack
 
 **Backend:**
-- Go 1.23+ with gRPC and Protocol Buffers
-- PostgreSQL with pgx
-- gRPC-Gateway for HTTP API
+- Go 1.25+ with gRPC and Protocol Buffers
+- PostgreSQL 17+ with pgx
+- Connect-RPC for HTTP API
 
 **Infrastructure:**
 - Docker & Docker Compose
-- Atlas migrations
+- Atlas declarative migrations (schema.hcl)
+- Testcontainers for integration tests
 - Structured logging (slog, Sentry)
 
 **Integrations:**
@@ -57,8 +58,9 @@ Built as a learning project to demonstrate production-ready Go architecture for 
 ## Quick Start
 
 ### Prerequisites
-- Go 1.23+
-- Docker and Docker Compose
+- Go 1.25+
+- Docker (for testcontainers and dev environment)
+- Atlas CLI (`curl -sSf https://atlasgo.sh | sh`)
 
 ### Run Locally
 
@@ -66,8 +68,10 @@ Built as a learning project to demonstrate production-ready Go architecture for 
 # Clone and start
 git clone https://github.com/foxcool/greedy-eye.git
 cd greedy-eye
-docker-compose up -d postgres
-make dev
+
+# Start dev environment
+make up
+make schema-apply
 
 # Servers:
 # HTTP API: http://localhost:8080
@@ -83,8 +87,9 @@ curl http://localhost:8080/health
 ### Run Tests
 
 ```bash
-make test                    # All tests
-make test-integration        # Integration tests only
+make test                    # All tests (unit + integration)
+make test-unit               # Unit tests only
+make test-integration        # Integration tests (uses testcontainers)
 ```
 
 ---
@@ -99,9 +104,15 @@ greedy-eye/
 │   └── automation.proto   # Rule + RuleExecution
 ├── cmd/eye/               # Main application
 ├── internal/
-│   ├── services/          # Business logic
-│   ├── adapters/          # External API clients (Binance, CoinGecko)
-│   └── api/               # Generated gRPC/HTTP code
+│   ├── adapter/           # External API clients (Binance, CoinGecko, Telegram)
+│   ├── api/               # Generated gRPC/HTTP code
+│   ├── entity/            # Domain entities
+│   ├── service/           # Business logic services
+│   ├── store/             # Data persistence layer
+│   │   └── postgres/      # PostgreSQL implementation
+│   └── testutil/          # Test utilities (testcontainers)
+├── schema.hcl             # Database schema (Atlas)
+├── atlas.hcl              # Atlas configuration
 ├── docs/                  # Architecture documentation
 └── deploy/                # Docker configs
 ```
@@ -153,10 +164,13 @@ Current implementation:
 ## Development
 
 ```bash
-make dev          # Start with live reload
-make test         # Run tests
-make buf-gen      # Generate protobuf code
-make lint         # Run linter
+make up               # Start dev environment (docker compose)
+make schema-apply     # Apply database schema
+make test             # Run all tests
+make test-unit        # Run unit tests only
+make test-integration # Run integration tests (testcontainers)
+make buf-gen          # Generate protobuf code
+make schema-diff      # Show schema changes
 ```
 
 See [Development Guide](docs/development.md) for details.
