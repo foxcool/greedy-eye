@@ -84,9 +84,10 @@ different audiences:
 ### 2.1 Technical Constraints
 
 **Technology Stack:**
-- **Language**: Go 1.23+
-- **Database**: PostgreSQL 13+ (ACID compliance for financial data)
-- **Protocol**: gRPC + HTTP API Gateway (internal/external communication)
+- **Language**: Go 1.25+
+- **Database**: PostgreSQL 17+ (ACID compliance for financial data)
+- **Protocol**: gRPC + HTTP API (Connect-RPC)
+- **Schema Management**: Atlas declarative migrations
 - **Containerization**: Docker + Docker Compose
 
 **Performance Constraints:**
@@ -107,7 +108,8 @@ different audiences:
 
 **Development Processes:**
 - Code generation with proto using buf
-- SQL migrations with atlas 
+- Declarative schema management with Atlas (schema.hcl)
+- Integration tests with testcontainers (ephemeral PostgreSQL)
 - Continuous Integration through GitHub Actions
 
 ### 2.3 External Constraints
@@ -186,9 +188,10 @@ graph TB
 - **CQRS elements**: Separation of read and write operations in critical places
 
 **Technology Stack:**
-- **Backend**: Go 1.23+ for performance and type safety
-- **Database**: PostgreSQL + Ent ORM for reliability and migrations
-- **Communication**: gRPC + gRPC-Gateway for efficient communication
+- **Backend**: Go 1.25+ for performance and type safety
+- **Database**: PostgreSQL + pgx (raw SQL) for reliability
+- **Schema**: Atlas declarative migrations (schema.hcl)
+- **Communication**: gRPC + Connect-RPC for efficient communication
 - **Deployment**: Docker containers for environment consistency
 
 ### 4.2 Approach to Quality Goals
@@ -264,7 +267,8 @@ graph TB
 
 - **PostgreSQL Database**:
   - Purpose: Persistent storage with ACID guarantees
-  - Technologies: PostgreSQL 13+, Ent ORM
+  - Technologies: PostgreSQL 17+, pgx driver
+  - Schema: Atlas declarative migrations (schema.hcl)
   - Interfaces: SQL, Connection pooling
 
 ### 5.2 C3: Component Diagrams
@@ -315,10 +319,14 @@ graph TB
 
 ### 5.3 Level 3: Component Details
 
-**StorageService** (Foundation Service):
-- Responsibilities: CRUD operations for all entities, schema migrations
-- Interfaces: gRPC methods for each data model
-- Technologies: Ent ORM, PostgreSQL connections
+**Store Layer** (Foundation):
+- Responsibilities: CRUD operations for all entities
+- Components:
+  - `MarketDataStore`: Assets, Prices
+  - `PortfolioStore`: Portfolios, Holdings, Accounts, Transactions
+  - `SettingsStore`: User preferences
+- Technologies: pgx driver, raw SQL
+- Schema: Atlas declarative migrations (schema.hcl)
 - Dependencies: PostgreSQL database
 
 **PriceService** (Key Service):
@@ -344,10 +352,10 @@ graph TB
 
 The system uses the **Adapter Pattern** for integrations to isolate external API dependencies from core business logic.
 
-- **Messenger Adapters** (`internal/adapters/messengers/`): Telegram (stub)
-- **Price Data Adapters** (`internal/adapters/pricedata/`): CoinGecko (stub)
-- **Exchange Adapters** (`internal/adapters/exchanges/`): Binance (stub)
-- **Blockchain Adapters** (`internal/adapters/blockchain/`): Moralis (stub)
+- **Messenger Adapters** (`internal/adapter/telegram/`): Telegram (stub)
+- **Price Data Adapters** (`internal/adapter/coingecko/`): CoinGecko (stub)
+- **Exchange Adapters** (`internal/adapter/binance/`): Binance (stub)
+- **Blockchain Adapters** (`internal/adapter/moralis/`): Moralis (stub)
 
 All adapters use consistent error handling (gRPC status codes), interface-based design, and comprehensive stub tests.
 
@@ -479,10 +487,16 @@ RuleService → PortfolioService → AssetService → PriceService → External 
 - **Flexible Configuration**: JSON fields for rules and settings
 - **Audit Trail**: Complete history of all operations
 
-**Migrations:**
-- **Ent Migrations**: Automatic generation of schema migrations
+**Schema Management:**
+- **Atlas Declarative**: Schema defined in `schema.hcl` (HCL format)
+- **Automated Migrations**: `atlas schema apply` for dev environment
 - **Backward Compatibility**: Support for backward compatibility
 - **Data Integrity**: ACID transactions for critical operations
+
+**Testing:**
+- **Testcontainers**: Ephemeral PostgreSQL for integration tests
+- **Schema Apply**: Atlas CLI applies schema to test containers
+- **Isolation**: Each test run gets clean database
 
 ### 8.4 Operational Concepts
 
@@ -646,7 +660,7 @@ System Quality
 
 ---
 
-**Document Version**: 1.0
-**Last Updated**: 2025-09-28
+**Document Version**: 1.1
+**Last Updated**: 2026-02-03
 **Owner**: foxcool
 **Status**: Active

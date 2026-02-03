@@ -5,10 +5,11 @@ COMPOSE=docker compose -p eye
 # Path to the compose file
 COMPOSE_FILE=deploy/compose.yaml
 
-.PHONY: gen go-gen migrations migrate-apply up debug down logs clean buf-gen docs-api
+.PHONY: gen go-gen up debug down logs clean buf-gen docs-api \
+        test test-unit test-integration schema-apply schema-diff
 
 # Generate all code
-gen: buf-gen go-gen migrations
+gen: buf-gen go-gen
 
 # Generate all files from .proto sources using buf
 buf-gen:
@@ -34,18 +35,29 @@ go-gen:
 	@echo "Generating go code..."
 	go generate ./...
 
-# Generate migrations
-migrations:
-	@echo "📝 Generating diff against ephemeral DB…"
-	atlas migrate diff \
-	   -c file://deploy/migrations/atlas.hcl --env docker
+# Run all tests
+test: test-unit test-integration
 
-migrate-apply:
-	@echo "Applying migrations using compose run..."
-	$(COMPOSE) -f $(COMPOSE_FILE) run --rm atlas-cli migrate apply \
-		--config "file:///greedy-eye/deploy/migrations/atlas.hcl" \
-		--dir "file:///greedy-eye/deploy/migrations" \
-		--env docker
+# Run unit tests only
+test-unit:
+	@echo "Running unit tests..."
+	go test -v -race ./...
+
+# Run integration tests (requires Atlas CLI and Docker)
+test-integration:
+	@which atlas > /dev/null || (echo "Atlas CLI required: curl -sSf https://atlasgo.sh | sh" && exit 1)
+	@echo "Running integration tests..."
+	go test -v -p 1 -tags=integration ./internal/store/postgres/...
+
+# Atlas: apply schema to dev database
+schema-apply:
+	@which atlas > /dev/null || (echo "Atlas CLI required: curl -sSf https://atlasgo.sh | sh" && exit 1)
+	atlas schema apply --env local --auto-approve
+
+# Atlas: show schema diff
+schema-diff:
+	@which atlas > /dev/null || (echo "Atlas CLI required: curl -sSf https://atlasgo.sh | sh" && exit 1)
+	atlas schema diff --env local
 
 # Run default/development profile services in detached mode
 up:
@@ -79,10 +91,3 @@ logs:
 logs-debug:
 	@echo "Following logs for eye_debug service..."
 	$(COMPOSE) -f $(COMPOSE_FILE) logs -f eye-debug
-
-# Run tests in a dedicated test container
-test:
-	@echo "Running tests in a dedicated test container..."
-	$(COMPOSE) -f $(COMPOSE_FILE) --env-file deploy/secrets.env run --rm \
-	-e DOCKER_COMPOSE_TEST=true \
-	eye-test go test ./... -tags=integration

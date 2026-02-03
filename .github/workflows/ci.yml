@@ -31,51 +31,28 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '^1.24'
+          go-version: '^1.25'
 
       - name: Run unit tests
         run: |
-          go test -v -coverprofile=coverage-unit.out -covermode=atomic ./...
+          go test -v -race -coverprofile=coverage-unit.out -covermode=atomic ./...
 
   integration-tests:
     name: Run integration tests
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: greedy_eye
-          POSTGRES_PASSWORD: password
-          POSTGRES_DB: greedy_eye
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U greedy_eye -d greedy_eye"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '^1.24'
+          go-version: '^1.25'
 
-      - name: Wait for Postgres
-        run: |
-          for i in $(seq 1 10); do
-            pg_isready -h localhost -p 5432 -U greedy_eye && break
-            echo "Waiting for postgres..."
-            sleep 2
-          done
+      - name: Install Atlas CLI
+        run: curl -sSf https://atlasgo.sh | sh
 
       - name: Run integration tests
-        env:
-          EYE_DB_URL: postgres://greedy_eye:password@localhost:5432/greedy_eye?sslmode=disable
-          DOCKER_COMPOSE_TEST: true
         run: |
-          go test -v -tags=integration ./... -coverprofile=coverage-integration.out
+          go test -v -p 1 -tags=integration ./internal/store/postgres/... -coverprofile=coverage-integration.out
 
   docker-publish:
     name: Build & Publish Docker Image
