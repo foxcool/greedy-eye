@@ -3,6 +3,10 @@ volumes:
   postgres_data: # DB data
   go_modules: # cache go modules
 
+networks:
+  proxy:
+    external: true
+
 services:
   # greedy-eye
   # Default profile for development.
@@ -14,9 +18,6 @@ services:
       args:
         _path: cmd/eye
     container_name: eye-dev
-    ports:
-      - "50080:8080"
-      - "50051:50051"
     # Development specific configuration working with source code.
     volumes:
       # Mount source code for live reload.
@@ -30,6 +31,15 @@ services:
       EYE_LOGGING_LEVEL: INFO
       EYE_SENTRY_ENVIRONMENT: "development"
       EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.eye-dev.rule=Host(`${EYE_DOMAIN}`)"
+      - "traefik.http.routers.eye-dev.entrypoints=web"
+      - "traefik.http.services.eye-dev.loadbalancer.server.port=8080"
+      - "traefik.http.services.eye-dev.loadbalancer.server.scheme=h2c"
+    networks:
+      - proxy
+      - default
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,8 +54,7 @@ services:
         _path: cmd/eye
     container_name: eye-debug
     ports:
-      - "50081:8080"
-      - "40000:40000"
+      - "40000:40000" # Delve debugger
     volumes:
       - ..:/go/src/github.com/foxcool/greedy-eye
       - go_modules:/go/pkg/mod
@@ -55,6 +64,15 @@ services:
       EYE_LOGGING_LEVEL: DEBUG
       EYE_SENTRY_ENVIRONMENT: "debug"
       EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.eye-debug.rule=Host(`${EYE_DEBUG_DOMAIN}`)"
+      - "traefik.http.routers.eye-debug.entrypoints=web"
+      - "traefik.http.services.eye-debug.loadbalancer.server.port=8080"
+      - "traefik.http.services.eye-debug.loadbalancer.server.scheme=h2c"
+    networks:
+      - proxy
+      - default
     depends_on:
       postgres:
         condition: service_healthy
