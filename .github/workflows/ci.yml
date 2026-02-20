@@ -54,40 +54,44 @@ jobs:
         run: |
           go test -v -p 1 -tags=integration ./internal/store/postgres/... -coverprofile=coverage-integration.out
 
-  docker-publish:
-    name: Build & Publish Docker Image
+  release:
+    name: Release
     runs-on: ubuntu-latest
     needs:
       - golangci
       - unit-tests
       - integration-tests
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+      packages: write
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '^1.25'
 
       - name: Setup QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
 
       - name: Setup Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
-          registry: docker.io
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push multiplatform
-        uses: docker/build-push-action@v4
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
         with:
-          context: .
-          file: build/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          build-args: |
-            _path=cmd/eye
-          tags: |
-            foxcool/greedy-eye:${{ github.ref_name }}
-            foxcool/greedy-eye:latest
-          push: true
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,53 @@
+project_name: greedy-eye
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: eye
+    main: ./cmd/eye
+    binary: eye
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+dockers:
+  - id: eye-linux-amd64
+    goos: linux
+    goarch: amd64
+    image_templates:
+      - "ghcr.io/foxcool/greedy-eye:{{ .Version }}-amd64"
+    dockerfile: build/release.Dockerfile
+    extra_files:
+      - schema.hcl
+      - atlas.hcl
+
+  - id: eye-linux-arm64
+    goos: linux
+    goarch: arm64
+    image_templates:
+      - "ghcr.io/foxcool/greedy-eye:{{ .Version }}-arm64"
+    dockerfile: build/release.Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+    extra_files:
+      - schema.hcl
+      - atlas.hcl
+
+docker_manifests:
+  - name_template: "ghcr.io/foxcool/greedy-eye:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/foxcool/greedy-eye:{{ .Version }}-amd64"
+      - "ghcr.io/foxcool/greedy-eye:{{ .Version }}-arm64"
+
+  - name_template: "ghcr.io/foxcool/greedy-eye:latest"
+    image_templates:
+      - "ghcr.io/foxcool/greedy-eye:{{ .Version }}-amd64"
+      - "ghcr.io/foxcool/greedy-eye:{{ .Version }}-arm64"

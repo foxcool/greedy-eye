@@ -69,6 +69,64 @@ make clean            # Clean up docker resources
 docker build .        # Build Docker image
 ```
 
+## Multi-Service Dev Stack (Traefik)
+
+greedy-eye integrates into a shared Traefik proxy for path-based routing across multiple local services. Connect RPC uses h2c (HTTP/2 cleartext), configured via `server.scheme=h2c` in Traefik labels.
+
+```
+Internet / curl
+      │
+  Traefik :80
+      │
+      ├── Host(eye.dev.local)       → eye-dev:8080  [h2c]
+      └── Host(eye-debug.dev.local) → eye-debug:8080 [h2c]
+```
+
+### Prerequisites
+
+- External Docker network `proxy` with a running Traefik instance
+- `deploy/.env` with domain configuration (copy from `.env.example`)
+
+```bash
+docker network create proxy
+cp deploy/.env.example deploy/.env
+# edit deploy/.env if needed
+```
+
+### Start Order
+
+```bash
+# 1. Start Traefik (external, managed separately)
+# 2. Start greedy-eye dev stack
+make up
+
+# Debug profile (Delve on :40000)
+docker compose -f deploy/compose.yaml --profile debug up
+```
+
+### Routing
+
+| Domain               | Profile | Backend port | Protocol |
+|----------------------|---------|-------------|----------|
+| `$EYE_DOMAIN`        | dev     | 8080        | h2c      |
+| `$EYE_DEBUG_DOMAIN`  | debug   | 8080        | h2c      |
+
+Delve debugger is available directly on `localhost:40000` (not routed through Traefik).
+
+### Troubleshooting
+
+```bash
+# Verify container is in both networks
+docker inspect eye-dev --format '{{json .NetworkSettings.Networks}}' | jq 'keys'
+# Expected: ["eye_default", "proxy"]
+
+# Check Traefik picked up the routes
+curl -H "Host: eye.dev.local" http://localhost/health
+
+# Direct health check (bypassing Traefik)
+docker exec eye-dev curl -s localhost:8080/health
+```
+
 ## Current Development Status
 
 ### Implementation Progress
@@ -504,6 +562,26 @@ mindmap
 - Production deployment with monitoring
 
 ## Common Development Tasks
+
+### Manual Cross-Platform Docker Build
+
+GoReleaser handles production builds on tag push. For a manual multiarch build to GHCR:
+
+```bash
+docker login ghcr.io -u <github-username> --password-stdin
+
+docker buildx create --name mybuilder --use
+docker buildx inspect --bootstrap
+
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -f build/release.Dockerfile \
+  -t ghcr.io/foxcool/greedy-eye:latest \
+  --push .
+```
+
+> Note: `release.Dockerfile` expects a pre-built `eye` binary in the build context.
+> Use GoReleaser (`goreleaser release --snapshot --clean`) to produce it first.
 
 ### Adding a New Service Method
 1. **Define in proto**: Add method to service definition
