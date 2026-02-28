@@ -78,8 +78,7 @@ Internet / curl
       │
   Traefik :80
       │
-      ├── Host(eye.dev.local)       → eye-dev:8080  [h2c]
-      └── Host(eye-debug.dev.local) → eye-debug:8080 [h2c]
+      └── Host($EYE_DOMAIN)         → eye-dev:8080  [h2c]
 ```
 
 ### Prerequisites
@@ -106,10 +105,7 @@ docker compose -f deploy/compose.yaml --profile debug up
 
 ### Routing
 
-| Domain               | Profile | Backend port | Protocol |
-|----------------------|---------|-------------|----------|
-| `$EYE_DOMAIN`        | dev     | 8080        | h2c      |
-| `$EYE_DEBUG_DOMAIN`  | debug   | 8080        | h2c      |
+Traefic is routed to `eye-dev:8080` via h2c under the domain `$EYE_DOMAIN` (configured in `deploy/.env`).
 
 Delve debugger is available directly on `localhost:40000` (not routed through Traefik).
 
