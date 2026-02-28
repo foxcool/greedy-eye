@@ -66,7 +66,7 @@ services:
       EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.eye-debug.rule=Host(`${EYE_DEBUG_DOMAIN}`)"
+      - "traefik.http.routers.eye-debug.rule=Host(`${EYE_DOMAIN}`)"
       - "traefik.http.routers.eye-debug.entrypoints=web"
       - "traefik.http.services.eye-debug.loadbalancer.server.port=8080"
       - "traefik.http.services.eye-debug.loadbalancer.server.scheme=h2c"
