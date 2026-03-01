@@ -23,7 +23,7 @@ const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// PortfolioServiceName is the fully-qualified name of the PortfolioService service.
-	PortfolioServiceName = "greedy_eye.v1.PortfolioService"
+	PortfolioServiceName = "eye.v1.PortfolioService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -36,67 +36,67 @@ const (
 const (
 	// PortfolioServiceCreatePortfolioProcedure is the fully-qualified name of the PortfolioService's
 	// CreatePortfolio RPC.
-	PortfolioServiceCreatePortfolioProcedure = "/greedy_eye.v1.PortfolioService/CreatePortfolio"
+	PortfolioServiceCreatePortfolioProcedure = "/eye.v1.PortfolioService/CreatePortfolio"
 	// PortfolioServiceGetPortfolioProcedure is the fully-qualified name of the PortfolioService's
 	// GetPortfolio RPC.
-	PortfolioServiceGetPortfolioProcedure = "/greedy_eye.v1.PortfolioService/GetPortfolio"
+	PortfolioServiceGetPortfolioProcedure = "/eye.v1.PortfolioService/GetPortfolio"
 	// PortfolioServiceUpdatePortfolioProcedure is the fully-qualified name of the PortfolioService's
 	// UpdatePortfolio RPC.
-	PortfolioServiceUpdatePortfolioProcedure = "/greedy_eye.v1.PortfolioService/UpdatePortfolio"
+	PortfolioServiceUpdatePortfolioProcedure = "/eye.v1.PortfolioService/UpdatePortfolio"
 	// PortfolioServiceDeletePortfolioProcedure is the fully-qualified name of the PortfolioService's
 	// DeletePortfolio RPC.
-	PortfolioServiceDeletePortfolioProcedure = "/greedy_eye.v1.PortfolioService/DeletePortfolio"
+	PortfolioServiceDeletePortfolioProcedure = "/eye.v1.PortfolioService/DeletePortfolio"
 	// PortfolioServiceListPortfoliosProcedure is the fully-qualified name of the PortfolioService's
 	// ListPortfolios RPC.
-	PortfolioServiceListPortfoliosProcedure = "/greedy_eye.v1.PortfolioService/ListPortfolios"
+	PortfolioServiceListPortfoliosProcedure = "/eye.v1.PortfolioService/ListPortfolios"
 	// PortfolioServiceCalculatePortfolioValueProcedure is the fully-qualified name of the
 	// PortfolioService's CalculatePortfolioValue RPC.
-	PortfolioServiceCalculatePortfolioValueProcedure = "/greedy_eye.v1.PortfolioService/CalculatePortfolioValue"
+	PortfolioServiceCalculatePortfolioValueProcedure = "/eye.v1.PortfolioService/CalculatePortfolioValue"
 	// PortfolioServiceGetPortfolioPerformanceProcedure is the fully-qualified name of the
 	// PortfolioService's GetPortfolioPerformance RPC.
-	PortfolioServiceGetPortfolioPerformanceProcedure = "/greedy_eye.v1.PortfolioService/GetPortfolioPerformance"
+	PortfolioServiceGetPortfolioPerformanceProcedure = "/eye.v1.PortfolioService/GetPortfolioPerformance"
 	// PortfolioServiceCreateHoldingProcedure is the fully-qualified name of the PortfolioService's
 	// CreateHolding RPC.
-	PortfolioServiceCreateHoldingProcedure = "/greedy_eye.v1.PortfolioService/CreateHolding"
+	PortfolioServiceCreateHoldingProcedure = "/eye.v1.PortfolioService/CreateHolding"
 	// PortfolioServiceGetHoldingProcedure is the fully-qualified name of the PortfolioService's
 	// GetHolding RPC.
-	PortfolioServiceGetHoldingProcedure = "/greedy_eye.v1.PortfolioService/GetHolding"
+	PortfolioServiceGetHoldingProcedure = "/eye.v1.PortfolioService/GetHolding"
 	// PortfolioServiceUpdateHoldingProcedure is the fully-qualified name of the PortfolioService's
 	// UpdateHolding RPC.
-	PortfolioServiceUpdateHoldingProcedure = "/greedy_eye.v1.PortfolioService/UpdateHolding"
+	PortfolioServiceUpdateHoldingProcedure = "/eye.v1.PortfolioService/UpdateHolding"
 	// PortfolioServiceListHoldingsProcedure is the fully-qualified name of the PortfolioService's
 	// ListHoldings RPC.
-	PortfolioServiceListHoldingsProcedure = "/greedy_eye.v1.PortfolioService/ListHoldings"
+	PortfolioServiceListHoldingsProcedure = "/eye.v1.PortfolioService/ListHoldings"
 	// PortfolioServiceCreateAccountProcedure is the fully-qualified name of the PortfolioService's
 	// CreateAccount RPC.
-	PortfolioServiceCreateAccountProcedure = "/greedy_eye.v1.PortfolioService/CreateAccount"
+	PortfolioServiceCreateAccountProcedure = "/eye.v1.PortfolioService/CreateAccount"
 	// PortfolioServiceGetAccountProcedure is the fully-qualified name of the PortfolioService's
 	// GetAccount RPC.
-	PortfolioServiceGetAccountProcedure = "/greedy_eye.v1.PortfolioService/GetAccount"
+	PortfolioServiceGetAccountProcedure = "/eye.v1.PortfolioService/GetAccount"
 	// PortfolioServiceUpdateAccountProcedure is the fully-qualified name of the PortfolioService's
 	// UpdateAccount RPC.
-	PortfolioServiceUpdateAccountProcedure = "/greedy_eye.v1.PortfolioService/UpdateAccount"
+	PortfolioServiceUpdateAccountProcedure = "/eye.v1.PortfolioService/UpdateAccount"
 	// PortfolioServiceDeleteAccountProcedure is the fully-qualified name of the PortfolioService's
 	// DeleteAccount RPC.
-	PortfolioServiceDeleteAccountProcedure = "/greedy_eye.v1.PortfolioService/DeleteAccount"
+	PortfolioServiceDeleteAccountProcedure = "/eye.v1.PortfolioService/DeleteAccount"
 	// PortfolioServiceListAccountsProcedure is the fully-qualified name of the PortfolioService's
 	// ListAccounts RPC.
-	PortfolioServiceListAccountsProcedure = "/greedy_eye.v1.PortfolioService/ListAccounts"
+	PortfolioServiceListAccountsProcedure = "/eye.v1.PortfolioService/ListAccounts"
 	// PortfolioServiceCreateTransactionProcedure is the fully-qualified name of the PortfolioService's
 	// CreateTransaction RPC.
-	PortfolioServiceCreateTransactionProcedure = "/greedy_eye.v1.PortfolioService/CreateTransaction"
+	PortfolioServiceCreateTransactionProcedure = "/eye.v1.PortfolioService/CreateTransaction"
 	// PortfolioServiceGetTransactionProcedure is the fully-qualified name of the PortfolioService's
 	// GetTransaction RPC.
-	PortfolioServiceGetTransactionProcedure = "/greedy_eye.v1.PortfolioService/GetTransaction"
+	PortfolioServiceGetTransactionProcedure = "/eye.v1.PortfolioService/GetTransaction"
 	// PortfolioServiceUpdateTransactionProcedure is the fully-qualified name of the PortfolioService's
 	// UpdateTransaction RPC.
-	PortfolioServiceUpdateTransactionProcedure = "/greedy_eye.v1.PortfolioService/UpdateTransaction"
+	PortfolioServiceUpdateTransactionProcedure = "/eye.v1.PortfolioService/UpdateTransaction"
 	// PortfolioServiceListTransactionsProcedure is the fully-qualified name of the PortfolioService's
 	// ListTransactions RPC.
-	PortfolioServiceListTransactionsProcedure = "/greedy_eye.v1.PortfolioService/ListTransactions"
+	PortfolioServiceListTransactionsProcedure = "/eye.v1.PortfolioService/ListTransactions"
 )
 
-// PortfolioServiceClient is a client for the greedy_eye.v1.PortfolioService service.
+// PortfolioServiceClient is a client for the eye.v1.PortfolioService service.
 type PortfolioServiceClient interface {
 	// --- Portfolio CRUD ---
 	CreatePortfolio(context.Context, *connect.Request[v1.CreatePortfolioRequest]) (*connect.Response[v1.Portfolio], error)
@@ -125,7 +125,7 @@ type PortfolioServiceClient interface {
 	ListTransactions(context.Context, *connect.Request[v1.ListTransactionsRequest]) (*connect.Response[v1.ListTransactionsResponse], error)
 }
 
-// NewPortfolioServiceClient constructs a client for the greedy_eye.v1.PortfolioService service. By
+// NewPortfolioServiceClient constructs a client for the eye.v1.PortfolioService service. By
 // default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
 // and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
 // connect.WithGRPC() or connect.WithGRPCWeb() options.
@@ -283,107 +283,107 @@ type portfolioServiceClient struct {
 	listTransactions        *connect.Client[v1.ListTransactionsRequest, v1.ListTransactionsResponse]
 }
 
-// CreatePortfolio calls greedy_eye.v1.PortfolioService.CreatePortfolio.
+// CreatePortfolio calls eye.v1.PortfolioService.CreatePortfolio.
 func (c *portfolioServiceClient) CreatePortfolio(ctx context.Context, req *connect.Request[v1.CreatePortfolioRequest]) (*connect.Response[v1.Portfolio], error) {
 	return c.createPortfolio.CallUnary(ctx, req)
 }
 
-// GetPortfolio calls greedy_eye.v1.PortfolioService.GetPortfolio.
+// GetPortfolio calls eye.v1.PortfolioService.GetPortfolio.
 func (c *portfolioServiceClient) GetPortfolio(ctx context.Context, req *connect.Request[v1.GetPortfolioRequest]) (*connect.Response[v1.Portfolio], error) {
 	return c.getPortfolio.CallUnary(ctx, req)
 }
 
-// UpdatePortfolio calls greedy_eye.v1.PortfolioService.UpdatePortfolio.
+// UpdatePortfolio calls eye.v1.PortfolioService.UpdatePortfolio.
 func (c *portfolioServiceClient) UpdatePortfolio(ctx context.Context, req *connect.Request[v1.UpdatePortfolioRequest]) (*connect.Response[v1.Portfolio], error) {
 	return c.updatePortfolio.CallUnary(ctx, req)
 }
 
-// DeletePortfolio calls greedy_eye.v1.PortfolioService.DeletePortfolio.
+// DeletePortfolio calls eye.v1.PortfolioService.DeletePortfolio.
 func (c *portfolioServiceClient) DeletePortfolio(ctx context.Context, req *connect.Request[v1.DeletePortfolioRequest]) (*connect.Response[emptypb.Empty], error) {
 	return c.deletePortfolio.CallUnary(ctx, req)
 }
 
-// ListPortfolios calls greedy_eye.v1.PortfolioService.ListPortfolios.
+// ListPortfolios calls eye.v1.PortfolioService.ListPortfolios.
 func (c *portfolioServiceClient) ListPortfolios(ctx context.Context, req *connect.Request[v1.ListPortfoliosRequest]) (*connect.Response[v1.ListPortfoliosResponse], error) {
 	return c.listPortfolios.CallUnary(ctx, req)
 }
 
-// CalculatePortfolioValue calls greedy_eye.v1.PortfolioService.CalculatePortfolioValue.
+// CalculatePortfolioValue calls eye.v1.PortfolioService.CalculatePortfolioValue.
 func (c *portfolioServiceClient) CalculatePortfolioValue(ctx context.Context, req *connect.Request[v1.CalculatePortfolioValueRequest]) (*connect.Response[v1.PortfolioValueResponse], error) {
 	return c.calculatePortfolioValue.CallUnary(ctx, req)
 }
 
-// GetPortfolioPerformance calls greedy_eye.v1.PortfolioService.GetPortfolioPerformance.
+// GetPortfolioPerformance calls eye.v1.PortfolioService.GetPortfolioPerformance.
 func (c *portfolioServiceClient) GetPortfolioPerformance(ctx context.Context, req *connect.Request[v1.GetPortfolioPerformanceRequest]) (*connect.Response[v1.PortfolioPerformanceResponse], error) {
 	return c.getPortfolioPerformance.CallUnary(ctx, req)
 }
 
-// CreateHolding calls greedy_eye.v1.PortfolioService.CreateHolding.
+// CreateHolding calls eye.v1.PortfolioService.CreateHolding.
 func (c *portfolioServiceClient) CreateHolding(ctx context.Context, req *connect.Request[v1.CreateHoldingRequest]) (*connect.Response[v1.Holding], error) {
 	return c.createHolding.CallUnary(ctx, req)
 }
 
-// GetHolding calls greedy_eye.v1.PortfolioService.GetHolding.
+// GetHolding calls eye.v1.PortfolioService.GetHolding.
 func (c *portfolioServiceClient) GetHolding(ctx context.Context, req *connect.Request[v1.GetHoldingRequest]) (*connect.Response[v1.Holding], error) {
 	return c.getHolding.CallUnary(ctx, req)
 }
 
-// UpdateHolding calls greedy_eye.v1.PortfolioService.UpdateHolding.
+// UpdateHolding calls eye.v1.PortfolioService.UpdateHolding.
 func (c *portfolioServiceClient) UpdateHolding(ctx context.Context, req *connect.Request[v1.UpdateHoldingRequest]) (*connect.Response[v1.Holding], error) {
 	return c.updateHolding.CallUnary(ctx, req)
 }
 
-// ListHoldings calls greedy_eye.v1.PortfolioService.ListHoldings.
+// ListHoldings calls eye.v1.PortfolioService.ListHoldings.
 func (c *portfolioServiceClient) ListHoldings(ctx context.Context, req *connect.Request[v1.ListHoldingsRequest]) (*connect.Response[v1.ListHoldingsResponse], error) {
 	return c.listHoldings.CallUnary(ctx, req)
 }
 
-// CreateAccount calls greedy_eye.v1.PortfolioService.CreateAccount.
+// CreateAccount calls eye.v1.PortfolioService.CreateAccount.
 func (c *portfolioServiceClient) CreateAccount(ctx context.Context, req *connect.Request[v1.CreateAccountRequest]) (*connect.Response[v1.Account], error) {
 	return c.createAccount.CallUnary(ctx, req)
 }
 
-// GetAccount calls greedy_eye.v1.PortfolioService.GetAccount.
+// GetAccount calls eye.v1.PortfolioService.GetAccount.
 func (c *portfolioServiceClient) GetAccount(ctx context.Context, req *connect.Request[v1.GetAccountRequest]) (*connect.Response[v1.Account], error) {
 	return c.getAccount.CallUnary(ctx, req)
 }
 
-// UpdateAccount calls greedy_eye.v1.PortfolioService.UpdateAccount.
+// UpdateAccount calls eye.v1.PortfolioService.UpdateAccount.
 func (c *portfolioServiceClient) UpdateAccount(ctx context.Context, req *connect.Request[v1.UpdateAccountRequest]) (*connect.Response[v1.Account], error) {
 	return c.updateAccount.CallUnary(ctx, req)
 }
 
-// DeleteAccount calls greedy_eye.v1.PortfolioService.DeleteAccount.
+// DeleteAccount calls eye.v1.PortfolioService.DeleteAccount.
 func (c *portfolioServiceClient) DeleteAccount(ctx context.Context, req *connect.Request[v1.DeleteAccountRequest]) (*connect.Response[emptypb.Empty], error) {
 	return c.deleteAccount.CallUnary(ctx, req)
 }
 
-// ListAccounts calls greedy_eye.v1.PortfolioService.ListAccounts.
+// ListAccounts calls eye.v1.PortfolioService.ListAccounts.
 func (c *portfolioServiceClient) ListAccounts(ctx context.Context, req *connect.Request[v1.ListAccountsRequest]) (*connect.Response[v1.ListAccountsResponse], error) {
 	return c.listAccounts.CallUnary(ctx, req)
 }
 
-// CreateTransaction calls greedy_eye.v1.PortfolioService.CreateTransaction.
+// CreateTransaction calls eye.v1.PortfolioService.CreateTransaction.
 func (c *portfolioServiceClient) CreateTransaction(ctx context.Context, req *connect.Request[v1.CreateTransactionRequest]) (*connect.Response[v1.Transaction], error) {
 	return c.createTransaction.CallUnary(ctx, req)
 }
 
-// GetTransaction calls greedy_eye.v1.PortfolioService.GetTransaction.
+// GetTransaction calls eye.v1.PortfolioService.GetTransaction.
 func (c *portfolioServiceClient) GetTransaction(ctx context.Context, req *connect.Request[v1.GetTransactionRequest]) (*connect.Response[v1.Transaction], error) {
 	return c.getTransaction.CallUnary(ctx, req)
 }
 
-// UpdateTransaction calls greedy_eye.v1.PortfolioService.UpdateTransaction.
+// UpdateTransaction calls eye.v1.PortfolioService.UpdateTransaction.
 func (c *portfolioServiceClient) UpdateTransaction(ctx context.Context, req *connect.Request[v1.UpdateTransactionRequest]) (*connect.Response[v1.Transaction], error) {
 	return c.updateTransaction.CallUnary(ctx, req)
 }
 
-// ListTransactions calls greedy_eye.v1.PortfolioService.ListTransactions.
+// ListTransactions calls eye.v1.PortfolioService.ListTransactions.
 func (c *portfolioServiceClient) ListTransactions(ctx context.Context, req *connect.Request[v1.ListTransactionsRequest]) (*connect.Response[v1.ListTransactionsResponse], error) {
 	return c.listTransactions.CallUnary(ctx, req)
 }
 
-// PortfolioServiceHandler is an implementation of the greedy_eye.v1.PortfolioService service.
+// PortfolioServiceHandler is an implementation of the eye.v1.PortfolioService service.
 type PortfolioServiceHandler interface {
 	// --- Portfolio CRUD ---
 	CreatePortfolio(context.Context, *connect.Request[v1.CreatePortfolioRequest]) (*connect.Response[v1.Portfolio], error)
@@ -539,7 +539,7 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 		connect.WithSchema(portfolioServiceMethods.ByName("ListTransactions")),
 		connect.WithHandlerOptions(opts...),
 	)
-	return "/greedy_eye.v1.PortfolioService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return "/eye.v1.PortfolioService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PortfolioServiceCreatePortfolioProcedure:
 			portfolioServiceCreatePortfolioHandler.ServeHTTP(w, r)
@@ -591,81 +591,81 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 type UnimplementedPortfolioServiceHandler struct{}
 
 func (UnimplementedPortfolioServiceHandler) CreatePortfolio(context.Context, *connect.Request[v1.CreatePortfolioRequest]) (*connect.Response[v1.Portfolio], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.CreatePortfolio is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.CreatePortfolio is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) GetPortfolio(context.Context, *connect.Request[v1.GetPortfolioRequest]) (*connect.Response[v1.Portfolio], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.GetPortfolio is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.GetPortfolio is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) UpdatePortfolio(context.Context, *connect.Request[v1.UpdatePortfolioRequest]) (*connect.Response[v1.Portfolio], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.UpdatePortfolio is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.UpdatePortfolio is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) DeletePortfolio(context.Context, *connect.Request[v1.DeletePortfolioRequest]) (*connect.Response[emptypb.Empty], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.DeletePortfolio is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.DeletePortfolio is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) ListPortfolios(context.Context, *connect.Request[v1.ListPortfoliosRequest]) (*connect.Response[v1.ListPortfoliosResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.ListPortfolios is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.ListPortfolios is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) CalculatePortfolioValue(context.Context, *connect.Request[v1.CalculatePortfolioValueRequest]) (*connect.Response[v1.PortfolioValueResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.CalculatePortfolioValue is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.CalculatePortfolioValue is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) GetPortfolioPerformance(context.Context, *connect.Request[v1.GetPortfolioPerformanceRequest]) (*connect.Response[v1.PortfolioPerformanceResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.GetPortfolioPerformance is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.GetPortfolioPerformance is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) CreateHolding(context.Context, *connect.Request[v1.CreateHoldingRequest]) (*connect.Response[v1.Holding], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.CreateHolding is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.CreateHolding is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) GetHolding(context.Context, *connect.Request[v1.GetHoldingRequest]) (*connect.Response[v1.Holding], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.GetHolding is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.GetHolding is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) UpdateHolding(context.Context, *connect.Request[v1.UpdateHoldingRequest]) (*connect.Response[v1.Holding], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.UpdateHolding is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.UpdateHolding is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) ListHoldings(context.Context, *connect.Request[v1.ListHoldingsRequest]) (*connect.Response[v1.ListHoldingsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.ListHoldings is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.ListHoldings is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) CreateAccount(context.Context, *connect.Request[v1.CreateAccountRequest]) (*connect.Response[v1.Account], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.CreateAccount is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.CreateAccount is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) GetAccount(context.Context, *connect.Request[v1.GetAccountRequest]) (*connect.Response[v1.Account], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.GetAccount is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.GetAccount is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) UpdateAccount(context.Context, *connect.Request[v1.UpdateAccountRequest]) (*connect.Response[v1.Account], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.UpdateAccount is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.UpdateAccount is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) DeleteAccount(context.Context, *connect.Request[v1.DeleteAccountRequest]) (*connect.Response[emptypb.Empty], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.DeleteAccount is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.DeleteAccount is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) ListAccounts(context.Context, *connect.Request[v1.ListAccountsRequest]) (*connect.Response[v1.ListAccountsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.ListAccounts is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.ListAccounts is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) CreateTransaction(context.Context, *connect.Request[v1.CreateTransactionRequest]) (*connect.Response[v1.Transaction], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.CreateTransaction is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.CreateTransaction is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) GetTransaction(context.Context, *connect.Request[v1.GetTransactionRequest]) (*connect.Response[v1.Transaction], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.GetTransaction is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.GetTransaction is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) UpdateTransaction(context.Context, *connect.Request[v1.UpdateTransactionRequest]) (*connect.Response[v1.Transaction], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.UpdateTransaction is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.UpdateTransaction is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) ListTransactions(context.Context, *connect.Request[v1.ListTransactionsRequest]) (*connect.Response[v1.ListTransactionsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.PortfolioService.ListTransactions is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.ListTransactions is not implemented"))
 }

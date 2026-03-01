@@ -23,7 +23,7 @@ const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// AutomationServiceName is the fully-qualified name of the AutomationService service.
-	AutomationServiceName = "greedy_eye.v1.AutomationService"
+	AutomationServiceName = "eye.v1.AutomationService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -36,61 +36,61 @@ const (
 const (
 	// AutomationServiceCreateRuleProcedure is the fully-qualified name of the AutomationService's
 	// CreateRule RPC.
-	AutomationServiceCreateRuleProcedure = "/greedy_eye.v1.AutomationService/CreateRule"
+	AutomationServiceCreateRuleProcedure = "/eye.v1.AutomationService/CreateRule"
 	// AutomationServiceGetRuleProcedure is the fully-qualified name of the AutomationService's GetRule
 	// RPC.
-	AutomationServiceGetRuleProcedure = "/greedy_eye.v1.AutomationService/GetRule"
+	AutomationServiceGetRuleProcedure = "/eye.v1.AutomationService/GetRule"
 	// AutomationServiceUpdateRuleProcedure is the fully-qualified name of the AutomationService's
 	// UpdateRule RPC.
-	AutomationServiceUpdateRuleProcedure = "/greedy_eye.v1.AutomationService/UpdateRule"
+	AutomationServiceUpdateRuleProcedure = "/eye.v1.AutomationService/UpdateRule"
 	// AutomationServiceDeleteRuleProcedure is the fully-qualified name of the AutomationService's
 	// DeleteRule RPC.
-	AutomationServiceDeleteRuleProcedure = "/greedy_eye.v1.AutomationService/DeleteRule"
+	AutomationServiceDeleteRuleProcedure = "/eye.v1.AutomationService/DeleteRule"
 	// AutomationServiceListRulesProcedure is the fully-qualified name of the AutomationService's
 	// ListRules RPC.
-	AutomationServiceListRulesProcedure = "/greedy_eye.v1.AutomationService/ListRules"
+	AutomationServiceListRulesProcedure = "/eye.v1.AutomationService/ListRules"
 	// AutomationServiceExecuteRuleProcedure is the fully-qualified name of the AutomationService's
 	// ExecuteRule RPC.
-	AutomationServiceExecuteRuleProcedure = "/greedy_eye.v1.AutomationService/ExecuteRule"
+	AutomationServiceExecuteRuleProcedure = "/eye.v1.AutomationService/ExecuteRule"
 	// AutomationServiceExecuteRuleAsyncProcedure is the fully-qualified name of the AutomationService's
 	// ExecuteRuleAsync RPC.
-	AutomationServiceExecuteRuleAsyncProcedure = "/greedy_eye.v1.AutomationService/ExecuteRuleAsync"
+	AutomationServiceExecuteRuleAsyncProcedure = "/eye.v1.AutomationService/ExecuteRuleAsync"
 	// AutomationServiceCancelRuleExecutionProcedure is the fully-qualified name of the
 	// AutomationService's CancelRuleExecution RPC.
-	AutomationServiceCancelRuleExecutionProcedure = "/greedy_eye.v1.AutomationService/CancelRuleExecution"
+	AutomationServiceCancelRuleExecutionProcedure = "/eye.v1.AutomationService/CancelRuleExecution"
 	// AutomationServiceValidateRuleProcedure is the fully-qualified name of the AutomationService's
 	// ValidateRule RPC.
-	AutomationServiceValidateRuleProcedure = "/greedy_eye.v1.AutomationService/ValidateRule"
+	AutomationServiceValidateRuleProcedure = "/eye.v1.AutomationService/ValidateRule"
 	// AutomationServiceSimulateRuleProcedure is the fully-qualified name of the AutomationService's
 	// SimulateRule RPC.
-	AutomationServiceSimulateRuleProcedure = "/greedy_eye.v1.AutomationService/SimulateRule"
+	AutomationServiceSimulateRuleProcedure = "/eye.v1.AutomationService/SimulateRule"
 	// AutomationServiceEnableRuleProcedure is the fully-qualified name of the AutomationService's
 	// EnableRule RPC.
-	AutomationServiceEnableRuleProcedure = "/greedy_eye.v1.AutomationService/EnableRule"
+	AutomationServiceEnableRuleProcedure = "/eye.v1.AutomationService/EnableRule"
 	// AutomationServiceDisableRuleProcedure is the fully-qualified name of the AutomationService's
 	// DisableRule RPC.
-	AutomationServiceDisableRuleProcedure = "/greedy_eye.v1.AutomationService/DisableRule"
+	AutomationServiceDisableRuleProcedure = "/eye.v1.AutomationService/DisableRule"
 	// AutomationServicePauseRuleProcedure is the fully-qualified name of the AutomationService's
 	// PauseRule RPC.
-	AutomationServicePauseRuleProcedure = "/greedy_eye.v1.AutomationService/PauseRule"
+	AutomationServicePauseRuleProcedure = "/eye.v1.AutomationService/PauseRule"
 	// AutomationServiceResumeRuleProcedure is the fully-qualified name of the AutomationService's
 	// ResumeRule RPC.
-	AutomationServiceResumeRuleProcedure = "/greedy_eye.v1.AutomationService/ResumeRule"
+	AutomationServiceResumeRuleProcedure = "/eye.v1.AutomationService/ResumeRule"
 	// AutomationServiceCreateRuleExecutionProcedure is the fully-qualified name of the
 	// AutomationService's CreateRuleExecution RPC.
-	AutomationServiceCreateRuleExecutionProcedure = "/greedy_eye.v1.AutomationService/CreateRuleExecution"
+	AutomationServiceCreateRuleExecutionProcedure = "/eye.v1.AutomationService/CreateRuleExecution"
 	// AutomationServiceGetRuleExecutionProcedure is the fully-qualified name of the AutomationService's
 	// GetRuleExecution RPC.
-	AutomationServiceGetRuleExecutionProcedure = "/greedy_eye.v1.AutomationService/GetRuleExecution"
+	AutomationServiceGetRuleExecutionProcedure = "/eye.v1.AutomationService/GetRuleExecution"
 	// AutomationServiceUpdateRuleExecutionProcedure is the fully-qualified name of the
 	// AutomationService's UpdateRuleExecution RPC.
-	AutomationServiceUpdateRuleExecutionProcedure = "/greedy_eye.v1.AutomationService/UpdateRuleExecution"
+	AutomationServiceUpdateRuleExecutionProcedure = "/eye.v1.AutomationService/UpdateRuleExecution"
 	// AutomationServiceListRuleExecutionsProcedure is the fully-qualified name of the
 	// AutomationService's ListRuleExecutions RPC.
-	AutomationServiceListRuleExecutionsProcedure = "/greedy_eye.v1.AutomationService/ListRuleExecutions"
+	AutomationServiceListRuleExecutionsProcedure = "/eye.v1.AutomationService/ListRuleExecutions"
 )
 
-// AutomationServiceClient is a client for the greedy_eye.v1.AutomationService service.
+// AutomationServiceClient is a client for the eye.v1.AutomationService service.
 type AutomationServiceClient interface {
 	// --- Rule CRUD ---
 	CreateRule(context.Context, *connect.Request[v1.CreateRuleRequest]) (*connect.Response[v1.Rule], error)
@@ -117,9 +117,9 @@ type AutomationServiceClient interface {
 	ListRuleExecutions(context.Context, *connect.Request[v1.ListRuleExecutionsRequest]) (*connect.Response[v1.ListRuleExecutionsResponse], error)
 }
 
-// NewAutomationServiceClient constructs a client for the greedy_eye.v1.AutomationService service.
-// By default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped
-// responses, and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
+// NewAutomationServiceClient constructs a client for the eye.v1.AutomationService service. By
+// default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
+// and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
 // connect.WithGRPC() or connect.WithGRPCWeb() options.
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
@@ -261,97 +261,97 @@ type automationServiceClient struct {
 	listRuleExecutions  *connect.Client[v1.ListRuleExecutionsRequest, v1.ListRuleExecutionsResponse]
 }
 
-// CreateRule calls greedy_eye.v1.AutomationService.CreateRule.
+// CreateRule calls eye.v1.AutomationService.CreateRule.
 func (c *automationServiceClient) CreateRule(ctx context.Context, req *connect.Request[v1.CreateRuleRequest]) (*connect.Response[v1.Rule], error) {
 	return c.createRule.CallUnary(ctx, req)
 }
 
-// GetRule calls greedy_eye.v1.AutomationService.GetRule.
+// GetRule calls eye.v1.AutomationService.GetRule.
 func (c *automationServiceClient) GetRule(ctx context.Context, req *connect.Request[v1.GetRuleRequest]) (*connect.Response[v1.Rule], error) {
 	return c.getRule.CallUnary(ctx, req)
 }
 
-// UpdateRule calls greedy_eye.v1.AutomationService.UpdateRule.
+// UpdateRule calls eye.v1.AutomationService.UpdateRule.
 func (c *automationServiceClient) UpdateRule(ctx context.Context, req *connect.Request[v1.UpdateRuleRequest]) (*connect.Response[v1.Rule], error) {
 	return c.updateRule.CallUnary(ctx, req)
 }
 
-// DeleteRule calls greedy_eye.v1.AutomationService.DeleteRule.
+// DeleteRule calls eye.v1.AutomationService.DeleteRule.
 func (c *automationServiceClient) DeleteRule(ctx context.Context, req *connect.Request[v1.DeleteRuleRequest]) (*connect.Response[emptypb.Empty], error) {
 	return c.deleteRule.CallUnary(ctx, req)
 }
 
-// ListRules calls greedy_eye.v1.AutomationService.ListRules.
+// ListRules calls eye.v1.AutomationService.ListRules.
 func (c *automationServiceClient) ListRules(ctx context.Context, req *connect.Request[v1.ListRulesRequest]) (*connect.Response[v1.ListRulesResponse], error) {
 	return c.listRules.CallUnary(ctx, req)
 }
 
-// ExecuteRule calls greedy_eye.v1.AutomationService.ExecuteRule.
+// ExecuteRule calls eye.v1.AutomationService.ExecuteRule.
 func (c *automationServiceClient) ExecuteRule(ctx context.Context, req *connect.Request[v1.ExecuteRuleRequest]) (*connect.Response[v1.ExecuteRuleResponse], error) {
 	return c.executeRule.CallUnary(ctx, req)
 }
 
-// ExecuteRuleAsync calls greedy_eye.v1.AutomationService.ExecuteRuleAsync.
+// ExecuteRuleAsync calls eye.v1.AutomationService.ExecuteRuleAsync.
 func (c *automationServiceClient) ExecuteRuleAsync(ctx context.Context, req *connect.Request[v1.ExecuteRuleAsyncRequest]) (*connect.Response[v1.ExecuteRuleAsyncResponse], error) {
 	return c.executeRuleAsync.CallUnary(ctx, req)
 }
 
-// CancelRuleExecution calls greedy_eye.v1.AutomationService.CancelRuleExecution.
+// CancelRuleExecution calls eye.v1.AutomationService.CancelRuleExecution.
 func (c *automationServiceClient) CancelRuleExecution(ctx context.Context, req *connect.Request[v1.CancelRuleExecutionRequest]) (*connect.Response[emptypb.Empty], error) {
 	return c.cancelRuleExecution.CallUnary(ctx, req)
 }
 
-// ValidateRule calls greedy_eye.v1.AutomationService.ValidateRule.
+// ValidateRule calls eye.v1.AutomationService.ValidateRule.
 func (c *automationServiceClient) ValidateRule(ctx context.Context, req *connect.Request[v1.ValidateRuleRequest]) (*connect.Response[v1.ValidateRuleResponse], error) {
 	return c.validateRule.CallUnary(ctx, req)
 }
 
-// SimulateRule calls greedy_eye.v1.AutomationService.SimulateRule.
+// SimulateRule calls eye.v1.AutomationService.SimulateRule.
 func (c *automationServiceClient) SimulateRule(ctx context.Context, req *connect.Request[v1.SimulateRuleRequest]) (*connect.Response[v1.SimulateRuleResponse], error) {
 	return c.simulateRule.CallUnary(ctx, req)
 }
 
-// EnableRule calls greedy_eye.v1.AutomationService.EnableRule.
+// EnableRule calls eye.v1.AutomationService.EnableRule.
 func (c *automationServiceClient) EnableRule(ctx context.Context, req *connect.Request[v1.EnableRuleRequest]) (*connect.Response[v1.Rule], error) {
 	return c.enableRule.CallUnary(ctx, req)
 }
 
-// DisableRule calls greedy_eye.v1.AutomationService.DisableRule.
+// DisableRule calls eye.v1.AutomationService.DisableRule.
 func (c *automationServiceClient) DisableRule(ctx context.Context, req *connect.Request[v1.DisableRuleRequest]) (*connect.Response[v1.Rule], error) {
 	return c.disableRule.CallUnary(ctx, req)
 }
 
-// PauseRule calls greedy_eye.v1.AutomationService.PauseRule.
+// PauseRule calls eye.v1.AutomationService.PauseRule.
 func (c *automationServiceClient) PauseRule(ctx context.Context, req *connect.Request[v1.PauseRuleRequest]) (*connect.Response[v1.Rule], error) {
 	return c.pauseRule.CallUnary(ctx, req)
 }
 
-// ResumeRule calls greedy_eye.v1.AutomationService.ResumeRule.
+// ResumeRule calls eye.v1.AutomationService.ResumeRule.
 func (c *automationServiceClient) ResumeRule(ctx context.Context, req *connect.Request[v1.ResumeRuleRequest]) (*connect.Response[v1.Rule], error) {
 	return c.resumeRule.CallUnary(ctx, req)
 }
 
-// CreateRuleExecution calls greedy_eye.v1.AutomationService.CreateRuleExecution.
+// CreateRuleExecution calls eye.v1.AutomationService.CreateRuleExecution.
 func (c *automationServiceClient) CreateRuleExecution(ctx context.Context, req *connect.Request[v1.CreateRuleExecutionRequest]) (*connect.Response[v1.RuleExecution], error) {
 	return c.createRuleExecution.CallUnary(ctx, req)
 }
 
-// GetRuleExecution calls greedy_eye.v1.AutomationService.GetRuleExecution.
+// GetRuleExecution calls eye.v1.AutomationService.GetRuleExecution.
 func (c *automationServiceClient) GetRuleExecution(ctx context.Context, req *connect.Request[v1.GetRuleExecutionRequest]) (*connect.Response[v1.RuleExecution], error) {
 	return c.getRuleExecution.CallUnary(ctx, req)
 }
 
-// UpdateRuleExecution calls greedy_eye.v1.AutomationService.UpdateRuleExecution.
+// UpdateRuleExecution calls eye.v1.AutomationService.UpdateRuleExecution.
 func (c *automationServiceClient) UpdateRuleExecution(ctx context.Context, req *connect.Request[v1.UpdateRuleExecutionRequest]) (*connect.Response[v1.RuleExecution], error) {
 	return c.updateRuleExecution.CallUnary(ctx, req)
 }
 
-// ListRuleExecutions calls greedy_eye.v1.AutomationService.ListRuleExecutions.
+// ListRuleExecutions calls eye.v1.AutomationService.ListRuleExecutions.
 func (c *automationServiceClient) ListRuleExecutions(ctx context.Context, req *connect.Request[v1.ListRuleExecutionsRequest]) (*connect.Response[v1.ListRuleExecutionsResponse], error) {
 	return c.listRuleExecutions.CallUnary(ctx, req)
 }
 
-// AutomationServiceHandler is an implementation of the greedy_eye.v1.AutomationService service.
+// AutomationServiceHandler is an implementation of the eye.v1.AutomationService service.
 type AutomationServiceHandler interface {
 	// --- Rule CRUD ---
 	CreateRule(context.Context, *connect.Request[v1.CreateRuleRequest]) (*connect.Response[v1.Rule], error)
@@ -493,7 +493,7 @@ func NewAutomationServiceHandler(svc AutomationServiceHandler, opts ...connect.H
 		connect.WithSchema(automationServiceMethods.ByName("ListRuleExecutions")),
 		connect.WithHandlerOptions(opts...),
 	)
-	return "/greedy_eye.v1.AutomationService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return "/eye.v1.AutomationService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AutomationServiceCreateRuleProcedure:
 			automationServiceCreateRuleHandler.ServeHTTP(w, r)
@@ -541,73 +541,73 @@ func NewAutomationServiceHandler(svc AutomationServiceHandler, opts ...connect.H
 type UnimplementedAutomationServiceHandler struct{}
 
 func (UnimplementedAutomationServiceHandler) CreateRule(context.Context, *connect.Request[v1.CreateRuleRequest]) (*connect.Response[v1.Rule], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.AutomationService.CreateRule is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.CreateRule is not implemented"))
 }
 
 func (UnimplementedAutomationServiceHandler) GetRule(context.Context, *connect.Request[v1.GetRuleRequest]) (*connect.Response[v1.Rule], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.AutomationService.GetRule is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.GetRule is not implemented"))
 }
 
 func (UnimplementedAutomationServiceHandler) UpdateRule(context.Context, *connect.Request[v1.UpdateRuleRequest]) (*connect.Response[v1.Rule], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.AutomationService.UpdateRule is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.UpdateRule is not implemented"))
 }
 
 func (UnimplementedAutomationServiceHandler) DeleteRule(context.Context, *connect.Request[v1.DeleteRuleRequest]) (*connect.Response[emptypb.Empty], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.AutomationService.DeleteRule is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.DeleteRule is not implemented"))
 }
 
 func (UnimplementedAutomationServiceHandler) ListRules(context.Context, *connect.Request[v1.ListRulesRequest]) (*connect.Response[v1.ListRulesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.AutomationService.ListRules is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.ListRules is not implemented"))
 }
 
 func (UnimplementedAutomationServiceHandler) ExecuteRule(context.Context, *connect.Request[v1.ExecuteRuleRequest]) (*connect.Response[v1.ExecuteRuleResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.AutomationService.ExecuteRule is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.ExecuteRule is not implemented"))
 }
 
 func (UnimplementedAutomationServiceHandler) ExecuteRuleAsync(context.Context, *connect.Request[v1.ExecuteRuleAsyncRequest]) (*connect.Response[v1.ExecuteRuleAsyncResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.AutomationService.ExecuteRuleAsync is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.ExecuteRuleAsync is not implemented"))
 }
 
 func (UnimplementedAutomationServiceHandler) CancelRuleExecution(context.Context, *connect.Request[v1.CancelRuleExecutionRequest]) (*connect.Response[emptypb.Empty], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.AutomationService.CancelRuleExecution is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.CancelRuleExecution is not implemented"))
 }
 
 func (UnimplementedAutomationServiceHandler) ValidateRule(context.Context, *connect.Request[v1.ValidateRuleRequest]) (*connect.Response[v1.ValidateRuleResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.AutomationService.ValidateRule is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.ValidateRule is not implemented"))
 }
 
 func (UnimplementedAutomationServiceHandler) SimulateRule(context.Context, *connect.Request[v1.SimulateRuleRequest]) (*connect.Response[v1.SimulateRuleResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.AutomationService.SimulateRule is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.SimulateRule is not implemented"))
 }
 
 func (UnimplementedAutomationServiceHandler) EnableRule(context.Context, *connect.Request[v1.EnableRuleRequest]) (*connect.Response[v1.Rule], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.AutomationService.EnableRule is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.EnableRule is not implemented"))
 }
 
 func (UnimplementedAutomationServiceHandler) DisableRule(context.Context, *connect.Request[v1.DisableRuleRequest]) (*connect.Response[v1.Rule], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.AutomationService.DisableRule is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.DisableRule is not implemented"))
 }
 
 func (UnimplementedAutomationServiceHandler) PauseRule(context.Context, *connect.Request[v1.PauseRuleRequest]) (*connect.Response[v1.Rule], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.AutomationService.PauseRule is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.PauseRule is not implemented"))
 }
 
 func (UnimplementedAutomationServiceHandler) ResumeRule(context.Context, *connect.Request[v1.ResumeRuleRequest]) (*connect.Response[v1.Rule], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.AutomationService.ResumeRule is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.ResumeRule is not implemented"))
 }
 
 func (UnimplementedAutomationServiceHandler) CreateRuleExecution(context.Context, *connect.Request[v1.CreateRuleExecutionRequest]) (*connect.Response[v1.RuleExecution], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.AutomationService.CreateRuleExecution is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.CreateRuleExecution is not implemented"))
 }
 
 func (UnimplementedAutomationServiceHandler) GetRuleExecution(context.Context, *connect.Request[v1.GetRuleExecutionRequest]) (*connect.Response[v1.RuleExecution], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.AutomationService.GetRuleExecution is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.GetRuleExecution is not implemented"))
 }
 
 func (UnimplementedAutomationServiceHandler) UpdateRuleExecution(context.Context, *connect.Request[v1.UpdateRuleExecutionRequest]) (*connect.Response[v1.RuleExecution], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.AutomationService.UpdateRuleExecution is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.UpdateRuleExecution is not implemented"))
 }
 
 func (UnimplementedAutomationServiceHandler) ListRuleExecutions(context.Context, *connect.Request[v1.ListRuleExecutionsRequest]) (*connect.Response[v1.ListRuleExecutionsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.AutomationService.ListRuleExecutions is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.ListRuleExecutions is not implemented"))
 }
