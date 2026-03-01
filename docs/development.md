@@ -44,9 +44,8 @@ make down
 ```
 
 The application starts:
-- gRPC server on port 50051
-- HTTP API on port 8080
-- Health check at http://localhost:8080/health
+- HTTP/2 (h2c) server on port 8080 — serves both Connect RPC and REST
+- Health check at http://localhost:8080/eye/health
 
 ### Essential Development Commands
 ```bash
@@ -76,10 +75,13 @@ greedy-eye integrates into a shared Traefik proxy for path-based routing across 
 ```
 Internet / curl
       │
-  Traefik :80
+  Traefik :80/:443
       │
-      └── Host($EYE_DOMAIN)         → eye-dev:8080  [h2c]
+      └── Host($EYE_DOMAIN) && PathPrefix(/eye)  → eye-dev:8080  [h2c]
 ```
+
+Connect RPC paths follow the pattern `/{package}.{ServiceName}/{Method}`.
+With package `eye.v1`, all endpoints are under `/eye.v1.*` which matches the `/eye` prefix.
 
 ### Prerequisites
 
@@ -105,7 +107,8 @@ docker compose -f deploy/compose.yaml --profile debug up
 
 ### Routing
 
-Traefic is routed to `eye-dev:8080` via h2c under the domain `$EYE_DOMAIN` (configured in `deploy/.env`).
+Traefik routes `PathPrefix("/eye")` on `$EYE_DOMAIN` to `eye-dev:8080` via h2c (configured in `deploy/.env`).
+Domain is set in `deploy/.env` and passed to compose via `--env-file deploy/.env` in the Makefile.
 
 Delve debugger is available directly on `localhost:40000` (not routed through Traefik).
 
@@ -117,10 +120,10 @@ docker inspect eye-dev --format '{{json .NetworkSettings.Networks}}' | jq 'keys'
 # Expected: ["eye_default", "proxy"]
 
 # Check Traefik picked up the routes
-curl -H "Host: eye.dev.local" http://localhost/health
+curl https://$EYE_DOMAIN/eye/health
 
 # Direct health check (bypassing Traefik)
-docker exec eye-dev curl -s localhost:8080/health
+docker exec eye-dev curl -s localhost:8080/eye/health
 ```
 
 ## Current Development Status
