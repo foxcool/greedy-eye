@@ -148,7 +148,7 @@ type Rule struct {
 	RuleType      string                 `protobuf:"bytes,4,opt,name=rule_type,json=ruleType,proto3" json:"rule_type,omitempty"` // e.g., "target_allocation", "monthly_withdrawal", "stop_loss", "dca"
 	PortfolioId   string                 `protobuf:"bytes,5,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
 	UserId        string                 `protobuf:"bytes,6,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Status        RuleStatus             `protobuf:"varint,7,opt,name=status,proto3,enum=greedy_eye.v1.RuleStatus" json:"status,omitempty"`
+	Status        RuleStatus             `protobuf:"varint,7,opt,name=status,proto3,enum=eye.v1.RuleStatus" json:"status,omitempty"`
 	Configuration *structpb.Struct       `protobuf:"bytes,8,opt,name=configuration,proto3" json:"configuration,omitempty"`
 	Schedule      *RuleSchedule          `protobuf:"bytes,9,opt,name=schedule,proto3" json:"schedule,omitempty"`
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
@@ -342,7 +342,7 @@ type RuleExecution struct {
 	UserId                *string                `protobuf:"bytes,4,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`
 	StartedAt             *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
 	CompletedAt           *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
-	Status                ExecutionStatus        `protobuf:"varint,7,opt,name=status,proto3,enum=greedy_eye.v1.ExecutionStatus" json:"status,omitempty"`
+	Status                ExecutionStatus        `protobuf:"varint,7,opt,name=status,proto3,enum=eye.v1.ExecutionStatus" json:"status,omitempty"`
 	ErrorMessage          *string                `protobuf:"bytes,8,opt,name=error_message,json=errorMessage,proto3,oneof" json:"error_message,omitempty"`
 	CreatedTransactionIds []string               `protobuf:"bytes,9,rep,name=created_transaction_ids,json=createdTransactionIds,proto3" json:"created_transaction_ids,omitempty"`
 	AffectedHoldingIds    []string               `protobuf:"bytes,10,rep,name=affected_holding_ids,json=affectedHoldingIds,proto3" json:"affected_holding_ids,omitempty"`
@@ -655,7 +655,7 @@ type ListRulesRequest struct {
 	UserId        *string                `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`
 	PortfolioId   *string                `protobuf:"bytes,2,opt,name=portfolio_id,json=portfolioId,proto3,oneof" json:"portfolio_id,omitempty"`
 	RuleType      *string                `protobuf:"bytes,3,opt,name=rule_type,json=ruleType,proto3,oneof" json:"rule_type,omitempty"`
-	Status        *RuleStatus            `protobuf:"varint,4,opt,name=status,proto3,enum=greedy_eye.v1.RuleStatus,oneof" json:"status,omitempty"`
+	Status        *RuleStatus            `protobuf:"varint,4,opt,name=status,proto3,enum=eye.v1.RuleStatus,oneof" json:"status,omitempty"`
 	PageSize      *int32                 `protobuf:"varint,5,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
 	PageToken     *string                `protobuf:"bytes,6,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2353,7 +2353,7 @@ type ListRuleExecutionsRequest struct {
 	RuleId        *string                `protobuf:"bytes,1,opt,name=rule_id,json=ruleId,proto3,oneof" json:"rule_id,omitempty"`
 	PortfolioId   *string                `protobuf:"bytes,2,opt,name=portfolio_id,json=portfolioId,proto3,oneof" json:"portfolio_id,omitempty"`
 	UserId        *string                `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`
-	Status        *ExecutionStatus       `protobuf:"varint,4,opt,name=status,proto3,enum=greedy_eye.v1.ExecutionStatus,oneof" json:"status,omitempty"`
+	Status        *ExecutionStatus       `protobuf:"varint,4,opt,name=status,proto3,enum=eye.v1.ExecutionStatus,oneof" json:"status,omitempty"`
 	From          *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=from,proto3,oneof" json:"from,omitempty"`
 	To            *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=to,proto3,oneof" json:"to,omitempty"`
 	PageSize      *int32                 `protobuf:"varint,7,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
@@ -2504,17 +2504,17 @@ var File_v1_automation_proto protoreflect.FileDescriptor
 
 const file_v1_automation_proto_rawDesc = "" +
 	"\n" +
-	"\x13v1/automation.proto\x12\rgreedy_eye.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1cgoogle/api/annotations.proto\"\xc6\x03\n" +
+	"\x13v1/automation.proto\x12\x06eye.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1cgoogle/api/annotations.proto\"\xb8\x03\n" +
 	"\x04Rule\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x1b\n" +
 	"\trule_type\x18\x04 \x01(\tR\bruleType\x12!\n" +
 	"\fportfolio_id\x18\x05 \x01(\tR\vportfolioId\x12\x17\n" +
-	"\auser_id\x18\x06 \x01(\tR\x06userId\x121\n" +
-	"\x06status\x18\a \x01(\x0e2\x19.greedy_eye.v1.RuleStatusR\x06status\x12=\n" +
-	"\rconfiguration\x18\b \x01(\v2\x17.google.protobuf.StructR\rconfiguration\x127\n" +
-	"\bschedule\x18\t \x01(\v2\x1b.greedy_eye.v1.RuleScheduleR\bschedule\x129\n" +
+	"\auser_id\x18\x06 \x01(\tR\x06userId\x12*\n" +
+	"\x06status\x18\a \x01(\x0e2\x12.eye.v1.RuleStatusR\x06status\x12=\n" +
+	"\rconfiguration\x18\b \x01(\v2\x17.google.protobuf.StructR\rconfiguration\x120\n" +
+	"\bschedule\x18\t \x01(\v2\x14.eye.v1.RuleScheduleR\bschedule\x129\n" +
 	"\n" +
 	"created_at\x18\n" +
 	" \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
@@ -2524,7 +2524,7 @@ const file_v1_automation_proto_rawDesc = "" +
 	"\x0fcron_expression\x18\x01 \x01(\tR\x0ecronExpression\x12\x1a\n" +
 	"\btimezone\x18\x02 \x01(\tR\btimezone\x12\x19\n" +
 	"\bone_time\x18\x03 \x01(\bR\aoneTime\x12?\n" +
-	"\rexecute_after\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\fexecuteAfter\"\xec\x04\n" +
+	"\rexecute_after\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\fexecuteAfter\"\xe5\x04\n" +
 	"\rRuleExecution\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\arule_id\x18\x02 \x01(\tR\x06ruleId\x12&\n" +
@@ -2532,8 +2532,8 @@ const file_v1_automation_proto_rawDesc = "" +
 	"\auser_id\x18\x04 \x01(\tH\x01R\x06userId\x88\x01\x01\x129\n" +
 	"\n" +
 	"started_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12=\n" +
-	"\fcompleted_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\vcompletedAt\x126\n" +
-	"\x06status\x18\a \x01(\x0e2\x1e.greedy_eye.v1.ExecutionStatusR\x06status\x12(\n" +
+	"\fcompleted_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\vcompletedAt\x12/\n" +
+	"\x06status\x18\a \x01(\x0e2\x17.eye.v1.ExecutionStatusR\x06status\x12(\n" +
 	"\rerror_message\x18\b \x01(\tH\x02R\ferrorMessage\x88\x01\x01\x126\n" +
 	"\x17created_transaction_ids\x18\t \x03(\tR\x15createdTransactionIds\x120\n" +
 	"\x14affected_holding_ids\x18\n" +
@@ -2543,22 +2543,22 @@ const file_v1_automation_proto_rawDesc = "" +
 	"\r_portfolio_idB\n" +
 	"\n" +
 	"\b_user_idB\x10\n" +
-	"\x0e_error_message\"<\n" +
-	"\x11CreateRuleRequest\x12'\n" +
-	"\x04rule\x18\x01 \x01(\v2\x13.greedy_eye.v1.RuleR\x04rule\" \n" +
+	"\x0e_error_message\"5\n" +
+	"\x11CreateRuleRequest\x12 \n" +
+	"\x04rule\x18\x01 \x01(\v2\f.eye.v1.RuleR\x04rule\" \n" +
 	"\x0eGetRuleRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"y\n" +
-	"\x11UpdateRuleRequest\x12'\n" +
-	"\x04rule\x18\x01 \x01(\v2\x13.greedy_eye.v1.RuleR\x04rule\x12;\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"r\n" +
+	"\x11UpdateRuleRequest\x12 \n" +
+	"\x04rule\x18\x01 \x01(\v2\f.eye.v1.RuleR\x04rule\x12;\n" +
 	"\vupdate_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
 	"updateMask\"#\n" +
 	"\x11DeleteRuleRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xcb\x02\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xc4\x02\n" +
 	"\x10ListRulesRequest\x12\x1c\n" +
 	"\auser_id\x18\x01 \x01(\tH\x00R\x06userId\x88\x01\x01\x12&\n" +
 	"\fportfolio_id\x18\x02 \x01(\tH\x01R\vportfolioId\x88\x01\x01\x12 \n" +
-	"\trule_type\x18\x03 \x01(\tH\x02R\bruleType\x88\x01\x01\x126\n" +
-	"\x06status\x18\x04 \x01(\x0e2\x19.greedy_eye.v1.RuleStatusH\x03R\x06status\x88\x01\x01\x12 \n" +
+	"\trule_type\x18\x03 \x01(\tH\x02R\bruleType\x88\x01\x01\x12/\n" +
+	"\x06status\x18\x04 \x01(\x0e2\x12.eye.v1.RuleStatusH\x03R\x06status\x88\x01\x01\x12 \n" +
 	"\tpage_size\x18\x05 \x01(\x05H\x04R\bpageSize\x88\x01\x01\x12\"\n" +
 	"\n" +
 	"page_token\x18\x06 \x01(\tH\x05R\tpageToken\x88\x01\x01B\n" +
@@ -2570,17 +2570,17 @@ const file_v1_automation_proto_rawDesc = "" +
 	"\a_statusB\f\n" +
 	"\n" +
 	"_page_sizeB\r\n" +
-	"\v_page_token\"f\n" +
-	"\x11ListRulesResponse\x12)\n" +
-	"\x05rules\x18\x01 \x03(\v2\x13.greedy_eye.v1.RuleR\x05rules\x12&\n" +
+	"\v_page_token\"_\n" +
+	"\x11ListRulesResponse\x12\"\n" +
+	"\x05rules\x18\x01 \x03(\v2\f.eye.v1.RuleR\x05rules\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x8e\x01\n" +
 	"\x12ExecuteRuleRequest\x12\x17\n" +
 	"\arule_id\x18\x01 \x01(\tR\x06ruleId\x12\x17\n" +
 	"\adry_run\x18\x02 \x01(\bR\x06dryRun\x120\n" +
 	"\x11execution_context\x18\x03 \x01(\tH\x00R\x10executionContext\x88\x01\x01B\x14\n" +
-	"\x12_execution_context\"Q\n" +
-	"\x13ExecuteRuleResponse\x12:\n" +
-	"\texecution\x18\x01 \x01(\v2\x1c.greedy_eye.v1.RuleExecutionR\texecution\"\x93\x01\n" +
+	"\x12_execution_context\"J\n" +
+	"\x13ExecuteRuleResponse\x123\n" +
+	"\texecution\x18\x01 \x01(\v2\x15.eye.v1.RuleExecutionR\texecution\"\x93\x01\n" +
 	"\x17ExecuteRuleAsyncRequest\x12\x17\n" +
 	"\arule_id\x18\x01 \x01(\tR\x06ruleId\x12\x17\n" +
 	"\adry_run\x18\x02 \x01(\bR\x06dryRun\x120\n" +
@@ -2591,9 +2591,9 @@ const file_v1_automation_proto_rawDesc = "" +
 	"\x06status\x18\x02 \x01(\tR\x06status\"W\n" +
 	"\x1aCancelRuleExecutionRequest\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reason\">\n" +
-	"\x13ValidateRuleRequest\x12'\n" +
-	"\x04rule\x18\x01 \x01(\v2\x13.greedy_eye.v1.RuleR\x04rule\"u\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"7\n" +
+	"\x13ValidateRuleRequest\x12 \n" +
+	"\x04rule\x18\x01 \x01(\v2\f.eye.v1.RuleR\x04rule\"u\n" +
 	"\x14ValidateRuleResponse\x12\x14\n" +
 	"\x05valid\x18\x01 \x01(\bR\x05valid\x12+\n" +
 	"\x11validation_errors\x18\x02 \x03(\tR\x10validationErrors\x12\x1a\n" +
@@ -2603,28 +2603,28 @@ const file_v1_automation_proto_rawDesc = "" +
 	"\vsimulate_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampH\x00R\n" +
 	"simulateAt\x88\x01\x01\x12#\n" +
 	"\rinclude_costs\x18\x03 \x01(\bR\fincludeCostsB\x0e\n" +
-	"\f_simulate_at\"\xaa\x01\n" +
+	"\f_simulate_at\"\xa3\x01\n" +
 	"\x14SimulateRuleResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\x127\n" +
-	"\x06result\x18\x02 \x01(\v2\x1f.greedy_eye.v1.SimulationResultR\x06result\x12\x1a\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x120\n" +
+	"\x06result\x18\x02 \x01(\v2\x18.eye.v1.SimulationResultR\x06result\x12\x1a\n" +
 	"\bwarnings\x18\x03 \x03(\tR\bwarnings\x12#\n" +
-	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage\"\xaa\x03\n" +
+	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage\"\x8e\x03\n" +
 	"\x10SimulationResult\x12%\n" +
 	"\x0eestimated_cost\x18\x01 \x01(\x01R\restimatedCost\x12'\n" +
 	"\x0festimated_steps\x18\x02 \x01(\x05R\x0eestimatedSteps\x122\n" +
-	"\x15estimated_duration_ms\x18\x03 \x01(\x03R\x13estimatedDurationMs\x12H\n" +
-	"\vrebalancing\x18\x04 \x01(\v2$.greedy_eye.v1.RebalancingSimulationH\x00R\vrebalancing\x12E\n" +
+	"\x15estimated_duration_ms\x18\x03 \x01(\x03R\x13estimatedDurationMs\x12A\n" +
+	"\vrebalancing\x18\x04 \x01(\v2\x1d.eye.v1.RebalancingSimulationH\x00R\vrebalancing\x12>\n" +
 	"\n" +
-	"withdrawal\x18\x05 \x01(\v2#.greedy_eye.v1.WithdrawalSimulationH\x00R\n" +
-	"withdrawal\x12@\n" +
-	"\tstop_loss\x18\x06 \x01(\v2!.greedy_eye.v1.StopLossSimulationH\x00R\bstopLoss\x120\n" +
-	"\x03dca\x18\a \x01(\v2\x1c.greedy_eye.v1.DCASimulationH\x00R\x03dcaB\r\n" +
-	"\vrule_result\"\xdd\x02\n" +
+	"withdrawal\x18\x05 \x01(\v2\x1c.eye.v1.WithdrawalSimulationH\x00R\n" +
+	"withdrawal\x129\n" +
+	"\tstop_loss\x18\x06 \x01(\v2\x1a.eye.v1.StopLossSimulationH\x00R\bstopLoss\x12)\n" +
+	"\x03dca\x18\a \x01(\v2\x15.eye.v1.DCASimulationH\x00R\x03dcaB\r\n" +
+	"\vrule_result\"\xc8\x02\n" +
 	"\x15RebalancingSimulation\x12.\n" +
-	"\x13current_total_value\x18\x01 \x01(\x01R\x11currentTotalValue\x12O\n" +
-	"\x13current_allocations\x18\x02 \x03(\v2\x1e.greedy_eye.v1.AssetAllocationR\x12currentAllocations\x12M\n" +
-	"\x12target_allocations\x18\x03 \x03(\v2\x1e.greedy_eye.v1.AssetAllocationR\x11targetAllocations\x12B\n" +
-	"\x0eplanned_trades\x18\x04 \x03(\v2\x1b.greedy_eye.v1.PlannedTradeR\rplannedTrades\x120\n" +
+	"\x13current_total_value\x18\x01 \x01(\x01R\x11currentTotalValue\x12H\n" +
+	"\x13current_allocations\x18\x02 \x03(\v2\x17.eye.v1.AssetAllocationR\x12currentAllocations\x12F\n" +
+	"\x12target_allocations\x18\x03 \x03(\v2\x17.eye.v1.AssetAllocationR\x11targetAllocations\x12;\n" +
+	"\x0eplanned_trades\x18\x04 \x03(\v2\x14.eye.v1.PlannedTradeR\rplannedTrades\x120\n" +
 	"\x14total_estimated_fees\x18\x05 \x01(\x01R\x12totalEstimatedFees\"\xcf\x01\n" +
 	"\x0fAssetAllocation\x12\x19\n" +
 	"\basset_id\x18\x01 \x01(\tR\aassetId\x12%\n" +
@@ -2639,23 +2639,23 @@ const file_v1_automation_proto_rawDesc = "" +
 	"\x06action\x18\x02 \x01(\tR\x06action\x12\x16\n" +
 	"\x06amount\x18\x03 \x01(\x01R\x06amount\x12'\n" +
 	"\x0festimated_price\x18\x04 \x01(\x01R\x0eestimatedPrice\x12#\n" +
-	"\restimated_fee\x18\x05 \x01(\x01R\festimatedFee\"\xe6\x01\n" +
+	"\restimated_fee\x18\x05 \x01(\x01R\festimatedFee\"\xdf\x01\n" +
 	"\x14WithdrawalSimulation\x12+\n" +
 	"\x11available_balance\x18\x01 \x01(\x01R\x10availableBalance\x12)\n" +
 	"\x10requested_amount\x18\x02 \x01(\x01R\x0frequestedAmount\x12)\n" +
-	"\x10sufficient_funds\x18\x03 \x01(\bR\x0fsufficientFunds\x12K\n" +
-	"\x0fwithdrawal_plan\x18\x04 \x03(\v2\".greedy_eye.v1.AssetWithdrawalPlanR\x0ewithdrawalPlan\"\xac\x01\n" +
+	"\x10sufficient_funds\x18\x03 \x01(\bR\x0fsufficientFunds\x12D\n" +
+	"\x0fwithdrawal_plan\x18\x04 \x03(\v2\x1b.eye.v1.AssetWithdrawalPlanR\x0ewithdrawalPlan\"\xac\x01\n" +
 	"\x13AssetWithdrawalPlan\x12\x19\n" +
 	"\basset_id\x18\x01 \x01(\tR\aassetId\x12,\n" +
 	"\x12amount_to_withdraw\x18\x02 \x01(\x01R\x10amountToWithdraw\x12'\n" +
 	"\x0festimated_value\x18\x03 \x01(\x01R\x0eestimatedValue\x12#\n" +
-	"\rneeds_selling\x18\x04 \x01(\bR\fneedsSelling\"\x9c\x02\n" +
+	"\rneeds_selling\x18\x04 \x01(\bR\fneedsSelling\"\x95\x02\n" +
 	"\x12StopLossSimulation\x126\n" +
 	"\x17current_portfolio_value\x18\x01 \x01(\x01R\x15currentPortfolioValue\x12.\n" +
 	"\x13stop_loss_threshold\x18\x02 \x01(\x01R\x11stopLossThreshold\x126\n" +
 	"\x17current_loss_percentage\x18\x03 \x01(\x01R\x15currentLossPercentage\x12#\n" +
-	"\rwould_trigger\x18\x04 \x01(\bR\fwouldTrigger\x12A\n" +
-	"\rasset_actions\x18\x05 \x03(\v2\x1c.greedy_eye.v1.AssetStopLossR\fassetActions\"\xa0\x01\n" +
+	"\rwould_trigger\x18\x04 \x01(\bR\fwouldTrigger\x12:\n" +
+	"\rasset_actions\x18\x05 \x03(\v2\x15.eye.v1.AssetStopLossR\fassetActions\"\xa0\x01\n" +
 	"\rAssetStopLoss\x12\x19\n" +
 	"\basset_id\x18\x01 \x01(\tR\aassetId\x12%\n" +
 	"\x0ecurrent_amount\x18\x02 \x01(\x01R\rcurrentAmount\x12$\n" +
@@ -2678,20 +2678,20 @@ const file_v1_automation_proto_rawDesc = "" +
 	"\arule_id\x18\x01 \x01(\tR\x06ruleId\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\",\n" +
 	"\x11ResumeRuleRequest\x12\x17\n" +
-	"\arule_id\x18\x01 \x01(\tR\x06ruleId\"a\n" +
-	"\x1aCreateRuleExecutionRequest\x12C\n" +
-	"\x0erule_execution\x18\x01 \x01(\v2\x1c.greedy_eye.v1.RuleExecutionR\rruleExecution\")\n" +
+	"\arule_id\x18\x01 \x01(\tR\x06ruleId\"Z\n" +
+	"\x1aCreateRuleExecutionRequest\x12<\n" +
+	"\x0erule_execution\x18\x01 \x01(\v2\x15.eye.v1.RuleExecutionR\rruleExecution\")\n" +
 	"\x17GetRuleExecutionRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x9e\x01\n" +
-	"\x1aUpdateRuleExecutionRequest\x12C\n" +
-	"\x0erule_execution\x18\x01 \x01(\v2\x1c.greedy_eye.v1.RuleExecutionR\rruleExecution\x12;\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x97\x01\n" +
+	"\x1aUpdateRuleExecutionRequest\x12<\n" +
+	"\x0erule_execution\x18\x01 \x01(\v2\x15.eye.v1.RuleExecutionR\rruleExecution\x12;\n" +
 	"\vupdate_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
-	"updateMask\"\xc9\x03\n" +
+	"updateMask\"\xc2\x03\n" +
 	"\x19ListRuleExecutionsRequest\x12\x1c\n" +
 	"\arule_id\x18\x01 \x01(\tH\x00R\x06ruleId\x88\x01\x01\x12&\n" +
 	"\fportfolio_id\x18\x02 \x01(\tH\x01R\vportfolioId\x88\x01\x01\x12\x1c\n" +
-	"\auser_id\x18\x03 \x01(\tH\x02R\x06userId\x88\x01\x01\x12;\n" +
-	"\x06status\x18\x04 \x01(\x0e2\x1e.greedy_eye.v1.ExecutionStatusH\x03R\x06status\x88\x01\x01\x123\n" +
+	"\auser_id\x18\x03 \x01(\tH\x02R\x06userId\x88\x01\x01\x124\n" +
+	"\x06status\x18\x04 \x01(\x0e2\x17.eye.v1.ExecutionStatusH\x03R\x06status\x88\x01\x01\x123\n" +
 	"\x04from\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampH\x04R\x04from\x88\x01\x01\x12/\n" +
 	"\x02to\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampH\x05R\x02to\x88\x01\x01\x12 \n" +
 	"\tpage_size\x18\a \x01(\x05H\x06R\bpageSize\x88\x01\x01\x12\"\n" +
@@ -2707,9 +2707,9 @@ const file_v1_automation_proto_rawDesc = "" +
 	"\x03_toB\f\n" +
 	"\n" +
 	"_page_sizeB\r\n" +
-	"\v_page_token\"\x8b\x01\n" +
-	"\x1aListRuleExecutionsResponse\x12E\n" +
-	"\x0frule_executions\x18\x01 \x03(\v2\x1c.greedy_eye.v1.RuleExecutionR\x0eruleExecutions\x12&\n" +
+	"\v_page_token\"\x84\x01\n" +
+	"\x1aListRuleExecutionsResponse\x12>\n" +
+	"\x0frule_executions\x18\x01 \x03(\v2\x15.eye.v1.RuleExecutionR\x0eruleExecutions\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken*\x86\x01\n" +
 	"\n" +
 	"RuleStatus\x12\x17\n" +
@@ -2724,32 +2724,33 @@ const file_v1_automation_proto_rawDesc = "" +
 	"\x1cEXECUTION_STATUS_IN_PROGRESS\x10\x02\x12\x1e\n" +
 	"\x1aEXECUTION_STATUS_COMPLETED\x10\x03\x12\x1b\n" +
 	"\x17EXECUTION_STATUS_FAILED\x10\x04\x12\x1e\n" +
-	"\x1aEXECUTION_STATUS_CANCELLED\x10\x052\xc2\x11\n" +
-	"\x11AutomationService\x12`\n" +
+	"\x1aEXECUTION_STATUS_CANCELLED\x10\x052\xd1\x0f\n" +
+	"\x11AutomationService\x12R\n" +
 	"\n" +
-	"CreateRule\x12 .greedy_eye.v1.CreateRuleRequest\x1a\x13.greedy_eye.v1.Rule\"\x1b\x82\xd3\xe4\x93\x02\x15:\x04rule\"\r/api/v1/rules\x12Y\n" +
-	"\aGetRule\x12\x1d.greedy_eye.v1.GetRuleRequest\x1a\x13.greedy_eye.v1.Rule\"\x1a\x82\xd3\xe4\x93\x02\x14\x12\x12/api/v1/rules/{id}\x12j\n" +
+	"CreateRule\x12\x19.eye.v1.CreateRuleRequest\x1a\f.eye.v1.Rule\"\x1b\x82\xd3\xe4\x93\x02\x15:\x04rule\"\r/api/v1/rules\x12K\n" +
+	"\aGetRule\x12\x16.eye.v1.GetRuleRequest\x1a\f.eye.v1.Rule\"\x1a\x82\xd3\xe4\x93\x02\x14\x12\x12/api/v1/rules/{id}\x12\\\n" +
 	"\n" +
-	"UpdateRule\x12 .greedy_eye.v1.UpdateRuleRequest\x1a\x13.greedy_eye.v1.Rule\"%\x82\xd3\xe4\x93\x02\x1f:\x04rule\x1a\x17/api/v1/rules/{rule.id}\x12b\n" +
+	"UpdateRule\x12\x19.eye.v1.UpdateRuleRequest\x1a\f.eye.v1.Rule\"%\x82\xd3\xe4\x93\x02\x1f:\x04rule\x1a\x17/api/v1/rules/{rule.id}\x12[\n" +
 	"\n" +
-	"DeleteRule\x12 .greedy_eye.v1.DeleteRuleRequest\x1a\x16.google.protobuf.Empty\"\x1a\x82\xd3\xe4\x93\x02\x14*\x12/api/v1/rules/{id}\x12e\n" +
-	"\tListRules\x12\x1f.greedy_eye.v1.ListRulesRequest\x1a .greedy_eye.v1.ListRulesResponse\"\x15\x82\xd3\xe4\x93\x02\x0f\x12\r/api/v1/rules\x12\x80\x01\n" +
-	"\vExecuteRule\x12!.greedy_eye.v1.ExecuteRuleRequest\x1a\".greedy_eye.v1.ExecuteRuleResponse\"*\x82\xd3\xe4\x93\x02$:\x01*\"\x1f/api/v1/rules/{rule_id}/execute\x12\x95\x01\n" +
-	"\x10ExecuteRuleAsync\x12&.greedy_eye.v1.ExecuteRuleAsyncRequest\x1a'.greedy_eye.v1.ExecuteRuleAsyncResponse\"0\x82\xd3\xe4\x93\x02*:\x01*\"%/api/v1/rules/{rule_id}/execute-async\x12\x92\x01\n" +
-	"\x13CancelRuleExecution\x12).greedy_eye.v1.CancelRuleExecutionRequest\x1a\x16.google.protobuf.Empty\"8\x82\xd3\xe4\x93\x022:\x01*\"-/api/v1/rule-executions/{execution_id}/cancel\x12}\n" +
-	"\fValidateRule\x12\".greedy_eye.v1.ValidateRuleRequest\x1a#.greedy_eye.v1.ValidateRuleResponse\"$\x82\xd3\xe4\x93\x02\x1e:\x04rule\"\x16/api/v1/rules/validate\x12\x84\x01\n" +
-	"\fSimulateRule\x12\".greedy_eye.v1.SimulateRuleRequest\x1a#.greedy_eye.v1.SimulateRuleResponse\"+\x82\xd3\xe4\x93\x02%:\x01*\" /api/v1/rules/{rule_id}/simulate\x12n\n" +
+	"DeleteRule\x12\x19.eye.v1.DeleteRuleRequest\x1a\x16.google.protobuf.Empty\"\x1a\x82\xd3\xe4\x93\x02\x14*\x12/api/v1/rules/{id}\x12W\n" +
+	"\tListRules\x12\x18.eye.v1.ListRulesRequest\x1a\x19.eye.v1.ListRulesResponse\"\x15\x82\xd3\xe4\x93\x02\x0f\x12\r/api/v1/rules\x12r\n" +
+	"\vExecuteRule\x12\x1a.eye.v1.ExecuteRuleRequest\x1a\x1b.eye.v1.ExecuteRuleResponse\"*\x82\xd3\xe4\x93\x02$:\x01*\"\x1f/api/v1/rules/{rule_id}/execute\x12\x87\x01\n" +
+	"\x10ExecuteRuleAsync\x12\x1f.eye.v1.ExecuteRuleAsyncRequest\x1a .eye.v1.ExecuteRuleAsyncResponse\"0\x82\xd3\xe4\x93\x02*:\x01*\"%/api/v1/rules/{rule_id}/execute-async\x12\x8b\x01\n" +
+	"\x13CancelRuleExecution\x12\".eye.v1.CancelRuleExecutionRequest\x1a\x16.google.protobuf.Empty\"8\x82\xd3\xe4\x93\x022:\x01*\"-/api/v1/rule-executions/{execution_id}/cancel\x12o\n" +
+	"\fValidateRule\x12\x1b.eye.v1.ValidateRuleRequest\x1a\x1c.eye.v1.ValidateRuleResponse\"$\x82\xd3\xe4\x93\x02\x1e:\x04rule\"\x16/api/v1/rules/validate\x12v\n" +
+	"\fSimulateRule\x12\x1b.eye.v1.SimulateRuleRequest\x1a\x1c.eye.v1.SimulateRuleResponse\"+\x82\xd3\xe4\x93\x02%:\x01*\" /api/v1/rules/{rule_id}/simulate\x12`\n" +
 	"\n" +
-	"EnableRule\x12 .greedy_eye.v1.EnableRuleRequest\x1a\x13.greedy_eye.v1.Rule\")\x82\xd3\xe4\x93\x02#:\x01*\"\x1e/api/v1/rules/{rule_id}/enable\x12q\n" +
-	"\vDisableRule\x12!.greedy_eye.v1.DisableRuleRequest\x1a\x13.greedy_eye.v1.Rule\"*\x82\xd3\xe4\x93\x02$:\x01*\"\x1f/api/v1/rules/{rule_id}/disable\x12k\n" +
-	"\tPauseRule\x12\x1f.greedy_eye.v1.PauseRuleRequest\x1a\x13.greedy_eye.v1.Rule\"(\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/api/v1/rules/{rule_id}/pause\x12n\n" +
+	"EnableRule\x12\x19.eye.v1.EnableRuleRequest\x1a\f.eye.v1.Rule\")\x82\xd3\xe4\x93\x02#:\x01*\"\x1e/api/v1/rules/{rule_id}/enable\x12c\n" +
+	"\vDisableRule\x12\x1a.eye.v1.DisableRuleRequest\x1a\f.eye.v1.Rule\"*\x82\xd3\xe4\x93\x02$:\x01*\"\x1f/api/v1/rules/{rule_id}/disable\x12]\n" +
+	"\tPauseRule\x12\x18.eye.v1.PauseRuleRequest\x1a\f.eye.v1.Rule\"(\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/api/v1/rules/{rule_id}/pause\x12`\n" +
 	"\n" +
-	"ResumeRule\x12 .greedy_eye.v1.ResumeRuleRequest\x1a\x13.greedy_eye.v1.Rule\")\x82\xd3\xe4\x93\x02#:\x01*\"\x1e/api/v1/rules/{rule_id}/resume\x12\x8f\x01\n" +
-	"\x13CreateRuleExecution\x12).greedy_eye.v1.CreateRuleExecutionRequest\x1a\x1c.greedy_eye.v1.RuleExecution\"/\x82\xd3\xe4\x93\x02):\x0erule_execution\"\x17/api/v1/rule-executions\x12~\n" +
-	"\x10GetRuleExecution\x12&.greedy_eye.v1.GetRuleExecutionRequest\x1a\x1c.greedy_eye.v1.RuleExecution\"$\x82\xd3\xe4\x93\x02\x1e\x12\x1c/api/v1/rule-executions/{id}\x12\xa3\x01\n" +
-	"\x13UpdateRuleExecution\x12).greedy_eye.v1.UpdateRuleExecutionRequest\x1a\x1c.greedy_eye.v1.RuleExecution\"C\x82\xd3\xe4\x93\x02=:\x0erule_execution\x1a+/api/v1/rule-executions/{rule_execution.id}\x12\x8a\x01\n" +
-	"\x12ListRuleExecutions\x12(.greedy_eye.v1.ListRuleExecutionsRequest\x1a).greedy_eye.v1.ListRuleExecutionsResponse\"\x1f\x82\xd3\xe4\x93\x02\x19\x12\x17/api/v1/rule-executionsB\xaa\x01\n" +
-	"\x11com.greedy_eye.v1B\x0fAutomationProtoP\x01Z3github.com/foxcool/greedy-eye/internal/api/v1;apiv1\xa2\x02\x03GXX\xaa\x02\fGreedyEye.V1\xca\x02\fGreedyEye\\V1\xe2\x02\x18GreedyEye\\V1\\GPBMetadata\xea\x02\rGreedyEye::V1b\x06proto3"
+	"ResumeRule\x12\x19.eye.v1.ResumeRuleRequest\x1a\f.eye.v1.Rule\")\x82\xd3\xe4\x93\x02#:\x01*\"\x1e/api/v1/rules/{rule_id}/resume\x12\x81\x01\n" +
+	"\x13CreateRuleExecution\x12\".eye.v1.CreateRuleExecutionRequest\x1a\x15.eye.v1.RuleExecution\"/\x82\xd3\xe4\x93\x02):\x0erule_execution\"\x17/api/v1/rule-executions\x12p\n" +
+	"\x10GetRuleExecution\x12\x1f.eye.v1.GetRuleExecutionRequest\x1a\x15.eye.v1.RuleExecution\"$\x82\xd3\xe4\x93\x02\x1e\x12\x1c/api/v1/rule-executions/{id}\x12\x95\x01\n" +
+	"\x13UpdateRuleExecution\x12\".eye.v1.UpdateRuleExecutionRequest\x1a\x15.eye.v1.RuleExecution\"C\x82\xd3\xe4\x93\x02=:\x0erule_execution\x1a+/api/v1/rule-executions/{rule_execution.id}\x12|\n" +
+	"\x12ListRuleExecutions\x12!.eye.v1.ListRuleExecutionsRequest\x1a\".eye.v1.ListRuleExecutionsResponse\"\x1f\x82\xd3\xe4\x93\x02\x19\x12\x17/api/v1/rule-executionsB\x8b\x01\n" +
+	"\n" +
+	"com.eye.v1B\x0fAutomationProtoP\x01Z3github.com/foxcool/greedy-eye/internal/api/v1;apiv1\xa2\x02\x03EXX\xaa\x02\x06Eye.V1\xca\x02\x06Eye\\V1\xe2\x02\x12Eye\\V1\\GPBMetadata\xea\x02\aEye::V1b\x06proto3"
 
 var (
 	file_v1_automation_proto_rawDescOnce sync.Once
@@ -2766,121 +2767,121 @@ func file_v1_automation_proto_rawDescGZIP() []byte {
 var file_v1_automation_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_v1_automation_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
 var file_v1_automation_proto_goTypes = []any{
-	(RuleStatus)(0),                    // 0: greedy_eye.v1.RuleStatus
-	(ExecutionStatus)(0),               // 1: greedy_eye.v1.ExecutionStatus
-	(*Rule)(nil),                       // 2: greedy_eye.v1.Rule
-	(*RuleSchedule)(nil),               // 3: greedy_eye.v1.RuleSchedule
-	(*RuleExecution)(nil),              // 4: greedy_eye.v1.RuleExecution
-	(*CreateRuleRequest)(nil),          // 5: greedy_eye.v1.CreateRuleRequest
-	(*GetRuleRequest)(nil),             // 6: greedy_eye.v1.GetRuleRequest
-	(*UpdateRuleRequest)(nil),          // 7: greedy_eye.v1.UpdateRuleRequest
-	(*DeleteRuleRequest)(nil),          // 8: greedy_eye.v1.DeleteRuleRequest
-	(*ListRulesRequest)(nil),           // 9: greedy_eye.v1.ListRulesRequest
-	(*ListRulesResponse)(nil),          // 10: greedy_eye.v1.ListRulesResponse
-	(*ExecuteRuleRequest)(nil),         // 11: greedy_eye.v1.ExecuteRuleRequest
-	(*ExecuteRuleResponse)(nil),        // 12: greedy_eye.v1.ExecuteRuleResponse
-	(*ExecuteRuleAsyncRequest)(nil),    // 13: greedy_eye.v1.ExecuteRuleAsyncRequest
-	(*ExecuteRuleAsyncResponse)(nil),   // 14: greedy_eye.v1.ExecuteRuleAsyncResponse
-	(*CancelRuleExecutionRequest)(nil), // 15: greedy_eye.v1.CancelRuleExecutionRequest
-	(*ValidateRuleRequest)(nil),        // 16: greedy_eye.v1.ValidateRuleRequest
-	(*ValidateRuleResponse)(nil),       // 17: greedy_eye.v1.ValidateRuleResponse
-	(*SimulateRuleRequest)(nil),        // 18: greedy_eye.v1.SimulateRuleRequest
-	(*SimulateRuleResponse)(nil),       // 19: greedy_eye.v1.SimulateRuleResponse
-	(*SimulationResult)(nil),           // 20: greedy_eye.v1.SimulationResult
-	(*RebalancingSimulation)(nil),      // 21: greedy_eye.v1.RebalancingSimulation
-	(*AssetAllocation)(nil),            // 22: greedy_eye.v1.AssetAllocation
-	(*PlannedTrade)(nil),               // 23: greedy_eye.v1.PlannedTrade
-	(*WithdrawalSimulation)(nil),       // 24: greedy_eye.v1.WithdrawalSimulation
-	(*AssetWithdrawalPlan)(nil),        // 25: greedy_eye.v1.AssetWithdrawalPlan
-	(*StopLossSimulation)(nil),         // 26: greedy_eye.v1.StopLossSimulation
-	(*AssetStopLoss)(nil),              // 27: greedy_eye.v1.AssetStopLoss
-	(*DCASimulation)(nil),              // 28: greedy_eye.v1.DCASimulation
-	(*EnableRuleRequest)(nil),          // 29: greedy_eye.v1.EnableRuleRequest
-	(*DisableRuleRequest)(nil),         // 30: greedy_eye.v1.DisableRuleRequest
-	(*PauseRuleRequest)(nil),           // 31: greedy_eye.v1.PauseRuleRequest
-	(*ResumeRuleRequest)(nil),          // 32: greedy_eye.v1.ResumeRuleRequest
-	(*CreateRuleExecutionRequest)(nil), // 33: greedy_eye.v1.CreateRuleExecutionRequest
-	(*GetRuleExecutionRequest)(nil),    // 34: greedy_eye.v1.GetRuleExecutionRequest
-	(*UpdateRuleExecutionRequest)(nil), // 35: greedy_eye.v1.UpdateRuleExecutionRequest
-	(*ListRuleExecutionsRequest)(nil),  // 36: greedy_eye.v1.ListRuleExecutionsRequest
-	(*ListRuleExecutionsResponse)(nil), // 37: greedy_eye.v1.ListRuleExecutionsResponse
+	(RuleStatus)(0),                    // 0: eye.v1.RuleStatus
+	(ExecutionStatus)(0),               // 1: eye.v1.ExecutionStatus
+	(*Rule)(nil),                       // 2: eye.v1.Rule
+	(*RuleSchedule)(nil),               // 3: eye.v1.RuleSchedule
+	(*RuleExecution)(nil),              // 4: eye.v1.RuleExecution
+	(*CreateRuleRequest)(nil),          // 5: eye.v1.CreateRuleRequest
+	(*GetRuleRequest)(nil),             // 6: eye.v1.GetRuleRequest
+	(*UpdateRuleRequest)(nil),          // 7: eye.v1.UpdateRuleRequest
+	(*DeleteRuleRequest)(nil),          // 8: eye.v1.DeleteRuleRequest
+	(*ListRulesRequest)(nil),           // 9: eye.v1.ListRulesRequest
+	(*ListRulesResponse)(nil),          // 10: eye.v1.ListRulesResponse
+	(*ExecuteRuleRequest)(nil),         // 11: eye.v1.ExecuteRuleRequest
+	(*ExecuteRuleResponse)(nil),        // 12: eye.v1.ExecuteRuleResponse
+	(*ExecuteRuleAsyncRequest)(nil),    // 13: eye.v1.ExecuteRuleAsyncRequest
+	(*ExecuteRuleAsyncResponse)(nil),   // 14: eye.v1.ExecuteRuleAsyncResponse
+	(*CancelRuleExecutionRequest)(nil), // 15: eye.v1.CancelRuleExecutionRequest
+	(*ValidateRuleRequest)(nil),        // 16: eye.v1.ValidateRuleRequest
+	(*ValidateRuleResponse)(nil),       // 17: eye.v1.ValidateRuleResponse
+	(*SimulateRuleRequest)(nil),        // 18: eye.v1.SimulateRuleRequest
+	(*SimulateRuleResponse)(nil),       // 19: eye.v1.SimulateRuleResponse
+	(*SimulationResult)(nil),           // 20: eye.v1.SimulationResult
+	(*RebalancingSimulation)(nil),      // 21: eye.v1.RebalancingSimulation
+	(*AssetAllocation)(nil),            // 22: eye.v1.AssetAllocation
+	(*PlannedTrade)(nil),               // 23: eye.v1.PlannedTrade
+	(*WithdrawalSimulation)(nil),       // 24: eye.v1.WithdrawalSimulation
+	(*AssetWithdrawalPlan)(nil),        // 25: eye.v1.AssetWithdrawalPlan
+	(*StopLossSimulation)(nil),         // 26: eye.v1.StopLossSimulation
+	(*AssetStopLoss)(nil),              // 27: eye.v1.AssetStopLoss
+	(*DCASimulation)(nil),              // 28: eye.v1.DCASimulation
+	(*EnableRuleRequest)(nil),          // 29: eye.v1.EnableRuleRequest
+	(*DisableRuleRequest)(nil),         // 30: eye.v1.DisableRuleRequest
+	(*PauseRuleRequest)(nil),           // 31: eye.v1.PauseRuleRequest
+	(*ResumeRuleRequest)(nil),          // 32: eye.v1.ResumeRuleRequest
+	(*CreateRuleExecutionRequest)(nil), // 33: eye.v1.CreateRuleExecutionRequest
+	(*GetRuleExecutionRequest)(nil),    // 34: eye.v1.GetRuleExecutionRequest
+	(*UpdateRuleExecutionRequest)(nil), // 35: eye.v1.UpdateRuleExecutionRequest
+	(*ListRuleExecutionsRequest)(nil),  // 36: eye.v1.ListRuleExecutionsRequest
+	(*ListRuleExecutionsResponse)(nil), // 37: eye.v1.ListRuleExecutionsResponse
 	(*structpb.Struct)(nil),            // 38: google.protobuf.Struct
 	(*timestamppb.Timestamp)(nil),      // 39: google.protobuf.Timestamp
 	(*fieldmaskpb.FieldMask)(nil),      // 40: google.protobuf.FieldMask
 	(*emptypb.Empty)(nil),              // 41: google.protobuf.Empty
 }
 var file_v1_automation_proto_depIdxs = []int32{
-	0,  // 0: greedy_eye.v1.Rule.status:type_name -> greedy_eye.v1.RuleStatus
-	38, // 1: greedy_eye.v1.Rule.configuration:type_name -> google.protobuf.Struct
-	3,  // 2: greedy_eye.v1.Rule.schedule:type_name -> greedy_eye.v1.RuleSchedule
-	39, // 3: greedy_eye.v1.Rule.created_at:type_name -> google.protobuf.Timestamp
-	39, // 4: greedy_eye.v1.Rule.updated_at:type_name -> google.protobuf.Timestamp
-	39, // 5: greedy_eye.v1.RuleSchedule.execute_after:type_name -> google.protobuf.Timestamp
-	39, // 6: greedy_eye.v1.RuleExecution.started_at:type_name -> google.protobuf.Timestamp
-	39, // 7: greedy_eye.v1.RuleExecution.completed_at:type_name -> google.protobuf.Timestamp
-	1,  // 8: greedy_eye.v1.RuleExecution.status:type_name -> greedy_eye.v1.ExecutionStatus
-	38, // 9: greedy_eye.v1.RuleExecution.execution_summary:type_name -> google.protobuf.Struct
-	2,  // 10: greedy_eye.v1.CreateRuleRequest.rule:type_name -> greedy_eye.v1.Rule
-	2,  // 11: greedy_eye.v1.UpdateRuleRequest.rule:type_name -> greedy_eye.v1.Rule
-	40, // 12: greedy_eye.v1.UpdateRuleRequest.update_mask:type_name -> google.protobuf.FieldMask
-	0,  // 13: greedy_eye.v1.ListRulesRequest.status:type_name -> greedy_eye.v1.RuleStatus
-	2,  // 14: greedy_eye.v1.ListRulesResponse.rules:type_name -> greedy_eye.v1.Rule
-	4,  // 15: greedy_eye.v1.ExecuteRuleResponse.execution:type_name -> greedy_eye.v1.RuleExecution
-	2,  // 16: greedy_eye.v1.ValidateRuleRequest.rule:type_name -> greedy_eye.v1.Rule
-	39, // 17: greedy_eye.v1.SimulateRuleRequest.simulate_at:type_name -> google.protobuf.Timestamp
-	20, // 18: greedy_eye.v1.SimulateRuleResponse.result:type_name -> greedy_eye.v1.SimulationResult
-	21, // 19: greedy_eye.v1.SimulationResult.rebalancing:type_name -> greedy_eye.v1.RebalancingSimulation
-	24, // 20: greedy_eye.v1.SimulationResult.withdrawal:type_name -> greedy_eye.v1.WithdrawalSimulation
-	26, // 21: greedy_eye.v1.SimulationResult.stop_loss:type_name -> greedy_eye.v1.StopLossSimulation
-	28, // 22: greedy_eye.v1.SimulationResult.dca:type_name -> greedy_eye.v1.DCASimulation
-	22, // 23: greedy_eye.v1.RebalancingSimulation.current_allocations:type_name -> greedy_eye.v1.AssetAllocation
-	22, // 24: greedy_eye.v1.RebalancingSimulation.target_allocations:type_name -> greedy_eye.v1.AssetAllocation
-	23, // 25: greedy_eye.v1.RebalancingSimulation.planned_trades:type_name -> greedy_eye.v1.PlannedTrade
-	25, // 26: greedy_eye.v1.WithdrawalSimulation.withdrawal_plan:type_name -> greedy_eye.v1.AssetWithdrawalPlan
-	27, // 27: greedy_eye.v1.StopLossSimulation.asset_actions:type_name -> greedy_eye.v1.AssetStopLoss
-	4,  // 28: greedy_eye.v1.CreateRuleExecutionRequest.rule_execution:type_name -> greedy_eye.v1.RuleExecution
-	4,  // 29: greedy_eye.v1.UpdateRuleExecutionRequest.rule_execution:type_name -> greedy_eye.v1.RuleExecution
-	40, // 30: greedy_eye.v1.UpdateRuleExecutionRequest.update_mask:type_name -> google.protobuf.FieldMask
-	1,  // 31: greedy_eye.v1.ListRuleExecutionsRequest.status:type_name -> greedy_eye.v1.ExecutionStatus
-	39, // 32: greedy_eye.v1.ListRuleExecutionsRequest.from:type_name -> google.protobuf.Timestamp
-	39, // 33: greedy_eye.v1.ListRuleExecutionsRequest.to:type_name -> google.protobuf.Timestamp
-	4,  // 34: greedy_eye.v1.ListRuleExecutionsResponse.rule_executions:type_name -> greedy_eye.v1.RuleExecution
-	5,  // 35: greedy_eye.v1.AutomationService.CreateRule:input_type -> greedy_eye.v1.CreateRuleRequest
-	6,  // 36: greedy_eye.v1.AutomationService.GetRule:input_type -> greedy_eye.v1.GetRuleRequest
-	7,  // 37: greedy_eye.v1.AutomationService.UpdateRule:input_type -> greedy_eye.v1.UpdateRuleRequest
-	8,  // 38: greedy_eye.v1.AutomationService.DeleteRule:input_type -> greedy_eye.v1.DeleteRuleRequest
-	9,  // 39: greedy_eye.v1.AutomationService.ListRules:input_type -> greedy_eye.v1.ListRulesRequest
-	11, // 40: greedy_eye.v1.AutomationService.ExecuteRule:input_type -> greedy_eye.v1.ExecuteRuleRequest
-	13, // 41: greedy_eye.v1.AutomationService.ExecuteRuleAsync:input_type -> greedy_eye.v1.ExecuteRuleAsyncRequest
-	15, // 42: greedy_eye.v1.AutomationService.CancelRuleExecution:input_type -> greedy_eye.v1.CancelRuleExecutionRequest
-	16, // 43: greedy_eye.v1.AutomationService.ValidateRule:input_type -> greedy_eye.v1.ValidateRuleRequest
-	18, // 44: greedy_eye.v1.AutomationService.SimulateRule:input_type -> greedy_eye.v1.SimulateRuleRequest
-	29, // 45: greedy_eye.v1.AutomationService.EnableRule:input_type -> greedy_eye.v1.EnableRuleRequest
-	30, // 46: greedy_eye.v1.AutomationService.DisableRule:input_type -> greedy_eye.v1.DisableRuleRequest
-	31, // 47: greedy_eye.v1.AutomationService.PauseRule:input_type -> greedy_eye.v1.PauseRuleRequest
-	32, // 48: greedy_eye.v1.AutomationService.ResumeRule:input_type -> greedy_eye.v1.ResumeRuleRequest
-	33, // 49: greedy_eye.v1.AutomationService.CreateRuleExecution:input_type -> greedy_eye.v1.CreateRuleExecutionRequest
-	34, // 50: greedy_eye.v1.AutomationService.GetRuleExecution:input_type -> greedy_eye.v1.GetRuleExecutionRequest
-	35, // 51: greedy_eye.v1.AutomationService.UpdateRuleExecution:input_type -> greedy_eye.v1.UpdateRuleExecutionRequest
-	36, // 52: greedy_eye.v1.AutomationService.ListRuleExecutions:input_type -> greedy_eye.v1.ListRuleExecutionsRequest
-	2,  // 53: greedy_eye.v1.AutomationService.CreateRule:output_type -> greedy_eye.v1.Rule
-	2,  // 54: greedy_eye.v1.AutomationService.GetRule:output_type -> greedy_eye.v1.Rule
-	2,  // 55: greedy_eye.v1.AutomationService.UpdateRule:output_type -> greedy_eye.v1.Rule
-	41, // 56: greedy_eye.v1.AutomationService.DeleteRule:output_type -> google.protobuf.Empty
-	10, // 57: greedy_eye.v1.AutomationService.ListRules:output_type -> greedy_eye.v1.ListRulesResponse
-	12, // 58: greedy_eye.v1.AutomationService.ExecuteRule:output_type -> greedy_eye.v1.ExecuteRuleResponse
-	14, // 59: greedy_eye.v1.AutomationService.ExecuteRuleAsync:output_type -> greedy_eye.v1.ExecuteRuleAsyncResponse
-	41, // 60: greedy_eye.v1.AutomationService.CancelRuleExecution:output_type -> google.protobuf.Empty
-	17, // 61: greedy_eye.v1.AutomationService.ValidateRule:output_type -> greedy_eye.v1.ValidateRuleResponse
-	19, // 62: greedy_eye.v1.AutomationService.SimulateRule:output_type -> greedy_eye.v1.SimulateRuleResponse
-	2,  // 63: greedy_eye.v1.AutomationService.EnableRule:output_type -> greedy_eye.v1.Rule
-	2,  // 64: greedy_eye.v1.AutomationService.DisableRule:output_type -> greedy_eye.v1.Rule
-	2,  // 65: greedy_eye.v1.AutomationService.PauseRule:output_type -> greedy_eye.v1.Rule
-	2,  // 66: greedy_eye.v1.AutomationService.ResumeRule:output_type -> greedy_eye.v1.Rule
-	4,  // 67: greedy_eye.v1.AutomationService.CreateRuleExecution:output_type -> greedy_eye.v1.RuleExecution
-	4,  // 68: greedy_eye.v1.AutomationService.GetRuleExecution:output_type -> greedy_eye.v1.RuleExecution
-	4,  // 69: greedy_eye.v1.AutomationService.UpdateRuleExecution:output_type -> greedy_eye.v1.RuleExecution
-	37, // 70: greedy_eye.v1.AutomationService.ListRuleExecutions:output_type -> greedy_eye.v1.ListRuleExecutionsResponse
+	0,  // 0: eye.v1.Rule.status:type_name -> eye.v1.RuleStatus
+	38, // 1: eye.v1.Rule.configuration:type_name -> google.protobuf.Struct
+	3,  // 2: eye.v1.Rule.schedule:type_name -> eye.v1.RuleSchedule
+	39, // 3: eye.v1.Rule.created_at:type_name -> google.protobuf.Timestamp
+	39, // 4: eye.v1.Rule.updated_at:type_name -> google.protobuf.Timestamp
+	39, // 5: eye.v1.RuleSchedule.execute_after:type_name -> google.protobuf.Timestamp
+	39, // 6: eye.v1.RuleExecution.started_at:type_name -> google.protobuf.Timestamp
+	39, // 7: eye.v1.RuleExecution.completed_at:type_name -> google.protobuf.Timestamp
+	1,  // 8: eye.v1.RuleExecution.status:type_name -> eye.v1.ExecutionStatus
+	38, // 9: eye.v1.RuleExecution.execution_summary:type_name -> google.protobuf.Struct
+	2,  // 10: eye.v1.CreateRuleRequest.rule:type_name -> eye.v1.Rule
+	2,  // 11: eye.v1.UpdateRuleRequest.rule:type_name -> eye.v1.Rule
+	40, // 12: eye.v1.UpdateRuleRequest.update_mask:type_name -> google.protobuf.FieldMask
+	0,  // 13: eye.v1.ListRulesRequest.status:type_name -> eye.v1.RuleStatus
+	2,  // 14: eye.v1.ListRulesResponse.rules:type_name -> eye.v1.Rule
+	4,  // 15: eye.v1.ExecuteRuleResponse.execution:type_name -> eye.v1.RuleExecution
+	2,  // 16: eye.v1.ValidateRuleRequest.rule:type_name -> eye.v1.Rule
+	39, // 17: eye.v1.SimulateRuleRequest.simulate_at:type_name -> google.protobuf.Timestamp
+	20, // 18: eye.v1.SimulateRuleResponse.result:type_name -> eye.v1.SimulationResult
+	21, // 19: eye.v1.SimulationResult.rebalancing:type_name -> eye.v1.RebalancingSimulation
+	24, // 20: eye.v1.SimulationResult.withdrawal:type_name -> eye.v1.WithdrawalSimulation
+	26, // 21: eye.v1.SimulationResult.stop_loss:type_name -> eye.v1.StopLossSimulation
+	28, // 22: eye.v1.SimulationResult.dca:type_name -> eye.v1.DCASimulation
+	22, // 23: eye.v1.RebalancingSimulation.current_allocations:type_name -> eye.v1.AssetAllocation
+	22, // 24: eye.v1.RebalancingSimulation.target_allocations:type_name -> eye.v1.AssetAllocation
+	23, // 25: eye.v1.RebalancingSimulation.planned_trades:type_name -> eye.v1.PlannedTrade
+	25, // 26: eye.v1.WithdrawalSimulation.withdrawal_plan:type_name -> eye.v1.AssetWithdrawalPlan
+	27, // 27: eye.v1.StopLossSimulation.asset_actions:type_name -> eye.v1.AssetStopLoss
+	4,  // 28: eye.v1.CreateRuleExecutionRequest.rule_execution:type_name -> eye.v1.RuleExecution
+	4,  // 29: eye.v1.UpdateRuleExecutionRequest.rule_execution:type_name -> eye.v1.RuleExecution
+	40, // 30: eye.v1.UpdateRuleExecutionRequest.update_mask:type_name -> google.protobuf.FieldMask
+	1,  // 31: eye.v1.ListRuleExecutionsRequest.status:type_name -> eye.v1.ExecutionStatus
+	39, // 32: eye.v1.ListRuleExecutionsRequest.from:type_name -> google.protobuf.Timestamp
+	39, // 33: eye.v1.ListRuleExecutionsRequest.to:type_name -> google.protobuf.Timestamp
+	4,  // 34: eye.v1.ListRuleExecutionsResponse.rule_executions:type_name -> eye.v1.RuleExecution
+	5,  // 35: eye.v1.AutomationService.CreateRule:input_type -> eye.v1.CreateRuleRequest
+	6,  // 36: eye.v1.AutomationService.GetRule:input_type -> eye.v1.GetRuleRequest
+	7,  // 37: eye.v1.AutomationService.UpdateRule:input_type -> eye.v1.UpdateRuleRequest
+	8,  // 38: eye.v1.AutomationService.DeleteRule:input_type -> eye.v1.DeleteRuleRequest
+	9,  // 39: eye.v1.AutomationService.ListRules:input_type -> eye.v1.ListRulesRequest
+	11, // 40: eye.v1.AutomationService.ExecuteRule:input_type -> eye.v1.ExecuteRuleRequest
+	13, // 41: eye.v1.AutomationService.ExecuteRuleAsync:input_type -> eye.v1.ExecuteRuleAsyncRequest
+	15, // 42: eye.v1.AutomationService.CancelRuleExecution:input_type -> eye.v1.CancelRuleExecutionRequest
+	16, // 43: eye.v1.AutomationService.ValidateRule:input_type -> eye.v1.ValidateRuleRequest
+	18, // 44: eye.v1.AutomationService.SimulateRule:input_type -> eye.v1.SimulateRuleRequest
+	29, // 45: eye.v1.AutomationService.EnableRule:input_type -> eye.v1.EnableRuleRequest
+	30, // 46: eye.v1.AutomationService.DisableRule:input_type -> eye.v1.DisableRuleRequest
+	31, // 47: eye.v1.AutomationService.PauseRule:input_type -> eye.v1.PauseRuleRequest
+	32, // 48: eye.v1.AutomationService.ResumeRule:input_type -> eye.v1.ResumeRuleRequest
+	33, // 49: eye.v1.AutomationService.CreateRuleExecution:input_type -> eye.v1.CreateRuleExecutionRequest
+	34, // 50: eye.v1.AutomationService.GetRuleExecution:input_type -> eye.v1.GetRuleExecutionRequest
+	35, // 51: eye.v1.AutomationService.UpdateRuleExecution:input_type -> eye.v1.UpdateRuleExecutionRequest
+	36, // 52: eye.v1.AutomationService.ListRuleExecutions:input_type -> eye.v1.ListRuleExecutionsRequest
+	2,  // 53: eye.v1.AutomationService.CreateRule:output_type -> eye.v1.Rule
+	2,  // 54: eye.v1.AutomationService.GetRule:output_type -> eye.v1.Rule
+	2,  // 55: eye.v1.AutomationService.UpdateRule:output_type -> eye.v1.Rule
+	41, // 56: eye.v1.AutomationService.DeleteRule:output_type -> google.protobuf.Empty
+	10, // 57: eye.v1.AutomationService.ListRules:output_type -> eye.v1.ListRulesResponse
+	12, // 58: eye.v1.AutomationService.ExecuteRule:output_type -> eye.v1.ExecuteRuleResponse
+	14, // 59: eye.v1.AutomationService.ExecuteRuleAsync:output_type -> eye.v1.ExecuteRuleAsyncResponse
+	41, // 60: eye.v1.AutomationService.CancelRuleExecution:output_type -> google.protobuf.Empty
+	17, // 61: eye.v1.AutomationService.ValidateRule:output_type -> eye.v1.ValidateRuleResponse
+	19, // 62: eye.v1.AutomationService.SimulateRule:output_type -> eye.v1.SimulateRuleResponse
+	2,  // 63: eye.v1.AutomationService.EnableRule:output_type -> eye.v1.Rule
+	2,  // 64: eye.v1.AutomationService.DisableRule:output_type -> eye.v1.Rule
+	2,  // 65: eye.v1.AutomationService.PauseRule:output_type -> eye.v1.Rule
+	2,  // 66: eye.v1.AutomationService.ResumeRule:output_type -> eye.v1.Rule
+	4,  // 67: eye.v1.AutomationService.CreateRuleExecution:output_type -> eye.v1.RuleExecution
+	4,  // 68: eye.v1.AutomationService.GetRuleExecution:output_type -> eye.v1.RuleExecution
+	4,  // 69: eye.v1.AutomationService.UpdateRuleExecution:output_type -> eye.v1.RuleExecution
+	37, // 70: eye.v1.AutomationService.ListRuleExecutions:output_type -> eye.v1.ListRuleExecutionsResponse
 	53, // [53:71] is the sub-list for method output_type
 	35, // [35:53] is the sub-list for method input_type
 	35, // [35:35] is the sub-list for extension type_name

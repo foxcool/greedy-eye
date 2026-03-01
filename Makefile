@@ -1,7 +1,7 @@
 # Define makefile variables for frequently used commands
 BUF=$(shell which buf)
 # Use docker compose instead of docker-compose
-COMPOSE=docker compose -p eye
+COMPOSE=docker compose -p eye --env-file deploy/.env
 # Path to the compose file
 COMPOSE_FILE=deploy/compose.yaml
 

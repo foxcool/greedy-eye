@@ -91,7 +91,7 @@ type Asset struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Type          AssetType              `protobuf:"varint,3,opt,name=type,proto3,enum=greedy_eye.v1.AssetType" json:"type,omitempty"`
+	Type          AssetType              `protobuf:"varint,3,opt,name=type,proto3,enum=eye.v1.AssetType" json:"type,omitempty"`
 	Symbol        *string                `protobuf:"bytes,4,opt,name=symbol,proto3,oneof" json:"symbol,omitempty"`
 	Tags          []string               `protobuf:"bytes,5,rep,name=tags,proto3" json:"tags,omitempty"`
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
@@ -1396,11 +1396,11 @@ var File_v1_marketdata_proto protoreflect.FileDescriptor
 
 const file_v1_marketdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13v1/marketdata.proto\x12\rgreedy_eye.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/api/annotations.proto\"\x8b\x02\n" +
+	"\x13v1/marketdata.proto\x12\x06eye.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/api/annotations.proto\"\x84\x02\n" +
 	"\x05Asset\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12,\n" +
-	"\x04type\x18\x03 \x01(\x0e2\x18.greedy_eye.v1.AssetTypeR\x04type\x12\x1b\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12%\n" +
+	"\x04type\x18\x03 \x01(\x0e2\x11.eye.v1.AssetTypeR\x04type\x12\x1b\n" +
 	"\x06symbol\x18\x04 \x01(\tH\x00R\x06symbol\x88\x01\x01\x12\x12\n" +
 	"\x04tags\x18\x05 \x03(\tR\x04tags\x129\n" +
 	"\n" +
@@ -1427,13 +1427,13 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\x05_highB\x06\n" +
 	"\x04_lowB\b\n" +
 	"\x06_closeB\t\n" +
-	"\a_volume\"@\n" +
-	"\x12CreateAssetRequest\x12*\n" +
-	"\x05asset\x18\x01 \x01(\v2\x14.greedy_eye.v1.AssetR\x05asset\"!\n" +
+	"\a_volume\"9\n" +
+	"\x12CreateAssetRequest\x12#\n" +
+	"\x05asset\x18\x01 \x01(\v2\r.eye.v1.AssetR\x05asset\"!\n" +
 	"\x0fGetAssetRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"}\n" +
-	"\x12UpdateAssetRequest\x12*\n" +
-	"\x05asset\x18\x01 \x01(\v2\x14.greedy_eye.v1.AssetR\x05asset\x12;\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"v\n" +
+	"\x12UpdateAssetRequest\x12#\n" +
+	"\x05asset\x18\x01 \x01(\v2\r.eye.v1.AssetR\x05asset\x12;\n" +
 	"\vupdate_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
 	"updateMask\"$\n" +
 	"\x12DeleteAssetRequest\x12\x0e\n" +
@@ -1445,20 +1445,20 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\x04tags\x18\x03 \x03(\tR\x04tagsB\f\n" +
 	"\n" +
 	"_page_sizeB\r\n" +
-	"\v_page_token\"j\n" +
-	"\x12ListAssetsResponse\x12,\n" +
-	"\x06assets\x18\x01 \x03(\v2\x14.greedy_eye.v1.AssetR\x06assets\x12&\n" +
+	"\v_page_token\"c\n" +
+	"\x12ListAssetsResponse\x12%\n" +
+	"\x06assets\x18\x01 \x03(\v2\r.eye.v1.AssetR\x06assets\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"M\n" +
 	"\x16EnrichAssetDataRequest\x12\x19\n" +
 	"\basset_id\x18\x01 \x01(\tR\aassetId\x12\x18\n" +
 	"\asources\x18\x02 \x03(\tR\asources\"K\n" +
 	"\x18FindSimilarAssetsRequest\x12\x19\n" +
 	"\basset_id\x18\x01 \x01(\tR\aassetId\x12\x14\n" +
-	"\x05limit\x18\x02 \x01(\x05R\x05limit\"@\n" +
-	"\x12CreatePriceRequest\x12*\n" +
-	"\x05price\x18\x01 \x01(\v2\x14.greedy_eye.v1.PriceR\x05price\"C\n" +
-	"\x13CreatePricesRequest\x12,\n" +
-	"\x06prices\x18\x01 \x03(\v2\x14.greedy_eye.v1.PriceR\x06prices\";\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\"9\n" +
+	"\x12CreatePriceRequest\x12#\n" +
+	"\x05price\x18\x01 \x01(\v2\r.eye.v1.PriceR\x05price\"<\n" +
+	"\x13CreatePricesRequest\x12%\n" +
+	"\x06prices\x18\x01 \x03(\v2\r.eye.v1.PriceR\x06prices\";\n" +
 	"\x14CreatePricesResponse\x12#\n" +
 	"\rcreated_count\x18\x01 \x01(\x05R\fcreatedCount\"\x86\x01\n" +
 	"\x15GetLatestPriceRequest\x12\x19\n" +
@@ -1482,9 +1482,9 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"_source_idB\f\n" +
 	"\n" +
 	"_page_sizeB\r\n" +
-	"\v_page_token\"p\n" +
-	"\x18ListPriceHistoryResponse\x12,\n" +
-	"\x06prices\x18\x01 \x03(\v2\x14.greedy_eye.v1.PriceR\x06prices\x12&\n" +
+	"\v_page_token\"i\n" +
+	"\x18ListPriceHistoryResponse\x12%\n" +
+	"\x06prices\x18\x01 \x03(\v2\r.eye.v1.PriceR\x06prices\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x81\x03\n" +
 	"\x1bListPricesByIntervalRequest\x12\x19\n" +
 	"\basset_id\x18\x01 \x01(\tR\aassetId\x12\"\n" +
@@ -1532,25 +1532,26 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\x0fASSET_TYPE_BOND\x10\x03\x12\x18\n" +
 	"\x14ASSET_TYPE_COMMODITY\x10\x04\x12\x14\n" +
 	"\x10ASSET_TYPE_FOREX\x10\x05\x12\x13\n" +
-	"\x0fASSET_TYPE_FUND\x10\x062\xc5\x0e\n" +
-	"\x11MarketDataService\x12e\n" +
-	"\vCreateAsset\x12!.greedy_eye.v1.CreateAssetRequest\x1a\x14.greedy_eye.v1.Asset\"\x1d\x82\xd3\xe4\x93\x02\x17:\x05asset\"\x0e/api/v1/assets\x12]\n" +
-	"\bGetAsset\x12\x1e.greedy_eye.v1.GetAssetRequest\x1a\x14.greedy_eye.v1.Asset\"\x1b\x82\xd3\xe4\x93\x02\x15\x12\x13/api/v1/assets/{id}\x12p\n" +
-	"\vUpdateAsset\x12!.greedy_eye.v1.UpdateAssetRequest\x1a\x14.greedy_eye.v1.Asset\"(\x82\xd3\xe4\x93\x02\":\x05asset\x1a\x19/api/v1/assets/{asset.id}\x12e\n" +
-	"\vDeleteAsset\x12!.greedy_eye.v1.DeleteAssetRequest\x1a\x16.google.protobuf.Empty\"\x1b\x82\xd3\xe4\x93\x02\x15*\x13/api/v1/assets/{id}\x12i\n" +
+	"\x0fASSET_TYPE_FUND\x10\x062\x86\r\n" +
+	"\x11MarketDataService\x12W\n" +
+	"\vCreateAsset\x12\x1a.eye.v1.CreateAssetRequest\x1a\r.eye.v1.Asset\"\x1d\x82\xd3\xe4\x93\x02\x17:\x05asset\"\x0e/api/v1/assets\x12O\n" +
+	"\bGetAsset\x12\x17.eye.v1.GetAssetRequest\x1a\r.eye.v1.Asset\"\x1b\x82\xd3\xe4\x93\x02\x15\x12\x13/api/v1/assets/{id}\x12b\n" +
+	"\vUpdateAsset\x12\x1a.eye.v1.UpdateAssetRequest\x1a\r.eye.v1.Asset\"(\x82\xd3\xe4\x93\x02\":\x05asset\x1a\x19/api/v1/assets/{asset.id}\x12^\n" +
+	"\vDeleteAsset\x12\x1a.eye.v1.DeleteAssetRequest\x1a\x16.google.protobuf.Empty\"\x1b\x82\xd3\xe4\x93\x02\x15*\x13/api/v1/assets/{id}\x12[\n" +
 	"\n" +
-	"ListAssets\x12 .greedy_eye.v1.ListAssetsRequest\x1a!.greedy_eye.v1.ListAssetsResponse\"\x16\x82\xd3\xe4\x93\x02\x10\x12\x0e/api/v1/assets\x12{\n" +
-	"\x0fEnrichAssetData\x12%.greedy_eye.v1.EnrichAssetDataRequest\x1a\x14.greedy_eye.v1.Asset\"+\x82\xd3\xe4\x93\x02%:\x01*\" /api/v1/assets/{asset_id}/enrich\x12\x8a\x01\n" +
-	"\x11FindSimilarAssets\x12'.greedy_eye.v1.FindSimilarAssetsRequest\x1a!.greedy_eye.v1.ListAssetsResponse\")\x82\xd3\xe4\x93\x02#\x12!/api/v1/assets/{asset_id}/similar\x12e\n" +
-	"\vCreatePrice\x12!.greedy_eye.v1.CreatePriceRequest\x1a\x14.greedy_eye.v1.Price\"\x1d\x82\xd3\xe4\x93\x02\x17:\x05price\"\x0e/api/v1/prices\x12|\n" +
-	"\fCreatePrices\x12\".greedy_eye.v1.CreatePricesRequest\x1a#.greedy_eye.v1.CreatePricesResponse\"#\x82\xd3\xe4\x93\x02\x1d:\x06prices\"\x13/api/v1/prices/bulk\x12\x86\x01\n" +
-	"\x0eGetLatestPrice\x12$.greedy_eye.v1.GetLatestPriceRequest\x1a\x14.greedy_eye.v1.Price\"8\x82\xd3\xe4\x93\x022\x120/api/v1/prices/{asset_id}/{base_asset_id}/latest\x12\x9e\x01\n" +
-	"\x10ListPriceHistory\x12&.greedy_eye.v1.ListPriceHistoryRequest\x1a'.greedy_eye.v1.ListPriceHistoryResponse\"9\x82\xd3\xe4\x93\x023\x121/api/v1/prices/{asset_id}/{base_asset_id}/history\x12\xa8\x01\n" +
-	"\x14ListPricesByInterval\x12*.greedy_eye.v1.ListPricesByIntervalRequest\x1a'.greedy_eye.v1.ListPriceHistoryResponse\";\x82\xd3\xe4\x93\x025\x123/api/v1/prices/{asset_id}/{base_asset_id}/intervals\x12e\n" +
-	"\vDeletePrice\x12!.greedy_eye.v1.DeletePriceRequest\x1a\x16.google.protobuf.Empty\"\x1b\x82\xd3\xe4\x93\x02\x15*\x13/api/v1/prices/{id}\x12b\n" +
-	"\fDeletePrices\x12\".greedy_eye.v1.DeletePricesRequest\x1a\x16.google.protobuf.Empty\"\x16\x82\xd3\xe4\x93\x02\x10*\x0e/api/v1/prices\x12\x96\x01\n" +
-	"\x13FetchExternalPrices\x12).greedy_eye.v1.FetchExternalPricesRequest\x1a*.greedy_eye.v1.FetchExternalPricesResponse\"(\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/api/v1/prices/fetch-externalB\xaa\x01\n" +
-	"\x11com.greedy_eye.v1B\x0fMarketdataProtoP\x01Z3github.com/foxcool/greedy-eye/internal/api/v1;apiv1\xa2\x02\x03GXX\xaa\x02\fGreedyEye.V1\xca\x02\fGreedyEye\\V1\xe2\x02\x18GreedyEye\\V1\\GPBMetadata\xea\x02\rGreedyEye::V1b\x06proto3"
+	"ListAssets\x12\x19.eye.v1.ListAssetsRequest\x1a\x1a.eye.v1.ListAssetsResponse\"\x16\x82\xd3\xe4\x93\x02\x10\x12\x0e/api/v1/assets\x12m\n" +
+	"\x0fEnrichAssetData\x12\x1e.eye.v1.EnrichAssetDataRequest\x1a\r.eye.v1.Asset\"+\x82\xd3\xe4\x93\x02%:\x01*\" /api/v1/assets/{asset_id}/enrich\x12|\n" +
+	"\x11FindSimilarAssets\x12 .eye.v1.FindSimilarAssetsRequest\x1a\x1a.eye.v1.ListAssetsResponse\")\x82\xd3\xe4\x93\x02#\x12!/api/v1/assets/{asset_id}/similar\x12W\n" +
+	"\vCreatePrice\x12\x1a.eye.v1.CreatePriceRequest\x1a\r.eye.v1.Price\"\x1d\x82\xd3\xe4\x93\x02\x17:\x05price\"\x0e/api/v1/prices\x12n\n" +
+	"\fCreatePrices\x12\x1b.eye.v1.CreatePricesRequest\x1a\x1c.eye.v1.CreatePricesResponse\"#\x82\xd3\xe4\x93\x02\x1d:\x06prices\"\x13/api/v1/prices/bulk\x12x\n" +
+	"\x0eGetLatestPrice\x12\x1d.eye.v1.GetLatestPriceRequest\x1a\r.eye.v1.Price\"8\x82\xd3\xe4\x93\x022\x120/api/v1/prices/{asset_id}/{base_asset_id}/latest\x12\x90\x01\n" +
+	"\x10ListPriceHistory\x12\x1f.eye.v1.ListPriceHistoryRequest\x1a .eye.v1.ListPriceHistoryResponse\"9\x82\xd3\xe4\x93\x023\x121/api/v1/prices/{asset_id}/{base_asset_id}/history\x12\x9a\x01\n" +
+	"\x14ListPricesByInterval\x12#.eye.v1.ListPricesByIntervalRequest\x1a .eye.v1.ListPriceHistoryResponse\";\x82\xd3\xe4\x93\x025\x123/api/v1/prices/{asset_id}/{base_asset_id}/intervals\x12^\n" +
+	"\vDeletePrice\x12\x1a.eye.v1.DeletePriceRequest\x1a\x16.google.protobuf.Empty\"\x1b\x82\xd3\xe4\x93\x02\x15*\x13/api/v1/prices/{id}\x12[\n" +
+	"\fDeletePrices\x12\x1b.eye.v1.DeletePricesRequest\x1a\x16.google.protobuf.Empty\"\x16\x82\xd3\xe4\x93\x02\x10*\x0e/api/v1/prices\x12\x88\x01\n" +
+	"\x13FetchExternalPrices\x12\".eye.v1.FetchExternalPricesRequest\x1a#.eye.v1.FetchExternalPricesResponse\"(\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/api/v1/prices/fetch-externalB\x8b\x01\n" +
+	"\n" +
+	"com.eye.v1B\x0fMarketdataProtoP\x01Z3github.com/foxcool/greedy-eye/internal/api/v1;apiv1\xa2\x02\x03EXX\xaa\x02\x06Eye.V1\xca\x02\x06Eye\\V1\xe2\x02\x12Eye\\V1\\GPBMetadata\xea\x02\aEye::V1b\x06proto3"
 
 var (
 	file_v1_marketdata_proto_rawDescOnce sync.Once
@@ -1567,80 +1568,80 @@ func file_v1_marketdata_proto_rawDescGZIP() []byte {
 var file_v1_marketdata_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_v1_marketdata_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_v1_marketdata_proto_goTypes = []any{
-	(AssetType)(0),                      // 0: greedy_eye.v1.AssetType
-	(*Asset)(nil),                       // 1: greedy_eye.v1.Asset
-	(*Price)(nil),                       // 2: greedy_eye.v1.Price
-	(*CreateAssetRequest)(nil),          // 3: greedy_eye.v1.CreateAssetRequest
-	(*GetAssetRequest)(nil),             // 4: greedy_eye.v1.GetAssetRequest
-	(*UpdateAssetRequest)(nil),          // 5: greedy_eye.v1.UpdateAssetRequest
-	(*DeleteAssetRequest)(nil),          // 6: greedy_eye.v1.DeleteAssetRequest
-	(*ListAssetsRequest)(nil),           // 7: greedy_eye.v1.ListAssetsRequest
-	(*ListAssetsResponse)(nil),          // 8: greedy_eye.v1.ListAssetsResponse
-	(*EnrichAssetDataRequest)(nil),      // 9: greedy_eye.v1.EnrichAssetDataRequest
-	(*FindSimilarAssetsRequest)(nil),    // 10: greedy_eye.v1.FindSimilarAssetsRequest
-	(*CreatePriceRequest)(nil),          // 11: greedy_eye.v1.CreatePriceRequest
-	(*CreatePricesRequest)(nil),         // 12: greedy_eye.v1.CreatePricesRequest
-	(*CreatePricesResponse)(nil),        // 13: greedy_eye.v1.CreatePricesResponse
-	(*GetLatestPriceRequest)(nil),       // 14: greedy_eye.v1.GetLatestPriceRequest
-	(*ListPriceHistoryRequest)(nil),     // 15: greedy_eye.v1.ListPriceHistoryRequest
-	(*ListPriceHistoryResponse)(nil),    // 16: greedy_eye.v1.ListPriceHistoryResponse
-	(*ListPricesByIntervalRequest)(nil), // 17: greedy_eye.v1.ListPricesByIntervalRequest
-	(*DeletePriceRequest)(nil),          // 18: greedy_eye.v1.DeletePriceRequest
-	(*DeletePricesRequest)(nil),         // 19: greedy_eye.v1.DeletePricesRequest
-	(*FetchExternalPricesRequest)(nil),  // 20: greedy_eye.v1.FetchExternalPricesRequest
-	(*FetchExternalPricesResponse)(nil), // 21: greedy_eye.v1.FetchExternalPricesResponse
+	(AssetType)(0),                      // 0: eye.v1.AssetType
+	(*Asset)(nil),                       // 1: eye.v1.Asset
+	(*Price)(nil),                       // 2: eye.v1.Price
+	(*CreateAssetRequest)(nil),          // 3: eye.v1.CreateAssetRequest
+	(*GetAssetRequest)(nil),             // 4: eye.v1.GetAssetRequest
+	(*UpdateAssetRequest)(nil),          // 5: eye.v1.UpdateAssetRequest
+	(*DeleteAssetRequest)(nil),          // 6: eye.v1.DeleteAssetRequest
+	(*ListAssetsRequest)(nil),           // 7: eye.v1.ListAssetsRequest
+	(*ListAssetsResponse)(nil),          // 8: eye.v1.ListAssetsResponse
+	(*EnrichAssetDataRequest)(nil),      // 9: eye.v1.EnrichAssetDataRequest
+	(*FindSimilarAssetsRequest)(nil),    // 10: eye.v1.FindSimilarAssetsRequest
+	(*CreatePriceRequest)(nil),          // 11: eye.v1.CreatePriceRequest
+	(*CreatePricesRequest)(nil),         // 12: eye.v1.CreatePricesRequest
+	(*CreatePricesResponse)(nil),        // 13: eye.v1.CreatePricesResponse
+	(*GetLatestPriceRequest)(nil),       // 14: eye.v1.GetLatestPriceRequest
+	(*ListPriceHistoryRequest)(nil),     // 15: eye.v1.ListPriceHistoryRequest
+	(*ListPriceHistoryResponse)(nil),    // 16: eye.v1.ListPriceHistoryResponse
+	(*ListPricesByIntervalRequest)(nil), // 17: eye.v1.ListPricesByIntervalRequest
+	(*DeletePriceRequest)(nil),          // 18: eye.v1.DeletePriceRequest
+	(*DeletePricesRequest)(nil),         // 19: eye.v1.DeletePricesRequest
+	(*FetchExternalPricesRequest)(nil),  // 20: eye.v1.FetchExternalPricesRequest
+	(*FetchExternalPricesResponse)(nil), // 21: eye.v1.FetchExternalPricesResponse
 	(*timestamppb.Timestamp)(nil),       // 22: google.protobuf.Timestamp
 	(*fieldmaskpb.FieldMask)(nil),       // 23: google.protobuf.FieldMask
 	(*emptypb.Empty)(nil),               // 24: google.protobuf.Empty
 }
 var file_v1_marketdata_proto_depIdxs = []int32{
-	0,  // 0: greedy_eye.v1.Asset.type:type_name -> greedy_eye.v1.AssetType
-	22, // 1: greedy_eye.v1.Asset.created_at:type_name -> google.protobuf.Timestamp
-	22, // 2: greedy_eye.v1.Asset.updated_at:type_name -> google.protobuf.Timestamp
-	22, // 3: greedy_eye.v1.Price.timestamp:type_name -> google.protobuf.Timestamp
-	1,  // 4: greedy_eye.v1.CreateAssetRequest.asset:type_name -> greedy_eye.v1.Asset
-	1,  // 5: greedy_eye.v1.UpdateAssetRequest.asset:type_name -> greedy_eye.v1.Asset
-	23, // 6: greedy_eye.v1.UpdateAssetRequest.update_mask:type_name -> google.protobuf.FieldMask
-	1,  // 7: greedy_eye.v1.ListAssetsResponse.assets:type_name -> greedy_eye.v1.Asset
-	2,  // 8: greedy_eye.v1.CreatePriceRequest.price:type_name -> greedy_eye.v1.Price
-	2,  // 9: greedy_eye.v1.CreatePricesRequest.prices:type_name -> greedy_eye.v1.Price
-	22, // 10: greedy_eye.v1.ListPriceHistoryRequest.from:type_name -> google.protobuf.Timestamp
-	22, // 11: greedy_eye.v1.ListPriceHistoryRequest.to:type_name -> google.protobuf.Timestamp
-	2,  // 12: greedy_eye.v1.ListPriceHistoryResponse.prices:type_name -> greedy_eye.v1.Price
-	22, // 13: greedy_eye.v1.ListPricesByIntervalRequest.from:type_name -> google.protobuf.Timestamp
-	22, // 14: greedy_eye.v1.ListPricesByIntervalRequest.to:type_name -> google.protobuf.Timestamp
-	22, // 15: greedy_eye.v1.DeletePricesRequest.from:type_name -> google.protobuf.Timestamp
-	22, // 16: greedy_eye.v1.DeletePricesRequest.to:type_name -> google.protobuf.Timestamp
-	3,  // 17: greedy_eye.v1.MarketDataService.CreateAsset:input_type -> greedy_eye.v1.CreateAssetRequest
-	4,  // 18: greedy_eye.v1.MarketDataService.GetAsset:input_type -> greedy_eye.v1.GetAssetRequest
-	5,  // 19: greedy_eye.v1.MarketDataService.UpdateAsset:input_type -> greedy_eye.v1.UpdateAssetRequest
-	6,  // 20: greedy_eye.v1.MarketDataService.DeleteAsset:input_type -> greedy_eye.v1.DeleteAssetRequest
-	7,  // 21: greedy_eye.v1.MarketDataService.ListAssets:input_type -> greedy_eye.v1.ListAssetsRequest
-	9,  // 22: greedy_eye.v1.MarketDataService.EnrichAssetData:input_type -> greedy_eye.v1.EnrichAssetDataRequest
-	10, // 23: greedy_eye.v1.MarketDataService.FindSimilarAssets:input_type -> greedy_eye.v1.FindSimilarAssetsRequest
-	11, // 24: greedy_eye.v1.MarketDataService.CreatePrice:input_type -> greedy_eye.v1.CreatePriceRequest
-	12, // 25: greedy_eye.v1.MarketDataService.CreatePrices:input_type -> greedy_eye.v1.CreatePricesRequest
-	14, // 26: greedy_eye.v1.MarketDataService.GetLatestPrice:input_type -> greedy_eye.v1.GetLatestPriceRequest
-	15, // 27: greedy_eye.v1.MarketDataService.ListPriceHistory:input_type -> greedy_eye.v1.ListPriceHistoryRequest
-	17, // 28: greedy_eye.v1.MarketDataService.ListPricesByInterval:input_type -> greedy_eye.v1.ListPricesByIntervalRequest
-	18, // 29: greedy_eye.v1.MarketDataService.DeletePrice:input_type -> greedy_eye.v1.DeletePriceRequest
-	19, // 30: greedy_eye.v1.MarketDataService.DeletePrices:input_type -> greedy_eye.v1.DeletePricesRequest
-	20, // 31: greedy_eye.v1.MarketDataService.FetchExternalPrices:input_type -> greedy_eye.v1.FetchExternalPricesRequest
-	1,  // 32: greedy_eye.v1.MarketDataService.CreateAsset:output_type -> greedy_eye.v1.Asset
-	1,  // 33: greedy_eye.v1.MarketDataService.GetAsset:output_type -> greedy_eye.v1.Asset
-	1,  // 34: greedy_eye.v1.MarketDataService.UpdateAsset:output_type -> greedy_eye.v1.Asset
-	24, // 35: greedy_eye.v1.MarketDataService.DeleteAsset:output_type -> google.protobuf.Empty
-	8,  // 36: greedy_eye.v1.MarketDataService.ListAssets:output_type -> greedy_eye.v1.ListAssetsResponse
-	1,  // 37: greedy_eye.v1.MarketDataService.EnrichAssetData:output_type -> greedy_eye.v1.Asset
-	8,  // 38: greedy_eye.v1.MarketDataService.FindSimilarAssets:output_type -> greedy_eye.v1.ListAssetsResponse
-	2,  // 39: greedy_eye.v1.MarketDataService.CreatePrice:output_type -> greedy_eye.v1.Price
-	13, // 40: greedy_eye.v1.MarketDataService.CreatePrices:output_type -> greedy_eye.v1.CreatePricesResponse
-	2,  // 41: greedy_eye.v1.MarketDataService.GetLatestPrice:output_type -> greedy_eye.v1.Price
-	16, // 42: greedy_eye.v1.MarketDataService.ListPriceHistory:output_type -> greedy_eye.v1.ListPriceHistoryResponse
-	16, // 43: greedy_eye.v1.MarketDataService.ListPricesByInterval:output_type -> greedy_eye.v1.ListPriceHistoryResponse
-	24, // 44: greedy_eye.v1.MarketDataService.DeletePrice:output_type -> google.protobuf.Empty
-	24, // 45: greedy_eye.v1.MarketDataService.DeletePrices:output_type -> google.protobuf.Empty
-	21, // 46: greedy_eye.v1.MarketDataService.FetchExternalPrices:output_type -> greedy_eye.v1.FetchExternalPricesResponse
+	0,  // 0: eye.v1.Asset.type:type_name -> eye.v1.AssetType
+	22, // 1: eye.v1.Asset.created_at:type_name -> google.protobuf.Timestamp
+	22, // 2: eye.v1.Asset.updated_at:type_name -> google.protobuf.Timestamp
+	22, // 3: eye.v1.Price.timestamp:type_name -> google.protobuf.Timestamp
+	1,  // 4: eye.v1.CreateAssetRequest.asset:type_name -> eye.v1.Asset
+	1,  // 5: eye.v1.UpdateAssetRequest.asset:type_name -> eye.v1.Asset
+	23, // 6: eye.v1.UpdateAssetRequest.update_mask:type_name -> google.protobuf.FieldMask
+	1,  // 7: eye.v1.ListAssetsResponse.assets:type_name -> eye.v1.Asset
+	2,  // 8: eye.v1.CreatePriceRequest.price:type_name -> eye.v1.Price
+	2,  // 9: eye.v1.CreatePricesRequest.prices:type_name -> eye.v1.Price
+	22, // 10: eye.v1.ListPriceHistoryRequest.from:type_name -> google.protobuf.Timestamp
+	22, // 11: eye.v1.ListPriceHistoryRequest.to:type_name -> google.protobuf.Timestamp
+	2,  // 12: eye.v1.ListPriceHistoryResponse.prices:type_name -> eye.v1.Price
+	22, // 13: eye.v1.ListPricesByIntervalRequest.from:type_name -> google.protobuf.Timestamp
+	22, // 14: eye.v1.ListPricesByIntervalRequest.to:type_name -> google.protobuf.Timestamp
+	22, // 15: eye.v1.DeletePricesRequest.from:type_name -> google.protobuf.Timestamp
+	22, // 16: eye.v1.DeletePricesRequest.to:type_name -> google.protobuf.Timestamp
+	3,  // 17: eye.v1.MarketDataService.CreateAsset:input_type -> eye.v1.CreateAssetRequest
+	4,  // 18: eye.v1.MarketDataService.GetAsset:input_type -> eye.v1.GetAssetRequest
+	5,  // 19: eye.v1.MarketDataService.UpdateAsset:input_type -> eye.v1.UpdateAssetRequest
+	6,  // 20: eye.v1.MarketDataService.DeleteAsset:input_type -> eye.v1.DeleteAssetRequest
+	7,  // 21: eye.v1.MarketDataService.ListAssets:input_type -> eye.v1.ListAssetsRequest
+	9,  // 22: eye.v1.MarketDataService.EnrichAssetData:input_type -> eye.v1.EnrichAssetDataRequest
+	10, // 23: eye.v1.MarketDataService.FindSimilarAssets:input_type -> eye.v1.FindSimilarAssetsRequest
+	11, // 24: eye.v1.MarketDataService.CreatePrice:input_type -> eye.v1.CreatePriceRequest
+	12, // 25: eye.v1.MarketDataService.CreatePrices:input_type -> eye.v1.CreatePricesRequest
+	14, // 26: eye.v1.MarketDataService.GetLatestPrice:input_type -> eye.v1.GetLatestPriceRequest
+	15, // 27: eye.v1.MarketDataService.ListPriceHistory:input_type -> eye.v1.ListPriceHistoryRequest
+	17, // 28: eye.v1.MarketDataService.ListPricesByInterval:input_type -> eye.v1.ListPricesByIntervalRequest
+	18, // 29: eye.v1.MarketDataService.DeletePrice:input_type -> eye.v1.DeletePriceRequest
+	19, // 30: eye.v1.MarketDataService.DeletePrices:input_type -> eye.v1.DeletePricesRequest
+	20, // 31: eye.v1.MarketDataService.FetchExternalPrices:input_type -> eye.v1.FetchExternalPricesRequest
+	1,  // 32: eye.v1.MarketDataService.CreateAsset:output_type -> eye.v1.Asset
+	1,  // 33: eye.v1.MarketDataService.GetAsset:output_type -> eye.v1.Asset
+	1,  // 34: eye.v1.MarketDataService.UpdateAsset:output_type -> eye.v1.Asset
+	24, // 35: eye.v1.MarketDataService.DeleteAsset:output_type -> google.protobuf.Empty
+	8,  // 36: eye.v1.MarketDataService.ListAssets:output_type -> eye.v1.ListAssetsResponse
+	1,  // 37: eye.v1.MarketDataService.EnrichAssetData:output_type -> eye.v1.Asset
+	8,  // 38: eye.v1.MarketDataService.FindSimilarAssets:output_type -> eye.v1.ListAssetsResponse
+	2,  // 39: eye.v1.MarketDataService.CreatePrice:output_type -> eye.v1.Price
+	13, // 40: eye.v1.MarketDataService.CreatePrices:output_type -> eye.v1.CreatePricesResponse
+	2,  // 41: eye.v1.MarketDataService.GetLatestPrice:output_type -> eye.v1.Price
+	16, // 42: eye.v1.MarketDataService.ListPriceHistory:output_type -> eye.v1.ListPriceHistoryResponse
+	16, // 43: eye.v1.MarketDataService.ListPricesByInterval:output_type -> eye.v1.ListPriceHistoryResponse
+	24, // 44: eye.v1.MarketDataService.DeletePrice:output_type -> google.protobuf.Empty
+	24, // 45: eye.v1.MarketDataService.DeletePrices:output_type -> google.protobuf.Empty
+	21, // 46: eye.v1.MarketDataService.FetchExternalPrices:output_type -> eye.v1.FetchExternalPricesResponse
 	32, // [32:47] is the sub-list for method output_type
 	17, // [17:32] is the sub-list for method input_type
 	17, // [17:17] is the sub-list for extension type_name

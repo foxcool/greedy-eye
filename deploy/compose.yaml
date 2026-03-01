@@ -33,8 +33,9 @@ services:
       EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.eye-dev.rule=Host(`${EYE_DOMAIN}`)"
-      - "traefik.http.routers.eye-dev.entrypoints=web"
+      - "traefik.http.routers.eye-dev.rule=Host(`${EYE_DOMAIN}`) && PathPrefix(`/eye`)"
+      - "traefik.http.routers.eye-dev.entrypoints=web,websecure"
+      - "traefik.http.routers.eye-dev.tls=true"
       - "traefik.http.services.eye-dev.loadbalancer.server.port=8080"
       - "traefik.http.services.eye-dev.loadbalancer.server.scheme=h2c"
     networks:
@@ -66,8 +67,9 @@ services:
       EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.eye-debug.rule=Host(`${EYE_DOMAIN}`)"
-      - "traefik.http.routers.eye-debug.entrypoints=web"
+      - "traefik.http.routers.eye-debug.rule=Host(`${EYE_DOMAIN}`) && PathPrefix(`/eye`)"
+      - "traefik.http.routers.eye-debug.entrypoints=web,websecure"
+      - "traefik.http.routers.eye-debug.tls=true"
       - "traefik.http.services.eye-debug.loadbalancer.server.port=8080"
       - "traefik.http.services.eye-debug.loadbalancer.server.scheme=h2c"
     networks:

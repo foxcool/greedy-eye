@@ -398,7 +398,7 @@ type Account struct {
 	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Description   *string                `protobuf:"bytes,4,opt,name=description,proto3,oneof" json:"description,omitempty"`
-	Type          AccountType            `protobuf:"varint,5,opt,name=type,proto3,enum=greedy_eye.v1.AccountType" json:"type,omitempty"`
+	Type          AccountType            `protobuf:"varint,5,opt,name=type,proto3,enum=eye.v1.AccountType" json:"type,omitempty"`
 	Data          map[string]string      `protobuf:"bytes,6,rep,name=data,proto3" json:"data,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
@@ -498,8 +498,8 @@ type Transaction struct {
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	Type          TransactionType        `protobuf:"varint,4,opt,name=type,proto3,enum=greedy_eye.v1.TransactionType" json:"type,omitempty"`
-	Status        TransactionStatus      `protobuf:"varint,5,opt,name=status,proto3,enum=greedy_eye.v1.TransactionStatus" json:"status,omitempty"`
+	Type          TransactionType        `protobuf:"varint,4,opt,name=type,proto3,enum=eye.v1.TransactionType" json:"type,omitempty"`
+	Status        TransactionStatus      `protobuf:"varint,5,opt,name=status,proto3,enum=eye.v1.TransactionStatus" json:"status,omitempty"`
 	AccountId     string                 `protobuf:"bytes,6,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
 	Data          map[string]string      `protobuf:"bytes,7,rep,name=data,proto3" json:"data,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
@@ -1608,7 +1608,7 @@ func (x *DeleteAccountRequest) GetId() string {
 type ListAccountsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        *string                `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`
-	Type          *AccountType           `protobuf:"varint,2,opt,name=type,proto3,enum=greedy_eye.v1.AccountType,oneof" json:"type,omitempty"`
+	Type          *AccountType           `protobuf:"varint,2,opt,name=type,proto3,enum=eye.v1.AccountType,oneof" json:"type,omitempty"`
 	PageSize      *int32                 `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
 	PageToken     *string                `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1867,8 +1867,8 @@ func (x *UpdateTransactionRequest) GetUpdateMask() *fieldmaskpb.FieldMask {
 
 type ListTransactionsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Type          *TransactionType       `protobuf:"varint,1,opt,name=type,proto3,enum=greedy_eye.v1.TransactionType,oneof" json:"type,omitempty"`
-	Status        *TransactionStatus     `protobuf:"varint,2,opt,name=status,proto3,enum=greedy_eye.v1.TransactionStatus,oneof" json:"status,omitempty"`
+	Type          *TransactionType       `protobuf:"varint,1,opt,name=type,proto3,enum=eye.v1.TransactionType,oneof" json:"type,omitempty"`
+	Status        *TransactionStatus     `protobuf:"varint,2,opt,name=status,proto3,enum=eye.v1.TransactionStatus,oneof" json:"status,omitempty"`
 	AccountId     *string                `protobuf:"bytes,3,opt,name=account_id,json=accountId,proto3,oneof" json:"account_id,omitempty"`
 	From          *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=from,proto3,oneof" json:"from,omitempty"`
 	To            *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=to,proto3,oneof" json:"to,omitempty"`
@@ -2013,13 +2013,13 @@ var File_v1_portfolio_proto protoreflect.FileDescriptor
 
 const file_v1_portfolio_proto_rawDesc = "" +
 	"\n" +
-	"\x12v1/portfolio.proto\x12\rgreedy_eye.v1\x1a\x19google/protobuf/any.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/api/annotations.proto\"\xfc\x02\n" +
+	"\x12v1/portfolio.proto\x12\x06eye.v1\x1a\x19google/protobuf/any.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/api/annotations.proto\"\xf5\x02\n" +
 	"\tPortfolio\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12%\n" +
-	"\vdescription\x18\x04 \x01(\tH\x00R\vdescription\x88\x01\x01\x126\n" +
-	"\x04data\x18\x05 \x03(\v2\".greedy_eye.v1.Portfolio.DataEntryR\x04data\x129\n" +
+	"\vdescription\x18\x04 \x01(\tH\x00R\vdescription\x88\x01\x01\x12/\n" +
+	"\x04data\x18\x05 \x03(\v2\x1b.eye.v1.Portfolio.DataEntryR\x04data\x129\n" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
@@ -2040,14 +2040,14 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
 	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAtB\x0f\n" +
-	"\r_portfolio_id\"\x92\x03\n" +
+	"\r_portfolio_id\"\x84\x03\n" +
 	"\aAccount\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12%\n" +
-	"\vdescription\x18\x04 \x01(\tH\x00R\vdescription\x88\x01\x01\x12.\n" +
-	"\x04type\x18\x05 \x01(\x0e2\x1a.greedy_eye.v1.AccountTypeR\x04type\x124\n" +
-	"\x04data\x18\x06 \x03(\v2 .greedy_eye.v1.Account.DataEntryR\x04data\x129\n" +
+	"\vdescription\x18\x04 \x01(\tH\x00R\vdescription\x88\x01\x01\x12'\n" +
+	"\x04type\x18\x05 \x01(\x0e2\x13.eye.v1.AccountTypeR\x04type\x12-\n" +
+	"\x04data\x18\x06 \x03(\v2\x19.eye.v1.Account.DataEntryR\x04data\x129\n" +
 	"\n" +
 	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
@@ -2055,27 +2055,27 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\tDataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x0e\n" +
-	"\f_description\"\x93\x03\n" +
+	"\f_description\"\xfe\x02\n" +
 	"\vTransaction\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x129\n" +
 	"\n" +
 	"created_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x122\n" +
-	"\x04type\x18\x04 \x01(\x0e2\x1e.greedy_eye.v1.TransactionTypeR\x04type\x128\n" +
-	"\x06status\x18\x05 \x01(\x0e2 .greedy_eye.v1.TransactionStatusR\x06status\x12\x1d\n" +
+	"updated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12+\n" +
+	"\x04type\x18\x04 \x01(\x0e2\x17.eye.v1.TransactionTypeR\x04type\x121\n" +
+	"\x06status\x18\x05 \x01(\x0e2\x19.eye.v1.TransactionStatusR\x06status\x12\x1d\n" +
 	"\n" +
-	"account_id\x18\x06 \x01(\tR\taccountId\x128\n" +
-	"\x04data\x18\a \x03(\v2$.greedy_eye.v1.Transaction.DataEntryR\x04data\x1a7\n" +
+	"account_id\x18\x06 \x01(\tR\taccountId\x121\n" +
+	"\x04data\x18\a \x03(\v2\x1d.eye.v1.Transaction.DataEntryR\x04data\x1a7\n" +
 	"\tDataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"P\n" +
-	"\x16CreatePortfolioRequest\x126\n" +
-	"\tportfolio\x18\x01 \x01(\v2\x18.greedy_eye.v1.PortfolioR\tportfolio\"%\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"I\n" +
+	"\x16CreatePortfolioRequest\x12/\n" +
+	"\tportfolio\x18\x01 \x01(\v2\x11.eye.v1.PortfolioR\tportfolio\"%\n" +
 	"\x13GetPortfolioRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x8d\x01\n" +
-	"\x16UpdatePortfolioRequest\x126\n" +
-	"\tportfolio\x18\x01 \x01(\v2\x18.greedy_eye.v1.PortfolioR\tportfolio\x12;\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x86\x01\n" +
+	"\x16UpdatePortfolioRequest\x12/\n" +
+	"\tportfolio\x18\x01 \x01(\v2\x11.eye.v1.PortfolioR\tportfolio\x12;\n" +
 	"\vupdate_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
 	"updateMask\"(\n" +
 	"\x16DeletePortfolioRequest\x12\x0e\n" +
@@ -2089,10 +2089,10 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\b_user_idB\f\n" +
 	"\n" +
 	"_page_sizeB\r\n" +
-	"\v_page_token\"z\n" +
-	"\x16ListPortfoliosResponse\x128\n" +
+	"\v_page_token\"s\n" +
+	"\x16ListPortfoliosResponse\x121\n" +
 	"\n" +
-	"portfolios\x18\x01 \x03(\v2\x18.greedy_eye.v1.PortfolioR\n" +
+	"portfolios\x18\x01 \x03(\v2\x11.eye.v1.PortfolioR\n" +
 	"portfolios\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x9e\x01\n" +
 	"\x1eCalculatePortfolioValueRequest\x12!\n" +
@@ -2116,13 +2116,13 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\n" +
 	"volatility\x18\x03 \x01(\x01R\n" +
 	"volatility\x12!\n" +
-	"\fsharpe_ratio\x18\x04 \x01(\x01R\vsharpeRatio\"H\n" +
-	"\x14CreateHoldingRequest\x120\n" +
-	"\aholding\x18\x01 \x01(\v2\x16.greedy_eye.v1.HoldingR\aholding\"#\n" +
+	"\fsharpe_ratio\x18\x04 \x01(\x01R\vsharpeRatio\"A\n" +
+	"\x14CreateHoldingRequest\x12)\n" +
+	"\aholding\x18\x01 \x01(\v2\x0f.eye.v1.HoldingR\aholding\"#\n" +
 	"\x11GetHoldingRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x85\x01\n" +
-	"\x14UpdateHoldingRequest\x120\n" +
-	"\aholding\x18\x01 \x01(\v2\x16.greedy_eye.v1.HoldingR\aholding\x12;\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"~\n" +
+	"\x14UpdateHoldingRequest\x12)\n" +
+	"\aholding\x18\x01 \x01(\v2\x0f.eye.v1.HoldingR\aholding\x12;\n" +
 	"\vupdate_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
 	"updateMask\"\x91\x02\n" +
 	"\x13ListHoldingsRequest\x12&\n" +
@@ -2138,23 +2138,23 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\t_asset_idB\f\n" +
 	"\n" +
 	"_page_sizeB\r\n" +
-	"\v_page_token\"r\n" +
-	"\x14ListHoldingsResponse\x122\n" +
-	"\bholdings\x18\x01 \x03(\v2\x16.greedy_eye.v1.HoldingR\bholdings\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"H\n" +
-	"\x14CreateAccountRequest\x120\n" +
-	"\aaccount\x18\x01 \x01(\v2\x16.greedy_eye.v1.AccountR\aaccount\"#\n" +
+	"\v_page_token\"k\n" +
+	"\x14ListHoldingsResponse\x12+\n" +
+	"\bholdings\x18\x01 \x03(\v2\x0f.eye.v1.HoldingR\bholdings\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"A\n" +
+	"\x14CreateAccountRequest\x12)\n" +
+	"\aaccount\x18\x01 \x01(\v2\x0f.eye.v1.AccountR\aaccount\"#\n" +
 	"\x11GetAccountRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x85\x01\n" +
-	"\x14UpdateAccountRequest\x120\n" +
-	"\aaccount\x18\x01 \x01(\v2\x16.greedy_eye.v1.AccountR\aaccount\x12;\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"~\n" +
+	"\x14UpdateAccountRequest\x12)\n" +
+	"\aaccount\x18\x01 \x01(\v2\x0f.eye.v1.AccountR\aaccount\x12;\n" +
 	"\vupdate_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
 	"updateMask\"&\n" +
 	"\x14DeleteAccountRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xe0\x01\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xd9\x01\n" +
 	"\x13ListAccountsRequest\x12\x1c\n" +
-	"\auser_id\x18\x01 \x01(\tH\x00R\x06userId\x88\x01\x01\x123\n" +
-	"\x04type\x18\x02 \x01(\x0e2\x1a.greedy_eye.v1.AccountTypeH\x01R\x04type\x88\x01\x01\x12 \n" +
+	"\auser_id\x18\x01 \x01(\tH\x00R\x06userId\x88\x01\x01\x12,\n" +
+	"\x04type\x18\x02 \x01(\x0e2\x13.eye.v1.AccountTypeH\x01R\x04type\x88\x01\x01\x12 \n" +
 	"\tpage_size\x18\x03 \x01(\x05H\x02R\bpageSize\x88\x01\x01\x12\"\n" +
 	"\n" +
 	"page_token\x18\x04 \x01(\tH\x03R\tpageToken\x88\x01\x01B\n" +
@@ -2163,21 +2163,21 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x05_typeB\f\n" +
 	"\n" +
 	"_page_sizeB\r\n" +
-	"\v_page_token\"r\n" +
-	"\x14ListAccountsResponse\x122\n" +
-	"\baccounts\x18\x01 \x03(\v2\x16.greedy_eye.v1.AccountR\baccounts\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"X\n" +
-	"\x18CreateTransactionRequest\x12<\n" +
-	"\vtransaction\x18\x01 \x01(\v2\x1a.greedy_eye.v1.TransactionR\vtransaction\"'\n" +
+	"\v_page_token\"k\n" +
+	"\x14ListAccountsResponse\x12+\n" +
+	"\baccounts\x18\x01 \x03(\v2\x0f.eye.v1.AccountR\baccounts\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"Q\n" +
+	"\x18CreateTransactionRequest\x125\n" +
+	"\vtransaction\x18\x01 \x01(\v2\x13.eye.v1.TransactionR\vtransaction\"'\n" +
 	"\x15GetTransactionRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x95\x01\n" +
-	"\x18UpdateTransactionRequest\x12<\n" +
-	"\vtransaction\x18\x01 \x01(\v2\x1a.greedy_eye.v1.TransactionR\vtransaction\x12;\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x8e\x01\n" +
+	"\x18UpdateTransactionRequest\x125\n" +
+	"\vtransaction\x18\x01 \x01(\v2\x13.eye.v1.TransactionR\vtransaction\x12;\n" +
 	"\vupdate_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
-	"updateMask\"\xb1\x03\n" +
-	"\x17ListTransactionsRequest\x127\n" +
-	"\x04type\x18\x01 \x01(\x0e2\x1e.greedy_eye.v1.TransactionTypeH\x00R\x04type\x88\x01\x01\x12=\n" +
-	"\x06status\x18\x02 \x01(\x0e2 .greedy_eye.v1.TransactionStatusH\x01R\x06status\x88\x01\x01\x12\"\n" +
+	"updateMask\"\xa3\x03\n" +
+	"\x17ListTransactionsRequest\x120\n" +
+	"\x04type\x18\x01 \x01(\x0e2\x17.eye.v1.TransactionTypeH\x00R\x04type\x88\x01\x01\x126\n" +
+	"\x06status\x18\x02 \x01(\x0e2\x19.eye.v1.TransactionStatusH\x01R\x06status\x88\x01\x01\x12\"\n" +
 	"\n" +
 	"account_id\x18\x03 \x01(\tH\x02R\taccountId\x88\x01\x01\x123\n" +
 	"\x04from\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampH\x03R\x04from\x88\x01\x01\x12/\n" +
@@ -2192,9 +2192,9 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x03_toB\f\n" +
 	"\n" +
 	"_page_sizeB\r\n" +
-	"\v_page_token\"\x82\x01\n" +
-	"\x18ListTransactionsResponse\x12>\n" +
-	"\ftransactions\x18\x01 \x03(\v2\x1a.greedy_eye.v1.TransactionR\ftransactions\x12&\n" +
+	"\v_page_token\"{\n" +
+	"\x18ListTransactionsResponse\x127\n" +
+	"\ftransactions\x18\x01 \x03(\v2\x13.eye.v1.TransactionR\ftransactions\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken*\x8f\x01\n" +
 	"\vAccountType\x12\x1c\n" +
 	"\x18ACCOUNT_TYPE_UNSPECIFIED\x10\x00\x12\x17\n" +
@@ -2215,31 +2215,32 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x1dTRANSACTION_STATUS_PROCESSING\x10\x02\x12 \n" +
 	"\x1cTRANSACTION_STATUS_COMPLETED\x10\x03\x12\x1d\n" +
 	"\x19TRANSACTION_STATUS_FAILED\x10\x04\x12 \n" +
-	"\x1cTRANSACTION_STATUS_CANCELLED\x10\x052\xee\x13\n" +
-	"\x10PortfolioService\x12y\n" +
-	"\x0fCreatePortfolio\x12%.greedy_eye.v1.CreatePortfolioRequest\x1a\x18.greedy_eye.v1.Portfolio\"%\x82\xd3\xe4\x93\x02\x1f:\tportfolio\"\x12/api/v1/portfolios\x12m\n" +
-	"\fGetPortfolio\x12\".greedy_eye.v1.GetPortfolioRequest\x1a\x18.greedy_eye.v1.Portfolio\"\x1f\x82\xd3\xe4\x93\x02\x19\x12\x17/api/v1/portfolios/{id}\x12\x88\x01\n" +
-	"\x0fUpdatePortfolio\x12%.greedy_eye.v1.UpdatePortfolioRequest\x1a\x18.greedy_eye.v1.Portfolio\"4\x82\xd3\xe4\x93\x02.:\tportfolio\x1a!/api/v1/portfolios/{portfolio.id}\x12q\n" +
-	"\x0fDeletePortfolio\x12%.greedy_eye.v1.DeletePortfolioRequest\x1a\x16.google.protobuf.Empty\"\x1f\x82\xd3\xe4\x93\x02\x19*\x17/api/v1/portfolios/{id}\x12y\n" +
-	"\x0eListPortfolios\x12$.greedy_eye.v1.ListPortfoliosRequest\x1a%.greedy_eye.v1.ListPortfoliosResponse\"\x1a\x82\xd3\xe4\x93\x02\x14\x12\x12/api/v1/portfolios\x12\xad\x01\n" +
-	"\x17CalculatePortfolioValue\x12-.greedy_eye.v1.CalculatePortfolioValueRequest\x1a%.greedy_eye.v1.PortfolioValueResponse\"<\x82\xd3\xe4\x93\x026:\x01*\"1/api/v1/portfolios/{portfolio_id}/calculate-value\x12\xaf\x01\n" +
-	"\x17GetPortfolioPerformance\x12-.greedy_eye.v1.GetPortfolioPerformanceRequest\x1a+.greedy_eye.v1.PortfolioPerformanceResponse\"8\x82\xd3\xe4\x93\x022:\x01*\"-/api/v1/portfolios/{portfolio_id}/performance\x12o\n" +
-	"\rCreateHolding\x12#.greedy_eye.v1.CreateHoldingRequest\x1a\x16.greedy_eye.v1.Holding\"!\x82\xd3\xe4\x93\x02\x1b:\aholding\"\x10/api/v1/holdings\x12e\n" +
+	"\x1cTRANSACTION_STATUS_CANCELLED\x10\x052\xe1\x11\n" +
+	"\x10PortfolioService\x12k\n" +
+	"\x0fCreatePortfolio\x12\x1e.eye.v1.CreatePortfolioRequest\x1a\x11.eye.v1.Portfolio\"%\x82\xd3\xe4\x93\x02\x1f:\tportfolio\"\x12/api/v1/portfolios\x12_\n" +
+	"\fGetPortfolio\x12\x1b.eye.v1.GetPortfolioRequest\x1a\x11.eye.v1.Portfolio\"\x1f\x82\xd3\xe4\x93\x02\x19\x12\x17/api/v1/portfolios/{id}\x12z\n" +
+	"\x0fUpdatePortfolio\x12\x1e.eye.v1.UpdatePortfolioRequest\x1a\x11.eye.v1.Portfolio\"4\x82\xd3\xe4\x93\x02.:\tportfolio\x1a!/api/v1/portfolios/{portfolio.id}\x12j\n" +
+	"\x0fDeletePortfolio\x12\x1e.eye.v1.DeletePortfolioRequest\x1a\x16.google.protobuf.Empty\"\x1f\x82\xd3\xe4\x93\x02\x19*\x17/api/v1/portfolios/{id}\x12k\n" +
+	"\x0eListPortfolios\x12\x1d.eye.v1.ListPortfoliosRequest\x1a\x1e.eye.v1.ListPortfoliosResponse\"\x1a\x82\xd3\xe4\x93\x02\x14\x12\x12/api/v1/portfolios\x12\x9f\x01\n" +
+	"\x17CalculatePortfolioValue\x12&.eye.v1.CalculatePortfolioValueRequest\x1a\x1e.eye.v1.PortfolioValueResponse\"<\x82\xd3\xe4\x93\x026:\x01*\"1/api/v1/portfolios/{portfolio_id}/calculate-value\x12\xa1\x01\n" +
+	"\x17GetPortfolioPerformance\x12&.eye.v1.GetPortfolioPerformanceRequest\x1a$.eye.v1.PortfolioPerformanceResponse\"8\x82\xd3\xe4\x93\x022:\x01*\"-/api/v1/portfolios/{portfolio_id}/performance\x12a\n" +
+	"\rCreateHolding\x12\x1c.eye.v1.CreateHoldingRequest\x1a\x0f.eye.v1.Holding\"!\x82\xd3\xe4\x93\x02\x1b:\aholding\"\x10/api/v1/holdings\x12W\n" +
 	"\n" +
-	"GetHolding\x12 .greedy_eye.v1.GetHoldingRequest\x1a\x16.greedy_eye.v1.Holding\"\x1d\x82\xd3\xe4\x93\x02\x17\x12\x15/api/v1/holdings/{id}\x12|\n" +
-	"\rUpdateHolding\x12#.greedy_eye.v1.UpdateHoldingRequest\x1a\x16.greedy_eye.v1.Holding\".\x82\xd3\xe4\x93\x02(:\aholding\x1a\x1d/api/v1/holdings/{holding.id}\x12q\n" +
-	"\fListHoldings\x12\".greedy_eye.v1.ListHoldingsRequest\x1a#.greedy_eye.v1.ListHoldingsResponse\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/api/v1/holdings\x12o\n" +
-	"\rCreateAccount\x12#.greedy_eye.v1.CreateAccountRequest\x1a\x16.greedy_eye.v1.Account\"!\x82\xd3\xe4\x93\x02\x1b:\aaccount\"\x10/api/v1/accounts\x12e\n" +
+	"GetHolding\x12\x19.eye.v1.GetHoldingRequest\x1a\x0f.eye.v1.Holding\"\x1d\x82\xd3\xe4\x93\x02\x17\x12\x15/api/v1/holdings/{id}\x12n\n" +
+	"\rUpdateHolding\x12\x1c.eye.v1.UpdateHoldingRequest\x1a\x0f.eye.v1.Holding\".\x82\xd3\xe4\x93\x02(:\aholding\x1a\x1d/api/v1/holdings/{holding.id}\x12c\n" +
+	"\fListHoldings\x12\x1b.eye.v1.ListHoldingsRequest\x1a\x1c.eye.v1.ListHoldingsResponse\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/api/v1/holdings\x12a\n" +
+	"\rCreateAccount\x12\x1c.eye.v1.CreateAccountRequest\x1a\x0f.eye.v1.Account\"!\x82\xd3\xe4\x93\x02\x1b:\aaccount\"\x10/api/v1/accounts\x12W\n" +
 	"\n" +
-	"GetAccount\x12 .greedy_eye.v1.GetAccountRequest\x1a\x16.greedy_eye.v1.Account\"\x1d\x82\xd3\xe4\x93\x02\x17\x12\x15/api/v1/accounts/{id}\x12|\n" +
-	"\rUpdateAccount\x12#.greedy_eye.v1.UpdateAccountRequest\x1a\x16.greedy_eye.v1.Account\".\x82\xd3\xe4\x93\x02(:\aaccount\x1a\x1d/api/v1/accounts/{account.id}\x12k\n" +
-	"\rDeleteAccount\x12#.greedy_eye.v1.DeleteAccountRequest\x1a\x16.google.protobuf.Empty\"\x1d\x82\xd3\xe4\x93\x02\x17*\x15/api/v1/accounts/{id}\x12q\n" +
-	"\fListAccounts\x12\".greedy_eye.v1.ListAccountsRequest\x1a#.greedy_eye.v1.ListAccountsResponse\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/api/v1/accounts\x12\x83\x01\n" +
-	"\x11CreateTransaction\x12'.greedy_eye.v1.CreateTransactionRequest\x1a\x1a.greedy_eye.v1.Transaction\")\x82\xd3\xe4\x93\x02#:\vtransaction\"\x14/api/v1/transactions\x12u\n" +
-	"\x0eGetTransaction\x12$.greedy_eye.v1.GetTransactionRequest\x1a\x1a.greedy_eye.v1.Transaction\"!\x82\xd3\xe4\x93\x02\x1b\x12\x19/api/v1/transactions/{id}\x12\x94\x01\n" +
-	"\x11UpdateTransaction\x12'.greedy_eye.v1.UpdateTransactionRequest\x1a\x1a.greedy_eye.v1.Transaction\":\x82\xd3\xe4\x93\x024:\vtransaction\x1a%/api/v1/transactions/{transaction.id}\x12\x81\x01\n" +
-	"\x10ListTransactions\x12&.greedy_eye.v1.ListTransactionsRequest\x1a'.greedy_eye.v1.ListTransactionsResponse\"\x1c\x82\xd3\xe4\x93\x02\x16\x12\x14/api/v1/transactionsB\xa9\x01\n" +
-	"\x11com.greedy_eye.v1B\x0ePortfolioProtoP\x01Z3github.com/foxcool/greedy-eye/internal/api/v1;apiv1\xa2\x02\x03GXX\xaa\x02\fGreedyEye.V1\xca\x02\fGreedyEye\\V1\xe2\x02\x18GreedyEye\\V1\\GPBMetadata\xea\x02\rGreedyEye::V1b\x06proto3"
+	"GetAccount\x12\x19.eye.v1.GetAccountRequest\x1a\x0f.eye.v1.Account\"\x1d\x82\xd3\xe4\x93\x02\x17\x12\x15/api/v1/accounts/{id}\x12n\n" +
+	"\rUpdateAccount\x12\x1c.eye.v1.UpdateAccountRequest\x1a\x0f.eye.v1.Account\".\x82\xd3\xe4\x93\x02(:\aaccount\x1a\x1d/api/v1/accounts/{account.id}\x12d\n" +
+	"\rDeleteAccount\x12\x1c.eye.v1.DeleteAccountRequest\x1a\x16.google.protobuf.Empty\"\x1d\x82\xd3\xe4\x93\x02\x17*\x15/api/v1/accounts/{id}\x12c\n" +
+	"\fListAccounts\x12\x1b.eye.v1.ListAccountsRequest\x1a\x1c.eye.v1.ListAccountsResponse\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/api/v1/accounts\x12u\n" +
+	"\x11CreateTransaction\x12 .eye.v1.CreateTransactionRequest\x1a\x13.eye.v1.Transaction\")\x82\xd3\xe4\x93\x02#:\vtransaction\"\x14/api/v1/transactions\x12g\n" +
+	"\x0eGetTransaction\x12\x1d.eye.v1.GetTransactionRequest\x1a\x13.eye.v1.Transaction\"!\x82\xd3\xe4\x93\x02\x1b\x12\x19/api/v1/transactions/{id}\x12\x86\x01\n" +
+	"\x11UpdateTransaction\x12 .eye.v1.UpdateTransactionRequest\x1a\x13.eye.v1.Transaction\":\x82\xd3\xe4\x93\x024:\vtransaction\x1a%/api/v1/transactions/{transaction.id}\x12s\n" +
+	"\x10ListTransactions\x12\x1f.eye.v1.ListTransactionsRequest\x1a .eye.v1.ListTransactionsResponse\"\x1c\x82\xd3\xe4\x93\x02\x16\x12\x14/api/v1/transactionsB\x8a\x01\n" +
+	"\n" +
+	"com.eye.v1B\x0ePortfolioProtoP\x01Z3github.com/foxcool/greedy-eye/internal/api/v1;apiv1\xa2\x02\x03EXX\xaa\x02\x06Eye.V1\xca\x02\x06Eye\\V1\xe2\x02\x12Eye\\V1\\GPBMetadata\xea\x02\aEye::V1b\x06proto3"
 
 var (
 	file_v1_portfolio_proto_rawDescOnce sync.Once
@@ -2256,128 +2257,128 @@ func file_v1_portfolio_proto_rawDescGZIP() []byte {
 var file_v1_portfolio_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_v1_portfolio_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
 var file_v1_portfolio_proto_goTypes = []any{
-	(AccountType)(0),                       // 0: greedy_eye.v1.AccountType
-	(TransactionType)(0),                   // 1: greedy_eye.v1.TransactionType
-	(TransactionStatus)(0),                 // 2: greedy_eye.v1.TransactionStatus
-	(*Portfolio)(nil),                      // 3: greedy_eye.v1.Portfolio
-	(*Holding)(nil),                        // 4: greedy_eye.v1.Holding
-	(*Account)(nil),                        // 5: greedy_eye.v1.Account
-	(*Transaction)(nil),                    // 6: greedy_eye.v1.Transaction
-	(*CreatePortfolioRequest)(nil),         // 7: greedy_eye.v1.CreatePortfolioRequest
-	(*GetPortfolioRequest)(nil),            // 8: greedy_eye.v1.GetPortfolioRequest
-	(*UpdatePortfolioRequest)(nil),         // 9: greedy_eye.v1.UpdatePortfolioRequest
-	(*DeletePortfolioRequest)(nil),         // 10: greedy_eye.v1.DeletePortfolioRequest
-	(*ListPortfoliosRequest)(nil),          // 11: greedy_eye.v1.ListPortfoliosRequest
-	(*ListPortfoliosResponse)(nil),         // 12: greedy_eye.v1.ListPortfoliosResponse
-	(*CalculatePortfolioValueRequest)(nil), // 13: greedy_eye.v1.CalculatePortfolioValueRequest
-	(*PortfolioValueResponse)(nil),         // 14: greedy_eye.v1.PortfolioValueResponse
-	(*GetPortfolioPerformanceRequest)(nil), // 15: greedy_eye.v1.GetPortfolioPerformanceRequest
-	(*PortfolioPerformanceResponse)(nil),   // 16: greedy_eye.v1.PortfolioPerformanceResponse
-	(*CreateHoldingRequest)(nil),           // 17: greedy_eye.v1.CreateHoldingRequest
-	(*GetHoldingRequest)(nil),              // 18: greedy_eye.v1.GetHoldingRequest
-	(*UpdateHoldingRequest)(nil),           // 19: greedy_eye.v1.UpdateHoldingRequest
-	(*ListHoldingsRequest)(nil),            // 20: greedy_eye.v1.ListHoldingsRequest
-	(*ListHoldingsResponse)(nil),           // 21: greedy_eye.v1.ListHoldingsResponse
-	(*CreateAccountRequest)(nil),           // 22: greedy_eye.v1.CreateAccountRequest
-	(*GetAccountRequest)(nil),              // 23: greedy_eye.v1.GetAccountRequest
-	(*UpdateAccountRequest)(nil),           // 24: greedy_eye.v1.UpdateAccountRequest
-	(*DeleteAccountRequest)(nil),           // 25: greedy_eye.v1.DeleteAccountRequest
-	(*ListAccountsRequest)(nil),            // 26: greedy_eye.v1.ListAccountsRequest
-	(*ListAccountsResponse)(nil),           // 27: greedy_eye.v1.ListAccountsResponse
-	(*CreateTransactionRequest)(nil),       // 28: greedy_eye.v1.CreateTransactionRequest
-	(*GetTransactionRequest)(nil),          // 29: greedy_eye.v1.GetTransactionRequest
-	(*UpdateTransactionRequest)(nil),       // 30: greedy_eye.v1.UpdateTransactionRequest
-	(*ListTransactionsRequest)(nil),        // 31: greedy_eye.v1.ListTransactionsRequest
-	(*ListTransactionsResponse)(nil),       // 32: greedy_eye.v1.ListTransactionsResponse
-	nil,                                    // 33: greedy_eye.v1.Portfolio.DataEntry
-	nil,                                    // 34: greedy_eye.v1.Account.DataEntry
-	nil,                                    // 35: greedy_eye.v1.Transaction.DataEntry
+	(AccountType)(0),                       // 0: eye.v1.AccountType
+	(TransactionType)(0),                   // 1: eye.v1.TransactionType
+	(TransactionStatus)(0),                 // 2: eye.v1.TransactionStatus
+	(*Portfolio)(nil),                      // 3: eye.v1.Portfolio
+	(*Holding)(nil),                        // 4: eye.v1.Holding
+	(*Account)(nil),                        // 5: eye.v1.Account
+	(*Transaction)(nil),                    // 6: eye.v1.Transaction
+	(*CreatePortfolioRequest)(nil),         // 7: eye.v1.CreatePortfolioRequest
+	(*GetPortfolioRequest)(nil),            // 8: eye.v1.GetPortfolioRequest
+	(*UpdatePortfolioRequest)(nil),         // 9: eye.v1.UpdatePortfolioRequest
+	(*DeletePortfolioRequest)(nil),         // 10: eye.v1.DeletePortfolioRequest
+	(*ListPortfoliosRequest)(nil),          // 11: eye.v1.ListPortfoliosRequest
+	(*ListPortfoliosResponse)(nil),         // 12: eye.v1.ListPortfoliosResponse
+	(*CalculatePortfolioValueRequest)(nil), // 13: eye.v1.CalculatePortfolioValueRequest
+	(*PortfolioValueResponse)(nil),         // 14: eye.v1.PortfolioValueResponse
+	(*GetPortfolioPerformanceRequest)(nil), // 15: eye.v1.GetPortfolioPerformanceRequest
+	(*PortfolioPerformanceResponse)(nil),   // 16: eye.v1.PortfolioPerformanceResponse
+	(*CreateHoldingRequest)(nil),           // 17: eye.v1.CreateHoldingRequest
+	(*GetHoldingRequest)(nil),              // 18: eye.v1.GetHoldingRequest
+	(*UpdateHoldingRequest)(nil),           // 19: eye.v1.UpdateHoldingRequest
+	(*ListHoldingsRequest)(nil),            // 20: eye.v1.ListHoldingsRequest
+	(*ListHoldingsResponse)(nil),           // 21: eye.v1.ListHoldingsResponse
+	(*CreateAccountRequest)(nil),           // 22: eye.v1.CreateAccountRequest
+	(*GetAccountRequest)(nil),              // 23: eye.v1.GetAccountRequest
+	(*UpdateAccountRequest)(nil),           // 24: eye.v1.UpdateAccountRequest
+	(*DeleteAccountRequest)(nil),           // 25: eye.v1.DeleteAccountRequest
+	(*ListAccountsRequest)(nil),            // 26: eye.v1.ListAccountsRequest
+	(*ListAccountsResponse)(nil),           // 27: eye.v1.ListAccountsResponse
+	(*CreateTransactionRequest)(nil),       // 28: eye.v1.CreateTransactionRequest
+	(*GetTransactionRequest)(nil),          // 29: eye.v1.GetTransactionRequest
+	(*UpdateTransactionRequest)(nil),       // 30: eye.v1.UpdateTransactionRequest
+	(*ListTransactionsRequest)(nil),        // 31: eye.v1.ListTransactionsRequest
+	(*ListTransactionsResponse)(nil),       // 32: eye.v1.ListTransactionsResponse
+	nil,                                    // 33: eye.v1.Portfolio.DataEntry
+	nil,                                    // 34: eye.v1.Account.DataEntry
+	nil,                                    // 35: eye.v1.Transaction.DataEntry
 	(*timestamppb.Timestamp)(nil),          // 36: google.protobuf.Timestamp
 	(*fieldmaskpb.FieldMask)(nil),          // 37: google.protobuf.FieldMask
 	(*anypb.Any)(nil),                      // 38: google.protobuf.Any
 	(*emptypb.Empty)(nil),                  // 39: google.protobuf.Empty
 }
 var file_v1_portfolio_proto_depIdxs = []int32{
-	33, // 0: greedy_eye.v1.Portfolio.data:type_name -> greedy_eye.v1.Portfolio.DataEntry
-	36, // 1: greedy_eye.v1.Portfolio.created_at:type_name -> google.protobuf.Timestamp
-	36, // 2: greedy_eye.v1.Portfolio.updated_at:type_name -> google.protobuf.Timestamp
-	36, // 3: greedy_eye.v1.Holding.created_at:type_name -> google.protobuf.Timestamp
-	36, // 4: greedy_eye.v1.Holding.updated_at:type_name -> google.protobuf.Timestamp
-	0,  // 5: greedy_eye.v1.Account.type:type_name -> greedy_eye.v1.AccountType
-	34, // 6: greedy_eye.v1.Account.data:type_name -> greedy_eye.v1.Account.DataEntry
-	36, // 7: greedy_eye.v1.Account.created_at:type_name -> google.protobuf.Timestamp
-	36, // 8: greedy_eye.v1.Account.updated_at:type_name -> google.protobuf.Timestamp
-	36, // 9: greedy_eye.v1.Transaction.created_at:type_name -> google.protobuf.Timestamp
-	36, // 10: greedy_eye.v1.Transaction.updated_at:type_name -> google.protobuf.Timestamp
-	1,  // 11: greedy_eye.v1.Transaction.type:type_name -> greedy_eye.v1.TransactionType
-	2,  // 12: greedy_eye.v1.Transaction.status:type_name -> greedy_eye.v1.TransactionStatus
-	35, // 13: greedy_eye.v1.Transaction.data:type_name -> greedy_eye.v1.Transaction.DataEntry
-	3,  // 14: greedy_eye.v1.CreatePortfolioRequest.portfolio:type_name -> greedy_eye.v1.Portfolio
-	3,  // 15: greedy_eye.v1.UpdatePortfolioRequest.portfolio:type_name -> greedy_eye.v1.Portfolio
-	37, // 16: greedy_eye.v1.UpdatePortfolioRequest.update_mask:type_name -> google.protobuf.FieldMask
-	3,  // 17: greedy_eye.v1.ListPortfoliosResponse.portfolios:type_name -> greedy_eye.v1.Portfolio
-	36, // 18: greedy_eye.v1.CalculatePortfolioValueRequest.at_time:type_name -> google.protobuf.Timestamp
-	36, // 19: greedy_eye.v1.PortfolioValueResponse.calculation_time:type_name -> google.protobuf.Timestamp
-	36, // 20: greedy_eye.v1.GetPortfolioPerformanceRequest.from:type_name -> google.protobuf.Timestamp
-	36, // 21: greedy_eye.v1.GetPortfolioPerformanceRequest.to:type_name -> google.protobuf.Timestamp
-	4,  // 22: greedy_eye.v1.CreateHoldingRequest.holding:type_name -> greedy_eye.v1.Holding
-	4,  // 23: greedy_eye.v1.UpdateHoldingRequest.holding:type_name -> greedy_eye.v1.Holding
-	37, // 24: greedy_eye.v1.UpdateHoldingRequest.update_mask:type_name -> google.protobuf.FieldMask
-	4,  // 25: greedy_eye.v1.ListHoldingsResponse.holdings:type_name -> greedy_eye.v1.Holding
-	5,  // 26: greedy_eye.v1.CreateAccountRequest.account:type_name -> greedy_eye.v1.Account
-	5,  // 27: greedy_eye.v1.UpdateAccountRequest.account:type_name -> greedy_eye.v1.Account
-	37, // 28: greedy_eye.v1.UpdateAccountRequest.update_mask:type_name -> google.protobuf.FieldMask
-	0,  // 29: greedy_eye.v1.ListAccountsRequest.type:type_name -> greedy_eye.v1.AccountType
-	5,  // 30: greedy_eye.v1.ListAccountsResponse.accounts:type_name -> greedy_eye.v1.Account
-	6,  // 31: greedy_eye.v1.CreateTransactionRequest.transaction:type_name -> greedy_eye.v1.Transaction
-	6,  // 32: greedy_eye.v1.UpdateTransactionRequest.transaction:type_name -> greedy_eye.v1.Transaction
-	37, // 33: greedy_eye.v1.UpdateTransactionRequest.update_mask:type_name -> google.protobuf.FieldMask
-	1,  // 34: greedy_eye.v1.ListTransactionsRequest.type:type_name -> greedy_eye.v1.TransactionType
-	2,  // 35: greedy_eye.v1.ListTransactionsRequest.status:type_name -> greedy_eye.v1.TransactionStatus
-	36, // 36: greedy_eye.v1.ListTransactionsRequest.from:type_name -> google.protobuf.Timestamp
-	36, // 37: greedy_eye.v1.ListTransactionsRequest.to:type_name -> google.protobuf.Timestamp
-	6,  // 38: greedy_eye.v1.ListTransactionsResponse.transactions:type_name -> greedy_eye.v1.Transaction
-	38, // 39: greedy_eye.v1.Portfolio.DataEntry.value:type_name -> google.protobuf.Any
-	7,  // 40: greedy_eye.v1.PortfolioService.CreatePortfolio:input_type -> greedy_eye.v1.CreatePortfolioRequest
-	8,  // 41: greedy_eye.v1.PortfolioService.GetPortfolio:input_type -> greedy_eye.v1.GetPortfolioRequest
-	9,  // 42: greedy_eye.v1.PortfolioService.UpdatePortfolio:input_type -> greedy_eye.v1.UpdatePortfolioRequest
-	10, // 43: greedy_eye.v1.PortfolioService.DeletePortfolio:input_type -> greedy_eye.v1.DeletePortfolioRequest
-	11, // 44: greedy_eye.v1.PortfolioService.ListPortfolios:input_type -> greedy_eye.v1.ListPortfoliosRequest
-	13, // 45: greedy_eye.v1.PortfolioService.CalculatePortfolioValue:input_type -> greedy_eye.v1.CalculatePortfolioValueRequest
-	15, // 46: greedy_eye.v1.PortfolioService.GetPortfolioPerformance:input_type -> greedy_eye.v1.GetPortfolioPerformanceRequest
-	17, // 47: greedy_eye.v1.PortfolioService.CreateHolding:input_type -> greedy_eye.v1.CreateHoldingRequest
-	18, // 48: greedy_eye.v1.PortfolioService.GetHolding:input_type -> greedy_eye.v1.GetHoldingRequest
-	19, // 49: greedy_eye.v1.PortfolioService.UpdateHolding:input_type -> greedy_eye.v1.UpdateHoldingRequest
-	20, // 50: greedy_eye.v1.PortfolioService.ListHoldings:input_type -> greedy_eye.v1.ListHoldingsRequest
-	22, // 51: greedy_eye.v1.PortfolioService.CreateAccount:input_type -> greedy_eye.v1.CreateAccountRequest
-	23, // 52: greedy_eye.v1.PortfolioService.GetAccount:input_type -> greedy_eye.v1.GetAccountRequest
-	24, // 53: greedy_eye.v1.PortfolioService.UpdateAccount:input_type -> greedy_eye.v1.UpdateAccountRequest
-	25, // 54: greedy_eye.v1.PortfolioService.DeleteAccount:input_type -> greedy_eye.v1.DeleteAccountRequest
-	26, // 55: greedy_eye.v1.PortfolioService.ListAccounts:input_type -> greedy_eye.v1.ListAccountsRequest
-	28, // 56: greedy_eye.v1.PortfolioService.CreateTransaction:input_type -> greedy_eye.v1.CreateTransactionRequest
-	29, // 57: greedy_eye.v1.PortfolioService.GetTransaction:input_type -> greedy_eye.v1.GetTransactionRequest
-	30, // 58: greedy_eye.v1.PortfolioService.UpdateTransaction:input_type -> greedy_eye.v1.UpdateTransactionRequest
-	31, // 59: greedy_eye.v1.PortfolioService.ListTransactions:input_type -> greedy_eye.v1.ListTransactionsRequest
-	3,  // 60: greedy_eye.v1.PortfolioService.CreatePortfolio:output_type -> greedy_eye.v1.Portfolio
-	3,  // 61: greedy_eye.v1.PortfolioService.GetPortfolio:output_type -> greedy_eye.v1.Portfolio
-	3,  // 62: greedy_eye.v1.PortfolioService.UpdatePortfolio:output_type -> greedy_eye.v1.Portfolio
-	39, // 63: greedy_eye.v1.PortfolioService.DeletePortfolio:output_type -> google.protobuf.Empty
-	12, // 64: greedy_eye.v1.PortfolioService.ListPortfolios:output_type -> greedy_eye.v1.ListPortfoliosResponse
-	14, // 65: greedy_eye.v1.PortfolioService.CalculatePortfolioValue:output_type -> greedy_eye.v1.PortfolioValueResponse
-	16, // 66: greedy_eye.v1.PortfolioService.GetPortfolioPerformance:output_type -> greedy_eye.v1.PortfolioPerformanceResponse
-	4,  // 67: greedy_eye.v1.PortfolioService.CreateHolding:output_type -> greedy_eye.v1.Holding
-	4,  // 68: greedy_eye.v1.PortfolioService.GetHolding:output_type -> greedy_eye.v1.Holding
-	4,  // 69: greedy_eye.v1.PortfolioService.UpdateHolding:output_type -> greedy_eye.v1.Holding
-	21, // 70: greedy_eye.v1.PortfolioService.ListHoldings:output_type -> greedy_eye.v1.ListHoldingsResponse
-	5,  // 71: greedy_eye.v1.PortfolioService.CreateAccount:output_type -> greedy_eye.v1.Account
-	5,  // 72: greedy_eye.v1.PortfolioService.GetAccount:output_type -> greedy_eye.v1.Account
-	5,  // 73: greedy_eye.v1.PortfolioService.UpdateAccount:output_type -> greedy_eye.v1.Account
-	39, // 74: greedy_eye.v1.PortfolioService.DeleteAccount:output_type -> google.protobuf.Empty
-	27, // 75: greedy_eye.v1.PortfolioService.ListAccounts:output_type -> greedy_eye.v1.ListAccountsResponse
-	6,  // 76: greedy_eye.v1.PortfolioService.CreateTransaction:output_type -> greedy_eye.v1.Transaction
-	6,  // 77: greedy_eye.v1.PortfolioService.GetTransaction:output_type -> greedy_eye.v1.Transaction
-	6,  // 78: greedy_eye.v1.PortfolioService.UpdateTransaction:output_type -> greedy_eye.v1.Transaction
-	32, // 79: greedy_eye.v1.PortfolioService.ListTransactions:output_type -> greedy_eye.v1.ListTransactionsResponse
+	33, // 0: eye.v1.Portfolio.data:type_name -> eye.v1.Portfolio.DataEntry
+	36, // 1: eye.v1.Portfolio.created_at:type_name -> google.protobuf.Timestamp
+	36, // 2: eye.v1.Portfolio.updated_at:type_name -> google.protobuf.Timestamp
+	36, // 3: eye.v1.Holding.created_at:type_name -> google.protobuf.Timestamp
+	36, // 4: eye.v1.Holding.updated_at:type_name -> google.protobuf.Timestamp
+	0,  // 5: eye.v1.Account.type:type_name -> eye.v1.AccountType
+	34, // 6: eye.v1.Account.data:type_name -> eye.v1.Account.DataEntry
+	36, // 7: eye.v1.Account.created_at:type_name -> google.protobuf.Timestamp
+	36, // 8: eye.v1.Account.updated_at:type_name -> google.protobuf.Timestamp
+	36, // 9: eye.v1.Transaction.created_at:type_name -> google.protobuf.Timestamp
+	36, // 10: eye.v1.Transaction.updated_at:type_name -> google.protobuf.Timestamp
+	1,  // 11: eye.v1.Transaction.type:type_name -> eye.v1.TransactionType
+	2,  // 12: eye.v1.Transaction.status:type_name -> eye.v1.TransactionStatus
+	35, // 13: eye.v1.Transaction.data:type_name -> eye.v1.Transaction.DataEntry
+	3,  // 14: eye.v1.CreatePortfolioRequest.portfolio:type_name -> eye.v1.Portfolio
+	3,  // 15: eye.v1.UpdatePortfolioRequest.portfolio:type_name -> eye.v1.Portfolio
+	37, // 16: eye.v1.UpdatePortfolioRequest.update_mask:type_name -> google.protobuf.FieldMask
+	3,  // 17: eye.v1.ListPortfoliosResponse.portfolios:type_name -> eye.v1.Portfolio
+	36, // 18: eye.v1.CalculatePortfolioValueRequest.at_time:type_name -> google.protobuf.Timestamp
+	36, // 19: eye.v1.PortfolioValueResponse.calculation_time:type_name -> google.protobuf.Timestamp
+	36, // 20: eye.v1.GetPortfolioPerformanceRequest.from:type_name -> google.protobuf.Timestamp
+	36, // 21: eye.v1.GetPortfolioPerformanceRequest.to:type_name -> google.protobuf.Timestamp
+	4,  // 22: eye.v1.CreateHoldingRequest.holding:type_name -> eye.v1.Holding
+	4,  // 23: eye.v1.UpdateHoldingRequest.holding:type_name -> eye.v1.Holding
+	37, // 24: eye.v1.UpdateHoldingRequest.update_mask:type_name -> google.protobuf.FieldMask
+	4,  // 25: eye.v1.ListHoldingsResponse.holdings:type_name -> eye.v1.Holding
+	5,  // 26: eye.v1.CreateAccountRequest.account:type_name -> eye.v1.Account
+	5,  // 27: eye.v1.UpdateAccountRequest.account:type_name -> eye.v1.Account
+	37, // 28: eye.v1.UpdateAccountRequest.update_mask:type_name -> google.protobuf.FieldMask
+	0,  // 29: eye.v1.ListAccountsRequest.type:type_name -> eye.v1.AccountType
+	5,  // 30: eye.v1.ListAccountsResponse.accounts:type_name -> eye.v1.Account
+	6,  // 31: eye.v1.CreateTransactionRequest.transaction:type_name -> eye.v1.Transaction
+	6,  // 32: eye.v1.UpdateTransactionRequest.transaction:type_name -> eye.v1.Transaction
+	37, // 33: eye.v1.UpdateTransactionRequest.update_mask:type_name -> google.protobuf.FieldMask
+	1,  // 34: eye.v1.ListTransactionsRequest.type:type_name -> eye.v1.TransactionType
+	2,  // 35: eye.v1.ListTransactionsRequest.status:type_name -> eye.v1.TransactionStatus
+	36, // 36: eye.v1.ListTransactionsRequest.from:type_name -> google.protobuf.Timestamp
+	36, // 37: eye.v1.ListTransactionsRequest.to:type_name -> google.protobuf.Timestamp
+	6,  // 38: eye.v1.ListTransactionsResponse.transactions:type_name -> eye.v1.Transaction
+	38, // 39: eye.v1.Portfolio.DataEntry.value:type_name -> google.protobuf.Any
+	7,  // 40: eye.v1.PortfolioService.CreatePortfolio:input_type -> eye.v1.CreatePortfolioRequest
+	8,  // 41: eye.v1.PortfolioService.GetPortfolio:input_type -> eye.v1.GetPortfolioRequest
+	9,  // 42: eye.v1.PortfolioService.UpdatePortfolio:input_type -> eye.v1.UpdatePortfolioRequest
+	10, // 43: eye.v1.PortfolioService.DeletePortfolio:input_type -> eye.v1.DeletePortfolioRequest
+	11, // 44: eye.v1.PortfolioService.ListPortfolios:input_type -> eye.v1.ListPortfoliosRequest
+	13, // 45: eye.v1.PortfolioService.CalculatePortfolioValue:input_type -> eye.v1.CalculatePortfolioValueRequest
+	15, // 46: eye.v1.PortfolioService.GetPortfolioPerformance:input_type -> eye.v1.GetPortfolioPerformanceRequest
+	17, // 47: eye.v1.PortfolioService.CreateHolding:input_type -> eye.v1.CreateHoldingRequest
+	18, // 48: eye.v1.PortfolioService.GetHolding:input_type -> eye.v1.GetHoldingRequest
+	19, // 49: eye.v1.PortfolioService.UpdateHolding:input_type -> eye.v1.UpdateHoldingRequest
+	20, // 50: eye.v1.PortfolioService.ListHoldings:input_type -> eye.v1.ListHoldingsRequest
+	22, // 51: eye.v1.PortfolioService.CreateAccount:input_type -> eye.v1.CreateAccountRequest
+	23, // 52: eye.v1.PortfolioService.GetAccount:input_type -> eye.v1.GetAccountRequest
+	24, // 53: eye.v1.PortfolioService.UpdateAccount:input_type -> eye.v1.UpdateAccountRequest
+	25, // 54: eye.v1.PortfolioService.DeleteAccount:input_type -> eye.v1.DeleteAccountRequest
+	26, // 55: eye.v1.PortfolioService.ListAccounts:input_type -> eye.v1.ListAccountsRequest
+	28, // 56: eye.v1.PortfolioService.CreateTransaction:input_type -> eye.v1.CreateTransactionRequest
+	29, // 57: eye.v1.PortfolioService.GetTransaction:input_type -> eye.v1.GetTransactionRequest
+	30, // 58: eye.v1.PortfolioService.UpdateTransaction:input_type -> eye.v1.UpdateTransactionRequest
+	31, // 59: eye.v1.PortfolioService.ListTransactions:input_type -> eye.v1.ListTransactionsRequest
+	3,  // 60: eye.v1.PortfolioService.CreatePortfolio:output_type -> eye.v1.Portfolio
+	3,  // 61: eye.v1.PortfolioService.GetPortfolio:output_type -> eye.v1.Portfolio
+	3,  // 62: eye.v1.PortfolioService.UpdatePortfolio:output_type -> eye.v1.Portfolio
+	39, // 63: eye.v1.PortfolioService.DeletePortfolio:output_type -> google.protobuf.Empty
+	12, // 64: eye.v1.PortfolioService.ListPortfolios:output_type -> eye.v1.ListPortfoliosResponse
+	14, // 65: eye.v1.PortfolioService.CalculatePortfolioValue:output_type -> eye.v1.PortfolioValueResponse
+	16, // 66: eye.v1.PortfolioService.GetPortfolioPerformance:output_type -> eye.v1.PortfolioPerformanceResponse
+	4,  // 67: eye.v1.PortfolioService.CreateHolding:output_type -> eye.v1.Holding
+	4,  // 68: eye.v1.PortfolioService.GetHolding:output_type -> eye.v1.Holding
+	4,  // 69: eye.v1.PortfolioService.UpdateHolding:output_type -> eye.v1.Holding
+	21, // 70: eye.v1.PortfolioService.ListHoldings:output_type -> eye.v1.ListHoldingsResponse
+	5,  // 71: eye.v1.PortfolioService.CreateAccount:output_type -> eye.v1.Account
+	5,  // 72: eye.v1.PortfolioService.GetAccount:output_type -> eye.v1.Account
+	5,  // 73: eye.v1.PortfolioService.UpdateAccount:output_type -> eye.v1.Account
+	39, // 74: eye.v1.PortfolioService.DeleteAccount:output_type -> google.protobuf.Empty
+	27, // 75: eye.v1.PortfolioService.ListAccounts:output_type -> eye.v1.ListAccountsResponse
+	6,  // 76: eye.v1.PortfolioService.CreateTransaction:output_type -> eye.v1.Transaction
+	6,  // 77: eye.v1.PortfolioService.GetTransaction:output_type -> eye.v1.Transaction
+	6,  // 78: eye.v1.PortfolioService.UpdateTransaction:output_type -> eye.v1.Transaction
+	32, // 79: eye.v1.PortfolioService.ListTransactions:output_type -> eye.v1.ListTransactionsResponse
 	60, // [60:80] is the sub-list for method output_type
 	40, // [40:60] is the sub-list for method input_type
 	40, // [40:40] is the sub-list for extension type_name

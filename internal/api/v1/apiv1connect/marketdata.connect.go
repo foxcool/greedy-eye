@@ -23,7 +23,7 @@ const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// MarketDataServiceName is the fully-qualified name of the MarketDataService service.
-	MarketDataServiceName = "greedy_eye.v1.MarketDataService"
+	MarketDataServiceName = "eye.v1.MarketDataService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -36,52 +36,52 @@ const (
 const (
 	// MarketDataServiceCreateAssetProcedure is the fully-qualified name of the MarketDataService's
 	// CreateAsset RPC.
-	MarketDataServiceCreateAssetProcedure = "/greedy_eye.v1.MarketDataService/CreateAsset"
+	MarketDataServiceCreateAssetProcedure = "/eye.v1.MarketDataService/CreateAsset"
 	// MarketDataServiceGetAssetProcedure is the fully-qualified name of the MarketDataService's
 	// GetAsset RPC.
-	MarketDataServiceGetAssetProcedure = "/greedy_eye.v1.MarketDataService/GetAsset"
+	MarketDataServiceGetAssetProcedure = "/eye.v1.MarketDataService/GetAsset"
 	// MarketDataServiceUpdateAssetProcedure is the fully-qualified name of the MarketDataService's
 	// UpdateAsset RPC.
-	MarketDataServiceUpdateAssetProcedure = "/greedy_eye.v1.MarketDataService/UpdateAsset"
+	MarketDataServiceUpdateAssetProcedure = "/eye.v1.MarketDataService/UpdateAsset"
 	// MarketDataServiceDeleteAssetProcedure is the fully-qualified name of the MarketDataService's
 	// DeleteAsset RPC.
-	MarketDataServiceDeleteAssetProcedure = "/greedy_eye.v1.MarketDataService/DeleteAsset"
+	MarketDataServiceDeleteAssetProcedure = "/eye.v1.MarketDataService/DeleteAsset"
 	// MarketDataServiceListAssetsProcedure is the fully-qualified name of the MarketDataService's
 	// ListAssets RPC.
-	MarketDataServiceListAssetsProcedure = "/greedy_eye.v1.MarketDataService/ListAssets"
+	MarketDataServiceListAssetsProcedure = "/eye.v1.MarketDataService/ListAssets"
 	// MarketDataServiceEnrichAssetDataProcedure is the fully-qualified name of the MarketDataService's
 	// EnrichAssetData RPC.
-	MarketDataServiceEnrichAssetDataProcedure = "/greedy_eye.v1.MarketDataService/EnrichAssetData"
+	MarketDataServiceEnrichAssetDataProcedure = "/eye.v1.MarketDataService/EnrichAssetData"
 	// MarketDataServiceFindSimilarAssetsProcedure is the fully-qualified name of the
 	// MarketDataService's FindSimilarAssets RPC.
-	MarketDataServiceFindSimilarAssetsProcedure = "/greedy_eye.v1.MarketDataService/FindSimilarAssets"
+	MarketDataServiceFindSimilarAssetsProcedure = "/eye.v1.MarketDataService/FindSimilarAssets"
 	// MarketDataServiceCreatePriceProcedure is the fully-qualified name of the MarketDataService's
 	// CreatePrice RPC.
-	MarketDataServiceCreatePriceProcedure = "/greedy_eye.v1.MarketDataService/CreatePrice"
+	MarketDataServiceCreatePriceProcedure = "/eye.v1.MarketDataService/CreatePrice"
 	// MarketDataServiceCreatePricesProcedure is the fully-qualified name of the MarketDataService's
 	// CreatePrices RPC.
-	MarketDataServiceCreatePricesProcedure = "/greedy_eye.v1.MarketDataService/CreatePrices"
+	MarketDataServiceCreatePricesProcedure = "/eye.v1.MarketDataService/CreatePrices"
 	// MarketDataServiceGetLatestPriceProcedure is the fully-qualified name of the MarketDataService's
 	// GetLatestPrice RPC.
-	MarketDataServiceGetLatestPriceProcedure = "/greedy_eye.v1.MarketDataService/GetLatestPrice"
+	MarketDataServiceGetLatestPriceProcedure = "/eye.v1.MarketDataService/GetLatestPrice"
 	// MarketDataServiceListPriceHistoryProcedure is the fully-qualified name of the MarketDataService's
 	// ListPriceHistory RPC.
-	MarketDataServiceListPriceHistoryProcedure = "/greedy_eye.v1.MarketDataService/ListPriceHistory"
+	MarketDataServiceListPriceHistoryProcedure = "/eye.v1.MarketDataService/ListPriceHistory"
 	// MarketDataServiceListPricesByIntervalProcedure is the fully-qualified name of the
 	// MarketDataService's ListPricesByInterval RPC.
-	MarketDataServiceListPricesByIntervalProcedure = "/greedy_eye.v1.MarketDataService/ListPricesByInterval"
+	MarketDataServiceListPricesByIntervalProcedure = "/eye.v1.MarketDataService/ListPricesByInterval"
 	// MarketDataServiceDeletePriceProcedure is the fully-qualified name of the MarketDataService's
 	// DeletePrice RPC.
-	MarketDataServiceDeletePriceProcedure = "/greedy_eye.v1.MarketDataService/DeletePrice"
+	MarketDataServiceDeletePriceProcedure = "/eye.v1.MarketDataService/DeletePrice"
 	// MarketDataServiceDeletePricesProcedure is the fully-qualified name of the MarketDataService's
 	// DeletePrices RPC.
-	MarketDataServiceDeletePricesProcedure = "/greedy_eye.v1.MarketDataService/DeletePrices"
+	MarketDataServiceDeletePricesProcedure = "/eye.v1.MarketDataService/DeletePrices"
 	// MarketDataServiceFetchExternalPricesProcedure is the fully-qualified name of the
 	// MarketDataService's FetchExternalPrices RPC.
-	MarketDataServiceFetchExternalPricesProcedure = "/greedy_eye.v1.MarketDataService/FetchExternalPrices"
+	MarketDataServiceFetchExternalPricesProcedure = "/eye.v1.MarketDataService/FetchExternalPrices"
 )
 
-// MarketDataServiceClient is a client for the greedy_eye.v1.MarketDataService service.
+// MarketDataServiceClient is a client for the eye.v1.MarketDataService service.
 type MarketDataServiceClient interface {
 	// --- Asset CRUD ---
 	CreateAsset(context.Context, *connect.Request[v1.CreateAssetRequest]) (*connect.Response[v1.Asset], error)
@@ -104,9 +104,9 @@ type MarketDataServiceClient interface {
 	FetchExternalPrices(context.Context, *connect.Request[v1.FetchExternalPricesRequest]) (*connect.Response[v1.FetchExternalPricesResponse], error)
 }
 
-// NewMarketDataServiceClient constructs a client for the greedy_eye.v1.MarketDataService service.
-// By default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped
-// responses, and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
+// NewMarketDataServiceClient constructs a client for the eye.v1.MarketDataService service. By
+// default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
+// and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
 // connect.WithGRPC() or connect.WithGRPCWeb() options.
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
@@ -227,82 +227,82 @@ type marketDataServiceClient struct {
 	fetchExternalPrices  *connect.Client[v1.FetchExternalPricesRequest, v1.FetchExternalPricesResponse]
 }
 
-// CreateAsset calls greedy_eye.v1.MarketDataService.CreateAsset.
+// CreateAsset calls eye.v1.MarketDataService.CreateAsset.
 func (c *marketDataServiceClient) CreateAsset(ctx context.Context, req *connect.Request[v1.CreateAssetRequest]) (*connect.Response[v1.Asset], error) {
 	return c.createAsset.CallUnary(ctx, req)
 }
 
-// GetAsset calls greedy_eye.v1.MarketDataService.GetAsset.
+// GetAsset calls eye.v1.MarketDataService.GetAsset.
 func (c *marketDataServiceClient) GetAsset(ctx context.Context, req *connect.Request[v1.GetAssetRequest]) (*connect.Response[v1.Asset], error) {
 	return c.getAsset.CallUnary(ctx, req)
 }
 
-// UpdateAsset calls greedy_eye.v1.MarketDataService.UpdateAsset.
+// UpdateAsset calls eye.v1.MarketDataService.UpdateAsset.
 func (c *marketDataServiceClient) UpdateAsset(ctx context.Context, req *connect.Request[v1.UpdateAssetRequest]) (*connect.Response[v1.Asset], error) {
 	return c.updateAsset.CallUnary(ctx, req)
 }
 
-// DeleteAsset calls greedy_eye.v1.MarketDataService.DeleteAsset.
+// DeleteAsset calls eye.v1.MarketDataService.DeleteAsset.
 func (c *marketDataServiceClient) DeleteAsset(ctx context.Context, req *connect.Request[v1.DeleteAssetRequest]) (*connect.Response[emptypb.Empty], error) {
 	return c.deleteAsset.CallUnary(ctx, req)
 }
 
-// ListAssets calls greedy_eye.v1.MarketDataService.ListAssets.
+// ListAssets calls eye.v1.MarketDataService.ListAssets.
 func (c *marketDataServiceClient) ListAssets(ctx context.Context, req *connect.Request[v1.ListAssetsRequest]) (*connect.Response[v1.ListAssetsResponse], error) {
 	return c.listAssets.CallUnary(ctx, req)
 }
 
-// EnrichAssetData calls greedy_eye.v1.MarketDataService.EnrichAssetData.
+// EnrichAssetData calls eye.v1.MarketDataService.EnrichAssetData.
 func (c *marketDataServiceClient) EnrichAssetData(ctx context.Context, req *connect.Request[v1.EnrichAssetDataRequest]) (*connect.Response[v1.Asset], error) {
 	return c.enrichAssetData.CallUnary(ctx, req)
 }
 
-// FindSimilarAssets calls greedy_eye.v1.MarketDataService.FindSimilarAssets.
+// FindSimilarAssets calls eye.v1.MarketDataService.FindSimilarAssets.
 func (c *marketDataServiceClient) FindSimilarAssets(ctx context.Context, req *connect.Request[v1.FindSimilarAssetsRequest]) (*connect.Response[v1.ListAssetsResponse], error) {
 	return c.findSimilarAssets.CallUnary(ctx, req)
 }
 
-// CreatePrice calls greedy_eye.v1.MarketDataService.CreatePrice.
+// CreatePrice calls eye.v1.MarketDataService.CreatePrice.
 func (c *marketDataServiceClient) CreatePrice(ctx context.Context, req *connect.Request[v1.CreatePriceRequest]) (*connect.Response[v1.Price], error) {
 	return c.createPrice.CallUnary(ctx, req)
 }
 
-// CreatePrices calls greedy_eye.v1.MarketDataService.CreatePrices.
+// CreatePrices calls eye.v1.MarketDataService.CreatePrices.
 func (c *marketDataServiceClient) CreatePrices(ctx context.Context, req *connect.Request[v1.CreatePricesRequest]) (*connect.Response[v1.CreatePricesResponse], error) {
 	return c.createPrices.CallUnary(ctx, req)
 }
 
-// GetLatestPrice calls greedy_eye.v1.MarketDataService.GetLatestPrice.
+// GetLatestPrice calls eye.v1.MarketDataService.GetLatestPrice.
 func (c *marketDataServiceClient) GetLatestPrice(ctx context.Context, req *connect.Request[v1.GetLatestPriceRequest]) (*connect.Response[v1.Price], error) {
 	return c.getLatestPrice.CallUnary(ctx, req)
 }
 
-// ListPriceHistory calls greedy_eye.v1.MarketDataService.ListPriceHistory.
+// ListPriceHistory calls eye.v1.MarketDataService.ListPriceHistory.
 func (c *marketDataServiceClient) ListPriceHistory(ctx context.Context, req *connect.Request[v1.ListPriceHistoryRequest]) (*connect.Response[v1.ListPriceHistoryResponse], error) {
 	return c.listPriceHistory.CallUnary(ctx, req)
 }
 
-// ListPricesByInterval calls greedy_eye.v1.MarketDataService.ListPricesByInterval.
+// ListPricesByInterval calls eye.v1.MarketDataService.ListPricesByInterval.
 func (c *marketDataServiceClient) ListPricesByInterval(ctx context.Context, req *connect.Request[v1.ListPricesByIntervalRequest]) (*connect.Response[v1.ListPriceHistoryResponse], error) {
 	return c.listPricesByInterval.CallUnary(ctx, req)
 }
 
-// DeletePrice calls greedy_eye.v1.MarketDataService.DeletePrice.
+// DeletePrice calls eye.v1.MarketDataService.DeletePrice.
 func (c *marketDataServiceClient) DeletePrice(ctx context.Context, req *connect.Request[v1.DeletePriceRequest]) (*connect.Response[emptypb.Empty], error) {
 	return c.deletePrice.CallUnary(ctx, req)
 }
 
-// DeletePrices calls greedy_eye.v1.MarketDataService.DeletePrices.
+// DeletePrices calls eye.v1.MarketDataService.DeletePrices.
 func (c *marketDataServiceClient) DeletePrices(ctx context.Context, req *connect.Request[v1.DeletePricesRequest]) (*connect.Response[emptypb.Empty], error) {
 	return c.deletePrices.CallUnary(ctx, req)
 }
 
-// FetchExternalPrices calls greedy_eye.v1.MarketDataService.FetchExternalPrices.
+// FetchExternalPrices calls eye.v1.MarketDataService.FetchExternalPrices.
 func (c *marketDataServiceClient) FetchExternalPrices(ctx context.Context, req *connect.Request[v1.FetchExternalPricesRequest]) (*connect.Response[v1.FetchExternalPricesResponse], error) {
 	return c.fetchExternalPrices.CallUnary(ctx, req)
 }
 
-// MarketDataServiceHandler is an implementation of the greedy_eye.v1.MarketDataService service.
+// MarketDataServiceHandler is an implementation of the eye.v1.MarketDataService service.
 type MarketDataServiceHandler interface {
 	// --- Asset CRUD ---
 	CreateAsset(context.Context, *connect.Request[v1.CreateAssetRequest]) (*connect.Response[v1.Asset], error)
@@ -422,7 +422,7 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 		connect.WithSchema(marketDataServiceMethods.ByName("FetchExternalPrices")),
 		connect.WithHandlerOptions(opts...),
 	)
-	return "/greedy_eye.v1.MarketDataService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return "/eye.v1.MarketDataService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MarketDataServiceCreateAssetProcedure:
 			marketDataServiceCreateAssetHandler.ServeHTTP(w, r)
@@ -464,61 +464,61 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 type UnimplementedMarketDataServiceHandler struct{}
 
 func (UnimplementedMarketDataServiceHandler) CreateAsset(context.Context, *connect.Request[v1.CreateAssetRequest]) (*connect.Response[v1.Asset], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.MarketDataService.CreateAsset is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.CreateAsset is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) GetAsset(context.Context, *connect.Request[v1.GetAssetRequest]) (*connect.Response[v1.Asset], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.MarketDataService.GetAsset is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.GetAsset is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) UpdateAsset(context.Context, *connect.Request[v1.UpdateAssetRequest]) (*connect.Response[v1.Asset], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.MarketDataService.UpdateAsset is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.UpdateAsset is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) DeleteAsset(context.Context, *connect.Request[v1.DeleteAssetRequest]) (*connect.Response[emptypb.Empty], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.MarketDataService.DeleteAsset is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.DeleteAsset is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) ListAssets(context.Context, *connect.Request[v1.ListAssetsRequest]) (*connect.Response[v1.ListAssetsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.MarketDataService.ListAssets is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.ListAssets is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) EnrichAssetData(context.Context, *connect.Request[v1.EnrichAssetDataRequest]) (*connect.Response[v1.Asset], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.MarketDataService.EnrichAssetData is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.EnrichAssetData is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) FindSimilarAssets(context.Context, *connect.Request[v1.FindSimilarAssetsRequest]) (*connect.Response[v1.ListAssetsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.MarketDataService.FindSimilarAssets is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.FindSimilarAssets is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) CreatePrice(context.Context, *connect.Request[v1.CreatePriceRequest]) (*connect.Response[v1.Price], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.MarketDataService.CreatePrice is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.CreatePrice is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) CreatePrices(context.Context, *connect.Request[v1.CreatePricesRequest]) (*connect.Response[v1.CreatePricesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.MarketDataService.CreatePrices is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.CreatePrices is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) GetLatestPrice(context.Context, *connect.Request[v1.GetLatestPriceRequest]) (*connect.Response[v1.Price], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.MarketDataService.GetLatestPrice is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.GetLatestPrice is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) ListPriceHistory(context.Context, *connect.Request[v1.ListPriceHistoryRequest]) (*connect.Response[v1.ListPriceHistoryResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.MarketDataService.ListPriceHistory is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.ListPriceHistory is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) ListPricesByInterval(context.Context, *connect.Request[v1.ListPricesByIntervalRequest]) (*connect.Response[v1.ListPriceHistoryResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.MarketDataService.ListPricesByInterval is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.ListPricesByInterval is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) DeletePrice(context.Context, *connect.Request[v1.DeletePriceRequest]) (*connect.Response[emptypb.Empty], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.MarketDataService.DeletePrice is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.DeletePrice is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) DeletePrices(context.Context, *connect.Request[v1.DeletePricesRequest]) (*connect.Response[emptypb.Empty], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.MarketDataService.DeletePrices is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.DeletePrices is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) FetchExternalPrices(context.Context, *connect.Request[v1.FetchExternalPricesRequest]) (*connect.Response[v1.FetchExternalPricesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("greedy_eye.v1.MarketDataService.FetchExternalPrices is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.FetchExternalPrices is not implemented"))
 }
