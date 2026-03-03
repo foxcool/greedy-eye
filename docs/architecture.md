@@ -86,14 +86,14 @@ different audiences:
 **Technology Stack:**
 - **Language**: Go 1.25+
 - **Database**: PostgreSQL 17+ (ACID compliance for financial data)
-- **Protocol**: gRPC + HTTP API (Connect-RPC)
+- **Protocol**: Connect-RPC over HTTP/2 (h2c) — serves both Connect and gRPC clients
 - **Schema Management**: Atlas declarative migrations
 - **Containerization**: Docker + Docker Compose
 
 **Performance Constraints:**
 - API response time < 200ms for 95% of requests
-- Support up to 1000 concurrent gRPC connections
-- Voice message processing < 3 seconds
+- Support up to 1000 concurrent connections
+- Price fetch batch processing < 5 seconds
 
 **Compatibility and Integrations:**
 - Messenger Bot APIs (chat interface)
@@ -183,16 +183,21 @@ graph TB
 
 **Selected Architectural Patterns:**
 - **Modular Monolith**: Balance between development simplicity and scalability
-- **Service-oriented internal architecture**: 8 clearly separated gRPC services
-- **API Gateway pattern**: Single entry point for external clients
+- **3-service domain API**: MarketDataService, PortfolioService, AutomationService
+- **Layered architecture**: handler → store interface → postgres implementation
 - **CQRS elements**: Separation of read and write operations in critical places
 
 **Technology Stack:**
 - **Backend**: Go 1.25+ for performance and type safety
 - **Database**: PostgreSQL + pgx (raw SQL) for reliability
 - **Schema**: Atlas declarative migrations (schema.hcl)
-- **Communication**: gRPC + Connect-RPC for efficient communication
+- **Communication**: Connect-RPC (h2c) — single server serves both Connect and gRPC clients
 - **Deployment**: Docker containers for environment consistency
+
+**Responsibility boundaries:**
+- **User management / Auth**: delegated to external service (psina)
+- **Messenger Bot**: separate future service
+- **Greedy Eye core**: market data, portfolios, automation rules
 
 ### 4.2 Approach to Quality Goals
 
@@ -220,144 +225,106 @@ graph TB
 ```mermaid
 graph TB
     subgraph "Greedy Eye System"
-        WebApp[📱 Telegram Bot<br/>Interface]
-        APIGateway[🌐 HTTP API Gateway<br/>:8080]
-        ServiceLayer[⚙️ gRPC Services<br/>:50051]
+        App[⚙️ greedy-eye binary<br/>Connect-RPC h2c :8080]
         Database[🗄️ PostgreSQL<br/>:5432]
     end
 
-    subgraph "External Systems"
-        MessengerAPI[📱 Messenger API]
-        PriceAPI[💰 Price Data API]
-        TradingAPI[🔄 Trading Platform API]
-        DataAPI[🔎 Blockchain Data API]
-        SpeechAPIs[🎤 Speech APIs]
+    subgraph "External Services"
+        Psina[👥 psina<br/>User Auth]
+        PriceAPI[💰 Price Data API<br/>CoinGecko, Binance]
+        BlockchainAPI[🔎 Blockchain Data API<br/>Moralis]
     end
 
-    User[👤 User] --> WebApp
-    APIClient[🖥️ API Client] --> APIGateway
-
-    WebApp <--> ServiceLayer
-    APIGateway <--> ServiceLayer
-    ServiceLayer <--> Database
-
-    WebApp <--> MessengerAPI
-    ServiceLayer <--> PriceAPI
-    ServiceLayer <--> TradingAPI
-    ServiceLayer <--> DataAPI
-    WebApp <--> SpeechAPIs
+    APIClient[🖥️ API Client] -->|Connect/gRPC| App
+    App <--> Database
+    App -.->|prices| PriceAPI
+    App -.->|on-chain data| BlockchainAPI
+    App -.->|auth| Psina
 ```
 
 **Level 1 Containers:**
 
-- **Messenger Bot Interface**:
-  - Purpose: Conversational interface with voice support
-  - Technologies: Go, Messenger Bot API, Speech APIs
-  - Interfaces: gRPC client to service layer
-
-- **HTTP API Gateway**:
-  - Purpose: External REST API with auto-generation from gRPC
-  - Technologies: gRPC-Gateway, JWT middleware
-  - Interfaces: HTTP/JSON → gRPC/Protocol Buffers
-
-- **gRPC Services Layer**:
-  - Purpose: Business logic as 8 separate services
-  - Technologies: Go, gRPC, Protocol Buffers
-  - Interfaces: Internal gRPC, External HTTP APIs
+- **greedy-eye binary**:
+  - Purpose: Single Go binary serving 3 domain services over Connect-RPC
+  - Technologies: Go, Connect-RPC, Protocol Buffers, h2c
+  - Services: MarketDataService, PortfolioService, AutomationService
+  - Health check: `GET /eye/health`
 
 - **PostgreSQL Database**:
   - Purpose: Persistent storage with ACID guarantees
   - Technologies: PostgreSQL 17+, pgx driver
   - Schema: Atlas declarative migrations (schema.hcl)
-  - Interfaces: SQL, Connection pooling
+  - Interfaces: SQL, pgxpool connection pooling
 
 ### 5.2 C3: Component Diagrams
 
-#### gRPC Services Layer - Component Details
+#### Service Layer - Component Details
 
 ```mermaid
 graph TB
-    subgraph "Core Services"
-        Storage[🗄️ StorageService<br/>CRUD Operations]
-        User[👥 UserService<br/>User Management]
-        Asset[🏦 AssetService<br/>Asset Metadata]
-        Portfolio[📈 PortfolioService<br/>Calculations]
-        Price[💲 PriceService<br/>Market Data]
-        Rule[⚙️ RuleService<br/>Automation]
-        Auth[🔐 AuthService<br/>Security]
-        Messenger[💬 MessengerService<br/>Multi-Platform Chat]
+    subgraph "Connect-RPC Handlers"
+        MDS[MarketDataService<br/>assets + prices]
+        PS[PortfolioService<br/>portfolios, accounts<br/>holdings, transactions]
+        AS[AutomationService<br/>rules + executions]
+    end
+
+    subgraph "Store Interfaces"
+        MDSI[marketdata.Store]
+        PSI[portfolio.Store]
+        ASI[automation.Store]
+    end
+
+    subgraph "Postgres Implementations"
+        MDSP[MarketDataStore]
+        PSP[PortfolioStore]
+        ASP[AutomationStore]
+        SSP[SettingsStore<br/>users]
     end
 
     subgraph "External Adapters"
-        MessengerAdapter[Messenger Adapters<br/>Telegram, WhatsApp, Discord]
-        PriceAdapter[Price Data Adapters<br/>CoinGecko, CoinMarketCap]
-        ExchangeAdapter[Exchange Adapters<br/>Binance, Gate.io, Bybit]
-        BlockchainAdapter[Blockchain Adapters<br/>Moralis, Etherscan]
+        CoinGecko[coingecko adapter<br/>stub]
+        Binance[binance adapter<br/>stub]
+        Moralis[moralis adapter<br/>stub]
+        Telegram[telegram adapter<br/>stub]
     end
 
-    Storage --> Database[(PostgreSQL)]
+    MDS --> MDSI --> MDSP --> DB[(PostgreSQL)]
+    PS  --> PSI  --> PSP  --> DB
+    AS  --> ASI  --> ASP  --> DB
 
-    Price --> PriceAdapter
-    Price --> ExchangeAdapter
-    Price --> BlockchainAdapter
-
-    Messenger --> MessengerAdapter
-    Rule --> User
-    Rule --> Portfolio
-    Rule --> Asset
-    Rule --> Price
-
-    Portfolio --> Asset
-    Portfolio --> Storage
-    Portfolio --> ExchangeAdapter
-
-    User --> Storage
-    Asset --> Storage
-    Asset --> BlockchainAdapter
-    Price --> Storage
+    MDS -.->|FetchExternalPrices stub| CoinGecko
+    MDS -.->|FetchExternalPrices stub| Binance
+    MDS -.->|FindSimilarAssets stub| Moralis
 ```
 
-### 5.3 Level 3: Component Details
+### 5.3 Level 3: Service Details
 
-**Store Layer** (Foundation):
-- Responsibilities: CRUD operations for all entities
-- Components:
-  - `MarketDataStore`: Assets, Prices
-  - `PortfolioStore`: Portfolios, Holdings, Accounts, Transactions
-  - `SettingsStore`: User preferences
-- Technologies: pgx driver, raw SQL
-- Schema: Atlas declarative migrations (schema.hcl)
-- Dependencies: PostgreSQL database
+**MarketDataService** (`internal/service/marketdata/`):
+- RPCs implemented: CreateAsset, GetAsset, UpdateAsset, DeleteAsset, ListAssets, CreatePrice, CreatePrices, GetLatestPrice, ListPriceHistory, ListPricesByInterval, DeletePrice, DeletePrices
+- RPCs stubbed: EnrichAssetData, FindSimilarAssets, FetchExternalPrices
+- Store: `MarketDataStore` (PostgreSQL) — assets + prices
 
-**PriceService** (Key Service):
-- Responsibilities: Fetching prices from external sources, caching
-- Interfaces: FetchExternalPrices gRPC method, Provider interface
-- Technologies: HTTP clients for external APIs, retry logic
-- Dependencies: AssetService (validation), StorageService (persistence)
+**PortfolioService** (`internal/service/portfolio/`):
+- RPCs implemented: full CRUD for Portfolio, Account, Holding, Transaction
+- RPCs stubbed: CalculatePortfolioValue, GetPortfolioPerformance
+- Store: `PortfolioStore` (PostgreSQL)
 
-**RuleService** (Automation):
-- Responsibilities: Portfolio rule execution, alert system
-- Interfaces: ExecuteRule, ValidateRule, SimulateRule gRPC methods
-- Technologies: Rule engine, cron scheduler, alert manager
-- Dependencies: All other services for rule execution
+**AutomationService** (`internal/service/automation/`):
+- RPCs implemented: CRUD for Rule and RuleExecution, EnableRule, DisableRule, PauseRule, ResumeRule, ValidateRule
+- RPCs stubbed: ExecuteRule, ExecuteRuleAsync, CancelRuleExecution, SimulateRule
+- Store: `AutomationStore` (PostgreSQL stub — pending schema)
 
-**MessengerService** (Multi-Platform User Interface):
-- Responsibilities: Message processing, voice processing, notifications across multiple platforms
-- Interfaces: Messenger adapters (Telegram, WhatsApp, Discord), Speech APIs
-- Technologies: Session management, NLP, STT/TTS, platform-agnostic handlers
-- Dependencies: All services for data access, messenger adapters for communication
-- Commands: `/start`, `/portfolio`, `/balance`, `/prices`, `/alerts`, `/transactions`, `/settings`, `/help`
+**SettingsStore** (`internal/service/settings/`):
+- Provides user CRUD for auth integration (psina)
+- No Connect handler — consumed internally
 
 **External Adapters** (Integration Layer):
 
-The system uses the **Adapter Pattern** for integrations to isolate external API dependencies from core business logic.
+The system uses the **Adapter Pattern** to isolate external API dependencies from core business logic.
 
-- **Messenger Adapters** (`internal/adapter/telegram/`): Telegram (stub)
-- **Price Data Adapters** (`internal/adapter/coingecko/`): CoinGecko (stub)
-- **Exchange Adapters** (`internal/adapter/binance/`): Binance (stub)
+- **Price Adapters** (`internal/adapter/coingecko/`, `internal/adapter/binance/`): CoinGecko, Binance (stubs)
 - **Blockchain Adapters** (`internal/adapter/moralis/`): Moralis (stub)
-
-All adapters use consistent error handling (gRPC status codes), interface-based design, and comprehensive stub tests.
+- **Messenger Adapters** (`internal/adapter/telegram/`): Telegram (stub)
 
 ---
 
@@ -365,39 +332,38 @@ All adapters use consistent error handling (gRPC status codes), interface-based 
 
 ### 6.1 Execution Scenarios
 
-#### Scenario 1: Get Portfolio Balance via Messenger
+#### Scenario 1: Track a New Asset Price
 
 ```text
-User → Messenger Platform → MessengerService → PortfolioService → StorageService → Database
-  1. User sends "/portfolio" command
-  2. MessengerService receives update via webhook (e.g., Telegram)
-  3. MessengerService parses command and authenticates user
-  4. PortfolioService calculates current portfolio value
-  5. StorageService returns user holdings
-  6. PriceService provides current prices
-  7. Result is formatted and sent via messenger adapter
+API Client → MarketDataService → MarketDataStore → PostgreSQL
+  1. POST /eye.v1.MarketDataService/CreateAsset (or CreatePrice)
+  2. Handler validates request, maps proto → entity
+  3. Store persists to PostgreSQL
+  4. Response: created Asset or Price proto
 ```
 
 #### Scenario 2: Fetch Prices from External Provider
 
 ```text
-HTTP API → PriceService → Price Data API → StorageService → Database
-  1. POST /api/v1/prices/fetch-external
-  2. PriceService gets list of assets to update
-  3. Price Data API returns current prices
-  4. Prices are validated and saved through StorageService
-  5. Update statistics are returned
+API Client → MarketDataService/FetchExternalPrices → (stub) → Error Unimplemented
+  → When implemented: adapter.GetCurrentPrice → CreatePrices
+  1. POST /eye.v1.MarketDataService/FetchExternalPrices
+  2. Handler calls external adapter (CoinGecko / Binance)
+  3. Prices are bulk-inserted via CreatePrices
+  4. Response: FetchExternalPricesResponse{prices_fetched, prices_stored}
 ```
 
 #### Scenario 3: Execute Rebalancing Rule
 
 ```text
-RuleService → PortfolioService → AssetService → PriceService → External APIs
-  1. Cron trigger activates rebalancing rule
-  2. RuleService calculates necessary portfolio changes
-  3. Rule creates transactions to achieve target allocation
-  4. Trading operations are executed through external APIs if needed
-  5. Result is saved and notifications are sent
+Cron / API Client → AutomationService/ExecuteRule → (stub) → Error Unimplemented
+  → When implemented:
+  1. AutomationService fetches rule configuration
+  2. Gets portfolio holdings from PortfolioService
+  3. Gets current prices from MarketDataService
+  4. Calculates required transactions to hit target allocations
+  5. Creates Transaction records via PortfolioService
+  6. Updates RuleExecution status
 ```
 
 ### 6.2 Critical Scenarios
@@ -420,21 +386,24 @@ RuleService → PortfolioService → AssetService → PriceService → External 
 
 ```
 [Production Environment]
-├── Reverse Proxy (Nginx)
+├── Reverse Proxy (Traefik)
 │   ├── SSL Termination
-│   └── Load Balancing
+│   ├── h2c upstream (HTTP/2 cleartext for Connect-RPC)
+│   └── Path routing: Host($EYE_DOMAIN) && PathPrefix(/eye)
 ├── Application Container
-│   ├── gRPC Server (:50051)
-│   ├── HTTP API Gateway (:8080)
-│   └── All 8 Services
+│   ├── Connect-RPC h2c Server (:8080)
+│   │   ├── MarketDataService
+│   │   ├── PortfolioService
+│   │   └── AutomationService
+│   └── Health: GET /eye/health
 ├── Database Container
-│   ├── PostgreSQL 13+
+│   ├── PostgreSQL 17+
 │   ├── Automated Backups
-│   └── Connection Pooling
+│   └── pgxpool Connection Pooling
 └── Monitoring Stack
     ├── Health Checks
-    ├── Metrics Collection
-    └── Log Aggregation
+    ├── Sentry (error tracking)
+    └── Structured JSON logging
 ```
 
 ### 7.2 Component Mapping to Infrastructure
@@ -532,32 +501,34 @@ RuleService → PortfolioService → AssetService → PriceService → External 
   - ➕ Clear service boundaries through gRPC interfaces
   - ➖ Need for caution when changing shared components
 
-### ADR-002: gRPC + gRPC-Gateway
-- **Status**: accepted
-- **Context**: Need for efficient internal communication and HTTP API
-- **Decision**: gRPC for internal services + gRPC-Gateway for HTTP API
+### ADR-002: Connect-RPC over h2c instead of gRPC-Gateway
+- **Status**: accepted (supersedes original gRPC + gRPC-Gateway decision)
+- **Context**: Original plan used gRPC internally + gRPC-Gateway for HTTP. Connect-RPC handles both natively.
+- **Decision**: Connect-RPC with h2c transport. Single server accepts both Connect (JSON/protobuf) and gRPC clients.
 - **Consequences**:
-  - ➕ Type safety, performance, HTTP API auto-generation
-  - ➕ Single source of truth for API definitions
-  - ➖ Additional complexity in debugging
+  - ➕ No separate gateway process, single port, simpler deployment
+  - ➕ Browser-friendly Connect protocol without grpc-web proxy
+  - ➕ Type safety via generated code, same proto definitions
+  - ➖ Requires h2c-aware reverse proxy (Traefik `server.scheme=h2c`)
 
-### ADR-003: Integrated Alert System
+### ADR-003: 3-service domain API instead of 8 services
 - **Status**: accepted
-- **Context**: Need for notifications about portfolio events
-- **Decision**: Integrate alerts into RuleService instead of separate service
+- **Context**: Initial design had 8 gRPC services (Storage, User, Asset, Portfolio, Price, Rule, Auth, Messenger). This caused excessive indirection and coupling.
+- **Decision**: Consolidate into 3 domain services: MarketDataService (assets + prices), PortfolioService (portfolios, accounts, holdings, transactions), AutomationService (rules + executions).
 - **Consequences**:
-  - ➕ YAGNI principle compliance, architecture simplification
-  - ➕ Easy integration with automation rules
-  - ➖ Potential RuleService complexity increase
+  - ➕ Simpler handler structure, fewer inter-service calls
+  - ➕ Each service owns its store directly (no StorageService middleman)
+  - ➖ Larger individual service surface area
+  - ➖ Cross-domain operations (e.g. calculate portfolio value using prices) require service-to-service calls in the future
 
-### ADR-004: Multi-provider Speech Integration
+### ADR-004: User management delegated to external service (psina)
 - **Status**: accepted
-- **Context**: Need for reliable voice message processing
-- **Decision**: Support multiple STT/TTS providers with fallback
+- **Context**: Managing users, auth, and sessions is significant scope separate from portfolio domain.
+- **Decision**: Delegate user management and authentication to external `psina` service. Greedy Eye stores user references (user_id) but does not manage user lifecycle.
 - **Consequences**:
-  - ➕ High reliability, optimization by language and cost
-  - ➕ Flexibility in provider choice depending on task
-  - ➖ Additional configuration complexity
+  - ➕ Greedy Eye stays focused on financial domain
+  - ➕ Auth reused across multiple services
+  - ➖ Dependency on external service availability
 
 ---
 
@@ -623,11 +594,11 @@ System Quality
 
 ### 11.2 Technical Debt
 
-#### Debt 1: Absence of real business logic
+#### Debt 1: Partial business logic implementation
 
-- Description: All services implemented as stubs
-- Impact: Cannot be used in production
-- Resolution Plan: Phased implementation starting with UserService and PriceService
+- Description: CRUD operations implemented for all 3 services. Complex RPCs are stubs: ExecuteRule, ExecuteRuleAsync, CancelRuleExecution, SimulateRule, CalculatePortfolioValue, GetPortfolioPerformance, EnrichAssetData, FindSimilarAssets, FetchExternalPrices
+- Impact: Core data management works; automation execution and portfolio calculations not yet usable
+- Resolution Plan: FetchExternalPrices (connects adapters to store) → CalculatePortfolioValue → ExecuteRule engine
 
 #### Debt 2: Lack of comprehensive monitoring
 
@@ -648,19 +619,20 @@ System Quality
 | Term | Definition |
 |------|------------|
 | **Asset** | Financial instrument: cryptocurrency, stock, bond, derivatives |
-| **Holding** | Current position of specific asset in portfolio |
-| **Rule** | Portfolio automation rule (DCA, rebalancing, alerts) |
-| **External API Key** | Encrypted key for external service access |
-| **Session Context** | User conversation state with Telegram Bot |
-| **Price Provider** | External service providing price data for various asset types |
-| **STT/TTS** | Speech-to-Text / Text-to-Speech conversion |
-| **gRPC-Gateway** | HTTP API auto-generation from gRPC definitions |
+| **Holding** | Current position of a specific asset within an Account |
+| **Account** | User's connection to an exchange, wallet, or broker |
+| **Rule** | Portfolio automation rule (DCA, rebalancing, stop-loss, withdrawal) |
+| **RuleExecution** | Single run of a Rule, with status and transaction references |
+| **Connect-RPC** | Protocol from Buf that serves gRPC and browser-compatible HTTP API from one server |
+| **h2c** | HTTP/2 cleartext — HTTP/2 without TLS, used for Connect-RPC behind a TLS-terminating proxy |
+| **psina** | External service responsible for user management and authentication |
+| **Price Provider** | External service providing price data (CoinGecko, Binance, etc.) |
 | **Graceful Degradation** | Continued operation with limited functionality during failures |
 | **Circuit Breaker** | Pattern protecting against cascading failures when external services are unavailable |
 
 ---
 
-**Document Version**: 1.1
-**Last Updated**: 2026-02-03
+**Document Version**: 1.2
+**Last Updated**: 2026-03-02
 **Owner**: foxcool
 **Status**: Active

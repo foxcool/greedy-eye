@@ -13,6 +13,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
+	"github.com/foxcool/greedy-eye/internal/service/automation"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
 	"github.com/foxcool/greedy-eye/internal/store/postgres"
@@ -70,10 +71,12 @@ func run() error {
 	// Create stores
 	marketDataStore := postgres.NewMarketDataStore(pool)
 	portfolioStore := postgres.NewPortfolioStore(pool)
+	automationStore := postgres.NewAutomationStore(pool)
 
 	// Create handlers
 	marketDataHandler := marketdata.NewHandler(marketDataStore, log)
 	portfolioHandler := portfolio.NewHandler(portfolioStore, log)
+	automationHandler := automation.NewHandler(automationStore, log)
 
 	// Setup HTTP mux
 	mux := http.NewServeMux()
@@ -96,6 +99,12 @@ func run() error {
 
 	path, handler = apiv1connect.NewPortfolioServiceHandler(
 		portfolioHandler,
+		connect.WithInterceptors(loggingInterceptor(log)),
+	)
+	mux.Handle(path, handler)
+
+	path, handler = apiv1connect.NewAutomationServiceHandler(
+		automationHandler,
 		connect.WithInterceptors(loggingInterceptor(log)),
 	)
 	mux.Handle(path, handler)
