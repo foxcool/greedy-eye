@@ -38,6 +38,8 @@ func getTestPool(t *testing.T) *pgxpool.Pool {
 
 	// Truncate in order: child tables first (those with foreign keys to others).
 	testDB.MustTruncate(t,
+		"rule_executions",
+		"rules",
 		"transactions",
 		"holdings",
 		"prices",
