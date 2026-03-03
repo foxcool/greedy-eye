@@ -8,11 +8,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/foxcool/greedy-eye/internal/testutil"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var testDB *testutil.TestDB
+var testDB *TestDB
 
 // TestMain sets up and tears down the test environment.
 func TestMain(m *testing.M) {
@@ -20,7 +19,7 @@ func TestMain(m *testing.M) {
 	ctx := context.Background()
 
 	var err error
-	testDB, err = testutil.NewTestDB(ctx)
+	testDB, err = NewTestDB(ctx)
 	if err != nil {
 		log.Error("Failed to create test database", "error", err)
 		os.Exit(1)
@@ -51,23 +50,3 @@ func getTestPool(t *testing.T) *pgxpool.Pool {
 	return testDB.Pool
 }
 
-// withTx runs a function within a transaction that is rolled back after completion.
-// This ensures test isolation without needing to truncate tables.
-func withTx(t *testing.T, pool *pgxpool.Pool, fn func(ctx context.Context)) {
-	t.Helper()
-
-	ctx := context.Background()
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin transaction: %v", err)
-	}
-
-	defer func() {
-		if err := tx.Rollback(ctx); err != nil {
-			// Ignore rollback errors after commit or context cancellation
-			t.Logf("rollback: %v", err)
-		}
-	}()
-
-	fn(ctx)
-}
