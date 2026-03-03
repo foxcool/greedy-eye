@@ -321,21 +321,21 @@ func TestListRuleExecutions_WithFilters(t *testing.T) {
 	assert.Equal(t, "next", resp.Msg.NextPageToken)
 }
 
-// --- Tests: Stubs return Unimplemented ---
+// --- Tests: Execution methods validate inputs ---
 
-func TestStubs_ReturnUnimplemented(t *testing.T) {
+func TestExecutionMethods_ValidateInputs(t *testing.T) {
 	h := newHandler(&mockStore{})
 	ctx := context.Background()
 
 	_, err := h.ExecuteRule(ctx, connect.NewRequest(&apiv1.ExecuteRuleRequest{}))
-	assert.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 
 	_, err = h.ExecuteRuleAsync(ctx, connect.NewRequest(&apiv1.ExecuteRuleAsyncRequest{}))
-	assert.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 
 	_, err = h.CancelRuleExecution(ctx, connect.NewRequest(&apiv1.CancelRuleExecutionRequest{}))
-	assert.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 
 	_, err = h.SimulateRule(ctx, connect.NewRequest(&apiv1.SimulateRuleRequest{}))
-	assert.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 }

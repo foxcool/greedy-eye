@@ -403,3 +403,187 @@ table "transactions" {
     on_delete   = SET_NULL
   }
 }
+
+table "rules" {
+  schema = schema.public
+
+  column "id" {
+    type = bigint
+    null = false
+    identity {}
+  }
+  column "uuid" {
+    type = uuid
+    null = false
+  }
+  column "user_id" {
+    type = bigint
+    null = false
+  }
+  column "portfolio_id" {
+    type = bigint
+    null = false
+  }
+  column "name" {
+    type = character_varying
+    null = false
+  }
+  column "description" {
+    type = character_varying
+    null = true
+  }
+  column "rule_type" {
+    type = character_varying
+    null = false
+  }
+  column "status" {
+    type = character_varying
+    null = false
+  }
+  column "configuration" {
+    type = jsonb
+    null = false
+  }
+  column "schedule" {
+    type = jsonb
+    null = true
+  }
+  column "created_at" {
+    type = timestamptz
+    null = false
+  }
+  column "updated_at" {
+    type = timestamptz
+    null = false
+  }
+
+  primary_key {
+    columns = [column.id]
+  }
+
+  foreign_key "rules_users_rules" {
+    columns     = [column.user_id]
+    ref_columns = [table.users.column.id]
+    on_update   = NO_ACTION
+    on_delete   = NO_ACTION
+  }
+
+  foreign_key "rules_portfolios_rules" {
+    columns     = [column.portfolio_id]
+    ref_columns = [table.portfolios.column.id]
+    on_update   = NO_ACTION
+    on_delete   = NO_ACTION
+  }
+
+  index "rules_user_id" {
+    columns = [column.user_id]
+  }
+
+  index "rules_portfolio_id" {
+    columns = [column.portfolio_id]
+  }
+
+  index "rules_status" {
+    columns = [column.status]
+  }
+}
+
+table "rule_executions" {
+  schema = schema.public
+
+  column "id" {
+    type = bigint
+    null = false
+    identity {}
+  }
+  column "uuid" {
+    type = uuid
+    null = false
+  }
+  column "rule_id" {
+    type = bigint
+    null = false
+  }
+  column "portfolio_id" {
+    type = bigint
+    null = true
+  }
+  column "user_id" {
+    type = bigint
+    null = true
+  }
+  column "status" {
+    type = character_varying
+    null = false
+  }
+  column "error_message" {
+    type = character_varying
+    null = true
+  }
+  column "created_transaction_ids" {
+    type = jsonb
+    null = false
+  }
+  column "affected_holding_ids" {
+    type = jsonb
+    null = false
+  }
+  column "transactions_created" {
+    type    = bigint
+    null    = false
+    default = 0
+  }
+  column "execution_summary" {
+    type = jsonb
+    null = true
+  }
+  column "started_at" {
+    type = timestamptz
+    null = false
+  }
+  column "completed_at" {
+    type = timestamptz
+    null = true
+  }
+
+  primary_key {
+    columns = [column.id]
+  }
+
+  foreign_key "rule_executions_rules" {
+    columns     = [column.rule_id]
+    ref_columns = [table.rules.column.id]
+    on_update   = NO_ACTION
+    on_delete   = NO_ACTION
+  }
+
+  foreign_key "rule_executions_portfolios" {
+    columns     = [column.portfolio_id]
+    ref_columns = [table.portfolios.column.id]
+    on_update   = NO_ACTION
+    on_delete   = SET_NULL
+  }
+
+  foreign_key "rule_executions_users" {
+    columns     = [column.user_id]
+    ref_columns = [table.users.column.id]
+    on_update   = NO_ACTION
+    on_delete   = SET_NULL
+  }
+
+  index "rule_executions_rule_id" {
+    columns = [column.rule_id]
+  }
+
+  index "rule_executions_user_id" {
+    columns = [column.user_id]
+  }
+
+  index "rule_executions_status" {
+    columns = [column.status]
+  }
+
+  index "rule_executions_started_at" {
+    columns = [column.started_at]
+  }
+}

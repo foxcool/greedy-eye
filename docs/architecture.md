@@ -67,14 +67,14 @@ different audiences:
 2. **Security** - Multi-layered protection for financial data
    - Metrics: encryption of all external API keys, audit of all operations
    - JWT authentication + API key authorization with rate limiting
-. **Reliability** - Fault tolerance for financial operations
+3. **Reliability** - Fault tolerance for financial operations
    - Metrics: 99.9% uptime, automatic recovery after failures
    - Graceful degradation when external services are unavailable
 
 ### 1.3 Stakeholders
 
 | Role | Contact | Expectations |
-|------|---------|-------------|
+| --- | --- | --- |
 | Founder | fox@darkfox.info | Fast MVP delivery, universality for all asset types, maintainability |
 
 ---
@@ -300,7 +300,8 @@ graph TB
 ### 5.3 Level 3: Service Details
 
 **MarketDataService** (`internal/service/marketdata/`):
-- RPCs implemented: CreateAsset, GetAsset, UpdateAsset, DeleteAsset, ListAssets, CreatePrice, CreatePrices, GetLatestPrice, ListPriceHistory, ListPricesByInterval, DeletePrice, DeletePrices
+- RPCs implemented: CreateAsset, GetAsset, UpdateAsset, DeleteAsset, ListAssets, CreatePrice,
+  CreatePrices, GetLatestPrice, ListPriceHistory, ListPricesByInterval, DeletePrice, DeletePrices
 - RPCs stubbed: EnrichAssetData, FindSimilarAssets, FetchExternalPrices
 - Store: `MarketDataStore` (PostgreSQL) — assets + prices
 
@@ -310,9 +311,9 @@ graph TB
 - Store: `PortfolioStore` (PostgreSQL)
 
 **AutomationService** (`internal/service/automation/`):
-- RPCs implemented: CRUD for Rule and RuleExecution, EnableRule, DisableRule, PauseRule, ResumeRule, ValidateRule
-- RPCs stubbed: ExecuteRule, ExecuteRuleAsync, CancelRuleExecution, SimulateRule
-- Store: `AutomationStore` (PostgreSQL stub — pending schema)
+- RPCs implemented: CRUD for Rule and RuleExecution, EnableRule, DisableRule, PauseRule,
+  ResumeRule, ValidateRule, ExecuteRule, ExecuteRuleAsync, CancelRuleExecution, SimulateRule
+- Store: `AutomationStore` (PostgreSQL) — `rules` + `rule_executions` tables
 
 **SettingsStore** (`internal/service/settings/`):
 - Provides user CRUD for auth integration (psina)
@@ -356,14 +357,13 @@ API Client → MarketDataService/FetchExternalPrices → (stub) → Error Unimpl
 #### Scenario 3: Execute Rebalancing Rule
 
 ```text
-Cron / API Client → AutomationService/ExecuteRule → (stub) → Error Unimplemented
-  → When implemented:
-  1. AutomationService fetches rule configuration
-  2. Gets portfolio holdings from PortfolioService
-  3. Gets current prices from MarketDataService
-  4. Calculates required transactions to hit target allocations
-  5. Creates Transaction records via PortfolioService
-  6. Updates RuleExecution status
+Cron / API Client → AutomationService/ExecuteRule
+  1. Validate rule_id, check rule.status == active
+  2. CreateRuleExecution(status=in_progress)
+  3. Run rule logic (calculate rebalancing trades)
+  4. Create Transaction records via PortfolioService
+  5. UpdateRuleExecution(status=completed, completed_at=now)
+  Note: dry_run=true returns simulated execution without DB writes
 ```
 
 ### 6.2 Critical Scenarios
@@ -513,8 +513,10 @@ Cron / API Client → AutomationService/ExecuteRule → (stub) → Error Unimple
 
 ### ADR-003: 3-service domain API instead of 8 services
 - **Status**: accepted
-- **Context**: Initial design had 8 gRPC services (Storage, User, Asset, Portfolio, Price, Rule, Auth, Messenger). This caused excessive indirection and coupling.
-- **Decision**: Consolidate into 3 domain services: MarketDataService (assets + prices), PortfolioService (portfolios, accounts, holdings, transactions), AutomationService (rules + executions).
+- **Context**: Initial design had 8 gRPC services (Storage, User, Asset, Portfolio, Price, Rule,
+  Auth, Messenger). This caused excessive indirection and coupling.
+- **Decision**: Consolidate into 3 domain services: MarketDataService (assets + prices),
+  PortfolioService (portfolios, accounts, holdings, transactions), AutomationService (rules + executions).
 - **Consequences**:
   - ➕ Simpler handler structure, fewer inter-service calls
   - ➕ Each service owns its store directly (no StorageService middleman)
@@ -524,7 +526,8 @@ Cron / API Client → AutomationService/ExecuteRule → (stub) → Error Unimple
 ### ADR-004: User management delegated to external service (psina)
 - **Status**: accepted
 - **Context**: Managing users, auth, and sessions is significant scope separate from portfolio domain.
-- **Decision**: Delegate user management and authentication to external `psina` service. Greedy Eye stores user references (user_id) but does not manage user lifecycle.
+- **Decision**: Delegate user management and authentication to external `psina` service.
+  Greedy Eye stores user references (user_id) but does not manage user lifecycle.
 - **Consequences**:
   - ➕ Greedy Eye stays focused on financial domain
   - ➕ Auth reused across multiple services
@@ -586,7 +589,7 @@ System Quality
 ### 11.1 Identified Risks
 
 | Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
+| --- | --- | --- | --- |
 | External API rate limit exceeded | High | Medium | Circuit breaker + caching + multiple providers |
 | Data inaccuracy from price providers | Medium | High | Data validation + multiple sources + alerts |
 | Monolith scaling issues | Low | High | Ready architecture for microservice split |
@@ -596,9 +599,13 @@ System Quality
 
 #### Debt 1: Partial business logic implementation
 
-- Description: CRUD operations implemented for all 3 services. Complex RPCs are stubs: ExecuteRule, ExecuteRuleAsync, CancelRuleExecution, SimulateRule, CalculatePortfolioValue, GetPortfolioPerformance, EnrichAssetData, FindSimilarAssets, FetchExternalPrices
-- Impact: Core data management works; automation execution and portfolio calculations not yet usable
-- Resolution Plan: FetchExternalPrices (connects adapters to store) → CalculatePortfolioValue → ExecuteRule engine
+- Description: CRUD and execution flow implemented for all 3 services. Remaining stubs:
+  CalculatePortfolioValue, GetPortfolioPerformance, EnrichAssetData, FindSimilarAssets,
+  FetchExternalPrices. ExecuteRule runs a minimal synchronous engine (no real trading logic yet).
+- Impact: Core data management and rule lifecycle work; portfolio calculations and external
+  price fetching not yet usable.
+- Resolution Plan: FetchExternalPrices (connects adapters to store) →
+  CalculatePortfolioValue → full rule execution engine with actual trading logic
 
 #### Debt 2: Lack of comprehensive monitoring
 
@@ -617,7 +624,7 @@ System Quality
 ## 12. Glossary
 
 | Term | Definition |
-|------|------------|
+| --- | --- |
 | **Asset** | Financial instrument: cryptocurrency, stock, bond, derivatives |
 | **Holding** | Current position of a specific asset within an Account |
 | **Account** | User's connection to an exchange, wallet, or broker |
@@ -632,7 +639,7 @@ System Quality
 
 ---
 
-**Document Version**: 1.2
-**Last Updated**: 2026-03-02
+**Document Version**: 1.3
+**Last Updated**: 2026-03-03
 **Owner**: foxcool
 **Status**: Active

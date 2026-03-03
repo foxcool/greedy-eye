@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"time"
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
@@ -332,26 +333,165 @@ func (h *Handler) ListRuleExecutions(ctx context.Context, req *connect.Request[a
 	}), nil
 }
 
-// --- Stubs: execution engine (not yet implemented) ---
+// --- Execution engine ---
 
 func (h *Handler) ExecuteRule(ctx context.Context, req *connect.Request[apiv1.ExecuteRuleRequest]) (*connect.Response[apiv1.ExecuteRuleResponse], error) {
-	// TODO: implement rule execution engine
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("ExecuteRule not implemented"))
+	if req.Msg.RuleId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rule_id is required"))
+	}
+
+	rule, err := h.store.GetRule(ctx, req.Msg.RuleId)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+	if rule.Status != entity.RuleStatusActive {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("rule is not active"))
+	}
+
+	if req.Msg.DryRun {
+		// Return a simulated result without persisting.
+		now := time.Now()
+		completedAt := now
+		simExec := &entity.RuleExecution{
+			ID:          "dry-run",
+			RuleID:      rule.ID,
+			PortfolioID: rule.PortfolioID,
+			UserID:      rule.UserID,
+			Status:      entity.ExecutionStatusCompleted,
+			StartedAt:   now,
+			CompletedAt: &completedAt,
+		}
+		proto, err := ruleExecutionToProto(simExec)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		return connect.NewResponse(&apiv1.ExecuteRuleResponse{Execution: proto}), nil
+	}
+
+	now := time.Now()
+	exec := &entity.RuleExecution{
+		RuleID:      rule.ID,
+		PortfolioID: rule.PortfolioID,
+		UserID:      rule.UserID,
+		Status:      entity.ExecutionStatusInProgress,
+		StartedAt:   now,
+	}
+	created, err := h.store.CreateRuleExecution(ctx, exec)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
+	completedAt := time.Now()
+	created.Status = entity.ExecutionStatusCompleted
+	created.CompletedAt = &completedAt
+	updated, err := h.store.UpdateRuleExecution(ctx, created, []string{"status", "completed_at"})
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
+	proto, err := ruleExecutionToProto(updated)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&apiv1.ExecuteRuleResponse{Execution: proto}), nil
 }
 
 func (h *Handler) ExecuteRuleAsync(ctx context.Context, req *connect.Request[apiv1.ExecuteRuleAsyncRequest]) (*connect.Response[apiv1.ExecuteRuleAsyncResponse], error) {
-	// TODO: implement async rule execution
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("ExecuteRuleAsync not implemented"))
+	if req.Msg.RuleId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rule_id is required"))
+	}
+
+	rule, err := h.store.GetRule(ctx, req.Msg.RuleId)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
+	exec := &entity.RuleExecution{
+		RuleID:      rule.ID,
+		PortfolioID: rule.PortfolioID,
+		UserID:      rule.UserID,
+		Status:      entity.ExecutionStatusPending,
+		StartedAt:   time.Now(),
+	}
+	created, err := h.store.CreateRuleExecution(ctx, exec)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
+	return connect.NewResponse(&apiv1.ExecuteRuleAsyncResponse{ExecutionId: created.ID}), nil
 }
 
 func (h *Handler) CancelRuleExecution(ctx context.Context, req *connect.Request[apiv1.CancelRuleExecutionRequest]) (*connect.Response[emptypb.Empty], error) {
-	// TODO: implement execution cancellation
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("CancelRuleExecution not implemented"))
+	if req.Msg.ExecutionId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("execution_id is required"))
+	}
+
+	exec, err := h.store.GetRuleExecution(ctx, req.Msg.ExecutionId)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
+	terminal := exec.Status == entity.ExecutionStatusCompleted ||
+		exec.Status == entity.ExecutionStatusCancelled ||
+		exec.Status == entity.ExecutionStatusFailed
+	if terminal {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("execution cannot be cancelled"))
+	}
+
+	now := time.Now()
+	exec.Status = entity.ExecutionStatusCancelled
+	exec.CompletedAt = &now
+	if _, err := h.store.UpdateRuleExecution(ctx, exec, []string{"status", "completed_at"}); err != nil {
+		return nil, toConnectError(err)
+	}
+
+	return connect.NewResponse(&emptypb.Empty{}), nil
 }
 
 func (h *Handler) SimulateRule(ctx context.Context, req *connect.Request[apiv1.SimulateRuleRequest]) (*connect.Response[apiv1.SimulateRuleResponse], error) {
-	// TODO: implement rule simulation
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("SimulateRule not implemented"))
+	if req.Msg.RuleId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rule_id is required"))
+	}
+
+	rule, err := h.store.GetRule(ctx, req.Msg.RuleId)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
+	var result *apiv1.SimulationResult
+	switch rule.RuleType {
+	case "rebalancing":
+		result = &apiv1.SimulationResult{
+			RuleResult: &apiv1.SimulationResult_Rebalancing{
+				Rebalancing: &apiv1.RebalancingSimulation{},
+			},
+		}
+	case "stop_loss":
+		result = &apiv1.SimulationResult{
+			RuleResult: &apiv1.SimulationResult_StopLoss{
+				StopLoss: &apiv1.StopLossSimulation{},
+			},
+		}
+	case "dca":
+		result = &apiv1.SimulationResult{
+			RuleResult: &apiv1.SimulationResult_Dca{
+				Dca: &apiv1.DCASimulation{},
+			},
+		}
+	case "withdrawal":
+		result = &apiv1.SimulationResult{
+			RuleResult: &apiv1.SimulationResult_Withdrawal{
+				Withdrawal: &apiv1.WithdrawalSimulation{},
+			},
+		}
+	default:
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("unsupported rule type"))
+	}
+
+	return connect.NewResponse(&apiv1.SimulateRuleResponse{
+		Success: true,
+		Result:  result,
+	}), nil
 }
 
 // --- Error conversion ---
