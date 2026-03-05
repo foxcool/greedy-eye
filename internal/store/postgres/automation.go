@@ -48,17 +48,11 @@ func (s *AutomationStore) CreateRule(ctx context.Context, r *entity.Rule) (*enti
 		return nil, fmt.Errorf("%w: rule_type is required", store.ErrInvalidArgument)
 	}
 
-	userInternalID, err := s.getUserInternalID(ctx, r.UserID)
+	id, err := uuid.NewV7()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to generate ID: %w", err)
 	}
-
-	portfolioInternalID, err := s.getPortfolioInternalID(ctx, r.PortfolioID)
-	if err != nil {
-		return nil, err
-	}
-
-	r.ID = uuid.New().String()
+	r.ID = id.String()
 
 	configJSON := r.Configuration
 	if len(configJSON) == 0 {
@@ -71,14 +65,14 @@ func (s *AutomationStore) CreateRule(ctx context.Context, r *entity.Rule) (*enti
 	}
 
 	query := `
-		INSERT INTO rules (uuid, user_id, portfolio_id, name, description, rule_type, status, configuration, schedule, created_at, updated_at)
+		INSERT INTO rules (id, user_id, portfolio_id, name, description, rule_type, status, configuration, schedule, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
 		RETURNING created_at, updated_at`
 
 	err = s.pool.QueryRow(ctx, query,
 		r.ID,
-		userInternalID,
-		portfolioInternalID,
+		r.UserID,
+		r.PortfolioID,
 		r.Name,
 		nullableString(r.Description),
 		r.RuleType,
@@ -105,11 +99,9 @@ func (s *AutomationStore) GetRule(ctx context.Context, id string) (*entity.Rule,
 	}
 
 	query := `
-		SELECT r.uuid, u.uuid, p.uuid, r.name, r.description, r.rule_type, r.status, r.configuration, r.schedule, r.created_at, r.updated_at
-		FROM rules r
-		JOIN users u ON r.user_id = u.id
-		JOIN portfolios p ON r.portfolio_id = p.id
-		WHERE r.uuid = $1`
+		SELECT id, user_id, portfolio_id, name, description, rule_type, status, configuration, schedule, created_at, updated_at
+		FROM rules
+		WHERE id = $1`
 
 	var r entity.Rule
 	var description *string
@@ -207,7 +199,7 @@ func (s *AutomationStore) UpdateRule(ctx context.Context, r *entity.Rule, fields
 	query := fmt.Sprintf(`
 		UPDATE rules
 		SET %s
-		WHERE uuid = $1`,
+		WHERE id = $1`,
 		strings.Join(setClauses, ", "))
 
 	result, err := s.pool.Exec(ctx, query, args...)
@@ -230,7 +222,7 @@ func (s *AutomationStore) DeleteRule(ctx context.Context, id string) error {
 		return fmt.Errorf("%w: invalid rule ID format", store.ErrInvalidArgument)
 	}
 
-	result, err := s.pool.Exec(ctx, "DELETE FROM rules WHERE uuid = $1", id)
+	result, err := s.pool.Exec(ctx, "DELETE FROM rules WHERE id = $1", id)
 	if err != nil {
 		if isConstraintError(err) {
 			return fmt.Errorf("%w: cannot delete rule due to existing dependencies", store.ErrConstraint)
@@ -256,22 +248,14 @@ func (s *AutomationStore) ListRules(ctx context.Context, opts automation.ListRul
 	whereClauses := []string{}
 
 	if opts.UserID != "" {
-		userInternalID, err := s.getUserInternalID(ctx, opts.UserID)
-		if err != nil {
-			return nil, "", err
-		}
 		whereClauses = append(whereClauses, fmt.Sprintf("r.user_id = $%d", argIdx))
-		args = append(args, userInternalID)
+		args = append(args, opts.UserID)
 		argIdx++
 	}
 
 	if opts.PortfolioID != "" {
-		portfolioInternalID, err := s.getPortfolioInternalID(ctx, opts.PortfolioID)
-		if err != nil {
-			return nil, "", err
-		}
 		whereClauses = append(whereClauses, fmt.Sprintf("r.portfolio_id = $%d", argIdx))
-		args = append(args, portfolioInternalID)
+		args = append(args, opts.PortfolioID)
 		argIdx++
 	}
 
@@ -290,7 +274,7 @@ func (s *AutomationStore) ListRules(ctx context.Context, opts automation.ListRul
 	if opts.PageToken != "" {
 		decoded, err := base64.StdEncoding.DecodeString(opts.PageToken)
 		if err == nil && isValidUUID(string(decoded)) {
-			whereClauses = append(whereClauses, fmt.Sprintf("r.uuid > $%d", argIdx))
+			whereClauses = append(whereClauses, fmt.Sprintf("r.id > $%d", argIdx))
 			args = append(args, string(decoded))
 			argIdx++
 		}
@@ -302,12 +286,10 @@ func (s *AutomationStore) ListRules(ctx context.Context, opts automation.ListRul
 	}
 
 	query := fmt.Sprintf(`
-		SELECT r.uuid, u.uuid, p.uuid, r.name, r.description, r.rule_type, r.status, r.configuration, r.schedule, r.created_at, r.updated_at
+		SELECT r.id, r.user_id, r.portfolio_id, r.name, r.description, r.rule_type, r.status, r.configuration, r.schedule, r.created_at, r.updated_at
 		FROM rules r
-		JOIN users u ON r.user_id = u.id
-		JOIN portfolios p ON r.portfolio_id = p.id
 		%s
-		ORDER BY r.uuid
+		ORDER BY r.id
 		LIMIT $%d`,
 		whereClause, argIdx)
 	args = append(args, limit+1)
@@ -379,30 +361,21 @@ func (s *AutomationStore) CreateRuleExecution(ctx context.Context, e *entity.Rul
 		return nil, fmt.Errorf("%w: rule_id is required", store.ErrInvalidArgument)
 	}
 
-	ruleInternalID, err := s.getRuleInternalID(ctx, e.RuleID)
+	id, err := uuid.NewV7()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to generate ID: %w", err)
 	}
+	e.ID = id.String()
 
-	var portfolioInternalID *int64
+	var portfolioID *string
 	if e.PortfolioID != "" {
-		id, err := s.getPortfolioInternalID(ctx, e.PortfolioID)
-		if err != nil {
-			return nil, err
-		}
-		portfolioInternalID = &id
+		portfolioID = &e.PortfolioID
 	}
 
-	var userInternalID *int64
+	var userID *string
 	if e.UserID != "" {
-		id, err := s.getUserInternalID(ctx, e.UserID)
-		if err != nil {
-			return nil, err
-		}
-		userInternalID = &id
+		userID = &e.UserID
 	}
-
-	e.ID = uuid.New().String()
 
 	txIDs := e.CreatedTransactionIDs
 	if txIDs == nil {
@@ -428,23 +401,23 @@ func (s *AutomationStore) CreateRuleExecution(ctx context.Context, e *entity.Rul
 		e.StartedAt = startedAt
 	}
 
-	query := `
-		INSERT INTO rule_executions (
-			uuid, rule_id, portfolio_id, user_id, status, error_message,
-			created_transaction_ids, affected_holding_ids, transactions_created,
-			execution_summary, started_at, completed_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
-
 	var summaryJSON []byte
 	if len(e.ExecutionSummary) > 0 {
 		summaryJSON = e.ExecutionSummary
 	}
 
+	query := `
+		INSERT INTO rule_executions (
+			id, rule_id, portfolio_id, user_id, status, error_message,
+			created_transaction_ids, affected_holding_ids, transactions_created,
+			execution_summary, started_at, completed_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
+
 	_, err = s.pool.Exec(ctx, query,
 		e.ID,
-		ruleInternalID,
-		portfolioInternalID,
-		userInternalID,
+		e.RuleID,
+		portfolioID,
+		userID,
 		executionStatusToString(e.Status),
 		nullableString(e.ErrorMessage),
 		txIDsJSON,
@@ -473,14 +446,11 @@ func (s *AutomationStore) GetRuleExecution(ctx context.Context, id string) (*ent
 	}
 
 	query := `
-		SELECT re.uuid, r.uuid, p.uuid, u.uuid, re.status, re.error_message,
-		       re.created_transaction_ids, re.affected_holding_ids, re.transactions_created,
-		       re.execution_summary, re.started_at, re.completed_at
-		FROM rule_executions re
-		JOIN rules r ON re.rule_id = r.id
-		LEFT JOIN portfolios p ON re.portfolio_id = p.id
-		LEFT JOIN users u ON re.user_id = u.id
-		WHERE re.uuid = $1`
+		SELECT id, rule_id, portfolio_id, user_id, status, error_message,
+		       created_transaction_ids, affected_holding_ids, transactions_created,
+		       execution_summary, started_at, completed_at
+		FROM rule_executions
+		WHERE id = $1`
 
 	var e entity.RuleExecution
 	var portfolioID *string
@@ -613,7 +583,7 @@ func (s *AutomationStore) UpdateRuleExecution(ctx context.Context, e *entity.Rul
 	query := fmt.Sprintf(`
 		UPDATE rule_executions
 		SET %s
-		WHERE uuid = $1`,
+		WHERE id = $1`,
 		strings.Join(setClauses, ", "))
 
 	result, err := s.pool.Exec(ctx, query, args...)
@@ -639,32 +609,20 @@ func (s *AutomationStore) ListRuleExecutions(ctx context.Context, opts automatio
 	whereClauses := []string{}
 
 	if opts.RuleID != "" {
-		ruleInternalID, err := s.getRuleInternalID(ctx, opts.RuleID)
-		if err != nil {
-			return nil, "", err
-		}
 		whereClauses = append(whereClauses, fmt.Sprintf("re.rule_id = $%d", argIdx))
-		args = append(args, ruleInternalID)
+		args = append(args, opts.RuleID)
 		argIdx++
 	}
 
 	if opts.PortfolioID != "" {
-		portfolioInternalID, err := s.getPortfolioInternalID(ctx, opts.PortfolioID)
-		if err != nil {
-			return nil, "", err
-		}
 		whereClauses = append(whereClauses, fmt.Sprintf("re.portfolio_id = $%d", argIdx))
-		args = append(args, portfolioInternalID)
+		args = append(args, opts.PortfolioID)
 		argIdx++
 	}
 
 	if opts.UserID != "" {
-		userInternalID, err := s.getUserInternalID(ctx, opts.UserID)
-		if err != nil {
-			return nil, "", err
-		}
 		whereClauses = append(whereClauses, fmt.Sprintf("re.user_id = $%d", argIdx))
-		args = append(args, userInternalID)
+		args = append(args, opts.UserID)
 		argIdx++
 	}
 
@@ -689,7 +647,7 @@ func (s *AutomationStore) ListRuleExecutions(ctx context.Context, opts automatio
 	if opts.PageToken != "" {
 		decoded, err := base64.StdEncoding.DecodeString(opts.PageToken)
 		if err == nil && isValidUUID(string(decoded)) {
-			whereClauses = append(whereClauses, fmt.Sprintf("re.uuid > $%d", argIdx))
+			whereClauses = append(whereClauses, fmt.Sprintf("re.id > $%d", argIdx))
 			args = append(args, string(decoded))
 			argIdx++
 		}
@@ -701,15 +659,12 @@ func (s *AutomationStore) ListRuleExecutions(ctx context.Context, opts automatio
 	}
 
 	query := fmt.Sprintf(`
-		SELECT re.uuid, r.uuid, p.uuid, u.uuid, re.status, re.error_message,
+		SELECT re.id, re.rule_id, re.portfolio_id, re.user_id, re.status, re.error_message,
 		       re.created_transaction_ids, re.affected_holding_ids, re.transactions_created,
 		       re.execution_summary, re.started_at, re.completed_at
 		FROM rule_executions re
-		JOIN rules r ON re.rule_id = r.id
-		LEFT JOIN portfolios p ON re.portfolio_id = p.id
-		LEFT JOIN users u ON re.user_id = u.id
 		%s
-		ORDER BY re.uuid
+		ORDER BY re.id
 		LIMIT $%d`,
 		whereClause, argIdx)
 	args = append(args, limit+1)
@@ -780,56 +735,6 @@ func (s *AutomationStore) ListRuleExecutions(ctx context.Context, opts automatio
 	}
 
 	return executions, nextPageToken, nil
-}
-
-// --- Helper methods ---
-
-func (s *AutomationStore) getUserInternalID(ctx context.Context, id string) (int64, error) {
-	if !isValidUUID(id) {
-		return 0, fmt.Errorf("%w: invalid user ID format", store.ErrInvalidArgument)
-	}
-
-	var internalID int64
-	err := s.pool.QueryRow(ctx, "SELECT id FROM users WHERE uuid = $1", id).Scan(&internalID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, fmt.Errorf("%w: user not found", store.ErrNotFound)
-		}
-		return 0, fmt.Errorf("failed to get user: %w", err)
-	}
-	return internalID, nil
-}
-
-func (s *AutomationStore) getPortfolioInternalID(ctx context.Context, id string) (int64, error) {
-	if !isValidUUID(id) {
-		return 0, fmt.Errorf("%w: invalid portfolio ID format", store.ErrInvalidArgument)
-	}
-
-	var internalID int64
-	err := s.pool.QueryRow(ctx, "SELECT id FROM portfolios WHERE uuid = $1", id).Scan(&internalID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, fmt.Errorf("%w: portfolio not found", store.ErrNotFound)
-		}
-		return 0, fmt.Errorf("failed to get portfolio: %w", err)
-	}
-	return internalID, nil
-}
-
-func (s *AutomationStore) getRuleInternalID(ctx context.Context, id string) (int64, error) {
-	if !isValidUUID(id) {
-		return 0, fmt.Errorf("%w: invalid rule ID format", store.ErrInvalidArgument)
-	}
-
-	var internalID int64
-	err := s.pool.QueryRow(ctx, "SELECT id FROM rules WHERE uuid = $1", id).Scan(&internalID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, fmt.Errorf("%w: rule not found", store.ErrNotFound)
-		}
-		return 0, fmt.Errorf("failed to get rule: %w", err)
-	}
-	return internalID, nil
 }
 
 // --- Status converters ---

@@ -23,7 +23,7 @@ func insertTestUser(t *testing.T, pool *pgxpool.Pool) string {
 	userUUID := uuid.New().String()
 	prefs, _ := json.Marshal(map[string]any{})
 	_, err := pool.Exec(context.Background(),
-		"INSERT INTO users (uuid, email, name, preferences, created_at, updated_at) VALUES ($1, $2, $3, $4, NOW(), NOW())",
+		"INSERT INTO users (id, email, name, preferences, created_at, updated_at) VALUES ($1, $2, $3, $4, NOW(), NOW())",
 		userUUID, userUUID+"@test.com", "Test User", prefs,
 	)
 	require.NoError(t, err)
@@ -36,8 +36,8 @@ func insertTestPortfolio(t *testing.T, pool *pgxpool.Pool, userUUID string) stri
 	portfolioUUID := uuid.New().String()
 	data, _ := json.Marshal(map[string]any{})
 	_, err := pool.Exec(context.Background(),
-		`INSERT INTO portfolios (uuid, user_id, name, data, created_at, updated_at)
-		 VALUES ($1, (SELECT id FROM users WHERE uuid=$2), $3, $4, NOW(), NOW())`,
+		`INSERT INTO portfolios (id, user_id, name, data, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, NOW(), NOW())`,
 		portfolioUUID, userUUID, "Test Portfolio", data,
 	)
 	require.NoError(t, err)
@@ -173,7 +173,7 @@ func TestCreateRule(t *testing.T) {
 			Configuration: json.RawMessage(`{}`),
 		}
 		_, err := s.CreateRule(context.Background(), rule)
-		assert.ErrorIs(t, err, store.ErrNotFound)
+		assert.ErrorIs(t, err, store.ErrConstraint)
 	})
 
 	t.Run("Non-existent portfolio", func(t *testing.T) {
@@ -185,7 +185,7 @@ func TestCreateRule(t *testing.T) {
 			Configuration: json.RawMessage(`{}`),
 		}
 		_, err := s.CreateRule(context.Background(), rule)
-		assert.ErrorIs(t, err, store.ErrNotFound)
+		assert.ErrorIs(t, err, store.ErrConstraint)
 	})
 }
 
@@ -465,7 +465,7 @@ func TestCreateRuleExecution(t *testing.T) {
 			StartedAt: time.Now(),
 		}
 		_, err := s.CreateRuleExecution(context.Background(), exec)
-		assert.ErrorIs(t, err, store.ErrNotFound)
+		assert.ErrorIs(t, err, store.ErrConstraint)
 	})
 }
 

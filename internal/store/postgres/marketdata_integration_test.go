@@ -304,7 +304,7 @@ func TestCreatePrice(t *testing.T) {
 			Last:        1000000,
 		}
 		_, err := s.CreatePrice(context.Background(), price)
-		assert.ErrorIs(t, err, store.ErrNotFound)
+		assert.ErrorIs(t, err, store.ErrConstraint)
 	})
 }
 
@@ -369,11 +369,12 @@ func TestListPriceHistory(t *testing.T) {
 	})
 
 	t.Run("List with non-existing asset", func(t *testing.T) {
-		_, _, err := s.ListPriceHistory(context.Background(), marketdata.ListPriceHistoryOpts{
+		res, _, err := s.ListPriceHistory(context.Background(), marketdata.ListPriceHistoryOpts{
 			AssetID:     uuid.New().String(),
 			BaseAssetID: baseAsset.ID,
 		})
-		assert.ErrorIs(t, err, store.ErrNotFound)
+		require.NoError(t, err)
+		assert.Empty(t, res)
 	})
 
 	t.Run("Pagination", func(t *testing.T) {

@@ -41,26 +41,25 @@ func (s *PortfolioStore) CreatePortfolio(ctx context.Context, p *entity.Portfoli
 		return nil, fmt.Errorf("%w: user_id is required", store.ErrInvalidArgument)
 	}
 
-	// Get user internal ID
-	userInternalID, err := s.getUserInternalID(ctx, p.UserID)
+	id, err := uuid.NewV7()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to generate ID: %w", err)
 	}
+	p.ID = id.String()
 
-	p.ID = uuid.New().String()
 	dataJSON, err := json.Marshal(p.Data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal data: %w", err)
 	}
 
 	query := `
-		INSERT INTO portfolios (uuid, user_id, name, description, data, created_at, updated_at)
+		INSERT INTO portfolios (id, user_id, name, description, data, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
 		RETURNING created_at, updated_at`
 
 	err = s.pool.QueryRow(ctx, query,
 		p.ID,
-		userInternalID,
+		p.UserID,
 		p.Name,
 		nullableString(p.Description),
 		dataJSON,
@@ -84,10 +83,9 @@ func (s *PortfolioStore) GetPortfolio(ctx context.Context, id string) (*entity.P
 	}
 
 	query := `
-		SELECT p.uuid, u.uuid, p.name, p.description, p.data, p.created_at, p.updated_at
-		FROM portfolios p
-		JOIN users u ON p.user_id = u.id
-		WHERE p.uuid = $1`
+		SELECT id, user_id, name, description, data, created_at, updated_at
+		FROM portfolios
+		WHERE id = $1`
 
 	var p entity.Portfolio
 	var description *string
@@ -155,17 +153,17 @@ func (s *PortfolioStore) UpdatePortfolio(ctx context.Context, p *entity.Portfoli
 	query := fmt.Sprintf(`
 		UPDATE portfolios
 		SET %s
-		WHERE uuid = $1
-		RETURNING uuid, name, description, data, created_at, updated_at`,
+		WHERE id = $1
+		RETURNING id, user_id, name, description, data, created_at, updated_at`,
 		strings.Join(setClauses, ", "))
 
 	var result entity.Portfolio
 	var description *string
 	var dataJSON []byte
 
-	// We need the user_id separately
 	err := s.pool.QueryRow(ctx, query, args...).Scan(
 		&result.ID,
+		&result.UserID,
 		&result.Name,
 		&description,
 		&dataJSON,
@@ -186,13 +184,6 @@ func (s *PortfolioStore) UpdatePortfolio(ctx context.Context, p *entity.Portfoli
 		return nil, fmt.Errorf("failed to unmarshal data: %w", err)
 	}
 
-	// Get user UUID for result
-	full, err := s.GetPortfolio(ctx, result.ID)
-	if err != nil {
-		return nil, err
-	}
-	result.UserID = full.UserID
-
 	return &result, nil
 }
 
@@ -204,7 +195,7 @@ func (s *PortfolioStore) DeletePortfolio(ctx context.Context, id string) error {
 		return fmt.Errorf("%w: invalid portfolio ID format", store.ErrInvalidArgument)
 	}
 
-	result, err := s.pool.Exec(ctx, "DELETE FROM portfolios WHERE uuid = $1", id)
+	result, err := s.pool.Exec(ctx, "DELETE FROM portfolios WHERE id = $1", id)
 	if err != nil {
 		if isConstraintError(err) {
 			return fmt.Errorf("%w: cannot delete portfolio due to existing dependencies", store.ErrConstraint)
@@ -230,19 +221,15 @@ func (s *PortfolioStore) ListPortfolios(ctx context.Context, opts portfolio.List
 	whereClauses := []string{}
 
 	if opts.UserID != "" {
-		userInternalID, err := s.getUserInternalID(ctx, opts.UserID)
-		if err != nil {
-			return nil, "", err
-		}
-		whereClauses = append(whereClauses, fmt.Sprintf("p.user_id = $%d", argIdx))
-		args = append(args, userInternalID)
+		whereClauses = append(whereClauses, fmt.Sprintf("user_id = $%d", argIdx))
+		args = append(args, opts.UserID)
 		argIdx++
 	}
 
 	if opts.PageToken != "" {
 		decoded, err := base64.StdEncoding.DecodeString(opts.PageToken)
 		if err == nil && isValidUUID(string(decoded)) {
-			whereClauses = append(whereClauses, fmt.Sprintf("p.uuid > $%d", argIdx))
+			whereClauses = append(whereClauses, fmt.Sprintf("id > $%d", argIdx))
 			args = append(args, string(decoded))
 			argIdx++
 		}
@@ -254,11 +241,10 @@ func (s *PortfolioStore) ListPortfolios(ctx context.Context, opts portfolio.List
 	}
 
 	query := fmt.Sprintf(`
-		SELECT p.uuid, u.uuid, p.name, p.description, p.data, p.created_at, p.updated_at
-		FROM portfolios p
-		JOIN users u ON p.user_id = u.id
+		SELECT id, user_id, name, description, data, created_at, updated_at
+		FROM portfolios
 		%s
-		ORDER BY p.uuid
+		ORDER BY id
 		LIMIT $%d`,
 		whereClause, argIdx)
 	args = append(args, limit+1)
@@ -323,25 +309,25 @@ func (s *PortfolioStore) CreateAccount(ctx context.Context, a *entity.Account) (
 		return nil, fmt.Errorf("%w: account type is required", store.ErrInvalidArgument)
 	}
 
-	userInternalID, err := s.getUserInternalID(ctx, a.UserID)
+	id, err := uuid.NewV7()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to generate ID: %w", err)
 	}
+	a.ID = id.String()
 
-	a.ID = uuid.New().String()
 	dataJSON, err := json.Marshal(a.Data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal data: %w", err)
 	}
 
 	query := `
-		INSERT INTO accounts (uuid, user_id, name, description, type, data, created_at, updated_at)
+		INSERT INTO accounts (id, user_id, name, description, type, data, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
 		RETURNING created_at, updated_at`
 
 	err = s.pool.QueryRow(ctx, query,
 		a.ID,
-		userInternalID,
+		a.UserID,
 		a.Name,
 		nullableString(a.Description),
 		accountTypeToString(a.Type),
@@ -366,10 +352,9 @@ func (s *PortfolioStore) GetAccount(ctx context.Context, id string) (*entity.Acc
 	}
 
 	query := `
-		SELECT a.uuid, u.uuid, a.name, a.description, a.type, a.data, a.created_at, a.updated_at
-		FROM accounts a
-		JOIN users u ON a.user_id = u.id
-		WHERE a.uuid = $1`
+		SELECT id, user_id, name, description, type, data, created_at, updated_at
+		FROM accounts
+		WHERE id = $1`
 
 	var a entity.Account
 	var description *string
@@ -444,7 +429,7 @@ func (s *PortfolioStore) UpdateAccount(ctx context.Context, a *entity.Account, f
 	query := fmt.Sprintf(`
 		UPDATE accounts
 		SET %s
-		WHERE uuid = $1`,
+		WHERE id = $1`,
 		strings.Join(setClauses, ", "))
 
 	result, err := s.pool.Exec(ctx, query, args...)
@@ -467,7 +452,7 @@ func (s *PortfolioStore) DeleteAccount(ctx context.Context, id string) error {
 		return fmt.Errorf("%w: invalid account ID format", store.ErrInvalidArgument)
 	}
 
-	result, err := s.pool.Exec(ctx, "DELETE FROM accounts WHERE uuid = $1", id)
+	result, err := s.pool.Exec(ctx, "DELETE FROM accounts WHERE id = $1", id)
 	if err != nil {
 		if isConstraintError(err) {
 			return fmt.Errorf("%w: cannot delete account due to existing dependencies", store.ErrConstraint)
@@ -493,17 +478,13 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 	whereClauses := []string{}
 
 	if opts.UserID != "" {
-		userInternalID, err := s.getUserInternalID(ctx, opts.UserID)
-		if err != nil {
-			return nil, "", err
-		}
-		whereClauses = append(whereClauses, fmt.Sprintf("a.user_id = $%d", argIdx))
-		args = append(args, userInternalID)
+		whereClauses = append(whereClauses, fmt.Sprintf("user_id = $%d", argIdx))
+		args = append(args, opts.UserID)
 		argIdx++
 	}
 
 	if opts.Type != entity.AccountTypeUnspecified {
-		whereClauses = append(whereClauses, fmt.Sprintf("a.type = $%d", argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("type = $%d", argIdx))
 		args = append(args, accountTypeToString(opts.Type))
 		argIdx++
 	}
@@ -511,7 +492,7 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 	if opts.PageToken != "" {
 		decoded, err := base64.StdEncoding.DecodeString(opts.PageToken)
 		if err == nil && isValidUUID(string(decoded)) {
-			whereClauses = append(whereClauses, fmt.Sprintf("a.uuid > $%d", argIdx))
+			whereClauses = append(whereClauses, fmt.Sprintf("id > $%d", argIdx))
 			args = append(args, string(decoded))
 			argIdx++
 		}
@@ -523,11 +504,10 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 	}
 
 	query := fmt.Sprintf(`
-		SELECT a.uuid, u.uuid, a.name, a.description, a.type, a.data, a.created_at, a.updated_at
-		FROM accounts a
-		JOIN users u ON a.user_id = u.id
+		SELECT id, user_id, name, description, type, data, created_at, updated_at
+		FROM accounts
 		%s
-		ORDER BY a.uuid
+		ORDER BY id
 		LIMIT $%d`,
 		whereClause, argIdx)
 	args = append(args, limit+1)
@@ -592,29 +572,19 @@ func (s *PortfolioStore) CreateHolding(ctx context.Context, h *entity.Holding) (
 		return nil, fmt.Errorf("%w: account_id is required", store.ErrInvalidArgument)
 	}
 
-	assetInternalID, err := s.getAssetInternalID(ctx, h.AssetID)
+	id, err := uuid.NewV7()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to generate ID: %w", err)
 	}
+	h.ID = id.String()
 
-	accountInternalID, err := s.getAccountInternalID(ctx, h.AccountID)
-	if err != nil {
-		return nil, err
-	}
-
-	var portfolioInternalID *int64
+	var portfolioID *string
 	if h.PortfolioID != "" {
-		id, err := s.getPortfolioInternalID(ctx, h.PortfolioID)
-		if err != nil {
-			return nil, err
-		}
-		portfolioInternalID = &id
+		portfolioID = &h.PortfolioID
 	}
-
-	h.ID = uuid.New().String()
 
 	query := `
-		INSERT INTO holdings (uuid, amount, decimals, asset_id, account_id, portfolio_id, created_at, updated_at)
+		INSERT INTO holdings (id, amount, decimals, asset_id, account_id, portfolio_id, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
 		RETURNING created_at, updated_at`
 
@@ -622,9 +592,9 @@ func (s *PortfolioStore) CreateHolding(ctx context.Context, h *entity.Holding) (
 		h.ID,
 		h.Amount,
 		h.Decimals,
-		assetInternalID,
-		accountInternalID,
-		portfolioInternalID,
+		h.AssetID,
+		h.AccountID,
+		portfolioID,
 	).Scan(&h.CreatedAt, &h.UpdatedAt)
 	if err != nil {
 		if isConstraintError(err) {
@@ -645,12 +615,9 @@ func (s *PortfolioStore) GetHolding(ctx context.Context, id string) (*entity.Hol
 	}
 
 	query := `
-		SELECT h.uuid, h.amount, h.decimals, a.uuid, acc.uuid, p.uuid, h.created_at, h.updated_at
-		FROM holdings h
-		JOIN assets a ON h.asset_id = a.id
-		JOIN accounts acc ON h.account_id = acc.id
-		LEFT JOIN portfolios p ON h.portfolio_id = p.id
-		WHERE h.uuid = $1`
+		SELECT id, amount, decimals, asset_id, account_id, portfolio_id, created_at, updated_at
+		FROM holdings
+		WHERE id = $1`
 
 	var h entity.Holding
 	var portfolioID *string
@@ -702,17 +669,12 @@ func (s *PortfolioStore) UpdateHolding(ctx context.Context, h *entity.Holding, f
 			args = append(args, h.Decimals)
 			argIdx++
 		case "portfolio_id":
-			if h.PortfolioID == "" {
-				setClauses = append(setClauses, fmt.Sprintf("portfolio_id = $%d", argIdx))
-				args = append(args, nil)
-			} else {
-				portfolioInternalID, err := s.getPortfolioInternalID(ctx, h.PortfolioID)
-				if err != nil {
-					return nil, err
-				}
-				setClauses = append(setClauses, fmt.Sprintf("portfolio_id = $%d", argIdx))
-				args = append(args, portfolioInternalID)
+			var portfolioID *string
+			if h.PortfolioID != "" {
+				portfolioID = &h.PortfolioID
 			}
+			setClauses = append(setClauses, fmt.Sprintf("portfolio_id = $%d", argIdx))
+			args = append(args, portfolioID)
 			argIdx++
 		}
 	}
@@ -720,7 +682,7 @@ func (s *PortfolioStore) UpdateHolding(ctx context.Context, h *entity.Holding, f
 	query := fmt.Sprintf(`
 		UPDATE holdings
 		SET %s
-		WHERE uuid = $1`,
+		WHERE id = $1`,
 		strings.Join(setClauses, ", "))
 
 	result, err := s.pool.Exec(ctx, query, args...)
@@ -743,7 +705,7 @@ func (s *PortfolioStore) DeleteHolding(ctx context.Context, id string) error {
 		return fmt.Errorf("%w: invalid holding ID format", store.ErrInvalidArgument)
 	}
 
-	result, err := s.pool.Exec(ctx, "DELETE FROM holdings WHERE uuid = $1", id)
+	result, err := s.pool.Exec(ctx, "DELETE FROM holdings WHERE id = $1", id)
 	if err != nil {
 		return fmt.Errorf("failed to delete holding: %w", err)
 	}
@@ -766,39 +728,27 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 	whereClauses := []string{}
 
 	if opts.PortfolioID != "" {
-		portfolioInternalID, err := s.getPortfolioInternalID(ctx, opts.PortfolioID)
-		if err != nil {
-			return nil, "", err
-		}
-		whereClauses = append(whereClauses, fmt.Sprintf("h.portfolio_id = $%d", argIdx))
-		args = append(args, portfolioInternalID)
+		whereClauses = append(whereClauses, fmt.Sprintf("portfolio_id = $%d", argIdx))
+		args = append(args, opts.PortfolioID)
 		argIdx++
 	}
 
 	if opts.AccountID != "" {
-		accountInternalID, err := s.getAccountInternalID(ctx, opts.AccountID)
-		if err != nil {
-			return nil, "", err
-		}
-		whereClauses = append(whereClauses, fmt.Sprintf("h.account_id = $%d", argIdx))
-		args = append(args, accountInternalID)
+		whereClauses = append(whereClauses, fmt.Sprintf("account_id = $%d", argIdx))
+		args = append(args, opts.AccountID)
 		argIdx++
 	}
 
 	if opts.AssetID != "" {
-		assetInternalID, err := s.getAssetInternalID(ctx, opts.AssetID)
-		if err != nil {
-			return nil, "", err
-		}
-		whereClauses = append(whereClauses, fmt.Sprintf("h.asset_id = $%d", argIdx))
-		args = append(args, assetInternalID)
+		whereClauses = append(whereClauses, fmt.Sprintf("asset_id = $%d", argIdx))
+		args = append(args, opts.AssetID)
 		argIdx++
 	}
 
 	if opts.PageToken != "" {
 		decoded, err := base64.StdEncoding.DecodeString(opts.PageToken)
 		if err == nil && isValidUUID(string(decoded)) {
-			whereClauses = append(whereClauses, fmt.Sprintf("h.uuid > $%d", argIdx))
+			whereClauses = append(whereClauses, fmt.Sprintf("id > $%d", argIdx))
 			args = append(args, string(decoded))
 			argIdx++
 		}
@@ -810,13 +760,10 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 	}
 
 	query := fmt.Sprintf(`
-		SELECT h.uuid, h.amount, h.decimals, a.uuid, acc.uuid, p.uuid, h.created_at, h.updated_at
-		FROM holdings h
-		JOIN assets a ON h.asset_id = a.id
-		JOIN accounts acc ON h.account_id = acc.id
-		LEFT JOIN portfolios p ON h.portfolio_id = p.id
+		SELECT id, amount, decimals, asset_id, account_id, portfolio_id, created_at, updated_at
+		FROM holdings
 		%s
-		ORDER BY h.uuid
+		ORDER BY id
 		LIMIT $%d`,
 		whereClause, argIdx)
 	args = append(args, limit+1)
@@ -875,23 +822,19 @@ func (s *PortfolioStore) CreateTransaction(ctx context.Context, t *entity.Transa
 		return nil, fmt.Errorf("%w: transaction type is required", store.ErrInvalidArgument)
 	}
 
-	accountInternalID, err := s.getAccountInternalID(ctx, t.AccountID)
+	id, err := uuid.NewV7()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to generate ID: %w", err)
 	}
+	t.ID = id.String()
 
-	var assetInternalID *int64
-	if t.AssetID != "" {
-		id, err := s.getAssetInternalID(ctx, t.AssetID)
-		if err != nil {
-			return nil, err
-		}
-		assetInternalID = &id
-	}
-
-	t.ID = uuid.New().String()
 	if t.Status == entity.TransactionStatusUnspecified {
 		t.Status = entity.TransactionStatusPending
+	}
+
+	var assetID *string
+	if t.AssetID != "" {
+		assetID = &t.AssetID
 	}
 
 	dataJSON, err := json.Marshal(t.Data)
@@ -900,7 +843,7 @@ func (s *PortfolioStore) CreateTransaction(ctx context.Context, t *entity.Transa
 	}
 
 	query := `
-		INSERT INTO transactions (uuid, type, status, account_id, asset_transactions, data, created_at, updated_at)
+		INSERT INTO transactions (id, type, status, account_id, asset_transactions, data, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
 		RETURNING created_at, updated_at`
 
@@ -908,8 +851,8 @@ func (s *PortfolioStore) CreateTransaction(ctx context.Context, t *entity.Transa
 		t.ID,
 		transactionTypeToString(t.Type),
 		transactionStatusToString(t.Status),
-		accountInternalID,
-		assetInternalID,
+		t.AccountID,
+		assetID,
 		dataJSON,
 	).Scan(&t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
@@ -931,11 +874,9 @@ func (s *PortfolioStore) GetTransaction(ctx context.Context, id string) (*entity
 	}
 
 	query := `
-		SELECT t.uuid, t.type, t.status, acc.uuid, a.uuid, t.data, t.created_at, t.updated_at
-		FROM transactions t
-		JOIN accounts acc ON t.account_id = acc.id
-		LEFT JOIN assets a ON t.asset_transactions = a.id
-		WHERE t.uuid = $1`
+		SELECT id, type, status, account_id, asset_transactions, data, created_at, updated_at
+		FROM transactions
+		WHERE id = $1`
 
 	var t entity.Transaction
 	var typeStr, statusStr string
@@ -1003,7 +944,7 @@ func (s *PortfolioStore) UpdateTransaction(ctx context.Context, t *entity.Transa
 	query := fmt.Sprintf(`
 		UPDATE transactions
 		SET %s
-		WHERE uuid = $1`,
+		WHERE id = $1`,
 		strings.Join(setClauses, ", "))
 
 	result, err := s.pool.Exec(ctx, query, args...)
@@ -1029,33 +970,25 @@ func (s *PortfolioStore) ListTransactions(ctx context.Context, opts portfolio.Li
 	whereClauses := []string{}
 
 	if opts.AccountID != "" {
-		accountInternalID, err := s.getAccountInternalID(ctx, opts.AccountID)
-		if err != nil {
-			return nil, "", err
-		}
-		whereClauses = append(whereClauses, fmt.Sprintf("t.account_id = $%d", argIdx))
-		args = append(args, accountInternalID)
+		whereClauses = append(whereClauses, fmt.Sprintf("account_id = $%d", argIdx))
+		args = append(args, opts.AccountID)
 		argIdx++
 	}
 
 	if opts.AssetID != "" {
-		assetInternalID, err := s.getAssetInternalID(ctx, opts.AssetID)
-		if err != nil {
-			return nil, "", err
-		}
-		whereClauses = append(whereClauses, fmt.Sprintf("t.asset_transactions = $%d", argIdx))
-		args = append(args, assetInternalID)
+		whereClauses = append(whereClauses, fmt.Sprintf("asset_transactions = $%d", argIdx))
+		args = append(args, opts.AssetID)
 		argIdx++
 	}
 
 	if opts.Type != entity.TransactionTypeUnspecified {
-		whereClauses = append(whereClauses, fmt.Sprintf("t.type = $%d", argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("type = $%d", argIdx))
 		args = append(args, transactionTypeToString(opts.Type))
 		argIdx++
 	}
 
 	if opts.Status != entity.TransactionStatusUnspecified {
-		whereClauses = append(whereClauses, fmt.Sprintf("t.status = $%d", argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("status = $%d", argIdx))
 		args = append(args, transactionStatusToString(opts.Status))
 		argIdx++
 	}
@@ -1063,7 +996,7 @@ func (s *PortfolioStore) ListTransactions(ctx context.Context, opts portfolio.Li
 	if opts.PageToken != "" {
 		decoded, err := base64.StdEncoding.DecodeString(opts.PageToken)
 		if err == nil && isValidUUID(string(decoded)) {
-			whereClauses = append(whereClauses, fmt.Sprintf("t.uuid > $%d", argIdx))
+			whereClauses = append(whereClauses, fmt.Sprintf("id > $%d", argIdx))
 			args = append(args, string(decoded))
 			argIdx++
 		}
@@ -1075,12 +1008,10 @@ func (s *PortfolioStore) ListTransactions(ctx context.Context, opts portfolio.Li
 	}
 
 	query := fmt.Sprintf(`
-		SELECT t.uuid, t.type, t.status, acc.uuid, a.uuid, t.data, t.created_at, t.updated_at
-		FROM transactions t
-		JOIN accounts acc ON t.account_id = acc.id
-		LEFT JOIN assets a ON t.asset_transactions = a.id
+		SELECT id, type, status, account_id, asset_transactions, data, created_at, updated_at
+		FROM transactions
 		%s
-		ORDER BY t.uuid
+		ORDER BY id
 		LIMIT $%d`,
 		whereClause, argIdx)
 	args = append(args, limit+1)
@@ -1133,71 +1064,7 @@ func (s *PortfolioStore) ListTransactions(ctx context.Context, opts portfolio.Li
 	return transactions, nextPageToken, nil
 }
 
-// --- Helper methods ---
-
-func (s *PortfolioStore) getUserInternalID(ctx context.Context, uuid string) (int64, error) {
-	if !isValidUUID(uuid) {
-		return 0, fmt.Errorf("%w: invalid user ID format", store.ErrInvalidArgument)
-	}
-
-	var id int64
-	err := s.pool.QueryRow(ctx, "SELECT id FROM users WHERE uuid = $1", uuid).Scan(&id)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, fmt.Errorf("%w: user not found", store.ErrNotFound)
-		}
-		return 0, fmt.Errorf("failed to get user: %w", err)
-	}
-	return id, nil
-}
-
-func (s *PortfolioStore) getAccountInternalID(ctx context.Context, uuid string) (int64, error) {
-	if !isValidUUID(uuid) {
-		return 0, fmt.Errorf("%w: invalid account ID format", store.ErrInvalidArgument)
-	}
-
-	var id int64
-	err := s.pool.QueryRow(ctx, "SELECT id FROM accounts WHERE uuid = $1", uuid).Scan(&id)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, fmt.Errorf("%w: account not found", store.ErrNotFound)
-		}
-		return 0, fmt.Errorf("failed to get account: %w", err)
-	}
-	return id, nil
-}
-
-func (s *PortfolioStore) getPortfolioInternalID(ctx context.Context, uuid string) (int64, error) {
-	if !isValidUUID(uuid) {
-		return 0, fmt.Errorf("%w: invalid portfolio ID format", store.ErrInvalidArgument)
-	}
-
-	var id int64
-	err := s.pool.QueryRow(ctx, "SELECT id FROM portfolios WHERE uuid = $1", uuid).Scan(&id)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, fmt.Errorf("%w: portfolio not found", store.ErrNotFound)
-		}
-		return 0, fmt.Errorf("failed to get portfolio: %w", err)
-	}
-	return id, nil
-}
-
-func (s *PortfolioStore) getAssetInternalID(ctx context.Context, uuid string) (int64, error) {
-	if !isValidUUID(uuid) {
-		return 0, fmt.Errorf("%w: invalid asset ID format", store.ErrInvalidArgument)
-	}
-
-	var id int64
-	err := s.pool.QueryRow(ctx, "SELECT id FROM assets WHERE uuid = $1", uuid).Scan(&id)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, fmt.Errorf("%w: asset not found", store.ErrNotFound)
-		}
-		return 0, fmt.Errorf("failed to get asset: %w", err)
-	}
-	return id, nil
-}
+// --- Helper functions ---
 
 func nullableString(s string) *string {
 	if s == "" {

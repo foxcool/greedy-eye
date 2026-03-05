@@ -1,4 +1,4 @@
-package settings
+package user
 
 import (
 	"context"
@@ -6,8 +6,9 @@ import (
 	"github.com/foxcool/greedy-eye/internal/entity"
 )
 
-// Store defines the data access contract for SettingsService (user management).
+// Store defines the data access contract for user management.
 type Store interface {
+	GetOrCreate(ctx context.Context, id string, email string) (*entity.User, error)
 	CreateUser(ctx context.Context, u *entity.User) (*entity.User, error)
 	GetUser(ctx context.Context, id string) (*entity.User, error)
 	GetUserByEmail(ctx context.Context, email string) (*entity.User, error)

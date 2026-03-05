@@ -43,14 +43,19 @@ func (s *MarketDataStore) CreateAsset(ctx context.Context, asset *entity.Asset) 
 		return nil, fmt.Errorf("%w: asset type is required", store.ErrInvalidArgument)
 	}
 
-	asset.ID = uuid.New().String()
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate ID: %w", err)
+	}
+	asset.ID = id.String()
+
 	tagsJSON, err := json.Marshal(asset.Tags)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal tags: %w", err)
 	}
 
 	query := `
-		INSERT INTO assets (uuid, symbol, name, type, tags, created_at, updated_at)
+		INSERT INTO assets (id, symbol, name, type, tags, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
 		RETURNING created_at, updated_at`
 
@@ -81,9 +86,9 @@ func (s *MarketDataStore) GetAsset(ctx context.Context, id string) (*entity.Asse
 	}
 
 	query := `
-		SELECT uuid, symbol, name, type, tags, created_at, updated_at
+		SELECT id, symbol, name, type, tags, created_at, updated_at
 		FROM assets
-		WHERE uuid = $1`
+		WHERE id = $1`
 
 	var asset entity.Asset
 	var typeStr string
@@ -122,7 +127,6 @@ func (s *MarketDataStore) UpdateAsset(ctx context.Context, asset *entity.Asset, 
 		return nil, fmt.Errorf("%w: invalid asset ID format", store.ErrInvalidArgument)
 	}
 
-	// Build dynamic UPDATE query based on fields
 	setClauses := []string{"updated_at = NOW()"}
 	args := []any{asset.ID}
 	argIdx := 2
@@ -155,8 +159,8 @@ func (s *MarketDataStore) UpdateAsset(ctx context.Context, asset *entity.Asset, 
 	query := fmt.Sprintf(`
 		UPDATE assets
 		SET %s
-		WHERE uuid = $1
-		RETURNING uuid, symbol, name, type, tags, created_at, updated_at`,
+		WHERE id = $1
+		RETURNING id, symbol, name, type, tags, created_at, updated_at`,
 		strings.Join(setClauses, ", "))
 
 	var result entity.Asset
@@ -196,8 +200,7 @@ func (s *MarketDataStore) DeleteAsset(ctx context.Context, id string) error {
 		return fmt.Errorf("%w: invalid asset ID format", store.ErrInvalidArgument)
 	}
 
-	query := `DELETE FROM assets WHERE uuid = $1`
-	result, err := s.pool.Exec(ctx, query, id)
+	result, err := s.pool.Exec(ctx, "DELETE FROM assets WHERE id = $1", id)
 	if err != nil {
 		if isConstraintError(err) {
 			return fmt.Errorf("%w: cannot delete asset due to existing dependencies", store.ErrConstraint)
@@ -223,17 +226,15 @@ func (s *MarketDataStore) ListAssets(ctx context.Context, opts marketdata.ListAs
 	argIdx := 1
 	whereClauses := []string{}
 
-	// Handle cursor pagination
 	if opts.PageToken != "" {
 		decoded, err := base64.StdEncoding.DecodeString(opts.PageToken)
 		if err == nil && isValidUUID(string(decoded)) {
-			whereClauses = append(whereClauses, fmt.Sprintf("uuid > $%d", argIdx))
+			whereClauses = append(whereClauses, fmt.Sprintf("id > $%d", argIdx))
 			args = append(args, string(decoded))
 			argIdx++
 		}
 	}
 
-	// Handle tags filtering using JSONB @> operator
 	if len(opts.Tags) > 0 {
 		tagsJSON, err := json.Marshal(opts.Tags)
 		if err != nil {
@@ -250,13 +251,13 @@ func (s *MarketDataStore) ListAssets(ctx context.Context, opts marketdata.ListAs
 	}
 
 	query := fmt.Sprintf(`
-		SELECT uuid, symbol, name, type, tags, created_at, updated_at
+		SELECT id, symbol, name, type, tags, created_at, updated_at
 		FROM assets
 		%s
-		ORDER BY uuid
+		ORDER BY id
 		LIMIT $%d`,
 		whereClause, argIdx)
-	args = append(args, limit+1) // Fetch one extra to detect next page
+	args = append(args, limit+1)
 
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -296,7 +297,6 @@ func (s *MarketDataStore) ListAssets(ctx context.Context, opts marketdata.ListAs
 
 	var nextPageToken string
 	if len(assets) > limit {
-		// Remove the extra item and create next page token
 		lastAsset := assets[limit-1]
 		assets = assets[:limit]
 		nextPageToken = base64.StdEncoding.EncodeToString([]byte(lastAsset.ID))
@@ -313,32 +313,33 @@ func (s *MarketDataStore) CreatePrice(ctx context.Context, price *entity.StoredP
 	if price.AssetID == "" || price.BaseAssetID == "" || price.SourceID == "" {
 		return nil, fmt.Errorf("%w: asset_id, base_asset_id, and source_id are required", store.ErrInvalidArgument)
 	}
-
-	// Verify assets exist and get their internal IDs
-	assetInternalID, err := s.getAssetInternalID(ctx, price.AssetID)
-	if err != nil {
-		return nil, err
+	if !isValidUUID(price.AssetID) {
+		return nil, fmt.Errorf("%w: invalid asset_id format", store.ErrInvalidArgument)
 	}
-	baseAssetInternalID, err := s.getAssetInternalID(ctx, price.BaseAssetID)
-	if err != nil {
-		return nil, err
+	if !isValidUUID(price.BaseAssetID) {
+		return nil, fmt.Errorf("%w: invalid base_asset_id format", store.ErrInvalidArgument)
 	}
 
-	price.ID = uuid.New().String()
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate ID: %w", err)
+	}
+	price.ID = id.String()
+
 	if price.Timestamp.IsZero() {
 		price.Timestamp = time.Now()
 	}
 
 	query := `
-		INSERT INTO prices (uuid, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, timestamp)
+		INSERT INTO prices (id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, timestamp)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING timestamp`
 
 	err = s.pool.QueryRow(ctx, query,
 		price.ID,
 		price.SourceID,
-		assetInternalID,
-		baseAssetInternalID,
+		price.AssetID,
+		price.BaseAssetID,
 		price.Interval,
 		price.Decimals,
 		price.Last,
@@ -377,16 +378,7 @@ func (s *MarketDataStore) GetLatestPrice(ctx context.Context, assetID, baseAsset
 		return nil, fmt.Errorf("%w: asset_id and base_asset_id are required", store.ErrInvalidArgument)
 	}
 
-	assetInternalID, err := s.getAssetInternalID(ctx, assetID)
-	if err != nil {
-		return nil, err
-	}
-	baseAssetInternalID, err := s.getAssetInternalID(ctx, baseAssetID)
-	if err != nil {
-		return nil, err
-	}
-
-	args := []any{assetInternalID, baseAssetInternalID}
+	args := []any{assetID, baseAssetID}
 	sourceFilter := ""
 	if sourceID != "" {
 		sourceFilter = "AND source_id = $3"
@@ -394,16 +386,14 @@ func (s *MarketDataStore) GetLatestPrice(ctx context.Context, assetID, baseAsset
 	}
 
 	query := fmt.Sprintf(`
-		SELECT p.uuid, p.source_id, a.uuid, ba.uuid, p.interval, p.decimals, p.last, p.open, p.high, p.low, p.close, p.volume, p.timestamp
-		FROM prices p
-		JOIN assets a ON p.asset_id = a.id
-		JOIN assets ba ON p.base_asset_id = ba.id
-		WHERE p.asset_id = $1 AND p.base_asset_id = $2 %s
-		ORDER BY p.timestamp DESC
+		SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, timestamp
+		FROM prices
+		WHERE asset_id = $1 AND base_asset_id = $2 %s
+		ORDER BY timestamp DESC
 		LIMIT 1`, sourceFilter)
 
 	var price entity.StoredPrice
-	err = s.pool.QueryRow(ctx, query, args...).Scan(
+	err := s.pool.QueryRow(ctx, query, args...).Scan(
 		&price.ID,
 		&price.SourceID,
 		&price.AssetID,
@@ -434,49 +424,39 @@ func (s *MarketDataStore) ListPriceHistory(ctx context.Context, opts marketdata.
 		return nil, "", fmt.Errorf("%w: asset_id and base_asset_id are required", store.ErrInvalidArgument)
 	}
 
-	assetInternalID, err := s.getAssetInternalID(ctx, opts.AssetID)
-	if err != nil {
-		return nil, "", err
-	}
-	baseAssetInternalID, err := s.getAssetInternalID(ctx, opts.BaseAssetID)
-	if err != nil {
-		return nil, "", err
-	}
-
 	limit := opts.PageSize
 	if limit <= 0 {
 		limit = defaultPageSize
 	}
 
-	args := []any{assetInternalID, baseAssetInternalID}
+	args := []any{opts.AssetID, opts.BaseAssetID}
 	argIdx := 3
-	whereClauses := []string{"p.asset_id = $1", "p.base_asset_id = $2"}
+	whereClauses := []string{"asset_id = $1", "base_asset_id = $2"}
 
 	if opts.SourceID != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("p.source_id = $%d", argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("source_id = $%d", argIdx))
 		args = append(args, opts.SourceID)
 		argIdx++
 	}
 
 	if opts.From != nil {
-		whereClauses = append(whereClauses, fmt.Sprintf("p.timestamp >= $%d", argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("timestamp >= $%d", argIdx))
 		args = append(args, *opts.From)
 		argIdx++
 	}
 
 	if opts.To != nil {
-		whereClauses = append(whereClauses, fmt.Sprintf("p.timestamp <= $%d", argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("timestamp <= $%d", argIdx))
 		args = append(args, *opts.To)
 		argIdx++
 	}
 
-	// Handle cursor pagination by timestamp
 	if opts.PageToken != "" {
 		decoded, err := base64.StdEncoding.DecodeString(opts.PageToken)
 		if err == nil {
 			var cursorTs time.Time
 			if err := cursorTs.UnmarshalText(decoded); err == nil {
-				whereClauses = append(whereClauses, fmt.Sprintf("p.timestamp > $%d", argIdx))
+				whereClauses = append(whereClauses, fmt.Sprintf("timestamp > $%d", argIdx))
 				args = append(args, cursorTs)
 				argIdx++
 			}
@@ -484,12 +464,10 @@ func (s *MarketDataStore) ListPriceHistory(ctx context.Context, opts marketdata.
 	}
 
 	query := fmt.Sprintf(`
-		SELECT p.uuid, p.source_id, a.uuid, ba.uuid, p.interval, p.decimals, p.last, p.open, p.high, p.low, p.close, p.volume, p.timestamp
-		FROM prices p
-		JOIN assets a ON p.asset_id = a.id
-		JOIN assets ba ON p.base_asset_id = ba.id
+		SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, timestamp
+		FROM prices
 		WHERE %s
-		ORDER BY p.timestamp
+		ORDER BY timestamp
 		LIMIT $%d`,
 		strings.Join(whereClauses, " AND "), argIdx)
 	args = append(args, limit+1)
@@ -547,8 +525,7 @@ func (s *MarketDataStore) DeletePrice(ctx context.Context, id string) error {
 		return fmt.Errorf("%w: invalid price ID format", store.ErrInvalidArgument)
 	}
 
-	query := `DELETE FROM prices WHERE uuid = $1`
-	result, err := s.pool.Exec(ctx, query, id)
+	result, err := s.pool.Exec(ctx, "DELETE FROM prices WHERE id = $1", id)
 	if err != nil {
 		return fmt.Errorf("failed to delete price: %w", err)
 	}
@@ -567,22 +544,20 @@ func (s *MarketDataStore) DeletePrices(ctx context.Context, opts marketdata.Dele
 	whereClauses := []string{}
 
 	if opts.AssetID != "" {
-		assetInternalID, err := s.getAssetInternalID(ctx, opts.AssetID)
-		if err != nil {
-			return err
+		if !isValidUUID(opts.AssetID) {
+			return fmt.Errorf("%w: invalid asset_id format", store.ErrInvalidArgument)
 		}
 		whereClauses = append(whereClauses, fmt.Sprintf("asset_id = $%d", argIdx))
-		args = append(args, assetInternalID)
+		args = append(args, opts.AssetID)
 		argIdx++
 	}
 
 	if opts.BaseAssetID != "" {
-		baseAssetInternalID, err := s.getAssetInternalID(ctx, opts.BaseAssetID)
-		if err != nil {
-			return err
+		if !isValidUUID(opts.BaseAssetID) {
+			return fmt.Errorf("%w: invalid base_asset_id format", store.ErrInvalidArgument)
 		}
 		whereClauses = append(whereClauses, fmt.Sprintf("base_asset_id = $%d", argIdx))
-		args = append(args, baseAssetInternalID)
+		args = append(args, opts.BaseAssetID)
 		argIdx++
 	}
 
@@ -607,8 +582,7 @@ func (s *MarketDataStore) DeletePrices(ctx context.Context, opts marketdata.Dele
 		return fmt.Errorf("%w: at least one filter criteria is required", store.ErrInvalidArgument)
 	}
 
-	query := fmt.Sprintf(`DELETE FROM prices WHERE %s`, strings.Join(whereClauses, " AND "))
-	result, err := s.pool.Exec(ctx, query, args...)
+	result, err := s.pool.Exec(ctx, fmt.Sprintf(`DELETE FROM prices WHERE %s`, strings.Join(whereClauses, " AND ")), args...)
 	if err != nil {
 		return fmt.Errorf("failed to delete prices: %w", err)
 	}
@@ -621,22 +595,6 @@ func (s *MarketDataStore) DeletePrices(ctx context.Context, opts marketdata.Dele
 }
 
 // Helper functions
-
-func (s *MarketDataStore) getAssetInternalID(ctx context.Context, uuid string) (int64, error) {
-	if !isValidUUID(uuid) {
-		return 0, fmt.Errorf("%w: invalid asset ID format", store.ErrInvalidArgument)
-	}
-
-	var id int64
-	err := s.pool.QueryRow(ctx, "SELECT id FROM assets WHERE uuid = $1", uuid).Scan(&id)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, fmt.Errorf("%w: asset not found", store.ErrNotFound)
-		}
-		return 0, fmt.Errorf("failed to get asset: %w", err)
-	}
-	return id, nil
-}
 
 func isValidUUID(s string) bool {
 	_, err := uuid.Parse(s)
