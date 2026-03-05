@@ -13,6 +13,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
+	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
@@ -81,7 +82,11 @@ func run() error {
 	})
 
 	// Register Connect handlers
-	interceptor := connect.WithInterceptors(loggingInterceptor(log))
+	userStore := postgres.NewUserStore(pool)
+	interceptor := connect.WithInterceptors(
+		middleware.UserProvisioningInterceptor(userStore, log),
+		loggingInterceptor(log),
+	)
 	for _, svc := range config.Services {
 		switch svc.Type {
 		case ServiceConfigTypeMarketData:

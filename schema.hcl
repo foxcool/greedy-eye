@@ -4,11 +4,6 @@ table "users" {
   schema = schema.public
 
   column "id" {
-    type = bigint
-    null = false
-    identity {}
-  }
-  column "uuid" {
     type = uuid
     null = false
   }
@@ -47,11 +42,6 @@ table "accounts" {
   schema = schema.public
 
   column "id" {
-    type = bigint
-    null = false
-    identity {}
-  }
-  column "uuid" {
     type = uuid
     null = false
   }
@@ -80,7 +70,7 @@ table "accounts" {
     null = false
   }
   column "user_id" {
-    type = bigint
+    type = uuid
     null = false
   }
 
@@ -100,11 +90,6 @@ table "assets" {
   schema = schema.public
 
   column "id" {
-    type = bigint
-    null = false
-    identity {}
-  }
-  column "uuid" {
     type = uuid
     null = false
   }
@@ -147,11 +132,6 @@ table "portfolios" {
   schema = schema.public
 
   column "id" {
-    type = bigint
-    null = false
-    identity {}
-  }
-  column "uuid" {
     type = uuid
     null = false
   }
@@ -176,7 +156,7 @@ table "portfolios" {
     null = false
   }
   column "user_id" {
-    type = bigint
+    type = uuid
     null = false
   }
 
@@ -196,11 +176,6 @@ table "holdings" {
   schema = schema.public
 
   column "id" {
-    type = bigint
-    null = false
-    identity {}
-  }
-  column "uuid" {
     type = uuid
     null = false
   }
@@ -221,15 +196,15 @@ table "holdings" {
     null = false
   }
   column "account_id" {
-    type = bigint
+    type = uuid
     null = false
   }
   column "asset_id" {
-    type = bigint
+    type = uuid
     null = false
   }
   column "portfolio_id" {
-    type = bigint
+    type = uuid
     null = true
   }
 
@@ -263,11 +238,6 @@ table "prices" {
   schema = schema.public
 
   column "id" {
-    type = bigint
-    null = false
-    identity {}
-  }
-  column "uuid" {
     type = uuid
     null = false
   }
@@ -312,11 +282,11 @@ table "prices" {
     null = false
   }
   column "asset_id" {
-    type = bigint
+    type = uuid
     null = false
   }
   column "base_asset_id" {
-    type = bigint
+    type = uuid
     null = false
   }
 
@@ -348,11 +318,6 @@ table "transactions" {
   schema = schema.public
 
   column "id" {
-    type = bigint
-    null = false
-    identity {}
-  }
-  column "uuid" {
     type = uuid
     null = false
   }
@@ -377,11 +342,11 @@ table "transactions" {
     null = false
   }
   column "account_id" {
-    type = bigint
+    type = uuid
     null = false
   }
   column "asset_transactions" {
-    type = bigint
+    type = uuid
     null = true
   }
 
@@ -408,20 +373,15 @@ table "rules" {
   schema = schema.public
 
   column "id" {
-    type = bigint
-    null = false
-    identity {}
-  }
-  column "uuid" {
     type = uuid
     null = false
   }
   column "user_id" {
-    type = bigint
+    type = uuid
     null = false
   }
   column "portfolio_id" {
-    type = bigint
+    type = uuid
     null = false
   }
   column "name" {
@@ -492,24 +452,19 @@ table "rule_executions" {
   schema = schema.public
 
   column "id" {
-    type = bigint
-    null = false
-    identity {}
-  }
-  column "uuid" {
     type = uuid
     null = false
   }
   column "rule_id" {
-    type = bigint
+    type = uuid
     null = false
   }
   column "portfolio_id" {
-    type = bigint
+    type = uuid
     null = true
   }
   column "user_id" {
-    type = bigint
+    type = uuid
     null = true
   }
   column "status" {
