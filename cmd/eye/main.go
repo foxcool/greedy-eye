@@ -68,16 +68,6 @@ func run() error {
 		log.Info("Bye")
 	}()
 
-	// Create stores
-	marketDataStore := postgres.NewMarketDataStore(pool)
-	portfolioStore := postgres.NewPortfolioStore(pool)
-	automationStore := postgres.NewAutomationStore(pool)
-
-	// Create handlers
-	marketDataHandler := marketdata.NewHandler(marketDataStore, log)
-	portfolioHandler := portfolio.NewHandler(portfolioStore, log)
-	automationHandler := automation.NewHandler(automationStore, log)
-
 	// Setup HTTP mux
 	mux := http.NewServeMux()
 
@@ -91,23 +81,30 @@ func run() error {
 	})
 
 	// Register Connect handlers
-	path, handler := apiv1connect.NewMarketDataServiceHandler(
-		marketDataHandler,
-		connect.WithInterceptors(loggingInterceptor(log)),
-	)
-	mux.Handle(path, handler)
-
-	path, handler = apiv1connect.NewPortfolioServiceHandler(
-		portfolioHandler,
-		connect.WithInterceptors(loggingInterceptor(log)),
-	)
-	mux.Handle(path, handler)
-
-	path, handler = apiv1connect.NewAutomationServiceHandler(
-		automationHandler,
-		connect.WithInterceptors(loggingInterceptor(log)),
-	)
-	mux.Handle(path, handler)
+	interceptor := connect.WithInterceptors(loggingInterceptor(log))
+	for _, svc := range config.Services {
+		switch svc.Type {
+		case ServiceConfigTypeMarketData:
+			path, handler := apiv1connect.NewMarketDataServiceHandler(
+				marketdata.NewHandler(postgres.NewMarketDataStore(pool), log), interceptor,
+			)
+			mux.Handle(path, handler)
+		case ServiceConfigTypePortfolio:
+			path, handler := apiv1connect.NewPortfolioServiceHandler(
+				portfolio.NewHandler(postgres.NewPortfolioStore(pool), log), interceptor,
+			)
+			mux.Handle(path, handler)
+		case ServiceConfigTypeAutomation:
+			path, handler := apiv1connect.NewAutomationServiceHandler(
+				automation.NewHandler(postgres.NewAutomationStore(pool), log), interceptor,
+			)
+			mux.Handle(path, handler)
+		default:
+			log.Warn("unknown service type, skipping", slog.String("type", svc.Type))
+			continue
+		}
+		log.Info("registered service", slog.String("type", svc.Type))
+	}
 
 	// Create server with h2c (HTTP/2 cleartext) support for Connect
 	server := &http.Server{

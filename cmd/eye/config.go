@@ -40,11 +40,9 @@ type ServiceConfig struct {
 }
 
 const (
-	ServiceConfigTypeAsset     = "asset"
-	ServiceConfigTypeUser      = "user"
-	ServiceConfigTypePrice     = "price"
-	ServiceConfigTypePortfolio = "portfolio"
-	ServiceConfigTypeTrade     = "trade"
+	ServiceConfigTypeMarketData = "marketdata"
+	ServiceConfigTypePortfolio  = "portfolio"
+	ServiceConfigTypeAutomation = "automation"
 )
 
 func getConfig() (*Config, error) {
@@ -53,9 +51,14 @@ func getConfig() (*Config, error) {
 
 	// Default values
 
-	defaults := map[string]interface{}{
+	defaults := map[string]any{
 		"sentry.tracesSampleRate": 1.0,
 		"server.port":             8080,
+		"services": []any{
+			map[string]any{"type": ServiceConfigTypeMarketData},
+			map[string]any{"type": ServiceConfigTypePortfolio},
+			map[string]any{"type": ServiceConfigTypeAutomation},
+		},
 	}
 	err = k.Load(confmap.Provider(defaults, "."), nil)
 	if err != nil {
