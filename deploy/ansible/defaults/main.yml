@@ -1,0 +1,44 @@
+---
+# Greedy-eye application configuration
+greedy_eye_version: "latest"
+greedy_eye_image: "ghcr.io/foxcool/greedy-eye:{{ greedy_eye_version }}"
+greedy_eye_domain: "eye.darkfox.info"
+greedy_eye_app_dir: "/opt/greedy-eye"
+greedy_eye_http_port: 8080
+
+# Authentication service URL (psina, same domain via path-based routing)
+greedy_eye_auth_url: "https://{{ greedy_eye_domain | default('eye.darkfox.info') }}"
+
+# Database configuration
+greedy_eye_db_user: "greedy_eye"
+greedy_eye_db_password: "greedy_eye_password"
+greedy_eye_db_name: "greedy_eye"
+
+# Backup configuration
+greedy_eye_backup_dir: "/opt/backups"
+greedy_eye_backup_retention_days: 30
+greedy_eye_auto_backup: true
+
+# Destroy configuration
+greedy_eye_remove_volumes: true
+
+# Migration configuration
+greedy_eye_run_migrations: true
+greedy_eye_migration_timeout: 300
+greedy_eye_use_ent: false
+# Path to schema.hcl on the Ansible controller machine (required when run_migrations=true)
+greedy_eye_schema_src: ""
+
+# Docker registry configuration
+greedy_eye_registry_url: "ghcr.io"
+greedy_eye_registry_username: ""
+greedy_eye_registry_password: ""
+
+# Extra environment variables (multiline string)
+greedy_eye_extra_env: ""
+
+# Traefik middleware (e.g. tailscale-only)
+greedy_eye_traefik_middlewares: "tailscale-only"
+
+# Log level
+greedy_eye_log_level: "INFO"

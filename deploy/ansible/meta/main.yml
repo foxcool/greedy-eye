@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  role_name: greedy_eye
+  author: foxcool
+  description: Deploy Greedy Eye backend (Connect-RPC, PostgreSQL, Traefik ForwardAuth)
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Ubuntu
+      versions: [jammy, noble]
+  galaxy_tags:
+    - grpc
+    - connectrpc
+    - postgresql
+    - traefik
+    - docker
+
+dependencies: []

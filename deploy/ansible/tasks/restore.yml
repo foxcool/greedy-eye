@@ -1,0 +1,74 @@
+---
+- name: Get list of available backups
+  ansible.builtin.shell: |
+    set -o pipefail
+    ls -1t {{ greedy_eye_backup_dir }}/greedy-eye-*.sql.gz | head -10
+  register: available_backups
+  become: true
+  changed_when: false
+
+- name: Display available backups
+  ansible.builtin.debug:
+    msg: "{{ available_backups.stdout_lines }}"
+
+- name: Prompt for backup file to restore
+  ansible.builtin.pause:
+    prompt: "Enter the full path of the backup file to restore"
+  register: backup_file_input
+  when: backup_file is not defined
+
+- name: Set backup file variable
+  ansible.builtin.set_fact:
+    restore_file: "{{ backup_file | default(backup_file_input.user_input) }}"
+
+- name: Check if backup file exists
+  ansible.builtin.stat:
+    path: "{{ restore_file }}"
+  register: backup_stat
+  become: true
+
+- name: Fail if backup file doesn't exist
+  ansible.builtin.fail:
+    msg: "Backup file {{ restore_file }} does not exist"
+  when: not backup_stat.stat.exists
+
+- name: Stop eye service before restore
+  ansible.builtin.command:
+    cmd: docker compose stop eye
+    chdir: "{{ greedy_eye_app_dir }}"
+  become: true
+  when: not ansible_check_mode
+  changed_when: true
+
+- name: Decompress backup if needed
+  ansible.builtin.shell: |
+    gunzip -c {{ restore_file }} > /tmp/greedy-eye-restore.sql
+  when: restore_file | regex_search('\.gz$')
+  become: true
+  changed_when: true
+
+- name: Set uncompressed restore file path
+  ansible.builtin.set_fact:
+    uncompressed_file: "{{ '/tmp/greedy-eye-restore.sql' if restore_file | regex_search('\\.gz$') else restore_file }}"
+
+- name: Restore database
+  ansible.builtin.shell: |
+    docker exec -i eye-postgres psql -U {{ greedy_eye_db_user }} -d {{ greedy_eye_db_name }} < {{ uncompressed_file }}
+  become: true
+  when: not ansible_check_mode
+  changed_when: true
+
+- name: Clean up temporary files
+  ansible.builtin.file:
+    path: "/tmp/greedy-eye-restore.sql"
+    state: absent
+  when: restore_file | regex_search('\.gz$')
+  become: true
+
+- name: Start eye service after restore
+  ansible.builtin.command:
+    cmd: docker compose start eye
+    chdir: "{{ greedy_eye_app_dir }}"
+  become: true
+  when: not ansible_check_mode
+  changed_when: true

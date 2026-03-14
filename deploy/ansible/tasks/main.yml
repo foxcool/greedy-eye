@@ -1,0 +1,28 @@
+---
+# Main task file for greedy-eye role
+# Determines which operation to perform based on the 'operation' variable
+
+- name: Deploy greedy-eye
+  ansible.builtin.include_tasks: deploy.yml
+  when: operation is defined and operation == "deploy"
+
+- name: Backup greedy-eye
+  ansible.builtin.include_tasks: backup.yml
+  when: operation is defined and operation == "backup"
+
+- name: Restore greedy-eye
+  ansible.builtin.include_tasks: restore.yml
+  when: operation is defined and operation == "restore"
+
+- name: Destroy greedy-eye
+  ansible.builtin.include_tasks: destroy.yml
+  when: operation is defined and operation == "destroy"
+
+- name: Migrate greedy-eye
+  ansible.builtin.include_tasks: migrate.yml
+  when: operation is defined and operation == "migrate"
+
+# Default to deploy if no operation specified
+- name: Deploy greedy-eye (default)
+  ansible.builtin.include_tasks: deploy.yml
+  when: operation is not defined

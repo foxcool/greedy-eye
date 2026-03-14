@@ -1,0 +1,39 @@
+---
+- name: Verify backup_restore
+  hosts: all
+  gather_facts: false
+  vars:
+    greedy_eye_backup_dir: "/tmp/molecule-greedy-eye-backups"
+    greedy_eye_db_user: "greedy_eye_test"
+    greedy_eye_db_name: "greedy_eye_test"
+  tasks:
+    - name: Find backup files
+      ansible.builtin.find:
+        paths: "{{ greedy_eye_backup_dir }}"
+        patterns: "greedy-eye-*.sql.gz"
+      register: backup_files
+
+    - name: Assert backup file exists and has content
+      ansible.builtin.assert:
+        that:
+          - backup_files.files | length > 0
+          - (backup_files.files | sort(attribute='mtime', reverse=true) | first).size > 0
+        fail_msg: "No backup files found or backup is empty"
+
+    - name: Assert restored data is present
+      ansible.builtin.command:
+        cmd: >-
+          docker exec eye-postgres psql -U greedy_eye_test -d greedy_eye_test
+          -c "SELECT count(*) FROM molecule_test WHERE val = 'before_restore';"
+      register: restored_data
+      changed_when: false
+
+    - name: Assert row count after restore
+      ansible.builtin.assert:
+        that: "'1' in restored_data.stdout"
+        fail_msg: "Restored data not found — restore may have failed"
+
+    - name: Verify postgres still accepts connections
+      ansible.builtin.command:
+        cmd: docker exec eye-postgres pg_isready -U greedy_eye_test -d greedy_eye_test
+      changed_when: false

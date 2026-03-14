@@ -1,0 +1,27 @@
+---
+- name: Prepare - deploy stack for backup/restore testing
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Deploy greedy-eye (postgres only needed)
+      ansible.builtin.include_role:
+        name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}"
+      vars:
+        operation: deploy
+
+    - name: Wait for postgres to be healthy
+      ansible.builtin.command:
+        cmd: docker exec eye-postgres pg_isready -U greedy_eye_test -d greedy_eye_test
+      register: pg_ready
+      until: pg_ready.rc == 0
+      retries: 20
+      delay: 3
+      changed_when: false
+
+    - name: Create test table with data
+      ansible.builtin.command:
+        cmd: >-
+          docker exec eye-postgres psql -U greedy_eye_test -d greedy_eye_test
+          -c "CREATE TABLE IF NOT EXISTS molecule_test (id serial, val text);
+              INSERT INTO molecule_test (val) VALUES ('before_restore');"
+      changed_when: true

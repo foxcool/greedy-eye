@@ -1,0 +1,106 @@
+---
+- name: Create backup before deployment
+  ansible.builtin.include_tasks: backup.yml
+  when:
+    - greedy_eye_auto_backup | default(true)
+    - not ansible_check_mode
+
+- name: Ensure app directory exists
+  ansible.builtin.file:
+    path: "{{ greedy_eye_app_dir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Copy docker-compose.yml template
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ greedy_eye_app_dir }}/docker-compose.yml"
+    mode: "0640"
+  become: true
+
+- name: Copy atlas.hcl configuration
+  ansible.builtin.template:
+    src: atlas.hcl.j2
+    dest: "{{ greedy_eye_app_dir }}/atlas.hcl"
+    mode: "0640"
+  become: true
+
+- name: Copy schema.hcl for Atlas migrations
+  ansible.builtin.copy:
+    src: "{{ greedy_eye_schema_src }}"
+    dest: "{{ greedy_eye_app_dir }}/schema.hcl"
+    mode: "0640"
+  become: true
+  when:
+    - greedy_eye_run_migrations | default(true)
+    - greedy_eye_schema_src is defined
+    - greedy_eye_schema_src | length > 0
+
+- name: Get AWS ECR login token (if AWS registry)
+  ansible.builtin.command:
+    cmd: aws ecr get-login-password --region {{ aws_region | default('us-east-1') }}
+  register: ecr_token_result
+  when:
+    - not ansible_check_mode
+    - greedy_eye_registry_url is defined
+    - "'ecr' in greedy_eye_registry_url"
+    - greedy_eye_use_aws_ecr | default(false)
+  changed_when: false
+  no_log: true
+
+- name: Login to AWS ECR
+  community.docker.docker_login:
+    registry: "{{ greedy_eye_registry_url }}"
+    username: "AWS"
+    password: "{{ ecr_token_result.stdout }}"
+    reauthorize: true
+  become: true
+  when:
+    - not ansible_check_mode
+    - greedy_eye_use_aws_ecr | default(false)
+    - ecr_token_result is defined
+    - ecr_token_result.stdout is defined
+  no_log: true
+
+- name: Login to Docker registry (if credentials provided)
+  community.docker.docker_login:
+    registry: "{{ greedy_eye_registry_url | default('https://index.docker.io/v1/') }}"
+    username: "{{ greedy_eye_registry_username }}"
+    password: "{{ greedy_eye_registry_password }}"
+    reauthorize: true
+  become: true
+  when:
+    - not ansible_check_mode
+    - greedy_eye_registry_username is defined
+    - greedy_eye_registry_username | length > 0
+    - greedy_eye_registry_password is defined
+    - greedy_eye_registry_password | length > 0
+    - not (greedy_eye_use_aws_ecr | default(false))
+  no_log: true
+
+- name: Pull latest images (if available)
+  ansible.builtin.command:
+    cmd: docker compose pull --ignore-pull-failures
+    chdir: "{{ greedy_eye_app_dir }}"
+  become: true
+  when:
+    - not ansible_check_mode
+    - greedy_eye_pull_images | default(true)
+  changed_when: false
+  failed_when: false
+
+- name: Run database migrations
+  ansible.builtin.include_tasks: migrate.yml
+  when:
+    - greedy_eye_run_migrations | default(true)
+    - not ansible_check_mode
+
+- name: Deploy with docker compose
+  ansible.builtin.command:
+    cmd: docker compose up -d
+    chdir: "{{ greedy_eye_app_dir }}"
+  become: true
+  register: compose_result
+  changed_when: "'Creating' in compose_result.stdout or 'Recreating' in compose_result.stdout or 'Starting' in compose_result.stdout"
+  when: not ansible_check_mode

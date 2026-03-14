@@ -1,0 +1,10 @@
+---
+- name: Converge
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Deploy greedy-eye
+      ansible.builtin.include_role:
+        name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}"
+      vars:
+        operation: deploy

@@ -1,0 +1,36 @@
+---
+- name: Ensure PostgreSQL is ready before migration
+  ansible.builtin.command:
+    cmd: docker compose exec postgres pg_isready -U {{ greedy_eye_db_user }} -d {{ greedy_eye_db_name }}
+    chdir: "{{ greedy_eye_app_dir }}"
+  become: true
+  register: postgres_ready
+  until: postgres_ready.rc == 0
+  retries: 30
+  delay: 2
+  when: not ansible_check_mode
+
+- name: Run database migrations
+  ansible.builtin.command:
+    cmd: docker compose --profile migrate up migrate --wait
+    chdir: "{{ greedy_eye_app_dir }}"
+  become: true
+  register: migration_result
+  changed_when: "'applied' in migration_result.stdout.lower() or 'migrat' in migration_result.stdout.lower()"
+  failed_when: migration_result.rc != 0 and 'exited (0)' not in migration_result.stderr
+  when: not ansible_check_mode
+
+- name: Clean up migration containers
+  ansible.builtin.command:
+    cmd: docker compose --profile migrate down
+    chdir: "{{ greedy_eye_app_dir }}"
+  become: true
+  when: not ansible_check_mode
+  changed_when: false
+
+- name: Display migration results
+  ansible.builtin.debug:
+    var: migration_result.stdout_lines
+  when:
+    - not ansible_check_mode
+    - migration_result is defined

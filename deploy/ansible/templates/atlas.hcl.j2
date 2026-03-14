@@ -1,0 +1,6 @@
+# Production environment for Atlas schema management
+env "production" {
+  src = "file:///schema.hcl"
+  url = getenv("ATLAS_DB_URL")
+  dev = "docker://postgres/17/dev?search_path=public&sslmode=disable"
+}

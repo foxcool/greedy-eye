@@ -1,0 +1,26 @@
+---
+- name: Ensure backup directory exists
+  ansible.builtin.file:
+    path: "{{ greedy_eye_backup_dir }}"
+    state: directory
+    mode: "0750"
+  become: true
+
+- name: Backup PostgreSQL database
+  ansible.builtin.shell: |
+    docker exec eye-postgres pg_dump -U {{ greedy_eye_db_user }} {{ greedy_eye_db_name }} \
+      > {{ greedy_eye_backup_dir }}/greedy-eye-{{ ansible_date_time.epoch }}.sql
+  become: true
+  changed_when: true
+
+- name: Compress backup
+  ansible.builtin.shell: >
+    gzip {{ greedy_eye_backup_dir }}/greedy-eye-{{ ansible_date_time.epoch }}.sql
+  become: true
+  changed_when: true
+
+- name: Remove old backups
+  ansible.builtin.shell: >
+    find {{ greedy_eye_backup_dir }} -name "greedy-eye-*.sql.gz" -type f -mtime +{{ greedy_eye_backup_retention_days }} -delete
+  become: true
+  changed_when: true

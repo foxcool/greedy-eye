@@ -1,0 +1,20 @@
+---
+- name: Cleanup backup_restore
+  hosts: all
+  gather_facts: false
+  ignore_unreachable: true
+  tasks:
+    - name: Stop and remove containers
+      ansible.builtin.command:
+        cmd: docker compose down -v
+        chdir: "/opt/molecule-greedy-eye-br"
+      ignore_errors: true
+      changed_when: true
+
+    - name: Remove test directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /opt/molecule-greedy-eye-br
+        - /opt/molecule-greedy-eye-backups

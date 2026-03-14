@@ -5,8 +5,12 @@ COMPOSE=docker compose -p eye --env-file deploy/.env
 # Path to the compose file
 COMPOSE_FILE=deploy/compose.yaml
 
+ANSIBLE_ROLE_DIR=deploy/ansible
+
 .PHONY: gen go-gen up debug down logs clean buf-gen docs-api \
-        test test-unit test-integration schema-apply schema-diff
+        test test-unit test-integration schema-apply schema-diff \
+        molecule-test molecule-converge molecule-verify molecule-destroy \
+        molecule-backup-restore molecule-lint molecule-reset
 
 # Generate all code
 gen: buf-gen go-gen
@@ -91,3 +95,33 @@ logs:
 logs-debug:
 	@echo "Following logs for eye_debug service..."
 	$(COMPOSE) -f $(COMPOSE_FILE) logs -f eye-debug
+
+# --- Ansible / Molecule ---
+
+# Full test cycle: create → converge → verify → destroy (default scenario)
+molecule-test:
+	cd $(ANSIBLE_ROLE_DIR) && molecule test
+
+# Full test cycle for backup/restore scenario
+molecule-backup-restore:
+	cd $(ANSIBLE_ROLE_DIR) && molecule test -s backup_restore
+
+# Deploy only (useful during role development)
+molecule-converge:
+	cd $(ANSIBLE_ROLE_DIR) && molecule converge
+
+# Run verify only (after converge)
+molecule-verify:
+	cd $(ANSIBLE_ROLE_DIR) && molecule verify
+
+# Destroy test environment
+molecule-destroy:
+	cd $(ANSIBLE_ROLE_DIR) && molecule destroy
+
+# Lint role with ansible-lint + yamllint
+molecule-lint:
+	cd $(ANSIBLE_ROLE_DIR) && molecule lint
+
+# Reset stuck molecule state
+molecule-reset:
+	cd $(ANSIBLE_ROLE_DIR) && molecule reset

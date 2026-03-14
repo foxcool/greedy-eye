@@ -1,0 +1,58 @@
+---
+- name: Verify deploy
+  hosts: all
+  gather_facts: false
+  vars:
+    greedy_eye_app_dir: "/opt/molecule-greedy-eye"
+    greedy_eye_db_user: "greedy_eye_test"
+    greedy_eye_db_name: "greedy_eye_test"
+  tasks:
+    - name: Check app directory exists
+      ansible.builtin.stat:
+        path: "{{ greedy_eye_app_dir }}"
+      register: app_dir_stat
+
+    - name: Assert app directory exists
+      ansible.builtin.assert:
+        that: app_dir_stat.stat.exists and app_dir_stat.stat.isdir
+        fail_msg: "App directory {{ greedy_eye_app_dir }} was not created"
+
+    - name: Check docker-compose.yml is rendered
+      ansible.builtin.stat:
+        path: "{{ greedy_eye_app_dir }}/docker-compose.yml"
+      register: compose_file_stat
+
+    - name: Assert docker-compose.yml exists
+      ansible.builtin.assert:
+        that: compose_file_stat.stat.exists
+        fail_msg: "docker-compose.yml not found in {{ greedy_eye_app_dir }}"
+
+    - name: Check atlas.hcl is rendered
+      ansible.builtin.stat:
+        path: "{{ greedy_eye_app_dir }}/atlas.hcl"
+      register: atlas_file_stat
+
+    - name: Assert atlas.hcl exists
+      ansible.builtin.assert:
+        that: atlas_file_stat.stat.exists
+        fail_msg: "atlas.hcl not found in {{ greedy_eye_app_dir }}"
+
+    - name: Check postgres container is running
+      ansible.builtin.command:
+        cmd: docker ps --filter "name=eye-postgres" --filter "status=running"
+      register: running_containers
+      changed_when: false
+
+    - name: Assert postgres is running
+      ansible.builtin.assert:
+        that: "'eye-postgres' in running_containers.stdout"
+        fail_msg: "Postgres container is not running"
+
+    - name: Verify postgres accepts connections
+      ansible.builtin.command:
+        cmd: docker exec eye-postgres pg_isready -U greedy_eye_test -d greedy_eye_test
+      changed_when: false
+      register: pg_ready
+      retries: 5
+      delay: 2
+      until: pg_ready.rc == 0

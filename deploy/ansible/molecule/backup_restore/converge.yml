@@ -1,0 +1,41 @@
+---
+- name: Converge - backup and restore cycle
+  hosts: all
+  gather_facts: true
+  vars:
+    greedy_eye_app_dir: "/tmp/molecule-greedy-eye-br"
+    greedy_eye_backup_dir: "/tmp/molecule-greedy-eye-backups"
+    greedy_eye_db_user: "greedy_eye_test"
+    greedy_eye_db_name: "greedy_eye_test"
+  tasks:
+    - name: Run backup
+      ansible.builtin.include_role:
+        name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}"
+      vars:
+        operation: backup
+
+    - name: Find latest backup file
+      ansible.builtin.shell: |
+        set -o pipefail
+        ls -1t {{ greedy_eye_backup_dir }}/greedy-eye-*.sql.gz 2>/dev/null | head -1
+      register: latest_backup
+      changed_when: false
+
+    - name: Assert backup file was created
+      ansible.builtin.assert:
+        that: latest_backup.stdout | length > 0
+        fail_msg: "No backup file found after backup operation"
+
+    - name: Simulate data loss - drop test table
+      ansible.builtin.command:
+        cmd: >-
+          docker exec eye-postgres psql -U greedy_eye_test -d greedy_eye_test
+          -c "DROP TABLE IF EXISTS molecule_test;"
+      changed_when: true
+
+    - name: Run restore from latest backup
+      ansible.builtin.include_role:
+        name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}"
+      vars:
+        operation: restore
+        backup_file: "{{ latest_backup.stdout }}"

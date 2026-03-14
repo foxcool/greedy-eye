@@ -1,0 +1,50 @@
+---
+dependency:
+  name: galaxy
+  options:
+    requirements-file: "../../requirements.yml"
+
+driver:
+  name: docker
+
+platforms:
+  - name: greedy-eye-br-test
+    image: molecule-greedy-eye:latest
+    dockerfile: ../../Dockerfile.molecule
+    pre_build_image: false
+    privileged: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: sleep infinity
+
+provisioner:
+  name: ansible
+  config_options:
+    defaults:
+      interpreter_python: auto_silent
+  playbooks:
+    prepare: prepare.yml
+    cleanup: cleanup.yml
+  inventory:
+    host_vars:
+      greedy-eye-br-test:
+        ansible_become: false
+        greedy_eye_image: "nginx:alpine"
+        greedy_eye_app_dir: "/opt/molecule-greedy-eye-br"
+        greedy_eye_backup_dir: "/opt/molecule-greedy-eye-backups"
+        greedy_eye_db_user: "greedy_eye_test"
+        greedy_eye_db_password: "molecule_test_pw"
+        greedy_eye_db_name: "greedy_eye_test"
+        greedy_eye_domain: "localhost"
+        greedy_eye_http_port: 8082
+        greedy_eye_run_migrations: false
+        greedy_eye_auto_backup: false
+        greedy_eye_pull_images: false
+        greedy_eye_registry_username: ""
+        greedy_eye_registry_password: ""
+        greedy_eye_traefik_middlewares: ""
+        greedy_eye_backup_retention_days: 30
+        psina_http_port: 8080
+
+verifier:
+  name: ansible

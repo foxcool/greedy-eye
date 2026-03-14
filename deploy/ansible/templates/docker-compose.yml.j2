@@ -1,0 +1,81 @@
+# Production deployment for greedy-eye
+
+volumes:
+  postgres_data:
+
+services:
+  # Database migration service
+  migrate:
+    image: {{ greedy_eye_image }}
+    container_name: eye-migrate
+    profiles: ["migrate"]
+    command: atlas schema apply --env production --config file:///atlas.hcl --auto-approve
+    volumes:
+      - ./atlas.hcl:/atlas.hcl:ro
+      - ./schema.hcl:/schema.hcl:ro
+    environment:
+      ATLAS_DB_URL: "postgres://{{ greedy_eye_db_user }}:{{ greedy_eye_db_password }}@postgres:5432/{{ greedy_eye_db_name }}?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - default
+
+  # Main application service
+  eye:
+    image: {{ greedy_eye_image }}
+    container_name: eye
+    restart: unless-stopped
+    environment:
+      EYE_LOGGING_LEVEL: {{ greedy_eye_log_level | default('INFO') }}
+      EYE_SENTRY_ENVIRONMENT: "production"
+      EYE_DB_URL: "postgres://{{ greedy_eye_db_user }}:{{ greedy_eye_db_password }}@postgres:5432/{{ greedy_eye_db_name }}?sslmode=disable"
+      EYE_SERVER_PORT: {{ greedy_eye_http_port }}
+      {{ greedy_eye_extra_env | default('') }}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+{% if greedy_eye_traefik_middlewares is defined and greedy_eye_traefik_middlewares %}
+      - proxy
+{% endif %}
+      - default
+{% if greedy_eye_traefik_middlewares is defined and greedy_eye_traefik_middlewares %}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.eye-api.rule=Host(`{{ greedy_eye_domain }}`) && PathPrefix(`/eye.v1.`)"
+      - "traefik.http.routers.eye-api.priority=30"
+      - "traefik.http.routers.eye-api.entrypoints=websecure"
+      - "traefik.http.routers.eye-api.tls.certresolver=myresolver"
+      - "traefik.http.routers.eye-api.service=eye-api"
+      - "traefik.http.middlewares.psina-auth.forwardAuth.address=http://psina:{{ psina_http_port | default(8080) }}/verify"
+      - "traefik.http.middlewares.psina-auth.forwardAuth.authRequestHeaders=Authorization,Cookie"
+      - "traefik.http.middlewares.psina-auth.forwardAuth.authResponseHeaders=X-User-Id,X-User-Email"
+      - "traefik.http.routers.eye-api.middlewares=psina-auth,{{ greedy_eye_traefik_middlewares }}"
+      - "traefik.http.services.eye-api.loadbalancer.server.port={{ greedy_eye_http_port }}"
+      - "traefik.http.services.eye-api.loadbalancer.server.scheme=h2c"
+{% endif %}
+
+  # Database service
+  postgres:
+    image: postgres:17
+    container_name: eye-postgres
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: {{ greedy_eye_db_user }}
+      POSTGRES_PASSWORD: {{ greedy_eye_db_password }}
+      POSTGRES_DB: {{ greedy_eye_db_name }}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ greedy_eye_db_user }} -d {{ greedy_eye_db_name }}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+{% if greedy_eye_traefik_middlewares is defined and greedy_eye_traefik_middlewares %}
+networks:
+  proxy:
+    external: true
+{% endif %}
