@@ -49,6 +49,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   # Debug profile for development.
   eye-debug:
@@ -88,8 +90,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   # Database needed by the eye application for storing data
+  # Also hosts atlas_dev database used by Atlas for schema diffing (created via healthcheck)
   postgres:
     image: postgres:17
     environment:
@@ -99,10 +104,26 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U greedy_eye -d greedy_eye"]
+      test: ["CMD-SHELL", "pg_isready -U greedy_eye -d greedy_eye && (psql -U greedy_eye -d atlas_dev -c 'SELECT 1' > /dev/null 2>&1 || psql -U greedy_eye -c 'CREATE DATABASE atlas_dev WITH OWNER greedy_eye')"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # Applies schema migrations before the app starts
+  migrate:
+    profiles: ["default", "dev", "test"]
+    image: arigaio/atlas:latest
+    volumes:
+      - ../schema.hcl:/schema.hcl:ro
+    command: >
+      schema apply
+      --url "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
+      --to "file:///schema.hcl"
+      --dev-url "postgres://greedy_eye:password@postgres:5432/atlas_dev?sslmode=disable"
+      --auto-approve
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # Atlas CLI for database migration
   atlas-cli:
@@ -141,3 +162,5 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
