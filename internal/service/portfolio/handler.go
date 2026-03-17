@@ -226,9 +226,77 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 // Ensure math is referenced (used for potential rounding in future).
 var _ = math.Round
 
+// GetPortfolioPerformance calculates return over a time range using stored price history.
+// If no `from` is set, defaults to 30 days ago. Requires marketStore.
 func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Request[apiv1.GetPortfolioPerformanceRequest]) (*connect.Response[apiv1.PortfolioPerformanceResponse], error) {
-	// TODO: Implement
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("GetPortfolioPerformance not implemented"))
+	if h.marketStore == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("market data store not configured"))
+	}
+	if req.Msg.PortfolioId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio_id is required"))
+	}
+
+	from := time.Now().AddDate(0, 0, -30) // default: 30 days
+	if req.Msg.From != nil {
+		from = req.Msg.From.AsTime()
+	}
+
+	quoteAssetID := "usd"
+	if req.Msg.BenchmarkAssetId != "" {
+		quoteAssetID = req.Msg.BenchmarkAssetId
+	}
+
+	holdings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{PortfolioID: req.Msg.PortfolioId, PageSize: 1000})
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
+	var currentValue, fromValue decimal.Decimal
+
+	for _, hld := range holdings {
+		// Current price
+		latestPrice, err := h.marketStore.GetLatestPrice(ctx, hld.AssetID, quoteAssetID, "")
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
+			return nil, toConnectError(err)
+		}
+
+		divisorCurrent := decimal.New(1, int32(hld.Decimals)+int32(latestPrice.Decimals))
+		holdingCurrent := decimal.New(hld.Amount, 0).
+			Mul(decimal.New(latestPrice.Last, 0)).
+			Div(divisorCurrent)
+		currentValue = currentValue.Add(holdingCurrent)
+
+		// Historical price (first available at or after `from`)
+		fromPrice, err := h.marketStore.GetFirstPriceAfter(ctx, hld.AssetID, quoteAssetID, from)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				// No historical data — use current price as baseline (0% return for this asset)
+				fromValue = fromValue.Add(holdingCurrent)
+				continue
+			}
+			return nil, toConnectError(err)
+		}
+
+		divisorFrom := decimal.New(1, int32(hld.Decimals)+int32(fromPrice.Decimals))
+		holdingFrom := decimal.New(hld.Amount, 0).
+			Mul(decimal.New(fromPrice.Last, 0)).
+			Div(divisorFrom)
+		fromValue = fromValue.Add(holdingFrom)
+	}
+
+	var returnPct float64
+	if !fromValue.IsZero() {
+		returnPct, _ = currentValue.Sub(fromValue).Div(fromValue).Mul(decimal.NewFromInt(100)).Float64()
+	}
+
+	return connect.NewResponse(&apiv1.PortfolioPerformanceResponse{
+		PortfolioId:      req.Msg.PortfolioId,
+		ReturnPercentage: returnPct,
+		// Volatility and SharpeRatio require daily price series — not yet implemented
+	}), nil
 }
 
 // --- Holding CRUD ---

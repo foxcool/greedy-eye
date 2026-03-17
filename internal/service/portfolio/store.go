@@ -2,6 +2,7 @@ package portfolio
 
 import (
 	"context"
+	"time"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
 )
@@ -10,6 +11,8 @@ import (
 // Defined here (consumer) so portfolio package does not import marketdata package.
 type MarketDataStore interface {
 	GetLatestPrice(ctx context.Context, assetID, baseAssetID, sourceID string) (*entity.StoredPrice, error)
+	// GetFirstPriceAfter returns the earliest stored price for assetID/baseAssetID at or after `after`.
+	GetFirstPriceAfter(ctx context.Context, assetID, baseAssetID string, after time.Time) (*entity.StoredPrice, error)
 }
 
 // AssetStore is a minimal interface for reading/writing assets.
