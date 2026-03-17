@@ -100,7 +100,7 @@ func (c *Client) GetMultiplePrices(ctx context.Context, assetIDs []string, curre
 	if err != nil {
 		return nil, fmt.Errorf("do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status %d from CoinGecko", resp.StatusCode)
@@ -180,7 +180,7 @@ func (c *Client) Ping(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("ping failed with status %d", resp.StatusCode)
 	}

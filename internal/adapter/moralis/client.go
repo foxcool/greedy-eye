@@ -87,7 +87,7 @@ func (c *Client) doGet(ctx context.Context, path string) (*http.Response, error)
 		return nil, fmt.Errorf("do request: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, fmt.Errorf("moralis API status %d for %s", resp.StatusCode, path)
 	}
 	return resp, nil
@@ -99,7 +99,7 @@ func (c *Client) GetWalletTokenBalances(ctx context.Context, chain string, addre
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var tokens []moralisERC20Token
 	if err := json.NewDecoder(resp.Body).Decode(&tokens); err != nil {
@@ -109,7 +109,7 @@ func (c *Client) GetWalletTokenBalances(ctx context.Context, chain string, addre
 	result := make([]Balance, 0, len(tokens))
 	for _, t := range tokens {
 		dec := 18
-		fmt.Sscanf(t.Decimals, "%d", &dec) // best-effort; default 18
+		_, _ = fmt.Sscanf(t.Decimals, "%d", &dec) // best-effort; default 18
 		result = append(result, Balance{
 			TokenAddress: t.TokenAddress,
 			Symbol:       t.Symbol,
@@ -128,7 +128,7 @@ func (c *Client) GetWalletBalance(ctx context.Context, chain string, address str
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result struct {
 		Balance string `json:"balance"`

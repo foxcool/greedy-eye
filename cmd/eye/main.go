@@ -16,7 +16,6 @@ import (
 	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
 	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
-	svcmarketdata "github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
@@ -196,7 +195,7 @@ func newPostgresAssetStore(s *postgres.MarketDataStore) portfolio.AssetStore {
 }
 
 func (a *postgresAssetStore) ListAssets(ctx context.Context, pageSize int) ([]*entity.Asset, error) {
-	assets, _, err := a.inner.ListAssets(ctx, svcmarketdata.ListAssetsOpts{PageSize: pageSize})
+	assets, _, err := a.inner.ListAssets(ctx, marketdata.ListAssetsOpts{PageSize: pageSize})
 	return assets, err
 }
 
