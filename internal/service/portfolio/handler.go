@@ -110,9 +110,14 @@ func (h *Handler) DeletePortfolio(ctx context.Context, req *connect.Request[apiv
 }
 
 func (h *Handler) ListPortfolios(ctx context.Context, req *connect.Request[apiv1.ListPortfoliosRequest]) (*connect.Response[apiv1.ListPortfoliosResponse], error) {
-	opts := ListPortfoliosOpts{}
-	if req.Msg.UserId != nil {
-		opts.UserID = *req.Msg.UserId
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+	}
+
+	opts := ListPortfoliosOpts{UserID: user.ID}
+	if req.Msg.UserId != nil && *req.Msg.UserId != "" {
+		opts.UserID = *req.Msg.UserId // allow explicit override (admin)
 	}
 	if req.Msg.PageSize != nil {
 		opts.PageSize = int(*req.Msg.PageSize)
@@ -347,9 +352,14 @@ func (h *Handler) DeleteAccount(ctx context.Context, req *connect.Request[apiv1.
 }
 
 func (h *Handler) ListAccounts(ctx context.Context, req *connect.Request[apiv1.ListAccountsRequest]) (*connect.Response[apiv1.ListAccountsResponse], error) {
-	opts := ListAccountsOpts{}
-	if req.Msg.UserId != nil {
-		opts.UserID = *req.Msg.UserId
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+	}
+
+	opts := ListAccountsOpts{UserID: user.ID}
+	if req.Msg.UserId != nil && *req.Msg.UserId != "" {
+		opts.UserID = *req.Msg.UserId // allow explicit override (admin)
 	}
 	if req.Msg.Type != nil {
 		opts.Type = entity.AccountType(*req.Msg.Type)
