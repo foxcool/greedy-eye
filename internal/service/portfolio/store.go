@@ -6,6 +6,12 @@ import (
 	"github.com/foxcool/greedy-eye/internal/entity"
 )
 
+// MarketDataStore is a minimal read-only interface for fetching price data.
+// Defined here (consumer) so portfolio package does not import marketdata package.
+type MarketDataStore interface {
+	GetLatestPrice(ctx context.Context, assetID, baseAssetID, sourceID string) (*entity.StoredPrice, error)
+}
+
 // Store defines the data access contract for PortfolioService.
 type Store interface {
 	// Portfolios

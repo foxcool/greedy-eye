@@ -2,17 +2,19 @@ package coingecko
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
 	"time"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // Client implements PriceProvider interface for CoinGecko
 type Client struct {
-	apiKey  string
-	baseURL string
+	apiKey    string
+	baseURL   string
 	rateLimit time.Duration
+	httpClient *http.Client
 }
 
 // Config holds CoinGecko client configuration
@@ -56,45 +58,131 @@ func NewClient(cfg Config) *Client {
 		apiKey:    cfg.APIKey,
 		baseURL:   baseURL,
 		rateLimit: rateLimit,
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
-// GetCurrentPrice retrieves current price for an asset
-func (c *Client) GetCurrentPrice(ctx context.Context, assetID string, currency string) (*PriceData, error) {
-	return nil, status.Error(codes.Unimplemented, "GetCurrentPrice not implemented")
+// coingeckoMarketItem is the JSON shape from /coins/markets endpoint.
+type coingeckoMarketItem struct {
+	ID                  string  `json:"id"`
+	Symbol              string  `json:"symbol"`
+	CurrentPrice        float64 `json:"current_price"`
+	MarketCap           float64 `json:"market_cap"`
+	TotalVolume         float64 `json:"total_volume"`
+	PriceChange24h      float64 `json:"price_change_24h"`
+	PriceChangePct24h   float64 `json:"price_change_percentage_24h"`
+	High24h             float64 `json:"high_24h"`
+	Low24h              float64 `json:"low_24h"`
 }
 
-// GetMultiplePrices retrieves current prices for multiple assets
+// GetMultiplePrices retrieves current prices for multiple assets.
 func (c *Client) GetMultiplePrices(ctx context.Context, assetIDs []string, currency string) (map[string]*PriceData, error) {
-	return nil, status.Error(codes.Unimplemented, "GetMultiplePrices not implemented")
+	if len(assetIDs) == 0 {
+		return map[string]*PriceData{}, nil
+	}
+
+	url := fmt.Sprintf(
+		"%s/coins/markets?vs_currency=%s&ids=%s&order=market_cap_desc&per_page=250&page=1&sparkline=false",
+		c.baseURL,
+		currency,
+		strings.Join(assetIDs, ","),
+	)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if c.apiKey != "" {
+		req.Header.Set("x-cg-demo-api-key", c.apiKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status %d from CoinGecko", resp.StatusCode)
+	}
+
+	var items []coingeckoMarketItem
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	now := time.Now()
+	result := make(map[string]*PriceData, len(items))
+	for _, item := range items {
+		result[item.ID] = &PriceData{
+			AssetID:       item.ID,
+			Symbol:        item.Symbol,
+			Price:         item.CurrentPrice,
+			MarketCap:     item.MarketCap,
+			Volume24h:     item.TotalVolume,
+			Change24h:     item.PriceChange24h,
+			ChangePercent: item.PriceChangePct24h,
+			High24h:       item.High24h,
+			Low24h:        item.Low24h,
+			Timestamp:     now,
+		}
+	}
+
+	return result, nil
 }
 
-// GetHistoricalPrices retrieves historical price data
+// GetCurrentPrice retrieves current price for an asset.
+func (c *Client) GetCurrentPrice(ctx context.Context, assetID string, currency string) (*PriceData, error) {
+	prices, err := c.GetMultiplePrices(ctx, []string{assetID}, currency)
+	if err != nil {
+		return nil, err
+	}
+	p, ok := prices[assetID]
+	if !ok {
+		return nil, fmt.Errorf("asset %q not found in CoinGecko response", assetID)
+	}
+	return p, nil
+}
+
+// GetHistoricalPrices retrieves historical price data (stub).
 func (c *Client) GetHistoricalPrices(ctx context.Context, assetID string, currency string, from time.Time, to time.Time) ([]HistoricalPrice, error) {
-	return nil, status.Error(codes.Unimplemented, "GetHistoricalPrices not implemented")
+	return nil, fmt.Errorf("GetHistoricalPrices not implemented")
 }
 
-// GetMarketChart retrieves market chart data (price, volume, market cap)
+// GetMarketChart retrieves market chart data (stub).
 func (c *Client) GetMarketChart(ctx context.Context, assetID string, currency string, days int) (interface{}, error) {
-	return nil, status.Error(codes.Unimplemented, "GetMarketChart not implemented")
+	return nil, fmt.Errorf("GetMarketChart not implemented")
 }
 
-// SearchAssets searches for assets by name or symbol
+// SearchAssets searches for assets by name or symbol (stub).
 func (c *Client) SearchAssets(ctx context.Context, query string) ([]interface{}, error) {
-	return nil, status.Error(codes.Unimplemented, "SearchAssets not implemented")
+	return nil, fmt.Errorf("SearchAssets not implemented")
 }
 
-// GetAssetDetails retrieves detailed information about an asset
+// GetAssetDetails retrieves detailed information about an asset (stub).
 func (c *Client) GetAssetDetails(ctx context.Context, assetID string) (interface{}, error) {
-	return nil, status.Error(codes.Unimplemented, "GetAssetDetails not implemented")
+	return nil, fmt.Errorf("GetAssetDetails not implemented")
 }
 
-// GetSupportedCurrencies retrieves list of supported vs currencies
+// GetSupportedCurrencies retrieves list of supported vs currencies (stub).
 func (c *Client) GetSupportedCurrencies(ctx context.Context) ([]string, error) {
-	return nil, status.Error(codes.Unimplemented, "GetSupportedCurrencies not implemented")
+	return nil, fmt.Errorf("GetSupportedCurrencies not implemented")
 }
 
-// Ping checks if the API is reachable
+// Ping checks if the API is reachable.
 func (c *Client) Ping(ctx context.Context) error {
-	return status.Error(codes.Unimplemented, "Ping not implemented")
+	url := c.baseURL + "/ping"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("ping failed with status %d", resp.StatusCode)
+	}
+	return nil
 }

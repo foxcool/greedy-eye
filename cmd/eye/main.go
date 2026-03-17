@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
 	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
@@ -81,6 +82,13 @@ func run() error {
 		}
 	})
 
+	// Initialize optional CoinGecko provider
+	var cgProvider marketdata.CoinGeckoProvider
+	if apiKey := config.CoinGecko.APIKey; true { // always init, key optional
+		cgClient := coingecko.NewClient(coingecko.Config{APIKey: apiKey, Pro: config.CoinGecko.Pro})
+		cgProvider = coingecko.NewProvider(cgClient)
+	}
+
 	// Register Connect handlers
 	userStore := postgres.NewUserStore(pool)
 	interceptor := connect.WithInterceptors(
@@ -90,14 +98,14 @@ func run() error {
 	for _, svc := range config.Services {
 		switch svc.Type {
 		case ServiceConfigTypeMarketData:
-			path, handler := apiv1connect.NewMarketDataServiceHandler(
-				marketdata.NewHandler(postgres.NewMarketDataStore(pool), log), interceptor,
-			)
+			mdHandler := marketdata.NewHandler(postgres.NewMarketDataStore(pool), log).
+				WithCoinGecko(cgProvider)
+			path, handler := apiv1connect.NewMarketDataServiceHandler(mdHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypePortfolio:
-			path, handler := apiv1connect.NewPortfolioServiceHandler(
-				portfolio.NewHandler(postgres.NewPortfolioStore(pool), log), interceptor,
-			)
+			pHandler := portfolio.NewHandler(postgres.NewPortfolioStore(pool), log).
+				WithMarketDataStore(postgres.NewMarketDataStore(pool))
+			path, handler := apiv1connect.NewPortfolioServiceHandler(pHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypeAutomation:
 			path, handler := apiv1connect.NewAutomationServiceHandler(

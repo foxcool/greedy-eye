@@ -4,12 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"math"
+	"time"
 
 	"connectrpc.com/connect"
+	"github.com/shopspring/decimal"
 	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
 	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -19,12 +24,23 @@ import (
 // Handler implements apiv1connect.PortfolioServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedPortfolioServiceHandler
-	store Store
-	log   *slog.Logger
+	store       Store
+	marketStore MarketDataStore // optional; nil if not configured
+	log         *slog.Logger
 }
 
 func NewHandler(store Store, log *slog.Logger) *Handler {
 	return &Handler{store: store, log: log}
+}
+
+// WithMarketDataStore returns a new Handler with the market data store injected.
+func (h *Handler) WithMarketDataStore(ms MarketDataStore) *Handler {
+	return &Handler{
+		UnimplementedPortfolioServiceHandler: h.UnimplementedPortfolioServiceHandler,
+		store:       h.store,
+		marketStore: ms,
+		log:         h.log,
+	}
 }
 
 // --- Portfolio CRUD ---
@@ -34,7 +50,13 @@ func (h *Handler) CreatePortfolio(ctx context.Context, req *connect.Request[apiv
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio is required"))
 	}
 
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+	}
+
 	p := portfolioFromProto(req.Msg.Portfolio)
+	p.UserID = user.ID
 	created, err := h.store.CreatePortfolio(ctx, p)
 	if err != nil {
 		return nil, toConnectError(err)
@@ -118,9 +140,58 @@ func (h *Handler) ListPortfolios(ctx context.Context, req *connect.Request[apiv1
 // --- Portfolio business logic (stubs) ---
 
 func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Request[apiv1.CalculatePortfolioValueRequest]) (*connect.Response[apiv1.PortfolioValueResponse], error) {
-	// TODO: Implement with MarketDataStore for prices
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("CalculatePortfolioValue not implemented"))
+	if h.marketStore == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("market data store not configured"))
+	}
+	if req.Msg.PortfolioId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio_id is required"))
+	}
+
+	quoteAssetID := req.Msg.QuoteAssetId
+	if quoteAssetID == "" {
+		quoteAssetID = "usd"
+	}
+
+	holdings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{PortfolioID: req.Msg.PortfolioId, PageSize: 1000})
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
+	const resultDecimals = 2
+	total := decimal.Zero
+
+	for _, hld := range holdings {
+		price, err := h.marketStore.GetLatestPrice(ctx, hld.AssetID, quoteAssetID, "")
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				continue // skip assets without price data
+			}
+			return nil, toConnectError(fmt.Errorf("get price for %s: %w", hld.AssetID, err))
+		}
+
+		// value = amount * price.Last / 10^(holding.Decimals + price.Decimals)
+		divisor := decimal.New(1, int32(hld.Decimals)+int32(price.Decimals))
+		holdingValue := decimal.New(hld.Amount, 0).
+			Mul(decimal.New(price.Last, 0)).
+			Div(divisor)
+
+		total = total.Add(holdingValue)
+	}
+
+	// Convert to result decimals (e.g., 2 for USD cents)
+	resultAmount := total.Mul(decimal.New(1, int32(resultDecimals))).IntPart()
+
+	return connect.NewResponse(&apiv1.PortfolioValueResponse{
+		PortfolioId:      req.Msg.PortfolioId,
+		QuoteAssetId:     quoteAssetID,
+		TotalValueAmount: resultAmount,
+		Decimals:         resultDecimals,
+		CalculationTime:  timestamppb.New(time.Now()),
+	}), nil
 }
+
+// Ensure math is referenced (used for potential rounding in future).
+var _ = math.Round
 
 func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Request[apiv1.GetPortfolioPerformanceRequest]) (*connect.Response[apiv1.PortfolioPerformanceResponse], error) {
 	// TODO: Implement
@@ -216,7 +287,13 @@ func (h *Handler) CreateAccount(ctx context.Context, req *connect.Request[apiv1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account is required"))
 	}
 
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+	}
+
 	account := accountFromProto(req.Msg.Account)
+	account.UserID = user.ID
 	created, err := h.store.CreateAccount(ctx, account)
 	if err != nil {
 		return nil, toConnectError(err)

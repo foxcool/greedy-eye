@@ -3,7 +3,10 @@ package marketdata
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"math"
+	"time"
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
@@ -14,15 +17,41 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// CoinGeckoProvider is the interface for fetching external prices.
+// Defined here (consumer) per Go idiom — concrete type lives in adapter/coingecko.
+type CoinGeckoProvider interface {
+	GetMultiplePrices(ctx context.Context, assetIDs []string, currency string) (map[string]*CoinGeckoPriceData, error)
+}
+
+// CoinGeckoPriceData is the minimal subset of data we need from CoinGecko.
+type CoinGeckoPriceData struct {
+	AssetID  string
+	Price    float64
+	High24h  float64
+	Low24h   float64
+	Timestamp time.Time
+}
+
 // Handler implements apiv1connect.MarketDataServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedMarketDataServiceHandler
-	store Store
-	log   *slog.Logger
+	store     Store
+	coingecko CoinGeckoProvider // optional; nil if not configured
+	log       *slog.Logger
 }
 
 func NewHandler(store Store, log *slog.Logger) *Handler {
 	return &Handler{store: store, log: log}
+}
+
+// WithCoinGecko returns a new Handler with the CoinGecko provider injected.
+func (h *Handler) WithCoinGecko(cg CoinGeckoProvider) *Handler {
+	return &Handler{
+		UnimplementedMarketDataServiceHandler: h.UnimplementedMarketDataServiceHandler,
+		store:     h.store,
+		coingecko: cg,
+		log:       h.log,
+	}
 }
 
 // CreateAsset creates a new asset.
@@ -277,10 +306,75 @@ func (h *Handler) FindSimilarAssets(ctx context.Context, req *connect.Request[ap
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("FindSimilarAssets not implemented"))
 }
 
-// FetchExternalPrices fetches prices from external sources (stub).
+// FetchExternalPrices fetches prices from CoinGecko and stores them.
 func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[apiv1.FetchExternalPricesRequest]) (*connect.Response[apiv1.FetchExternalPricesResponse], error) {
-	// TODO: Implement with external price providers
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("FetchExternalPrices not implemented"))
+	if h.coingecko == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("CoinGecko provider not configured"))
+	}
+
+	assetIDs := req.Msg.AssetIds
+
+	// If no asset IDs specified, fetch for all known assets.
+	if len(assetIDs) == 0 {
+		assets, _, err := h.store.ListAssets(ctx, ListAssetsOpts{PageSize: 250})
+		if err != nil {
+			return nil, toConnectError(err)
+		}
+		assetIDs = make([]string, 0, len(assets))
+		for _, a := range assets {
+			assetIDs = append(assetIDs, a.ID)
+		}
+	}
+
+	if len(assetIDs) == 0 {
+		return connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil
+	}
+
+	pricesMap, err := h.coingecko.GetMultiplePrices(ctx, assetIDs, "usd")
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("fetch from CoinGecko: %w", err))
+	}
+
+	const decimals = 8
+	const divisor = 1e8
+
+	prices := make([]*entity.StoredPrice, 0, len(pricesMap))
+	var fetchErrs []string
+
+	for _, assetID := range assetIDs {
+		pd, ok := pricesMap[assetID]
+		if !ok {
+			fetchErrs = append(fetchErrs, fmt.Sprintf("asset %q not returned by CoinGecko", assetID))
+			continue
+		}
+
+		last := int64(math.Round(pd.Price * divisor))
+		high := int64(math.Round(pd.High24h * divisor))
+		low := int64(math.Round(pd.Low24h * divisor))
+
+		prices = append(prices, &entity.StoredPrice{
+			SourceID:    "coingecko",
+			AssetID:     assetID,
+			BaseAssetID: "usd",
+			Interval:    "latest",
+			Decimals:    decimals,
+			Last:        last,
+			High:        &high,
+			Low:         &low,
+			Timestamp:   pd.Timestamp,
+		})
+	}
+
+	stored, err := h.store.CreatePrices(ctx, prices)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
+	return connect.NewResponse(&apiv1.FetchExternalPricesResponse{
+		PricesFetched: int32(len(pricesMap)),
+		PricesStored:  int32(stored),
+		Errors:        fetchErrs,
+	}), nil
 }
 
 // toConnectError converts store errors to Connect errors.
