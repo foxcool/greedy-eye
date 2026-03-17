@@ -83,8 +83,8 @@ func (h *Handler) UpdatePortfolio(ctx context.Context, req *connect.Request[apiv
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio with ID is required"))
 	}
 
-	var fields []string
-	if req.Msg.UpdateMask != nil {
+	fields := []string{"name", "description", "data"}
+	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
 		fields = req.Msg.UpdateMask.Paths
 	}
 
@@ -237,8 +237,8 @@ func (h *Handler) UpdateHolding(ctx context.Context, req *connect.Request[apiv1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("holding with ID is required"))
 	}
 
-	var fields []string
-	if req.Msg.UpdateMask != nil {
+	fields := []string{"amount", "decimals", "portfolio_id"}
+	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
 		fields = req.Msg.UpdateMask.Paths
 	}
 
@@ -325,8 +325,8 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account with ID is required"))
 	}
 
-	var fields []string
-	if req.Msg.UpdateMask != nil {
+	fields := []string{"name", "description", "type", "data"}
+	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
 		fields = req.Msg.UpdateMask.Paths
 	}
 
@@ -421,8 +421,8 @@ func (h *Handler) UpdateTransaction(ctx context.Context, req *connect.Request[ap
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("transaction with ID is required"))
 	}
 
-	var fields []string
-	if req.Msg.UpdateMask != nil {
+	fields := []string{"status", "data"}
+	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
 		fields = req.Msg.UpdateMask.Paths
 	}
 
