@@ -24,9 +24,11 @@ import (
 // Handler implements apiv1connect.PortfolioServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedPortfolioServiceHandler
-	store       Store
-	marketStore MarketDataStore // optional; nil if not configured
-	log         *slog.Logger
+	store        Store
+	marketStore  MarketDataStore  // optional; nil if not configured
+	assetStore   AssetStore       // optional; nil if not configured
+	walletSyncer WalletSyncer     // optional; nil if not configured
+	log          *slog.Logger
 }
 
 func NewHandler(store Store, log *slog.Logger) *Handler {
@@ -37,9 +39,35 @@ func NewHandler(store Store, log *slog.Logger) *Handler {
 func (h *Handler) WithMarketDataStore(ms MarketDataStore) *Handler {
 	return &Handler{
 		UnimplementedPortfolioServiceHandler: h.UnimplementedPortfolioServiceHandler,
-		store:       h.store,
-		marketStore: ms,
-		log:         h.log,
+		store:        h.store,
+		marketStore:  ms,
+		assetStore:   h.assetStore,
+		walletSyncer: h.walletSyncer,
+		log:          h.log,
+	}
+}
+
+// WithAssetStore returns a new Handler with the asset store injected.
+func (h *Handler) WithAssetStore(as AssetStore) *Handler {
+	return &Handler{
+		UnimplementedPortfolioServiceHandler: h.UnimplementedPortfolioServiceHandler,
+		store:        h.store,
+		marketStore:  h.marketStore,
+		assetStore:   as,
+		walletSyncer: h.walletSyncer,
+		log:          h.log,
+	}
+}
+
+// WithWalletSyncer returns a new Handler with the wallet syncer injected.
+func (h *Handler) WithWalletSyncer(ws WalletSyncer) *Handler {
+	return &Handler{
+		UnimplementedPortfolioServiceHandler: h.UnimplementedPortfolioServiceHandler,
+		store:        h.store,
+		marketStore:  h.marketStore,
+		assetStore:   h.assetStore,
+		walletSyncer: ws,
+		log:          h.log,
 	}
 }
 
@@ -384,6 +412,122 @@ func (h *Handler) ListAccounts(ctx context.Context, req *connect.Request[apiv1.L
 	return connect.NewResponse(&apiv1.ListAccountsResponse{
 		Accounts:      protoAccounts,
 		NextPageToken: nextPageToken,
+	}), nil
+}
+
+// --- Account sync ---
+
+// SyncAccount fetches external holdings for a wallet account and upserts assets+holdings.
+func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.SyncAccountRequest]) (*connect.Response[apiv1.SyncAccountResponse], error) {
+	if req.Msg.AccountId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account_id is required"))
+	}
+	if h.walletSyncer == nil || h.assetStore == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("wallet sync not configured"))
+	}
+
+	account, err := h.store.GetAccount(ctx, req.Msg.AccountId)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+	if account.Type != entity.AccountTypeWallet {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("only wallet accounts can be synced"))
+	}
+
+	address, ok := account.Data["address"]
+	if !ok || address == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account.data.address is required for wallet sync"))
+	}
+	chain := account.Data["chain"]
+	if chain == "" {
+		chain = "eth"
+	}
+
+	// Fetch balances from Moralis
+	balances, err := h.walletSyncer.GetWalletTokenBalances(ctx, chain, address)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("fetch wallet balances: %w", err))
+	}
+
+	// Build symbol → asset ID map from existing assets
+	existingAssets, err := h.assetStore.ListAssets(ctx, 1000)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+	symbolToAssetID := make(map[string]string, len(existingAssets))
+	for _, a := range existingAssets {
+		symbolToAssetID[a.Symbol] = a.ID
+	}
+
+	// Build existing holdings map for this account
+	existingHoldings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{AccountID: req.Msg.AccountId, PageSize: 1000})
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+	holdingByAssetID := make(map[string]*entity.Holding, len(existingHoldings))
+	for _, hld := range existingHoldings {
+		holdingByAssetID[hld.AssetID] = hld
+	}
+
+	var assetsUpserted, holdingsUpserted int32
+	var syncErrors []string
+
+	for _, bal := range balances {
+		symbol := bal.Symbol
+
+		// Ensure asset exists
+		assetID, exists := symbolToAssetID[symbol]
+		if !exists {
+			created, err := h.assetStore.CreateAsset(ctx, &entity.Asset{
+				Symbol: symbol,
+				Name:   bal.Name,
+				Type:   entity.AssetTypeCryptocurrency,
+			})
+			if err != nil {
+				syncErrors = append(syncErrors, fmt.Sprintf("create asset %s: %v", symbol, err))
+				continue
+			}
+			assetID = created.ID
+			symbolToAssetID[symbol] = assetID
+			assetsUpserted++
+		}
+
+		// Parse raw balance string to int64
+		var amount int64
+		if _, err := fmt.Sscanf(bal.Amount, "%d", &amount); err != nil {
+			syncErrors = append(syncErrors, fmt.Sprintf("parse amount for %s: %v", symbol, err))
+			continue
+		}
+
+		if existing, ok := holdingByAssetID[assetID]; ok {
+			// Update existing holding
+			existing.Amount = amount
+			existing.Decimals = uint32(bal.Decimals)
+			if _, err := h.store.UpdateHolding(ctx, existing, []string{"amount", "decimals"}); err != nil {
+				syncErrors = append(syncErrors, fmt.Sprintf("update holding %s: %v", symbol, err))
+				continue
+			}
+		} else {
+			// Create new holding
+			_, err := h.store.CreateHolding(ctx, &entity.Holding{
+				AssetID:   assetID,
+				AccountID: req.Msg.AccountId,
+				Amount:    amount,
+				Decimals:  uint32(bal.Decimals),
+			})
+			if err != nil {
+				syncErrors = append(syncErrors, fmt.Sprintf("create holding %s: %v", symbol, err))
+				continue
+			}
+		}
+		holdingsUpserted++
+	}
+
+	return connect.NewResponse(&apiv1.SyncAccountResponse{
+		AccountId:        req.Msg.AccountId,
+		AssetsUpserted:   assetsUpserted,
+		HoldingsUpserted: holdingsUpserted,
+		Errors:           syncErrors,
 	}), nil
 }
 

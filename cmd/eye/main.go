@@ -13,7 +13,10 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
+	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
 	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
+	"github.com/foxcool/greedy-eye/internal/entity"
+	svcmarketdata "github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
@@ -89,6 +92,13 @@ func run() error {
 		cgProvider = coingecko.NewProvider(cgClient)
 	}
 
+	// Initialize optional Moralis wallet syncer
+	var walletSyncer portfolio.WalletSyncer
+	if apiKey := config.Moralis.APIKey; apiKey != "" {
+		moralisClient := moralisadapter.NewClient(moralisadapter.Config{APIKey: apiKey})
+		walletSyncer = newMoralisWalletSyncer(moralisClient)
+	}
+
 	// Register Connect handlers
 	userStore := postgres.NewUserStore(pool)
 	interceptor := connect.WithInterceptors(
@@ -103,8 +113,11 @@ func run() error {
 			path, handler := apiv1connect.NewMarketDataServiceHandler(mdHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypePortfolio:
+			mdStore := postgres.NewMarketDataStore(pool)
 			pHandler := portfolio.NewHandler(postgres.NewPortfolioStore(pool), log).
-				WithMarketDataStore(postgres.NewMarketDataStore(pool))
+				WithMarketDataStore(mdStore).
+				WithAssetStore(newPostgresAssetStore(mdStore)).
+				WithWalletSyncer(walletSyncer)
 			path, handler := apiv1connect.NewPortfolioServiceHandler(pHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypeAutomation:
@@ -171,6 +184,50 @@ func createLogger(level string) *slog.Logger {
 		logLevel = slog.LevelInfo
 	}
 	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
+}
+
+// postgresAssetStore adapts postgres.MarketDataStore to portfolio.AssetStore.
+type postgresAssetStore struct {
+	inner *postgres.MarketDataStore
+}
+
+func newPostgresAssetStore(s *postgres.MarketDataStore) portfolio.AssetStore {
+	return &postgresAssetStore{inner: s}
+}
+
+func (a *postgresAssetStore) ListAssets(ctx context.Context, pageSize int) ([]*entity.Asset, error) {
+	assets, _, err := a.inner.ListAssets(ctx, svcmarketdata.ListAssetsOpts{PageSize: pageSize})
+	return assets, err
+}
+
+func (a *postgresAssetStore) CreateAsset(ctx context.Context, asset *entity.Asset) (*entity.Asset, error) {
+	return a.inner.CreateAsset(ctx, asset)
+}
+
+// moralisWalletSyncer adapts moralis.Client to portfolio.WalletSyncer.
+type moralisWalletSyncer struct {
+	client *moralisadapter.Client
+}
+
+func newMoralisWalletSyncer(c *moralisadapter.Client) portfolio.WalletSyncer {
+	return &moralisWalletSyncer{client: c}
+}
+
+func (m *moralisWalletSyncer) GetWalletTokenBalances(ctx context.Context, chain, address string) ([]portfolio.WalletBalance, error) {
+	balances, err := m.client.GetWalletTokenBalances(ctx, chain, address)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]portfolio.WalletBalance, 0, len(balances))
+	for _, b := range balances {
+		result = append(result, portfolio.WalletBalance{
+			Symbol:   b.Symbol,
+			Name:     b.Name,
+			Amount:   b.Balance,
+			Decimals: b.Decimals,
+		})
+	}
+	return result, nil
 }
 
 func loggingInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {

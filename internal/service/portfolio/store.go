@@ -12,6 +12,27 @@ type MarketDataStore interface {
 	GetLatestPrice(ctx context.Context, assetID, baseAssetID, sourceID string) (*entity.StoredPrice, error)
 }
 
+// AssetStore is a minimal interface for reading/writing assets.
+// Defined here (consumer) to avoid importing the marketdata package.
+type AssetStore interface {
+	ListAssets(ctx context.Context, pageSize int) ([]*entity.Asset, error)
+	CreateAsset(ctx context.Context, asset *entity.Asset) (*entity.Asset, error)
+}
+
+// WalletBalance represents a single token balance returned by a wallet syncer.
+type WalletBalance struct {
+	Symbol  string
+	Name    string
+	Amount  string // raw integer string (no decimals applied)
+	Decimals int
+}
+
+// WalletSyncer fetches token balances for a blockchain wallet.
+// Defined here (consumer) — concrete implementation lives in adapter/moralis.
+type WalletSyncer interface {
+	GetWalletTokenBalances(ctx context.Context, chain, address string) ([]WalletBalance, error)
+}
+
 // Store defines the data access contract for PortfolioService.
 type Store interface {
 	// Portfolios

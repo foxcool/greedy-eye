@@ -94,6 +94,9 @@ const (
 	// PortfolioServiceListTransactionsProcedure is the fully-qualified name of the PortfolioService's
 	// ListTransactions RPC.
 	PortfolioServiceListTransactionsProcedure = "/eye.v1.PortfolioService/ListTransactions"
+	// PortfolioServiceSyncAccountProcedure is the fully-qualified name of the PortfolioService's
+	// SyncAccount RPC.
+	PortfolioServiceSyncAccountProcedure = "/eye.v1.PortfolioService/SyncAccount"
 )
 
 // PortfolioServiceClient is a client for the eye.v1.PortfolioService service.
@@ -123,6 +126,8 @@ type PortfolioServiceClient interface {
 	GetTransaction(context.Context, *connect.Request[v1.GetTransactionRequest]) (*connect.Response[v1.Transaction], error)
 	UpdateTransaction(context.Context, *connect.Request[v1.UpdateTransactionRequest]) (*connect.Response[v1.Transaction], error)
 	ListTransactions(context.Context, *connect.Request[v1.ListTransactionsRequest]) (*connect.Response[v1.ListTransactionsResponse], error)
+	// --- Account sync ---
+	SyncAccount(context.Context, *connect.Request[v1.SyncAccountRequest]) (*connect.Response[v1.SyncAccountResponse], error)
 }
 
 // NewPortfolioServiceClient constructs a client for the eye.v1.PortfolioService service. By
@@ -256,6 +261,12 @@ func NewPortfolioServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(portfolioServiceMethods.ByName("ListTransactions")),
 			connect.WithClientOptions(opts...),
 		),
+		syncAccount: connect.NewClient[v1.SyncAccountRequest, v1.SyncAccountResponse](
+			httpClient,
+			baseURL+PortfolioServiceSyncAccountProcedure,
+			connect.WithSchema(portfolioServiceMethods.ByName("SyncAccount")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -281,6 +292,7 @@ type portfolioServiceClient struct {
 	getTransaction          *connect.Client[v1.GetTransactionRequest, v1.Transaction]
 	updateTransaction       *connect.Client[v1.UpdateTransactionRequest, v1.Transaction]
 	listTransactions        *connect.Client[v1.ListTransactionsRequest, v1.ListTransactionsResponse]
+	syncAccount             *connect.Client[v1.SyncAccountRequest, v1.SyncAccountResponse]
 }
 
 // CreatePortfolio calls eye.v1.PortfolioService.CreatePortfolio.
@@ -383,6 +395,11 @@ func (c *portfolioServiceClient) ListTransactions(ctx context.Context, req *conn
 	return c.listTransactions.CallUnary(ctx, req)
 }
 
+// SyncAccount calls eye.v1.PortfolioService.SyncAccount.
+func (c *portfolioServiceClient) SyncAccount(ctx context.Context, req *connect.Request[v1.SyncAccountRequest]) (*connect.Response[v1.SyncAccountResponse], error) {
+	return c.syncAccount.CallUnary(ctx, req)
+}
+
 // PortfolioServiceHandler is an implementation of the eye.v1.PortfolioService service.
 type PortfolioServiceHandler interface {
 	// --- Portfolio CRUD ---
@@ -410,6 +427,8 @@ type PortfolioServiceHandler interface {
 	GetTransaction(context.Context, *connect.Request[v1.GetTransactionRequest]) (*connect.Response[v1.Transaction], error)
 	UpdateTransaction(context.Context, *connect.Request[v1.UpdateTransactionRequest]) (*connect.Response[v1.Transaction], error)
 	ListTransactions(context.Context, *connect.Request[v1.ListTransactionsRequest]) (*connect.Response[v1.ListTransactionsResponse], error)
+	// --- Account sync ---
+	SyncAccount(context.Context, *connect.Request[v1.SyncAccountRequest]) (*connect.Response[v1.SyncAccountResponse], error)
 }
 
 // NewPortfolioServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -539,6 +558,12 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 		connect.WithSchema(portfolioServiceMethods.ByName("ListTransactions")),
 		connect.WithHandlerOptions(opts...),
 	)
+	portfolioServiceSyncAccountHandler := connect.NewUnaryHandler(
+		PortfolioServiceSyncAccountProcedure,
+		svc.SyncAccount,
+		connect.WithSchema(portfolioServiceMethods.ByName("SyncAccount")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/eye.v1.PortfolioService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PortfolioServiceCreatePortfolioProcedure:
@@ -581,6 +606,8 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 			portfolioServiceUpdateTransactionHandler.ServeHTTP(w, r)
 		case PortfolioServiceListTransactionsProcedure:
 			portfolioServiceListTransactionsHandler.ServeHTTP(w, r)
+		case PortfolioServiceSyncAccountProcedure:
+			portfolioServiceSyncAccountHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -668,4 +695,8 @@ func (UnimplementedPortfolioServiceHandler) UpdateTransaction(context.Context, *
 
 func (UnimplementedPortfolioServiceHandler) ListTransactions(context.Context, *connect.Request[v1.ListTransactionsRequest]) (*connect.Response[v1.ListTransactionsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.ListTransactions is not implemented"))
+}
+
+func (UnimplementedPortfolioServiceHandler) SyncAccount(context.Context, *connect.Request[v1.SyncAccountRequest]) (*connect.Response[v1.SyncAccountResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.SyncAccount is not implemented"))
 }
