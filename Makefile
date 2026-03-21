@@ -6,7 +6,8 @@ COMPOSE=docker compose -p eye --env-file deploy/.env
 COMPOSE_FILE=deploy/compose.yaml
 
 .PHONY: gen go-gen up debug down logs clean buf-gen docs-api \
-        test test-unit test-integration schema-apply schema-diff
+        test test-unit test-integration schema-apply schema-diff \
+        lint vet check
 
 # Generate all code
 gen: buf-gen go-gen
@@ -38,10 +39,10 @@ go-gen:
 # Run all tests
 test: test-unit test-integration
 
-# Run unit tests only
+# Run unit tests only (matches CI: race detector + coverage)
 test-unit:
 	@echo "Running unit tests..."
-	go test -v -race ./...
+	go test -v -race -coverprofile=coverage-unit.out -covermode=atomic ./...
 
 # Run integration tests (requires Atlas CLI and Docker)
 test-integration:
@@ -58,6 +59,17 @@ schema-apply:
 schema-diff:
 	@which atlas > /dev/null || (echo "Atlas CLI required: curl -sSf https://atlasgo.sh | sh" && exit 1)
 	atlas schema diff --env local
+
+# Run go vet (fast static analysis)
+vet:
+	go vet ./...
+
+# Run golangci-lint via Docker (matches CI)
+lint:
+	docker run --rm -v $(PWD):/app -w /app golangci/golangci-lint:latest golangci-lint run -v
+
+# Pre-commit check: vet + lint + unit tests
+check: vet lint test-unit
 
 # Run default/development profile services in detached mode
 up:
