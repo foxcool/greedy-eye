@@ -102,7 +102,7 @@ func run() error {
 		loggingInterceptor(log),
 	)
 	mdHandler := marketdata.NewHandler(postgres.NewMarketDataStore(pool), log).
-		WithProvider("coingecko", cgProvider)
+		WithProvider(coingecko.ProviderName, cgProvider)
 	for _, svc := range config.Services {
 		switch svc.Type {
 		case ServiceConfigTypeMarketData:

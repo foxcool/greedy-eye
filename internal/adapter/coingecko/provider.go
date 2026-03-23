@@ -10,7 +10,10 @@ import (
 )
 
 const (
-	sourceID    = "coingecko"
+	// ProviderName is the canonical source identifier for CoinGecko prices.
+	ProviderName = "coingecko"
+
+	sourceID    = ProviderName
 	baseAssetID = "usd"
 	priceDecimals = uint32(8)
 	divisor     = 1e8
