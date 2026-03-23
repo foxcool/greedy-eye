@@ -15,6 +15,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
 	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
 	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
+	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
@@ -84,17 +85,14 @@ func run() error {
 	})
 
 	// Initialize optional CoinGecko provider
-	var cgProvider marketdata.CoinGeckoProvider
-	if apiKey := config.CoinGecko.APIKey; true { // always init, key optional
-		cgClient := coingecko.NewClient(coingecko.Config{APIKey: apiKey, Pro: config.CoinGecko.Pro})
-		cgProvider = coingecko.NewProvider(cgClient)
-	}
+	cgClient := coingecko.NewClient(coingecko.Config{APIKey: config.CoinGecko.APIKey, Pro: config.CoinGecko.Pro})
+	cgProvider := coingecko.NewProvider(cgClient)
 
 	// Initialize optional Moralis wallet syncer
-	var walletSyncer portfolio.WalletSyncer
+	var walletSyncer entity.WalletSyncer
 	if apiKey := config.Moralis.APIKey; apiKey != "" {
 		moralisClient := moralisadapter.NewClient(moralisadapter.Config{APIKey: apiKey})
-		walletSyncer = newMoralisWalletSyncer(moralisClient)
+		walletSyncer = moralisadapter.NewWalletSyncer(moralisClient)
 	}
 
 	// Register Connect handlers
@@ -104,7 +102,7 @@ func run() error {
 		loggingInterceptor(log),
 	)
 	mdHandler := marketdata.NewHandler(postgres.NewMarketDataStore(pool), log).
-		WithCoinGecko(cgProvider)
+		WithProvider("coingecko", cgProvider)
 	for _, svc := range config.Services {
 		switch svc.Type {
 		case ServiceConfigTypeMarketData:
@@ -180,32 +178,6 @@ func createLogger(level string) *slog.Logger {
 		logLevel = slog.LevelInfo
 	}
 	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
-}
-
-// moralisWalletSyncer adapts moralis.Client to portfolio.WalletSyncer.
-type moralisWalletSyncer struct {
-	client *moralisadapter.Client
-}
-
-func newMoralisWalletSyncer(c *moralisadapter.Client) portfolio.WalletSyncer {
-	return &moralisWalletSyncer{client: c}
-}
-
-func (m *moralisWalletSyncer) GetWalletTokenBalances(ctx context.Context, chain, address string) ([]portfolio.WalletBalance, error) {
-	balances, err := m.client.GetWalletTokenBalances(ctx, chain, address)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]portfolio.WalletBalance, 0, len(balances))
-	for _, b := range balances {
-		result = append(result, portfolio.WalletBalance{
-			Symbol:   b.Symbol,
-			Name:     b.Name,
-			Amount:   b.Balance,
-			Decimals: b.Decimals,
-		})
-	}
-	return result, nil
 }
 
 func loggingInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {

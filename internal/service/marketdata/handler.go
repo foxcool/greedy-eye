@@ -5,8 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
-	"time"
+	"slices"
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
@@ -17,26 +16,17 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// CoinGeckoProvider is the interface for fetching external prices.
-// Defined here (consumer) per Go idiom — concrete type lives in adapter/coingecko.
-type CoinGeckoProvider interface {
-	GetMultiplePrices(ctx context.Context, assetIDs []string, currency string) (map[string]*CoinGeckoPriceData, error)
-}
-
-// CoinGeckoPriceData is the minimal subset of data we need from CoinGecko.
-type CoinGeckoPriceData struct {
-	AssetID  string
-	Price    float64
-	High24h  float64
-	Low24h   float64
-	Timestamp time.Time
+// PriceProvider fetches prices from an external source.
+// Each implementation encapsulates its own SourceID, BaseAssetID, Decimals, and Interval.
+type PriceProvider interface {
+	FetchPrices(ctx context.Context, assetIDs []string) ([]entity.StoredPrice, error)
 }
 
 // Handler implements apiv1connect.MarketDataServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedMarketDataServiceHandler
 	store     Store
-	coingecko CoinGeckoProvider // optional; nil if not configured
+	providers map[string]PriceProvider // keyed by source name e.g. "coingecko"
 	log       *slog.Logger
 }
 
@@ -44,12 +34,17 @@ func NewHandler(store Store, log *slog.Logger) *Handler {
 	return &Handler{store: store, log: log}
 }
 
-// WithCoinGecko returns a new Handler with the CoinGecko provider injected.
-func (h *Handler) WithCoinGecko(cg CoinGeckoProvider) *Handler {
+// WithProvider returns a new Handler with the named price provider added.
+func (h *Handler) WithProvider(name string, p PriceProvider) *Handler {
+	providers := make(map[string]PriceProvider, len(h.providers)+1)
+	for k, v := range h.providers {
+		providers[k] = v
+	}
+	providers[name] = p
 	return &Handler{
 		UnimplementedMarketDataServiceHandler: h.UnimplementedMarketDataServiceHandler,
 		store:     h.store,
-		coingecko: cg,
+		providers: providers,
 		log:       h.log,
 	}
 }
@@ -306,10 +301,11 @@ func (h *Handler) FindSimilarAssets(ctx context.Context, req *connect.Request[ap
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("FindSimilarAssets not implemented"))
 }
 
-// FetchExternalPrices fetches prices from CoinGecko and stores them.
+// FetchExternalPrices fetches prices from configured providers and stores them.
+// If source_ids is specified in the request, only those providers are called.
 func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[apiv1.FetchExternalPricesRequest]) (*connect.Response[apiv1.FetchExternalPricesResponse], error) {
-	if h.coingecko == nil {
-		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("CoinGecko provider not configured"))
+	if len(h.providers) == 0 {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("no price providers configured"))
 	}
 
 	assetIDs := req.Msg.AssetIds
@@ -330,48 +326,32 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		return connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil
 	}
 
-	pricesMap, err := h.coingecko.GetMultiplePrices(ctx, assetIDs, "usd")
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("fetch from CoinGecko: %w", err))
-	}
-
-	const decimals = 8
-	const divisor = 1e8
-
-	prices := make([]*entity.StoredPrice, 0, len(pricesMap))
+	var allPrices []*entity.StoredPrice
 	var fetchErrs []string
+	var totalFetched int
 
-	for _, assetID := range assetIDs {
-		pd, ok := pricesMap[assetID]
-		if !ok {
-			fetchErrs = append(fetchErrs, fmt.Sprintf("asset %q not returned by CoinGecko", assetID))
+	for name, provider := range h.providers {
+		if len(req.Msg.SourceIds) > 0 && !slices.Contains(req.Msg.SourceIds, name) {
 			continue
 		}
-
-		last := int64(math.Round(pd.Price * divisor))
-		high := int64(math.Round(pd.High24h * divisor))
-		low := int64(math.Round(pd.Low24h * divisor))
-
-		prices = append(prices, &entity.StoredPrice{
-			SourceID:    "coingecko",
-			AssetID:     assetID,
-			BaseAssetID: "usd",
-			Interval:    "latest",
-			Decimals:    decimals,
-			Last:        last,
-			High:        &high,
-			Low:         &low,
-			Timestamp:   pd.Timestamp,
-		})
+		results, err := provider.FetchPrices(ctx, assetIDs)
+		if err != nil {
+			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
+			continue
+		}
+		totalFetched += len(results)
+		for i := range results {
+			allPrices = append(allPrices, &results[i])
+		}
 	}
 
-	stored, err := h.store.CreatePrices(ctx, prices)
+	stored, err := h.store.CreatePrices(ctx, allPrices)
 	if err != nil {
 		return nil, toConnectError(err)
 	}
 
 	return connect.NewResponse(&apiv1.FetchExternalPricesResponse{
-		PricesFetched: int32(len(pricesMap)),
+		PricesFetched: int32(totalFetched),
 		PricesStored:  int32(stored),
 		Errors:        fetchErrs,
 	}), nil

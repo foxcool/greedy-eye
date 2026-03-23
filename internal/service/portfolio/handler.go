@@ -26,7 +26,7 @@ type Handler struct {
 	apiv1connect.UnimplementedPortfolioServiceHandler
 	store        Store
 	mdClient     MarketDataClient // optional; nil if not configured
-	walletSyncer WalletSyncer     // optional; nil if not configured
+	walletSyncer entity.WalletSyncer // optional; nil if not configured
 	log          *slog.Logger
 }
 
@@ -46,7 +46,7 @@ func (h *Handler) WithMarketDataClient(mc MarketDataClient) *Handler {
 }
 
 // WithWalletSyncer returns a new Handler with the wallet syncer injected.
-func (h *Handler) WithWalletSyncer(ws WalletSyncer) *Handler {
+func (h *Handler) WithWalletSyncer(ws entity.WalletSyncer) *Handler {
 	return &Handler{
 		UnimplementedPortfolioServiceHandler: h.UnimplementedPortfolioServiceHandler,
 		store:        h.store,

@@ -18,20 +18,6 @@ type MarketDataClient interface {
 	ListPriceHistory(context.Context, *connect.Request[apiv1.ListPriceHistoryRequest]) (*connect.Response[apiv1.ListPriceHistoryResponse], error)
 }
 
-// WalletBalance represents a single token balance returned by a wallet syncer.
-type WalletBalance struct {
-	Symbol  string
-	Name    string
-	Amount  string // raw integer string (no decimals applied)
-	Decimals int
-}
-
-// WalletSyncer fetches token balances for a blockchain wallet.
-// Defined here (consumer) — concrete implementation lives in adapter/moralis.
-type WalletSyncer interface {
-	GetWalletTokenBalances(ctx context.Context, chain, address string) ([]WalletBalance, error)
-}
-
 // Store defines the data access contract for PortfolioService.
 type Store interface {
 	// Portfolios
