@@ -2,24 +2,20 @@ package portfolio
 
 import (
 	"context"
-	"time"
 
+	"connectrpc.com/connect"
+	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
 )
 
-// MarketDataStore is a minimal read-only interface for fetching price data.
-// Defined here (consumer) so portfolio package does not import marketdata package.
-type MarketDataStore interface {
-	GetLatestPrice(ctx context.Context, assetID, baseAssetID, sourceID string) (*entity.StoredPrice, error)
-	// GetFirstPriceAfter returns the earliest stored price for assetID/baseAssetID at or after `after`.
-	GetFirstPriceAfter(ctx context.Context, assetID, baseAssetID string, after time.Time) (*entity.StoredPrice, error)
-}
-
-// AssetStore is a minimal interface for reading/writing assets.
-// Defined here (consumer) to avoid importing the marketdata package.
-type AssetStore interface {
-	ListAssets(ctx context.Context, pageSize int) ([]*entity.Asset, error)
-	CreateAsset(ctx context.Context, asset *entity.Asset) (*entity.Asset, error)
+// MarketDataClient is the subset of MarketDataServiceClient that Portfolio needs.
+// Satisfied by *marketdata.Handler (monolith) and apiv1connect.MarketDataServiceClient (microservice).
+// No adapters required — both implement these methods with identical signatures.
+type MarketDataClient interface {
+	CreateAsset(context.Context, *connect.Request[apiv1.CreateAssetRequest]) (*connect.Response[apiv1.Asset], error)
+	ListAssets(context.Context, *connect.Request[apiv1.ListAssetsRequest]) (*connect.Response[apiv1.ListAssetsResponse], error)
+	GetLatestPrice(context.Context, *connect.Request[apiv1.GetLatestPriceRequest]) (*connect.Response[apiv1.Price], error)
+	ListPriceHistory(context.Context, *connect.Request[apiv1.ListPriceHistoryRequest]) (*connect.Response[apiv1.ListPriceHistoryResponse], error)
 }
 
 // WalletBalance represents a single token balance returned by a wallet syncer.

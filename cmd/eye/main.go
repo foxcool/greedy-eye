@@ -15,7 +15,6 @@ import (
 	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
 	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
 	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
-	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
@@ -104,18 +103,16 @@ func run() error {
 		middleware.UserProvisioningInterceptor(userStore, log),
 		loggingInterceptor(log),
 	)
+	mdHandler := marketdata.NewHandler(postgres.NewMarketDataStore(pool), log).
+		WithCoinGecko(cgProvider)
 	for _, svc := range config.Services {
 		switch svc.Type {
 		case ServiceConfigTypeMarketData:
-			mdHandler := marketdata.NewHandler(postgres.NewMarketDataStore(pool), log).
-				WithCoinGecko(cgProvider)
 			path, handler := apiv1connect.NewMarketDataServiceHandler(mdHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypePortfolio:
-			mdStore := postgres.NewMarketDataStore(pool)
 			pHandler := portfolio.NewHandler(postgres.NewPortfolioStore(pool), log).
-				WithMarketDataStore(mdStore).
-				WithAssetStore(newPostgresAssetStore(mdStore)).
+				WithMarketDataClient(mdHandler).
 				WithWalletSyncer(walletSyncer)
 			path, handler := apiv1connect.NewPortfolioServiceHandler(pHandler, interceptor)
 			mux.Handle(path, handler)
@@ -183,24 +180,6 @@ func createLogger(level string) *slog.Logger {
 		logLevel = slog.LevelInfo
 	}
 	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
-}
-
-// postgresAssetStore adapts postgres.MarketDataStore to portfolio.AssetStore.
-type postgresAssetStore struct {
-	inner *postgres.MarketDataStore
-}
-
-func newPostgresAssetStore(s *postgres.MarketDataStore) portfolio.AssetStore {
-	return &postgresAssetStore{inner: s}
-}
-
-func (a *postgresAssetStore) ListAssets(ctx context.Context, pageSize int) ([]*entity.Asset, error) {
-	assets, _, err := a.inner.ListAssets(ctx, marketdata.ListAssetsOpts{PageSize: pageSize})
-	return assets, err
-}
-
-func (a *postgresAssetStore) CreateAsset(ctx context.Context, asset *entity.Asset) (*entity.Asset, error) {
-	return a.inner.CreateAsset(ctx, asset)
 }
 
 // moralisWalletSyncer adapts moralis.Client to portfolio.WalletSyncer.

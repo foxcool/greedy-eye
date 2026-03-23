@@ -25,8 +25,7 @@ import (
 type Handler struct {
 	apiv1connect.UnimplementedPortfolioServiceHandler
 	store        Store
-	marketStore  MarketDataStore  // optional; nil if not configured
-	assetStore   AssetStore       // optional; nil if not configured
+	mdClient     MarketDataClient // optional; nil if not configured
 	walletSyncer WalletSyncer     // optional; nil if not configured
 	log          *slog.Logger
 }
@@ -35,25 +34,12 @@ func NewHandler(store Store, log *slog.Logger) *Handler {
 	return &Handler{store: store, log: log}
 }
 
-// WithMarketDataStore returns a new Handler with the market data store injected.
-func (h *Handler) WithMarketDataStore(ms MarketDataStore) *Handler {
+// WithMarketDataClient returns a new Handler with the MarketData client injected.
+func (h *Handler) WithMarketDataClient(mc MarketDataClient) *Handler {
 	return &Handler{
 		UnimplementedPortfolioServiceHandler: h.UnimplementedPortfolioServiceHandler,
 		store:        h.store,
-		marketStore:  ms,
-		assetStore:   h.assetStore,
-		walletSyncer: h.walletSyncer,
-		log:          h.log,
-	}
-}
-
-// WithAssetStore returns a new Handler with the asset store injected.
-func (h *Handler) WithAssetStore(as AssetStore) *Handler {
-	return &Handler{
-		UnimplementedPortfolioServiceHandler: h.UnimplementedPortfolioServiceHandler,
-		store:        h.store,
-		marketStore:  h.marketStore,
-		assetStore:   as,
+		mdClient:     mc,
 		walletSyncer: h.walletSyncer,
 		log:          h.log,
 	}
@@ -64,8 +50,7 @@ func (h *Handler) WithWalletSyncer(ws WalletSyncer) *Handler {
 	return &Handler{
 		UnimplementedPortfolioServiceHandler: h.UnimplementedPortfolioServiceHandler,
 		store:        h.store,
-		marketStore:  h.marketStore,
-		assetStore:   h.assetStore,
+		mdClient:     h.mdClient,
 		walletSyncer: ws,
 		log:          h.log,
 	}
@@ -173,8 +158,8 @@ func (h *Handler) ListPortfolios(ctx context.Context, req *connect.Request[apiv1
 // --- Portfolio business logic (stubs) ---
 
 func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Request[apiv1.CalculatePortfolioValueRequest]) (*connect.Response[apiv1.PortfolioValueResponse], error) {
-	if h.marketStore == nil {
-		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("market data store not configured"))
+	if h.mdClient == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("market data client not configured"))
 	}
 	if req.Msg.PortfolioId == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio_id is required"))
@@ -194,13 +179,16 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 	total := decimal.Zero
 
 	for _, hld := range holdings {
-		price, err := h.marketStore.GetLatestPrice(ctx, hld.AssetID, quoteAssetID, "")
+		priceResp, err := h.mdClient.GetLatestPrice(ctx, connect.NewRequest(&apiv1.GetLatestPriceRequest{
+			AssetId: hld.AssetID, BaseAssetId: quoteAssetID,
+		}))
 		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
+			if connect.CodeOf(err) == connect.CodeNotFound {
 				continue // skip assets without price data
 			}
-			return nil, toConnectError(fmt.Errorf("get price for %s: %w", hld.AssetID, err))
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get price for %s: %w", hld.AssetID, err))
 		}
+		price := priceResp.Msg
 
 		// value = amount * price.Last / 10^(holding.Decimals + price.Decimals)
 		divisor := decimal.New(1, int32(hld.Decimals)+int32(price.Decimals))
@@ -229,8 +217,8 @@ var _ = math.Round
 // GetPortfolioPerformance calculates return over a time range using stored price history.
 // If no `from` is set, defaults to 30 days ago. Requires marketStore.
 func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Request[apiv1.GetPortfolioPerformanceRequest]) (*connect.Response[apiv1.PortfolioPerformanceResponse], error) {
-	if h.marketStore == nil {
-		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("market data store not configured"))
+	if h.mdClient == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("market data client not configured"))
 	}
 	if req.Msg.PortfolioId == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio_id is required"))
@@ -255,13 +243,16 @@ func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Requ
 
 	for _, hld := range holdings {
 		// Current price
-		latestPrice, err := h.marketStore.GetLatestPrice(ctx, hld.AssetID, quoteAssetID, "")
+		latestResp, err := h.mdClient.GetLatestPrice(ctx, connect.NewRequest(&apiv1.GetLatestPriceRequest{
+			AssetId: hld.AssetID, BaseAssetId: quoteAssetID,
+		}))
 		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
+			if connect.CodeOf(err) == connect.CodeNotFound {
 				continue
 			}
-			return nil, toConnectError(err)
+			return nil, err
 		}
+		latestPrice := latestResp.Msg
 
 		divisorCurrent := decimal.New(1, int32(hld.Decimals)+int32(latestPrice.Decimals))
 		holdingCurrent := decimal.New(hld.Amount, 0).
@@ -270,15 +261,21 @@ func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Requ
 		currentValue = currentValue.Add(holdingCurrent)
 
 		// Historical price (first available at or after `from`)
-		fromPrice, err := h.marketStore.GetFirstPriceAfter(ctx, hld.AssetID, quoteAssetID, from)
+		pageSize := int32(1)
+		histResp, err := h.mdClient.ListPriceHistory(ctx, connect.NewRequest(&apiv1.ListPriceHistoryRequest{
+			AssetId: hld.AssetID, BaseAssetId: quoteAssetID,
+			From:     timestamppb.New(from),
+			PageSize: &pageSize,
+		}))
 		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				// No historical data — use current price as baseline (0% return for this asset)
-				fromValue = fromValue.Add(holdingCurrent)
-				continue
-			}
-			return nil, toConnectError(err)
+			return nil, err
 		}
+		if len(histResp.Msg.Prices) == 0 {
+			// No historical data — use current price as baseline (0% return for this asset)
+			fromValue = fromValue.Add(holdingCurrent)
+			continue
+		}
+		fromPrice := histResp.Msg.Prices[0]
 
 		divisorFrom := decimal.New(1, int32(hld.Decimals)+int32(fromPrice.Decimals))
 		holdingFrom := decimal.New(hld.Amount, 0).
@@ -490,7 +487,7 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	if req.Msg.AccountId == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account_id is required"))
 	}
-	if h.walletSyncer == nil || h.assetStore == nil {
+	if h.walletSyncer == nil || h.mdClient == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("wallet sync not configured"))
 	}
 
@@ -518,13 +515,18 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	}
 
 	// Build symbol → asset ID map from existing assets
-	existingAssets, err := h.assetStore.ListAssets(ctx, 1000)
+	pageSize := int32(1000)
+	listResp, err := h.mdClient.ListAssets(ctx, connect.NewRequest(&apiv1.ListAssetsRequest{
+		PageSize: &pageSize,
+	}))
 	if err != nil {
-		return nil, toConnectError(err)
+		return nil, err
 	}
-	symbolToAssetID := make(map[string]string, len(existingAssets))
-	for _, a := range existingAssets {
-		symbolToAssetID[a.Symbol] = a.ID
+	symbolToAssetID := make(map[string]string, len(listResp.Msg.Assets))
+	for _, a := range listResp.Msg.Assets {
+		if a.Symbol != nil {
+			symbolToAssetID[*a.Symbol] = a.Id
+		}
 	}
 
 	// Build existing holdings map for this account
@@ -546,16 +548,18 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 		// Ensure asset exists
 		assetID, exists := symbolToAssetID[symbol]
 		if !exists {
-			created, err := h.assetStore.CreateAsset(ctx, &entity.Asset{
-				Symbol: symbol,
-				Name:   bal.Name,
-				Type:   entity.AssetTypeCryptocurrency,
-			})
+			createResp, err := h.mdClient.CreateAsset(ctx, connect.NewRequest(&apiv1.CreateAssetRequest{
+				Asset: &apiv1.Asset{
+					Name:   bal.Name,
+					Symbol: &symbol,
+					Type:   apiv1.AssetType_ASSET_TYPE_CRYPTOCURRENCY,
+				},
+			}))
 			if err != nil {
 				syncErrors = append(syncErrors, fmt.Sprintf("create asset %s: %v", symbol, err))
 				continue
 			}
-			assetID = created.ID
+			assetID = createResp.Msg.Id
 			symbolToAssetID[symbol] = assetID
 			assetsUpserted++
 		}
