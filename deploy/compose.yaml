@@ -33,11 +33,13 @@ services:
       EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
     labels:
       - "traefik.enable=true"
+      # Connect-RPC / gRPC routes
       - "traefik.http.routers.eye-dev.rule=Host(`${EYE_DOMAIN}`) && PathPrefix(`/eye.v1.`)"
       - "traefik.http.routers.eye-dev.entrypoints=web,websecure"
       - "traefik.http.routers.eye-dev.tls=true"
       - "traefik.http.routers.eye-dev.priority=30"
       - "traefik.http.routers.eye-dev.middlewares=psina-auth@docker"
+      # Auth middleware
       - "traefik.http.middlewares.psina-auth.forwardAuth.address=http://psina-dev:8080/verify"
       - "traefik.http.middlewares.psina-auth.forwardAuth.authRequestHeaders=Authorization,Cookie"
       - "traefik.http.middlewares.psina-auth.forwardAuth.authResponseHeaders=X-User-Id,X-User-Email"
@@ -74,11 +76,13 @@ services:
       EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
     labels:
       - "traefik.enable=true"
+      # Connect-RPC / gRPC routes
       - "traefik.http.routers.eye-debug.rule=Host(`${EYE_DOMAIN}`) && PathPrefix(`/eye.v1.`)"
       - "traefik.http.routers.eye-debug.entrypoints=web,websecure"
       - "traefik.http.routers.eye-debug.tls=true"
       - "traefik.http.routers.eye-debug.priority=30"
       - "traefik.http.routers.eye-debug.middlewares=psina-auth@docker"
+      # Auth middleware
       - "traefik.http.middlewares.psina-auth.forwardAuth.address=http://psina-dev:8080/verify"
       - "traefik.http.middlewares.psina-auth.forwardAuth.authRequestHeaders=Authorization,Cookie"
       - "traefik.http.middlewares.psina-auth.forwardAuth.authResponseHeaders=X-User-Id,X-User-Email"

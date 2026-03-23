@@ -4,12 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"math"
+	"time"
 
 	"connectrpc.com/connect"
+	"github.com/shopspring/decimal"
 	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
 	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -19,12 +24,36 @@ import (
 // Handler implements apiv1connect.PortfolioServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedPortfolioServiceHandler
-	store Store
-	log   *slog.Logger
+	store        Store
+	mdClient     MarketDataClient // optional; nil if not configured
+	walletSyncer entity.WalletSyncer // optional; nil if not configured
+	log          *slog.Logger
 }
 
 func NewHandler(store Store, log *slog.Logger) *Handler {
 	return &Handler{store: store, log: log}
+}
+
+// WithMarketDataClient returns a new Handler with the MarketData client injected.
+func (h *Handler) WithMarketDataClient(mc MarketDataClient) *Handler {
+	return &Handler{
+		UnimplementedPortfolioServiceHandler: h.UnimplementedPortfolioServiceHandler,
+		store:        h.store,
+		mdClient:     mc,
+		walletSyncer: h.walletSyncer,
+		log:          h.log,
+	}
+}
+
+// WithWalletSyncer returns a new Handler with the wallet syncer injected.
+func (h *Handler) WithWalletSyncer(ws entity.WalletSyncer) *Handler {
+	return &Handler{
+		UnimplementedPortfolioServiceHandler: h.UnimplementedPortfolioServiceHandler,
+		store:        h.store,
+		mdClient:     h.mdClient,
+		walletSyncer: ws,
+		log:          h.log,
+	}
 }
 
 // --- Portfolio CRUD ---
@@ -34,7 +63,13 @@ func (h *Handler) CreatePortfolio(ctx context.Context, req *connect.Request[apiv
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio is required"))
 	}
 
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+	}
+
 	p := portfolioFromProto(req.Msg.Portfolio)
+	p.UserID = user.ID
 	created, err := h.store.CreatePortfolio(ctx, p)
 	if err != nil {
 		return nil, toConnectError(err)
@@ -61,8 +96,8 @@ func (h *Handler) UpdatePortfolio(ctx context.Context, req *connect.Request[apiv
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio with ID is required"))
 	}
 
-	var fields []string
-	if req.Msg.UpdateMask != nil {
+	fields := []string{"name", "description", "data"}
+	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
 		fields = req.Msg.UpdateMask.Paths
 	}
 
@@ -88,9 +123,14 @@ func (h *Handler) DeletePortfolio(ctx context.Context, req *connect.Request[apiv
 }
 
 func (h *Handler) ListPortfolios(ctx context.Context, req *connect.Request[apiv1.ListPortfoliosRequest]) (*connect.Response[apiv1.ListPortfoliosResponse], error) {
-	opts := ListPortfoliosOpts{}
-	if req.Msg.UserId != nil {
-		opts.UserID = *req.Msg.UserId
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+	}
+
+	opts := ListPortfoliosOpts{UserID: user.ID}
+	if req.Msg.UserId != nil && *req.Msg.UserId != "" {
+		opts.UserID = *req.Msg.UserId // allow explicit override (admin)
 	}
 	if req.Msg.PageSize != nil {
 		opts.PageSize = int(*req.Msg.PageSize)
@@ -118,13 +158,142 @@ func (h *Handler) ListPortfolios(ctx context.Context, req *connect.Request[apiv1
 // --- Portfolio business logic (stubs) ---
 
 func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Request[apiv1.CalculatePortfolioValueRequest]) (*connect.Response[apiv1.PortfolioValueResponse], error) {
-	// TODO: Implement with MarketDataStore for prices
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("CalculatePortfolioValue not implemented"))
+	if h.mdClient == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("market data client not configured"))
+	}
+	if req.Msg.PortfolioId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio_id is required"))
+	}
+
+	quoteAssetID := req.Msg.QuoteAssetId
+	if quoteAssetID == "" {
+		quoteAssetID = "usd"
+	}
+
+	holdings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{PortfolioID: req.Msg.PortfolioId, PageSize: 1000})
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
+	const resultDecimals = 2
+	total := decimal.Zero
+
+	for _, hld := range holdings {
+		priceResp, err := h.mdClient.GetLatestPrice(ctx, connect.NewRequest(&apiv1.GetLatestPriceRequest{
+			AssetId: hld.AssetID, BaseAssetId: quoteAssetID,
+		}))
+		if err != nil {
+			if connect.CodeOf(err) == connect.CodeNotFound {
+				continue // skip assets without price data
+			}
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get price for %s: %w", hld.AssetID, err))
+		}
+		price := priceResp.Msg
+
+		// value = amount * price.Last / 10^(holding.Decimals + price.Decimals)
+		divisor := decimal.New(1, int32(hld.Decimals)+int32(price.Decimals))
+		holdingValue := decimal.New(hld.Amount, 0).
+			Mul(decimal.New(price.Last, 0)).
+			Div(divisor)
+
+		total = total.Add(holdingValue)
+	}
+
+	// Convert to result decimals (e.g., 2 for USD cents)
+	resultAmount := total.Mul(decimal.New(1, int32(resultDecimals))).IntPart()
+
+	return connect.NewResponse(&apiv1.PortfolioValueResponse{
+		PortfolioId:      req.Msg.PortfolioId,
+		QuoteAssetId:     quoteAssetID,
+		TotalValueAmount: resultAmount,
+		Decimals:         resultDecimals,
+		CalculationTime:  timestamppb.New(time.Now()),
+	}), nil
 }
 
+// Ensure math is referenced (used for potential rounding in future).
+var _ = math.Round
+
+// GetPortfolioPerformance calculates return over a time range using stored price history.
+// If no `from` is set, defaults to 30 days ago. Requires marketStore.
 func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Request[apiv1.GetPortfolioPerformanceRequest]) (*connect.Response[apiv1.PortfolioPerformanceResponse], error) {
-	// TODO: Implement
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("GetPortfolioPerformance not implemented"))
+	if h.mdClient == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("market data client not configured"))
+	}
+	if req.Msg.PortfolioId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio_id is required"))
+	}
+
+	from := time.Now().AddDate(0, 0, -30) // default: 30 days
+	if req.Msg.From != nil {
+		from = req.Msg.From.AsTime()
+	}
+
+	quoteAssetID := "usd"
+	if req.Msg.BenchmarkAssetId != "" {
+		quoteAssetID = req.Msg.BenchmarkAssetId
+	}
+
+	holdings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{PortfolioID: req.Msg.PortfolioId, PageSize: 1000})
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
+	var currentValue, fromValue decimal.Decimal
+
+	for _, hld := range holdings {
+		// Current price
+		latestResp, err := h.mdClient.GetLatestPrice(ctx, connect.NewRequest(&apiv1.GetLatestPriceRequest{
+			AssetId: hld.AssetID, BaseAssetId: quoteAssetID,
+		}))
+		if err != nil {
+			if connect.CodeOf(err) == connect.CodeNotFound {
+				continue
+			}
+			return nil, err
+		}
+		latestPrice := latestResp.Msg
+
+		divisorCurrent := decimal.New(1, int32(hld.Decimals)+int32(latestPrice.Decimals))
+		holdingCurrent := decimal.New(hld.Amount, 0).
+			Mul(decimal.New(latestPrice.Last, 0)).
+			Div(divisorCurrent)
+		currentValue = currentValue.Add(holdingCurrent)
+
+		// Historical price (first available at or after `from`)
+		pageSize := int32(1)
+		histResp, err := h.mdClient.ListPriceHistory(ctx, connect.NewRequest(&apiv1.ListPriceHistoryRequest{
+			AssetId: hld.AssetID, BaseAssetId: quoteAssetID,
+			From:     timestamppb.New(from),
+			PageSize: &pageSize,
+		}))
+		if err != nil {
+			return nil, err
+		}
+		if len(histResp.Msg.Prices) == 0 {
+			// No historical data — use current price as baseline (0% return for this asset)
+			fromValue = fromValue.Add(holdingCurrent)
+			continue
+		}
+		fromPrice := histResp.Msg.Prices[0]
+
+		divisorFrom := decimal.New(1, int32(hld.Decimals)+int32(fromPrice.Decimals))
+		holdingFrom := decimal.New(hld.Amount, 0).
+			Mul(decimal.New(fromPrice.Last, 0)).
+			Div(divisorFrom)
+		fromValue = fromValue.Add(holdingFrom)
+	}
+
+	var returnPct float64
+	if !fromValue.IsZero() {
+		returnPct, _ = currentValue.Sub(fromValue).Div(fromValue).Mul(decimal.NewFromInt(100)).Float64()
+	}
+
+	return connect.NewResponse(&apiv1.PortfolioPerformanceResponse{
+		PortfolioId:      req.Msg.PortfolioId,
+		ReturnPercentage: returnPct,
+		// Volatility and SharpeRatio require daily price series — not yet implemented
+	}), nil
 }
 
 // --- Holding CRUD ---
@@ -161,8 +330,8 @@ func (h *Handler) UpdateHolding(ctx context.Context, req *connect.Request[apiv1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("holding with ID is required"))
 	}
 
-	var fields []string
-	if req.Msg.UpdateMask != nil {
+	fields := []string{"amount", "decimals", "portfolio_id"}
+	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
 		fields = req.Msg.UpdateMask.Paths
 	}
 
@@ -216,7 +385,13 @@ func (h *Handler) CreateAccount(ctx context.Context, req *connect.Request[apiv1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account is required"))
 	}
 
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+	}
+
 	account := accountFromProto(req.Msg.Account)
+	account.UserID = user.ID
 	created, err := h.store.CreateAccount(ctx, account)
 	if err != nil {
 		return nil, toConnectError(err)
@@ -243,8 +418,8 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account with ID is required"))
 	}
 
-	var fields []string
-	if req.Msg.UpdateMask != nil {
+	fields := []string{"name", "description", "type", "data"}
+	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
 		fields = req.Msg.UpdateMask.Paths
 	}
 
@@ -270,9 +445,14 @@ func (h *Handler) DeleteAccount(ctx context.Context, req *connect.Request[apiv1.
 }
 
 func (h *Handler) ListAccounts(ctx context.Context, req *connect.Request[apiv1.ListAccountsRequest]) (*connect.Response[apiv1.ListAccountsResponse], error) {
-	opts := ListAccountsOpts{}
-	if req.Msg.UserId != nil {
-		opts.UserID = *req.Msg.UserId
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+	}
+
+	opts := ListAccountsOpts{UserID: user.ID}
+	if req.Msg.UserId != nil && *req.Msg.UserId != "" {
+		opts.UserID = *req.Msg.UserId // allow explicit override (admin)
 	}
 	if req.Msg.Type != nil {
 		opts.Type = entity.AccountType(*req.Msg.Type)
@@ -297,6 +477,129 @@ func (h *Handler) ListAccounts(ctx context.Context, req *connect.Request[apiv1.L
 	return connect.NewResponse(&apiv1.ListAccountsResponse{
 		Accounts:      protoAccounts,
 		NextPageToken: nextPageToken,
+	}), nil
+}
+
+// --- Account sync ---
+
+// SyncAccount fetches external holdings for a wallet account and upserts assets+holdings.
+func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.SyncAccountRequest]) (*connect.Response[apiv1.SyncAccountResponse], error) {
+	if req.Msg.AccountId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account_id is required"))
+	}
+	if h.walletSyncer == nil || h.mdClient == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("wallet sync not configured"))
+	}
+
+	account, err := h.store.GetAccount(ctx, req.Msg.AccountId)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+	if account.Type != entity.AccountTypeWallet {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("only wallet accounts can be synced"))
+	}
+
+	address, ok := account.Data["address"]
+	if !ok || address == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account.data.address is required for wallet sync"))
+	}
+	chain := account.Data["chain"]
+	if chain == "" {
+		chain = "eth"
+	}
+
+	// Fetch balances from Moralis
+	balances, err := h.walletSyncer.GetWalletTokenBalances(ctx, chain, address)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("fetch wallet balances: %w", err))
+	}
+
+	// Build symbol → asset ID map from existing assets
+	pageSize := int32(1000)
+	listResp, err := h.mdClient.ListAssets(ctx, connect.NewRequest(&apiv1.ListAssetsRequest{
+		PageSize: &pageSize,
+	}))
+	if err != nil {
+		return nil, err
+	}
+	symbolToAssetID := make(map[string]string, len(listResp.Msg.Assets))
+	for _, a := range listResp.Msg.Assets {
+		if a.Symbol != nil {
+			symbolToAssetID[*a.Symbol] = a.Id
+		}
+	}
+
+	// Build existing holdings map for this account
+	existingHoldings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{AccountID: req.Msg.AccountId, PageSize: 1000})
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+	holdingByAssetID := make(map[string]*entity.Holding, len(existingHoldings))
+	for _, hld := range existingHoldings {
+		holdingByAssetID[hld.AssetID] = hld
+	}
+
+	var assetsUpserted, holdingsUpserted int32
+	var syncErrors []string
+
+	for _, bal := range balances {
+		symbol := bal.Symbol
+
+		// Ensure asset exists
+		assetID, exists := symbolToAssetID[symbol]
+		if !exists {
+			createResp, err := h.mdClient.CreateAsset(ctx, connect.NewRequest(&apiv1.CreateAssetRequest{
+				Asset: &apiv1.Asset{
+					Name:   bal.Name,
+					Symbol: &symbol,
+					Type:   apiv1.AssetType_ASSET_TYPE_CRYPTOCURRENCY,
+				},
+			}))
+			if err != nil {
+				syncErrors = append(syncErrors, fmt.Sprintf("create asset %s: %v", symbol, err))
+				continue
+			}
+			assetID = createResp.Msg.Id
+			symbolToAssetID[symbol] = assetID
+			assetsUpserted++
+		}
+
+		// Parse raw balance string to int64
+		var amount int64
+		if _, err := fmt.Sscanf(bal.Amount, "%d", &amount); err != nil {
+			syncErrors = append(syncErrors, fmt.Sprintf("parse amount for %s: %v", symbol, err))
+			continue
+		}
+
+		if existing, ok := holdingByAssetID[assetID]; ok {
+			// Update existing holding
+			existing.Amount = amount
+			existing.Decimals = uint32(bal.Decimals)
+			if _, err := h.store.UpdateHolding(ctx, existing, []string{"amount", "decimals"}); err != nil {
+				syncErrors = append(syncErrors, fmt.Sprintf("update holding %s: %v", symbol, err))
+				continue
+			}
+		} else {
+			// Create new holding
+			_, err := h.store.CreateHolding(ctx, &entity.Holding{
+				AssetID:   assetID,
+				AccountID: req.Msg.AccountId,
+				Amount:    amount,
+				Decimals:  uint32(bal.Decimals),
+			})
+			if err != nil {
+				syncErrors = append(syncErrors, fmt.Sprintf("create holding %s: %v", symbol, err))
+				continue
+			}
+		}
+		holdingsUpserted++
+	}
+
+	return connect.NewResponse(&apiv1.SyncAccountResponse{
+		AccountId:        req.Msg.AccountId,
+		AssetsUpserted:   assetsUpserted,
+		HoldingsUpserted: holdingsUpserted,
+		Errors:           syncErrors,
 	}), nil
 }
 
@@ -334,8 +637,8 @@ func (h *Handler) UpdateTransaction(ctx context.Context, req *connect.Request[ap
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("transaction with ID is required"))
 	}
 
-	var fields []string
-	if req.Msg.UpdateMask != nil {
+	fields := []string{"status", "data"}
+	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
 		fields = req.Msg.UpdateMask.Paths
 	}
 

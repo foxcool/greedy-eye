@@ -226,6 +226,13 @@ service PortfolioService {
       get: "/api/v1/transactions"
     };
   }
+
+  // --- Account sync ---
+  rpc SyncAccount(SyncAccountRequest) returns (SyncAccountResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/accounts/{account_id}/sync"
+    };
+  }
 }
 
 // =============================================================================
@@ -381,4 +388,18 @@ message ListTransactionsRequest {
 message ListTransactionsResponse {
   repeated Transaction transactions = 1;
   string next_page_token = 2;
+}
+
+// SYNC ACCOUNT MESSAGES
+// =============================================================================
+
+message SyncAccountRequest {
+  string account_id = 1;
+}
+
+message SyncAccountResponse {
+  string account_id = 1;
+  int32 assets_upserted = 2;
+  int32 holdings_upserted = 3;
+  repeated string errors = 4;
 }

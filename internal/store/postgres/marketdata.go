@@ -418,6 +418,45 @@ func (s *MarketDataStore) GetLatestPrice(ctx context.Context, assetID, baseAsset
 	return &price, nil
 }
 
+// GetFirstPriceAfter returns the earliest stored price for assetID/baseAssetID at or after `after`.
+func (s *MarketDataStore) GetFirstPriceAfter(ctx context.Context, assetID, baseAssetID string, after time.Time) (*entity.StoredPrice, error) {
+	if assetID == "" || baseAssetID == "" {
+		return nil, fmt.Errorf("%w: asset_id and base_asset_id are required", store.ErrInvalidArgument)
+	}
+
+	query := `
+		SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, timestamp
+		FROM prices
+		WHERE asset_id = $1 AND base_asset_id = $2 AND timestamp >= $3
+		ORDER BY timestamp ASC
+		LIMIT 1`
+
+	var price entity.StoredPrice
+	err := s.pool.QueryRow(ctx, query, assetID, baseAssetID, after).Scan(
+		&price.ID,
+		&price.SourceID,
+		&price.AssetID,
+		&price.BaseAssetID,
+		&price.Interval,
+		&price.Decimals,
+		&price.Last,
+		&price.Open,
+		&price.High,
+		&price.Low,
+		&price.Close,
+		&price.Volume,
+		&price.Timestamp,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: price not found after %s", store.ErrNotFound, after)
+		}
+		return nil, fmt.Errorf("failed to get first price after: %w", err)
+	}
+
+	return &price, nil
+}
+
 // ListPriceHistory returns prices for an asset/base in a time range with pagination.
 func (s *MarketDataStore) ListPriceHistory(ctx context.Context, opts marketdata.ListPriceHistoryOpts) ([]*entity.StoredPrice, string, error) {
 	if opts.AssetID == "" || opts.BaseAssetID == "" {

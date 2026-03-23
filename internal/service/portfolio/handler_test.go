@@ -11,6 +11,7 @@ import (
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -163,16 +164,34 @@ func (m *mockStore) ListTransactions(ctx context.Context, opts ListTransactionsO
 	return nil, args.String(1), args.Error(2)
 }
 
+// Fixed UUID v7 constants for use across unit tests.
+// Using real UUID format so tests remain valid if UUID validation moves to handler layer.
+const (
+	testUserID      = "01926d35-6a1e-7001-8001-000000000001"
+	testUserID2     = "01926d35-6a1e-7001-8001-000000000002"
+	testPortfolioID = "01926d35-6a1e-7002-8002-000000000001"
+	testPortfolioID2 = "01926d35-6a1e-7002-8002-000000000002"
+	testAccountID   = "01926d35-6a1e-7003-8003-000000000001"
+	testHoldingID   = "01926d35-6a1e-7004-8004-000000000001"
+	testHoldingID2  = "01926d35-6a1e-7004-8004-000000000002"
+	testAssetID     = "01926d35-6a1e-7005-8005-000000000001"
+	testTxID        = "01926d35-6a1e-7006-8006-000000000001"
+)
+
 // --- Helpers ---
 
 func newHandler(s Store) *Handler {
 	return NewHandler(s, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
 }
 
+func ctxWithUser(userID string) context.Context {
+	return middleware.ContextWithUser(context.Background(), &entity.User{ID: userID})
+}
+
 func testPortfolio(id string) *entity.Portfolio {
 	return &entity.Portfolio{
 		ID:        id,
-		UserID:    "user-1",
+		UserID:    testUserID,
 		Name:      "My Portfolio",
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -182,7 +201,7 @@ func testPortfolio(id string) *entity.Portfolio {
 func testAccount(id string) *entity.Account {
 	return &entity.Account{
 		ID:        id,
-		UserID:    "user-1",
+		UserID:    testUserID,
 		Name:      "Binance",
 		Type:      entity.AccountTypeExchange,
 		CreatedAt: time.Now(),
@@ -195,8 +214,8 @@ func testHolding(id string) *entity.Holding {
 		ID:        id,
 		Amount:    100000,
 		Decimals:  8,
-		AssetID:   "btc",
-		AccountID: "acc-1",
+		AssetID:   testAssetID,
+		AccountID: testAccountID,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
@@ -216,8 +235,8 @@ func TestCreatePortfolio_StoreError(t *testing.T) {
 	s.On("CreatePortfolio", mock.Anything, mock.Anything).Return(nil, errors.New("db error"))
 	h := newHandler(s)
 
-	_, err := h.CreatePortfolio(context.Background(), connect.NewRequest(&apiv1.CreatePortfolioRequest{
-		Portfolio: &apiv1.Portfolio{Name: "Test", UserId: "user-1"},
+	_, err := h.CreatePortfolio(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreatePortfolioRequest{
+		Portfolio: &apiv1.Portfolio{Name: "Test", UserId: testUserID},
 	}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeInternal, connect.CodeOf(err))
@@ -225,14 +244,14 @@ func TestCreatePortfolio_StoreError(t *testing.T) {
 
 func TestCreatePortfolio_OK(t *testing.T) {
 	s := &mockStore{}
-	s.On("CreatePortfolio", mock.Anything, mock.Anything).Return(testPortfolio("p-1"), nil)
+	s.On("CreatePortfolio", mock.Anything, mock.Anything).Return(testPortfolio(testPortfolioID), nil)
 	h := newHandler(s)
 
-	resp, err := h.CreatePortfolio(context.Background(), connect.NewRequest(&apiv1.CreatePortfolioRequest{
-		Portfolio: &apiv1.Portfolio{Name: "My Portfolio", UserId: "user-1"},
+	resp, err := h.CreatePortfolio(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreatePortfolioRequest{
+		Portfolio: &apiv1.Portfolio{Name: "My Portfolio", UserId: testUserID},
 	}))
 	require.NoError(t, err)
-	assert.Equal(t, "p-1", resp.Msg.Id)
+	assert.Equal(t, testPortfolioID, resp.Msg.Id)
 	assert.Equal(t, "My Portfolio", resp.Msg.Name)
 }
 
@@ -245,22 +264,22 @@ func TestGetPortfolio_MissingID(t *testing.T) {
 
 func TestGetPortfolio_NotFound(t *testing.T) {
 	s := &mockStore{}
-	s.On("GetPortfolio", mock.Anything, "p-x").Return(nil, store.ErrNotFound)
+	s.On("GetPortfolio", mock.Anything, testPortfolioID2).Return(nil, store.ErrNotFound)
 	h := newHandler(s)
 
-	_, err := h.GetPortfolio(context.Background(), connect.NewRequest(&apiv1.GetPortfolioRequest{Id: "p-x"}))
+	_, err := h.GetPortfolio(context.Background(), connect.NewRequest(&apiv1.GetPortfolioRequest{Id: testPortfolioID2}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 }
 
 func TestGetPortfolio_OK(t *testing.T) {
 	s := &mockStore{}
-	s.On("GetPortfolio", mock.Anything, "p-1").Return(testPortfolio("p-1"), nil)
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
 	h := newHandler(s)
 
-	resp, err := h.GetPortfolio(context.Background(), connect.NewRequest(&apiv1.GetPortfolioRequest{Id: "p-1"}))
+	resp, err := h.GetPortfolio(context.Background(), connect.NewRequest(&apiv1.GetPortfolioRequest{Id: testPortfolioID}))
 	require.NoError(t, err)
-	assert.Equal(t, "p-1", resp.Msg.Id)
+	assert.Equal(t, testPortfolioID, resp.Msg.Id)
 }
 
 func TestDeletePortfolio_MissingID(t *testing.T) {
@@ -272,21 +291,21 @@ func TestDeletePortfolio_MissingID(t *testing.T) {
 
 func TestDeletePortfolio_OK(t *testing.T) {
 	s := &mockStore{}
-	s.On("DeletePortfolio", mock.Anything, "p-1").Return(nil)
+	s.On("DeletePortfolio", mock.Anything, testPortfolioID).Return(nil)
 	h := newHandler(s)
 
-	_, err := h.DeletePortfolio(context.Background(), connect.NewRequest(&apiv1.DeletePortfolioRequest{Id: "p-1"}))
+	_, err := h.DeletePortfolio(context.Background(), connect.NewRequest(&apiv1.DeletePortfolioRequest{Id: testPortfolioID}))
 	require.NoError(t, err)
 }
 
 func TestListPortfolios_WithUserFilter(t *testing.T) {
 	s := &mockStore{}
-	userID := "user-1"
-	s.On("ListPortfolios", mock.Anything, ListPortfoliosOpts{UserID: "user-1"}).
-		Return([]*entity.Portfolio{testPortfolio("p-1")}, "", nil)
+	userID := testUserID
+	s.On("ListPortfolios", mock.Anything, ListPortfoliosOpts{UserID: testUserID}).
+		Return([]*entity.Portfolio{testPortfolio(testPortfolioID)}, "", nil)
 	h := newHandler(s)
 
-	resp, err := h.ListPortfolios(context.Background(), connect.NewRequest(&apiv1.ListPortfoliosRequest{
+	resp, err := h.ListPortfolios(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ListPortfoliosRequest{
 		UserId: &userID,
 	}))
 	require.NoError(t, err)
@@ -304,32 +323,32 @@ func TestCreateAccount_MissingAccount(t *testing.T) {
 
 func TestCreateAccount_OK(t *testing.T) {
 	s := &mockStore{}
-	s.On("CreateAccount", mock.Anything, mock.Anything).Return(testAccount("acc-1"), nil)
+	s.On("CreateAccount", mock.Anything, mock.Anything).Return(testAccount(testAccountID), nil)
 	h := newHandler(s)
 
-	resp, err := h.CreateAccount(context.Background(), connect.NewRequest(&apiv1.CreateAccountRequest{
-		Account: &apiv1.Account{Name: "Binance", UserId: "user-1"},
+	resp, err := h.CreateAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreateAccountRequest{
+		Account: &apiv1.Account{Name: "Binance", UserId: testUserID},
 	}))
 	require.NoError(t, err)
-	assert.Equal(t, "acc-1", resp.Msg.Id)
+	assert.Equal(t, testAccountID, resp.Msg.Id)
 }
 
 func TestGetAccount_NotFound(t *testing.T) {
 	s := &mockStore{}
-	s.On("GetAccount", mock.Anything, "acc-x").Return(nil, store.ErrNotFound)
+	s.On("GetAccount", mock.Anything, testAccountID).Return(nil, store.ErrNotFound)
 	h := newHandler(s)
 
-	_, err := h.GetAccount(context.Background(), connect.NewRequest(&apiv1.GetAccountRequest{Id: "acc-x"}))
+	_, err := h.GetAccount(context.Background(), connect.NewRequest(&apiv1.GetAccountRequest{Id: testAccountID}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 }
 
 func TestDeleteAccount_OK(t *testing.T) {
 	s := &mockStore{}
-	s.On("DeleteAccount", mock.Anything, "acc-1").Return(nil)
+	s.On("DeleteAccount", mock.Anything, testAccountID).Return(nil)
 	h := newHandler(s)
 
-	_, err := h.DeleteAccount(context.Background(), connect.NewRequest(&apiv1.DeleteAccountRequest{Id: "acc-1"}))
+	_, err := h.DeleteAccount(context.Background(), connect.NewRequest(&apiv1.DeleteAccountRequest{Id: testAccountID}))
 	require.NoError(t, err)
 }
 
@@ -344,21 +363,21 @@ func TestCreateHolding_MissingHolding(t *testing.T) {
 
 func TestCreateHolding_OK(t *testing.T) {
 	s := &mockStore{}
-	s.On("CreateHolding", mock.Anything, mock.Anything).Return(testHolding("h-1"), nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(testHolding(testHoldingID), nil)
 	h := newHandler(s)
 
 	resp, err := h.CreateHolding(context.Background(), connect.NewRequest(&apiv1.CreateHoldingRequest{
-		Holding: &apiv1.Holding{AssetId: "btc", AccountId: "acc-1", Amount: 100000, Decimals: 8},
+		Holding: &apiv1.Holding{AssetId: testAssetID, AccountId: testAccountID, Amount: 100000, Decimals: 8},
 	}))
 	require.NoError(t, err)
-	assert.Equal(t, "h-1", resp.Msg.Id)
+	assert.Equal(t, testHoldingID, resp.Msg.Id)
 }
 
 func TestListHoldings_WithFilters(t *testing.T) {
 	s := &mockStore{}
-	portfolioID := "p-1"
-	s.On("ListHoldings", mock.Anything, ListHoldingsOpts{PortfolioID: "p-1"}).
-		Return([]*entity.Holding{testHolding("h-1"), testHolding("h-2")}, "next", nil)
+	portfolioID := testPortfolioID
+	s.On("ListHoldings", mock.Anything, ListHoldingsOpts{PortfolioID: testPortfolioID}).
+		Return([]*entity.Holding{testHolding(testHoldingID), testHolding(testHoldingID2)}, "next", nil)
 	h := newHandler(s)
 
 	resp, err := h.ListHoldings(context.Background(), connect.NewRequest(&apiv1.ListHoldingsRequest{
@@ -381,20 +400,20 @@ func TestCreateTransaction_MissingTransaction(t *testing.T) {
 func TestCreateTransaction_OK(t *testing.T) {
 	s := &mockStore{}
 	s.On("CreateTransaction", mock.Anything, mock.Anything).Return(&entity.Transaction{
-		ID:        "tx-1",
+		ID:        testTxID,
 		Type:      entity.TransactionTypeTrade,
 		Status:    entity.TransactionStatusCompleted,
-		AccountID: "acc-1",
+		AccountID: testAccountID,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}, nil)
 	h := newHandler(s)
 
 	resp, err := h.CreateTransaction(context.Background(), connect.NewRequest(&apiv1.CreateTransactionRequest{
-		Transaction: &apiv1.Transaction{AccountId: "acc-1"},
+		Transaction: &apiv1.Transaction{AccountId: testAccountID},
 	}))
 	require.NoError(t, err)
-	assert.Equal(t, "tx-1", resp.Msg.Id)
+	assert.Equal(t, testTxID, resp.Msg.Id)
 }
 
 // --- Tests: Stubs return Unimplemented ---

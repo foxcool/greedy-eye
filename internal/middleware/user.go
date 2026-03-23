@@ -24,6 +24,11 @@ func UserFromContext(ctx context.Context) (*entity.User, bool) {
 	return u, ok
 }
 
+// ContextWithUser injects a user into the context. Intended for use in tests.
+func ContextWithUser(ctx context.Context, user *entity.User) context.Context {
+	return context.WithValue(ctx, userContextKey, user)
+}
+
 // UserProvisioningInterceptor reads X-User-Id and X-User-Email from request headers,
 // lazily provisions the user in the local DB, and injects it into the context.
 func UserProvisioningInterceptor(store UserProvisioner, log *slog.Logger) connect.UnaryInterceptorFunc {

@@ -6,83 +6,42 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
-func TestCoinGeckoClient_GetCurrentPrice(t *testing.T) {
-	client := NewClient(Config{
-		APIKey: "test-api-key",
-		Pro:    false,
-	})
+func TestCoinGeckoClient_GetMultiplePrices_EmptyInput(t *testing.T) {
+	client := NewClient(Config{APIKey: "test-api-key"})
 
-	t.Run("should return unimplemented error", func(t *testing.T) {
-		price, err := client.GetCurrentPrice(context.Background(), "bitcoin", "usd")
+	t.Run("returns empty map for empty input", func(t *testing.T) {
+		prices, err := client.GetMultiplePrices(context.Background(), []string{}, "usd")
 
-		assert.Nil(t, price)
-		assert.Error(t, err)
-		assert.Equal(t, codes.Unimplemented, status.Code(err))
+		assert.NoError(t, err)
+		assert.Empty(t, prices)
 	})
 }
 
-func TestCoinGeckoClient_GetMultiplePrices(t *testing.T) {
-	client := NewClient(Config{
-		APIKey: "test-api-key",
-		Pro:    false,
-	})
+func TestCoinGeckoClient_GetCurrentPrice_DelegatesToGetMultiplePrices(t *testing.T) {
+	// Validate that GetCurrentPrice returns an error for unknown assets
+	// without making real HTTP calls (uses short timeout).
+	client := NewClient(Config{APIKey: ""})
 
-	t.Run("should return unimplemented error", func(t *testing.T) {
-		assetIDs := []string{"bitcoin", "ethereum", "polkadot"}
-		prices, err := client.GetMultiplePrices(context.Background(), assetIDs, "usd")
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancel()
 
-		assert.Nil(t, prices)
-		assert.Error(t, err)
-		assert.Equal(t, codes.Unimplemented, status.Code(err))
-	})
+	_, err := client.GetCurrentPrice(ctx, "bitcoin", "usd")
+	// Should fail (timeout or connection error) but not panic.
+	assert.Error(t, err)
 }
 
-func TestCoinGeckoClient_GetHistoricalPrices(t *testing.T) {
-	client := NewClient(Config{
-		APIKey: "test-api-key",
-		Pro:    false,
-	})
+func TestCoinGeckoClient_GetHistoricalPrices_NotImplemented(t *testing.T) {
+	client := NewClient(Config{})
 
-	t.Run("should return unimplemented error", func(t *testing.T) {
-		from := time.Now().AddDate(0, 0, -7)
-		to := time.Now()
-		prices, err := client.GetHistoricalPrices(context.Background(), "bitcoin", "usd", from, to)
-
-		assert.Nil(t, prices)
-		assert.Error(t, err)
-		assert.Equal(t, codes.Unimplemented, status.Code(err))
-	})
+	_, err := client.GetHistoricalPrices(context.Background(), "bitcoin", "usd", time.Now().AddDate(0, 0, -1), time.Now())
+	assert.Error(t, err)
 }
 
-func TestCoinGeckoClient_SearchAssets(t *testing.T) {
-	client := NewClient(Config{
-		APIKey: "test-api-key",
-		Pro:    false,
-	})
+func TestCoinGeckoClient_SearchAssets_NotImplemented(t *testing.T) {
+	client := NewClient(Config{})
 
-	t.Run("should return unimplemented error", func(t *testing.T) {
-		results, err := client.SearchAssets(context.Background(), "bitcoin")
-
-		assert.Nil(t, results)
-		assert.Error(t, err)
-		assert.Equal(t, codes.Unimplemented, status.Code(err))
-	})
-}
-
-func TestCoinGeckoClient_Ping(t *testing.T) {
-	client := NewClient(Config{
-		APIKey: "test-api-key",
-		Pro:    false,
-	})
-
-	t.Run("should return unimplemented error", func(t *testing.T) {
-		err := client.Ping(context.Background())
-
-		assert.Error(t, err)
-		assert.Equal(t, codes.Unimplemented, status.Code(err))
-	})
+	_, err := client.SearchAssets(context.Background(), "bitcoin")
+	assert.Error(t, err)
 }

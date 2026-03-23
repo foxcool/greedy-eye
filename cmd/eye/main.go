@@ -12,7 +12,10 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
+	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
 	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
+	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
@@ -81,23 +84,35 @@ func run() error {
 		}
 	})
 
+	// Initialize optional CoinGecko provider
+	cgClient := coingecko.NewClient(coingecko.Config{APIKey: config.CoinGecko.APIKey, Pro: config.CoinGecko.Pro})
+	cgProvider := coingecko.NewProvider(cgClient)
+
+	// Initialize optional Moralis wallet syncer
+	var walletSyncer entity.WalletSyncer
+	if apiKey := config.Moralis.APIKey; apiKey != "" {
+		moralisClient := moralisadapter.NewClient(moralisadapter.Config{APIKey: apiKey})
+		walletSyncer = moralisadapter.NewWalletSyncer(moralisClient)
+	}
+
 	// Register Connect handlers
 	userStore := postgres.NewUserStore(pool)
 	interceptor := connect.WithInterceptors(
 		middleware.UserProvisioningInterceptor(userStore, log),
 		loggingInterceptor(log),
 	)
+	mdHandler := marketdata.NewHandler(postgres.NewMarketDataStore(pool), log).
+		WithProvider(coingecko.ProviderName, cgProvider)
 	for _, svc := range config.Services {
 		switch svc.Type {
 		case ServiceConfigTypeMarketData:
-			path, handler := apiv1connect.NewMarketDataServiceHandler(
-				marketdata.NewHandler(postgres.NewMarketDataStore(pool), log), interceptor,
-			)
+			path, handler := apiv1connect.NewMarketDataServiceHandler(mdHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypePortfolio:
-			path, handler := apiv1connect.NewPortfolioServiceHandler(
-				portfolio.NewHandler(postgres.NewPortfolioStore(pool), log), interceptor,
-			)
+			pHandler := portfolio.NewHandler(postgres.NewPortfolioStore(pool), log).
+				WithMarketDataClient(mdHandler).
+				WithWalletSyncer(walletSyncer)
+			path, handler := apiv1connect.NewPortfolioServiceHandler(pHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypeAutomation:
 			path, handler := apiv1connect.NewAutomationServiceHandler(

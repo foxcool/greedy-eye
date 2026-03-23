@@ -2,16 +2,17 @@ package moralis
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"time"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // Client implements BlockchainClient interface for Moralis
 type Client struct {
-	apiKey  string
-	baseURL string
+	apiKey     string
+	baseURL    string
+	httpClient *http.Client
 }
 
 // Config holds Moralis client configuration
@@ -57,47 +58,113 @@ type NFT struct {
 // NewClient creates a new Moralis blockchain client
 func NewClient(cfg Config) *Client {
 	return &Client{
-		apiKey:  cfg.APIKey,
-		baseURL: "https://deep-index.moralis.io/api/v2",
+		apiKey:     cfg.APIKey,
+		baseURL:    "https://deep-index.moralis.io/api/v2",
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
-// GetWalletBalance retrieves native token balance for a wallet
-func (c *Client) GetWalletBalance(ctx context.Context, chain string, address string) (string, error) {
-	return "", status.Error(codes.Unimplemented, "GetWalletBalance not implemented")
+// moralisERC20Token is the JSON shape from /v2/{address}/erc20 endpoint.
+type moralisERC20Token struct {
+	TokenAddress string `json:"token_address"`
+	Symbol       string `json:"symbol"`
+	Name         string `json:"name"`
+	Decimals     string `json:"decimals"` // returned as string by Moralis
+	Balance      string `json:"balance"`
+	Thumbnail    string `json:"thumbnail"`
 }
 
-// GetWalletTokenBalances retrieves all token balances for a wallet
+func (c *Client) doGet(ctx context.Context, path string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("X-API-Key", c.apiKey)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("moralis API status %d for %s", resp.StatusCode, path)
+	}
+	return resp, nil
+}
+
+// GetWalletTokenBalances retrieves all ERC-20 token balances for a wallet.
 func (c *Client) GetWalletTokenBalances(ctx context.Context, chain string, address string) ([]Balance, error) {
-	return nil, status.Error(codes.Unimplemented, "GetWalletTokenBalances not implemented")
+	resp, err := c.doGet(ctx, fmt.Sprintf("/%s/erc20?chain=%s", address, chain))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var tokens []moralisERC20Token
+	if err := json.NewDecoder(resp.Body).Decode(&tokens); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	result := make([]Balance, 0, len(tokens))
+	for _, t := range tokens {
+		dec := 18
+		_, _ = fmt.Sscanf(t.Decimals, "%d", &dec) // best-effort; default 18
+		result = append(result, Balance{
+			TokenAddress: t.TokenAddress,
+			Symbol:       t.Symbol,
+			Name:         t.Name,
+			Decimals:     dec,
+			Balance:      t.Balance,
+			Thumbnail:    t.Thumbnail,
+		})
+	}
+	return result, nil
 }
 
-// GetWalletNFTs retrieves all NFTs owned by a wallet
+// GetWalletBalance retrieves native token (ETH) balance for a wallet.
+func (c *Client) GetWalletBalance(ctx context.Context, chain string, address string) (string, error) {
+	resp, err := c.doGet(ctx, fmt.Sprintf("/%s/balance?chain=%s", address, chain))
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var result struct {
+		Balance string `json:"balance"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("decode response: %w", err)
+	}
+	return result.Balance, nil
+}
+
+// GetWalletNFTs retrieves all NFTs owned by a wallet (stub).
 func (c *Client) GetWalletNFTs(ctx context.Context, chain string, address string) ([]NFT, error) {
-	return nil, status.Error(codes.Unimplemented, "GetWalletNFTs not implemented")
+	return nil, fmt.Errorf("GetWalletNFTs not implemented")
 }
 
-// GetTransactionHistory retrieves transaction history for a wallet
+// GetTransactionHistory retrieves transaction history for a wallet (stub).
 func (c *Client) GetTransactionHistory(ctx context.Context, chain string, address string, limit int) ([]Transaction, error) {
-	return nil, status.Error(codes.Unimplemented, "GetTransactionHistory not implemented")
+	return nil, fmt.Errorf("GetTransactionHistory not implemented")
 }
 
-// GetTransaction retrieves details for a specific transaction
+// GetTransaction retrieves details for a specific transaction (stub).
 func (c *Client) GetTransaction(ctx context.Context, chain string, txHash string) (*Transaction, error) {
-	return nil, status.Error(codes.Unimplemented, "GetTransaction not implemented")
+	return nil, fmt.Errorf("GetTransaction not implemented")
 }
 
-// GetTokenPrice retrieves current price for a token
+// GetTokenPrice retrieves current price for a token (stub).
 func (c *Client) GetTokenPrice(ctx context.Context, chain string, tokenAddress string) (float64, error) {
-	return 0, status.Error(codes.Unimplemented, "GetTokenPrice not implemented")
+	return 0, fmt.Errorf("GetTokenPrice not implemented")
 }
 
-// ValidateAddress verifies if an address is valid for the given chain
+// ValidateAddress verifies if an address is valid for the given chain (stub).
 func (c *Client) ValidateAddress(ctx context.Context, chain string, address string) (bool, error) {
-	return false, status.Error(codes.Unimplemented, "ValidateAddress not implemented")
+	return false, fmt.Errorf("ValidateAddress not implemented")
 }
 
-// GetBlockByNumber retrieves block information by block number
+// GetBlockByNumber retrieves block information by block number (stub).
 func (c *Client) GetBlockByNumber(ctx context.Context, chain string, blockNumber int64) (interface{}, error) {
-	return nil, status.Error(codes.Unimplemented, "GetBlockByNumber not implemented")
+	return nil, fmt.Errorf("GetBlockByNumber not implemented")
 }

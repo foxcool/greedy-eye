@@ -3,7 +3,9 @@ package marketdata
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"slices"
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
@@ -14,15 +16,37 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// PriceProvider fetches prices from an external source.
+// Each implementation encapsulates its own SourceID, BaseAssetID, Decimals, and Interval.
+type PriceProvider interface {
+	FetchPrices(ctx context.Context, assetIDs []string) ([]entity.StoredPrice, error)
+}
+
 // Handler implements apiv1connect.MarketDataServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedMarketDataServiceHandler
-	store Store
-	log   *slog.Logger
+	store     Store
+	providers map[string]PriceProvider // keyed by source name e.g. "coingecko"
+	log       *slog.Logger
 }
 
 func NewHandler(store Store, log *slog.Logger) *Handler {
 	return &Handler{store: store, log: log}
+}
+
+// WithProvider returns a new Handler with the named price provider added.
+func (h *Handler) WithProvider(name string, p PriceProvider) *Handler {
+	providers := make(map[string]PriceProvider, len(h.providers)+1)
+	for k, v := range h.providers {
+		providers[k] = v
+	}
+	providers[name] = p
+	return &Handler{
+		UnimplementedMarketDataServiceHandler: h.UnimplementedMarketDataServiceHandler,
+		store:     h.store,
+		providers: providers,
+		log:       h.log,
+	}
 }
 
 // CreateAsset creates a new asset.
@@ -277,10 +301,60 @@ func (h *Handler) FindSimilarAssets(ctx context.Context, req *connect.Request[ap
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("FindSimilarAssets not implemented"))
 }
 
-// FetchExternalPrices fetches prices from external sources (stub).
+// FetchExternalPrices fetches prices from configured providers and stores them.
+// If source_ids is specified in the request, only those providers are called.
 func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[apiv1.FetchExternalPricesRequest]) (*connect.Response[apiv1.FetchExternalPricesResponse], error) {
-	// TODO: Implement with external price providers
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("FetchExternalPrices not implemented"))
+	if len(h.providers) == 0 {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("no price providers configured"))
+	}
+
+	assetIDs := req.Msg.AssetIds
+
+	// If no asset IDs specified, fetch for all known assets.
+	if len(assetIDs) == 0 {
+		assets, _, err := h.store.ListAssets(ctx, ListAssetsOpts{PageSize: 250})
+		if err != nil {
+			return nil, toConnectError(err)
+		}
+		assetIDs = make([]string, 0, len(assets))
+		for _, a := range assets {
+			assetIDs = append(assetIDs, a.ID)
+		}
+	}
+
+	if len(assetIDs) == 0 {
+		return connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil
+	}
+
+	var allPrices []*entity.StoredPrice
+	var fetchErrs []string
+	var totalFetched int
+
+	for name, provider := range h.providers {
+		if len(req.Msg.SourceIds) > 0 && !slices.Contains(req.Msg.SourceIds, name) {
+			continue
+		}
+		results, err := provider.FetchPrices(ctx, assetIDs)
+		if err != nil {
+			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
+			continue
+		}
+		totalFetched += len(results)
+		for i := range results {
+			allPrices = append(allPrices, &results[i])
+		}
+	}
+
+	stored, err := h.store.CreatePrices(ctx, allPrices)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
+	return connect.NewResponse(&apiv1.FetchExternalPricesResponse{
+		PricesFetched: int32(totalFetched),
+		PricesStored:  int32(stored),
+		Errors:        fetchErrs,
+	}), nil
 }
 
 // toConnectError converts store errors to Connect errors.

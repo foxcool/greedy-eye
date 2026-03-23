@@ -3,8 +3,20 @@ package portfolio
 import (
 	"context"
 
+	"connectrpc.com/connect"
+	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
 )
+
+// MarketDataClient is the subset of MarketDataServiceClient that Portfolio needs.
+// Satisfied by *marketdata.Handler (monolith) and apiv1connect.MarketDataServiceClient (microservice).
+// No adapters required — both implement these methods with identical signatures.
+type MarketDataClient interface {
+	CreateAsset(context.Context, *connect.Request[apiv1.CreateAssetRequest]) (*connect.Response[apiv1.Asset], error)
+	ListAssets(context.Context, *connect.Request[apiv1.ListAssetsRequest]) (*connect.Response[apiv1.ListAssetsResponse], error)
+	GetLatestPrice(context.Context, *connect.Request[apiv1.GetLatestPriceRequest]) (*connect.Response[apiv1.Price], error)
+	ListPriceHistory(context.Context, *connect.Request[apiv1.ListPriceHistoryRequest]) (*connect.Response[apiv1.ListPriceHistoryResponse], error)
+}
 
 // Store defines the data access contract for PortfolioService.
 type Store interface {
