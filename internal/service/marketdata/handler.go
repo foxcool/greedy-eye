@@ -19,7 +19,7 @@ import (
 // PriceProvider fetches prices from an external source.
 // Each implementation encapsulates its own SourceID, BaseAssetID, Decimals, and Interval.
 type PriceProvider interface {
-	FetchPrices(ctx context.Context, assetIDs []string) ([]entity.StoredPrice, error)
+	FetchPrices(ctx context.Context, assets []*entity.Asset) ([]entity.StoredPrice, error)
 }
 
 // Handler implements apiv1connect.MarketDataServiceHandler.
@@ -308,21 +308,28 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("no price providers configured"))
 	}
 
-	assetIDs := req.Msg.AssetIds
-
-	// If no asset IDs specified, fetch for all known assets.
-	if len(assetIDs) == 0 {
-		assets, _, err := h.store.ListAssets(ctx, ListAssetsOpts{PageSize: 250})
-		if err != nil {
-			return nil, toConnectError(err)
-		}
-		assetIDs = make([]string, 0, len(assets))
-		for _, a := range assets {
-			assetIDs = append(assetIDs, a.ID)
-		}
+	// Load all assets; filter to the requested IDs if specified.
+	allAssets, _, err := h.store.ListAssets(ctx, ListAssetsOpts{PageSize: 500})
+	if err != nil {
+		return nil, toConnectError(err)
 	}
 
-	if len(assetIDs) == 0 {
+	assets := allAssets
+	if len(req.Msg.AssetIds) > 0 {
+		requested := make(map[string]bool, len(req.Msg.AssetIds))
+		for _, id := range req.Msg.AssetIds {
+			requested[id] = true
+		}
+		filtered := make([]*entity.Asset, 0, len(req.Msg.AssetIds))
+		for _, a := range allAssets {
+			if requested[a.ID] {
+				filtered = append(filtered, a)
+			}
+		}
+		assets = filtered
+	}
+
+	if len(assets) == 0 {
 		return connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil
 	}
 
@@ -334,7 +341,7 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		if len(req.Msg.SourceIds) > 0 && !slices.Contains(req.Msg.SourceIds, name) {
 			continue
 		}
-		results, err := provider.FetchPrices(ctx, assetIDs)
+		results, err := provider.FetchPrices(ctx, assets)
 		if err != nil {
 			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
 			continue

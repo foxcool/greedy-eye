@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	binanceadapter "github.com/foxcool/greedy-eye/internal/adapter/binance"
 	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
 	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
 	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
@@ -102,7 +103,14 @@ func run() error {
 		loggingInterceptor(log),
 	)
 	mdHandler := marketdata.NewHandler(postgres.NewMarketDataStore(pool), log).
-		WithProvider(coingecko.ProviderName, cgProvider)
+		WithProvider(coingecko.ProviderName, cgProvider).
+		WithProvider(binanceadapter.ProviderName, binanceadapter.NewProvider(
+			binanceadapter.NewClient(binanceadapter.Config{
+				APIKey:    config.Binance.APIKey,
+				APISecret: config.Binance.APISecret,
+				Sandbox:   config.Binance.Sandbox,
+			}),
+		))
 	for _, svc := range config.Services {
 		switch svc.Type {
 		case ServiceConfigTypeMarketData:
@@ -179,6 +187,7 @@ func createLogger(level string) *slog.Logger {
 	}
 	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 }
+
 
 func loggingInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {

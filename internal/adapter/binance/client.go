@@ -2,6 +2,10 @@ package binance
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -10,10 +14,17 @@ import (
 
 // Client implements ExchangeClient interface for Binance
 type Client struct {
-	apiKey    string
-	apiSecret string
-	baseURL   string
-	sandbox   bool
+	apiKey     string
+	apiSecret  string
+	baseURL    string
+	sandbox    bool
+	httpClient *http.Client
+}
+
+// TickerPrice is the price data returned by GET /api/v3/ticker/price.
+type TickerPrice struct {
+	Symbol string `json:"symbol"`
+	Price  string `json:"price"` // Binance returns price as decimal string
 }
 
 // Config holds Binance client configuration
@@ -66,11 +77,50 @@ func NewClient(cfg Config) *Client {
 	}
 
 	return &Client{
-		apiKey:    cfg.APIKey,
-		apiSecret: cfg.APISecret,
-		baseURL:   baseURL,
-		sandbox:   cfg.Sandbox,
+		apiKey:     cfg.APIKey,
+		apiSecret:  cfg.APISecret,
+		baseURL:    baseURL,
+		sandbox:    cfg.Sandbox,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
+}
+
+// GetTickerPrices fetches current prices for the given symbols.
+// Uses the public GET /api/v3/ticker/price endpoint — no auth required.
+// Pass multiple symbols as a JSON array: symbols=["BTCUSDT","ETHUSDT"].
+func (c *Client) GetTickerPrices(ctx context.Context, symbols []string) ([]TickerPrice, error) {
+	if len(symbols) == 0 {
+		return nil, nil
+	}
+
+	encoded, err := json.Marshal(symbols)
+	if err != nil {
+		return nil, fmt.Errorf("encode symbols: %w", err)
+	}
+
+	url := c.baseURL + "/api/v3/ticker/price?symbols=" + strings.ReplaceAll(string(encoded), " ", "")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status %d from Binance", resp.StatusCode)
+	}
+
+	var tickers []TickerPrice
+	if err := json.NewDecoder(resp.Body).Decode(&tickers); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return tickers, nil
 }
 
 // GetAccountBalances retrieves all account balances
