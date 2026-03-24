@@ -38,6 +38,11 @@ type Config struct {
 	Moralis struct {
 		APIKey string `koanf:"apiKey"`
 	} `koanf:"moralis"`
+	Binance struct {
+		APIKey    string `koanf:"apiKey"`
+		APISecret string `koanf:"apiSecret"`
+		Sandbox   bool   `koanf:"sandbox"`
+	} `koanf:"binance"`
 }
 
 // ServiceConfig is a config for a service
