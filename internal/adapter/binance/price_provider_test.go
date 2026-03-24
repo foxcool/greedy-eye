@@ -32,7 +32,7 @@ func TestFetchPrices_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/api/v3/ticker/price", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]TickerPrice{
+		_ = json.NewEncoder(w).Encode([]TickerPrice{
 			{Symbol: "BTCUSDT", Price: "67000.12345678"},
 			{Symbol: "ETHUSDT", Price: "3500.00000000"},
 		})
@@ -90,7 +90,7 @@ func TestGetTickerPrices_BatchRequest(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedURL = r.URL
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]TickerPrice{})
+		_ = json.NewEncoder(w).Encode([]TickerPrice{})
 	}))
 	defer srv.Close()
 
