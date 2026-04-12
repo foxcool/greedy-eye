@@ -539,6 +539,8 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 		holdingByAssetID[hld.AssetID] = hld
 	}
 
+	defaultPortfolioID := account.PortfolioID
+
 	var assetsUpserted, holdingsUpserted int32
 	var syncErrors []string
 
@@ -572,7 +574,7 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 		}
 
 		if existing, ok := holdingByAssetID[assetID]; ok {
-			// Update existing holding
+			// Update existing holding: only refresh amount/decimals; never touch portfolio assignment
 			existing.Amount = amount
 			existing.Decimals = uint32(bal.Decimals)
 			if _, err := h.store.UpdateHolding(ctx, existing, []string{"amount", "decimals"}); err != nil {
@@ -580,12 +582,13 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 				continue
 			}
 		} else {
-			// Create new holding
+			// Create new holding; inherit account's default portfolio if configured
 			_, err := h.store.CreateHolding(ctx, &entity.Holding{
-				AssetID:   assetID,
-				AccountID: req.Msg.AccountId,
-				Amount:    amount,
-				Decimals:  uint32(bal.Decimals),
+				AssetID:     assetID,
+				AccountID:   req.Msg.AccountId,
+				PortfolioID: defaultPortfolioID,
+				Amount:      amount,
+				Decimals:    uint32(bal.Decimals),
 			})
 			if err != nil {
 				syncErrors = append(syncErrors, fmt.Sprintf("create holding %s: %v", symbol, err))
@@ -593,6 +596,13 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 			}
 		}
 		holdingsUpserted++
+	}
+
+	// Fetch fresh prices for all synced assets so CalculatePortfolioValue returns current values.
+	if assetsUpserted > 0 || holdingsUpserted > 0 {
+		if _, err := h.mdClient.FetchExternalPrices(ctx, connect.NewRequest(&apiv1.FetchExternalPricesRequest{})); err != nil {
+			h.log.Warn("fetch prices after sync failed", "error", err)
+		}
 	}
 
 	return connect.NewResponse(&apiv1.SyncAccountResponse{
@@ -781,6 +791,9 @@ func accountFromProto(a *apiv1.Account) *entity.Account {
 	if a.Description != nil {
 		result.Description = *a.Description
 	}
+	if a.PortfolioId != nil {
+		result.PortfolioID = *a.PortfolioId
+	}
 	return result
 }
 
@@ -796,6 +809,9 @@ func accountToProto(a *entity.Account) *apiv1.Account {
 	}
 	if a.Description != "" {
 		result.Description = &a.Description
+	}
+	if a.PortfolioID != "" {
+		result.PortfolioId = &a.PortfolioID
 	}
 	return result
 }

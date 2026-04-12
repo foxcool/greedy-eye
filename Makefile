@@ -50,15 +50,17 @@ test-integration:
 	@echo "Running integration tests..."
 	go test -v -p 1 -tags=integration ./internal/store/postgres/...
 
-# Atlas: apply schema to dev database
+# Atlas: apply schema to dev database (uses compose migrate service — no env vars needed)
 schema-apply:
-	@which atlas > /dev/null || (echo "Atlas CLI required: curl -sSf https://atlasgo.sh | sh" && exit 1)
-	atlas schema apply --env local --auto-approve
+	$(COMPOSE) -f $(COMPOSE_FILE) run --rm migrate
 
-# Atlas: show schema diff
+# Atlas: show pending schema diff against dev database
 schema-diff:
-	@which atlas > /dev/null || (echo "Atlas CLI required: curl -sSf https://atlasgo.sh | sh" && exit 1)
-	atlas schema diff --env local
+	$(COMPOSE) -f $(COMPOSE_FILE) run --rm migrate \
+		schema diff \
+		--from "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable" \
+		--to "file:///schema.hcl" \
+		--dev-url "postgres://greedy_eye:password@postgres:5432/atlas_dev?sslmode=disable"
 
 # Run go vet (fast static analysis)
 vet:

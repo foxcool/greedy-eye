@@ -35,6 +35,7 @@ type Account struct {
 	Description string
 	Type        AccountType
 	Data        map[string]string // API keys, identifiers, etc.
+	PortfolioID string            // Optional; holdings synced from this account belong to this portfolio by default
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

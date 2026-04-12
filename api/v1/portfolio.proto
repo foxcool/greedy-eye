@@ -73,6 +73,8 @@ message Account {
   map<string, string> data = 6;
   google.protobuf.Timestamp created_at = 7;
   google.protobuf.Timestamp updated_at = 8;
+  // If set, holdings synced from this account are assigned to this portfolio (can be overridden per holding).
+  optional string portfolio_id = 9;
 }
 
 // Transaction represents a financial event involving assets, accounts, and portfolios.

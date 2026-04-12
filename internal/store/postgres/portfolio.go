@@ -321,8 +321,8 @@ func (s *PortfolioStore) CreateAccount(ctx context.Context, a *entity.Account) (
 	}
 
 	query := `
-		INSERT INTO accounts (id, user_id, name, description, type, data, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+		INSERT INTO accounts (id, user_id, name, description, type, data, portfolio_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
 		RETURNING created_at, updated_at`
 
 	err = s.pool.QueryRow(ctx, query,
@@ -332,6 +332,7 @@ func (s *PortfolioStore) CreateAccount(ctx context.Context, a *entity.Account) (
 		nullableString(a.Description),
 		accountTypeToString(a.Type),
 		dataJSON,
+		nullableString(a.PortfolioID),
 	).Scan(&a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		if isConstraintError(err) {
@@ -352,7 +353,7 @@ func (s *PortfolioStore) GetAccount(ctx context.Context, id string) (*entity.Acc
 	}
 
 	query := `
-		SELECT id, user_id, name, description, type, data, created_at, updated_at
+		SELECT id, user_id, name, description, type, data, portfolio_id, created_at, updated_at
 		FROM accounts
 		WHERE id = $1`
 
@@ -360,6 +361,7 @@ func (s *PortfolioStore) GetAccount(ctx context.Context, id string) (*entity.Acc
 	var description *string
 	var typeStr string
 	var dataJSON []byte
+	var portfolioID *string
 
 	err := s.pool.QueryRow(ctx, query, id).Scan(
 		&a.ID,
@@ -368,6 +370,7 @@ func (s *PortfolioStore) GetAccount(ctx context.Context, id string) (*entity.Acc
 		&description,
 		&typeStr,
 		&dataJSON,
+		&portfolioID,
 		&a.CreatedAt,
 		&a.UpdatedAt,
 	)
@@ -380,6 +383,9 @@ func (s *PortfolioStore) GetAccount(ctx context.Context, id string) (*entity.Acc
 
 	if description != nil {
 		a.Description = *description
+	}
+	if portfolioID != nil {
+		a.PortfolioID = *portfolioID
 	}
 	a.Type = stringToAccountType(typeStr)
 	if err := json.Unmarshal(dataJSON, &a.Data); err != nil {
@@ -422,6 +428,10 @@ func (s *PortfolioStore) UpdateAccount(ctx context.Context, a *entity.Account, f
 			}
 			setClauses = append(setClauses, fmt.Sprintf("data = $%d", argIdx))
 			args = append(args, dataJSON)
+			argIdx++
+		case "portfolio_id":
+			setClauses = append(setClauses, fmt.Sprintf("portfolio_id = $%d", argIdx))
+			args = append(args, nullableString(a.PortfolioID))
 			argIdx++
 		}
 	}
@@ -504,7 +514,7 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, user_id, name, description, type, data, created_at, updated_at
+		SELECT id, user_id, name, description, type, data, portfolio_id, created_at, updated_at
 		FROM accounts
 		%s
 		ORDER BY id
@@ -524,6 +534,7 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 		var description *string
 		var typeStr string
 		var dataJSON []byte
+		var portfolioID *string
 
 		if err := rows.Scan(
 			&a.ID,
@@ -532,6 +543,7 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 			&description,
 			&typeStr,
 			&dataJSON,
+			&portfolioID,
 			&a.CreatedAt,
 			&a.UpdatedAt,
 		); err != nil {
@@ -540,6 +552,9 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 
 		if description != nil {
 			a.Description = *description
+		}
+		if portfolioID != nil {
+			a.PortfolioID = *portfolioID
 		}
 		a.Type = stringToAccountType(typeStr)
 		if err := json.Unmarshal(dataJSON, &a.Data); err != nil {

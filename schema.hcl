@@ -73,6 +73,10 @@ table "accounts" {
     type = uuid
     null = false
   }
+  column "portfolio_id" {
+    type = uuid
+    null = true
+  }
 
   primary_key {
     columns = [column.id]
@@ -83,6 +87,12 @@ table "accounts" {
     ref_columns = [table.users.column.id]
     on_update   = NO_ACTION
     on_delete   = NO_ACTION
+  }
+  foreign_key "accounts_portfolios_account" {
+    columns     = [column.portfolio_id]
+    ref_columns = [table.portfolios.column.id]
+    on_update   = NO_ACTION
+    on_delete   = SET_NULL
   }
 }
 
