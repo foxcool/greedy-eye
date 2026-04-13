@@ -85,9 +85,10 @@ func run() error {
 		}
 	})
 
-	// Initialize optional CoinGecko provider
+	mdStore := postgres.NewMarketDataStore(pool)
+
+	// Initialize price providers.
 	cgClient := coingecko.NewClient(coingecko.Config{APIKey: config.CoinGecko.APIKey, Pro: config.CoinGecko.Pro})
-	cgProvider := coingecko.NewProvider(cgClient)
 
 	// Initialize optional Moralis wallet syncer
 	var walletSyncer entity.WalletSyncer
@@ -102,8 +103,8 @@ func run() error {
 		middleware.UserProvisioningInterceptor(userStore, log),
 		loggingInterceptor(log),
 	)
-	mdHandler := marketdata.NewHandler(postgres.NewMarketDataStore(pool), log).
-		WithProvider(coingecko.ProviderName, cgProvider).
+	mdHandler := marketdata.NewHandler(mdStore, log).
+		WithProvider(coingecko.ProviderName, coingecko.NewProvider(cgClient)).
 		WithProvider(binanceadapter.ProviderName, binanceadapter.NewProvider(
 			binanceadapter.NewClient(binanceadapter.Config{
 				APIKey:    config.Binance.APIKey,
@@ -189,16 +190,21 @@ func createLogger(level string) *slog.Logger {
 }
 
 
+
 func loggingInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 			start := time.Now()
 			resp, err := next(ctx, req)
-			log.Info("request",
+			attrs := []any{
 				slog.String("procedure", req.Spec().Procedure),
 				slog.Duration("duration", time.Since(start)),
 				slog.Bool("error", err != nil),
-			)
+			}
+			if err != nil {
+				attrs = append(attrs, slog.String("error_msg", err.Error()))
+			}
+			log.Info("request", attrs...)
 			return resp, err
 		}
 	}

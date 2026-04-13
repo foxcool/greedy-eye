@@ -61,6 +61,8 @@ message Holding {
   optional string portfolio_id = 6;
   google.protobuf.Timestamp created_at = 7;
   google.protobuf.Timestamp updated_at = 8;
+  // If true, explicitly excluded from all portfolio calculations (e.g. spam/scam tokens).
+  bool excluded = 9;
 }
 
 // Account represents a user's connection to an external financial entity.

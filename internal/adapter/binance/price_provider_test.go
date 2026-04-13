@@ -48,7 +48,7 @@ func TestFetchPrices_OK(t *testing.T) {
 	byAsset := make(map[string]int64, 2)
 	for _, sp := range prices {
 		assert.Equal(t, "binance", sp.SourceID)
-		assert.Equal(t, "usdt", sp.BaseAssetID)
+		assert.Empty(t, sp.BaseAssetID) // resolved by handler, not provider
 		assert.Equal(t, "latest", sp.Interval)
 		assert.Equal(t, uint32(8), sp.Decimals)
 		byAsset[sp.AssetID] = sp.Last

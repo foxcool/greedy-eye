@@ -47,7 +47,8 @@ type Holding struct {
 	Decimals    uint32
 	AssetID     string
 	AccountID   string
-	PortfolioID string // Optional
+	PortfolioID string // Optional; empty = inherit from account's portfolio_id
+	Excluded    bool   // If true, holding is explicitly excluded from all portfolio calculations
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

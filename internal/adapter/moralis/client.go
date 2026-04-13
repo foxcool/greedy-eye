@@ -64,12 +64,64 @@ func NewClient(cfg Config) *Client {
 	}
 }
 
+// doGetURL is like doGet but takes a full URL instead of a path suffix.
+func (c *Client) doGetURL(ctx context.Context, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("X-API-Key", c.apiKey)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("moralis API status %d for %s", resp.StatusCode, url)
+	}
+	return resp, nil
+}
+
+// moralisActiveChain is one entry from the /api/v2.2/wallets/{address}/chains response.
+type moralisActiveChain struct {
+	Chain   string `json:"chain"`
+	ChainID string `json:"chain_id"`
+}
+
+// GetActiveChains returns the list of EVM chains where the address has had activity.
+// Uses the Moralis v2.2 wallet chains endpoint.
+func (c *Client) GetActiveChains(ctx context.Context, address string) ([]string, error) {
+	url := fmt.Sprintf("https://deep-index.moralis.io/api/v2.2/wallets/%s/chains", address)
+	resp, err := c.doGetURL(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var result struct {
+		ActiveChains []moralisActiveChain `json:"active_chains"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode active chains: %w", err)
+	}
+
+	chains := make([]string, 0, len(result.ActiveChains))
+	for _, ac := range result.ActiveChains {
+		if ac.Chain != "" {
+			chains = append(chains, ac.Chain)
+		}
+	}
+	return chains, nil
+}
+
 // moralisERC20Token is the JSON shape from /v2/{address}/erc20 endpoint.
 type moralisERC20Token struct {
 	TokenAddress string `json:"token_address"`
 	Symbol       string `json:"symbol"`
 	Name         string `json:"name"`
-	Decimals     string `json:"decimals"` // returned as string by Moralis
+	Decimals     int    `json:"decimals"`
 	Balance      string `json:"balance"`
 	Thumbnail    string `json:"thumbnail"`
 }
@@ -108,13 +160,11 @@ func (c *Client) GetWalletTokenBalances(ctx context.Context, chain string, addre
 
 	result := make([]Balance, 0, len(tokens))
 	for _, t := range tokens {
-		dec := 18
-		_, _ = fmt.Sscanf(t.Decimals, "%d", &dec) // best-effort; default 18
 		result = append(result, Balance{
 			TokenAddress: t.TokenAddress,
 			Symbol:       t.Symbol,
 			Name:         t.Name,
-			Decimals:     dec,
+			Decimals:     t.Decimals,
 			Balance:      t.Balance,
 			Thumbnail:    t.Thumbnail,
 		})

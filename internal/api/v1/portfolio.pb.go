@@ -292,15 +292,17 @@ func (x *Portfolio) GetUpdatedAt() *timestamppb.Timestamp {
 
 // Holding represents a specific quantity of an Asset held within an Account.
 type Holding struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Amount        int64                  `protobuf:"varint,2,opt,name=amount,proto3" json:"amount,omitempty"`
-	Decimals      uint32                 `protobuf:"varint,3,opt,name=decimals,proto3" json:"decimals,omitempty"`
-	AssetId       string                 `protobuf:"bytes,4,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
-	AccountId     string                 `protobuf:"bytes,5,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	PortfolioId   *string                `protobuf:"bytes,6,opt,name=portfolio_id,json=portfolioId,proto3,oneof" json:"portfolio_id,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Id          string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Amount      int64                  `protobuf:"varint,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	Decimals    uint32                 `protobuf:"varint,3,opt,name=decimals,proto3" json:"decimals,omitempty"`
+	AssetId     string                 `protobuf:"bytes,4,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
+	AccountId   string                 `protobuf:"bytes,5,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	PortfolioId *string                `protobuf:"bytes,6,opt,name=portfolio_id,json=portfolioId,proto3,oneof" json:"portfolio_id,omitempty"`
+	CreatedAt   *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt   *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// If true, explicitly excluded from all portfolio calculations (e.g. spam/scam tokens).
+	Excluded      bool `protobuf:"varint,9,opt,name=excluded,proto3" json:"excluded,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -389,6 +391,13 @@ func (x *Holding) GetUpdatedAt() *timestamppb.Timestamp {
 		return x.UpdatedAt
 	}
 	return nil
+}
+
+func (x *Holding) GetExcluded() bool {
+	if x != nil {
+		return x.Excluded
+	}
+	return false
 }
 
 // Account represents a user's connection to an external financial entity.
@@ -2148,7 +2157,7 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\tDataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12*\n" +
 	"\x05value\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\x05value:\x028\x01B\x0e\n" +
-	"\f_description\"\xb6\x02\n" +
+	"\f_description\"\xd2\x02\n" +
 	"\aHolding\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06amount\x18\x02 \x01(\x03R\x06amount\x12\x1a\n" +
@@ -2160,7 +2169,8 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAtB\x0f\n" +
+	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x1a\n" +
+	"\bexcluded\x18\t \x01(\bR\bexcludedB\x0f\n" +
 	"\r_portfolio_id\"\xbd\x03\n" +
 	"\aAccount\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +

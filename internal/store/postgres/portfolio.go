@@ -422,6 +422,9 @@ func (s *PortfolioStore) UpdateAccount(ctx context.Context, a *entity.Account, f
 			args = append(args, accountTypeToString(a.Type))
 			argIdx++
 		case "data":
+			if a.Data == nil {
+				continue // Not provided — preserve existing credentials
+			}
 			dataJSON, err := json.Marshal(a.Data)
 			if err != nil {
 				return nil, fmt.Errorf("failed to marshal data: %w", err)
@@ -599,8 +602,8 @@ func (s *PortfolioStore) CreateHolding(ctx context.Context, h *entity.Holding) (
 	}
 
 	query := `
-		INSERT INTO holdings (id, amount, decimals, asset_id, account_id, portfolio_id, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+		INSERT INTO holdings (id, amount, decimals, asset_id, account_id, portfolio_id, excluded, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
 		RETURNING created_at, updated_at`
 
 	err = s.pool.QueryRow(ctx, query,
@@ -610,6 +613,7 @@ func (s *PortfolioStore) CreateHolding(ctx context.Context, h *entity.Holding) (
 		h.AssetID,
 		h.AccountID,
 		portfolioID,
+		h.Excluded,
 	).Scan(&h.CreatedAt, &h.UpdatedAt)
 	if err != nil {
 		if isConstraintError(err) {
@@ -630,7 +634,7 @@ func (s *PortfolioStore) GetHolding(ctx context.Context, id string) (*entity.Hol
 	}
 
 	query := `
-		SELECT id, amount, decimals, asset_id, account_id, portfolio_id, created_at, updated_at
+		SELECT id, amount, decimals, asset_id, account_id, portfolio_id, excluded, created_at, updated_at
 		FROM holdings
 		WHERE id = $1`
 
@@ -644,6 +648,7 @@ func (s *PortfolioStore) GetHolding(ctx context.Context, id string) (*entity.Hol
 		&h.AssetID,
 		&h.AccountID,
 		&portfolioID,
+		&h.Excluded,
 		&h.CreatedAt,
 		&h.UpdatedAt,
 	)
@@ -690,6 +695,10 @@ func (s *PortfolioStore) UpdateHolding(ctx context.Context, h *entity.Holding, f
 			}
 			setClauses = append(setClauses, fmt.Sprintf("portfolio_id = $%d", argIdx))
 			args = append(args, portfolioID)
+			argIdx++
+		case "excluded":
+			setClauses = append(setClauses, fmt.Sprintf("excluded = $%d", argIdx))
+			args = append(args, h.Excluded)
 			argIdx++
 		}
 	}
@@ -742,28 +751,34 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 	argIdx := 1
 	whereClauses := []string{}
 
+	// Use COALESCE(h.portfolio_id, a.portfolio_id) so holdings with NULL portfolio_id
+	// inherit the account's portfolio_id for filtering.
 	if opts.PortfolioID != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("portfolio_id = $%d", argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("COALESCE(h.portfolio_id, a.portfolio_id) = $%d", argIdx))
 		args = append(args, opts.PortfolioID)
 		argIdx++
 	}
 
 	if opts.AccountID != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("account_id = $%d", argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("h.account_id = $%d", argIdx))
 		args = append(args, opts.AccountID)
 		argIdx++
 	}
 
 	if opts.AssetID != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("asset_id = $%d", argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("h.asset_id = $%d", argIdx))
 		args = append(args, opts.AssetID)
 		argIdx++
+	}
+
+	if opts.HideExcluded {
+		whereClauses = append(whereClauses, "h.excluded = false")
 	}
 
 	if opts.PageToken != "" {
 		decoded, err := base64.StdEncoding.DecodeString(opts.PageToken)
 		if err == nil && isValidUUID(string(decoded)) {
-			whereClauses = append(whereClauses, fmt.Sprintf("id > $%d", argIdx))
+			whereClauses = append(whereClauses, fmt.Sprintf("h.id > $%d", argIdx))
 			args = append(args, string(decoded))
 			argIdx++
 		}
@@ -775,10 +790,11 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, amount, decimals, asset_id, account_id, portfolio_id, created_at, updated_at
-		FROM holdings
+		SELECT h.id, h.amount, h.decimals, h.asset_id, h.account_id, h.portfolio_id, h.excluded, h.created_at, h.updated_at
+		FROM holdings h
+		LEFT JOIN accounts a ON a.id = h.account_id
 		%s
-		ORDER BY id
+		ORDER BY h.id
 		LIMIT $%d`,
 		whereClause, argIdx)
 	args = append(args, limit+1)
@@ -801,6 +817,7 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 			&h.AssetID,
 			&h.AccountID,
 			&portfolioID,
+			&h.Excluded,
 			&h.CreatedAt,
 			&h.UpdatedAt,
 		); err != nil {

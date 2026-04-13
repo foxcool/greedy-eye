@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -21,11 +22,15 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// defaultQuoteAsset is the symbol used when the caller omits quote_asset_id.
+// The marketdata handler resolves it to a UUID via GetAssetBySymbol.
+const defaultQuoteAsset = "USD"
+
 // Handler implements apiv1connect.PortfolioServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedPortfolioServiceHandler
 	store        Store
-	mdClient     MarketDataClient // optional; nil if not configured
+	mdClient     MarketDataClient    // optional; nil if not configured
 	walletSyncer entity.WalletSyncer // optional; nil if not configured
 	log          *slog.Logger
 }
@@ -167,10 +172,14 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 
 	quoteAssetID := req.Msg.QuoteAssetId
 	if quoteAssetID == "" {
-		quoteAssetID = "usd"
+		quoteAssetID = defaultQuoteAsset
 	}
 
-	holdings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{PortfolioID: req.Msg.PortfolioId, PageSize: 1000})
+	holdings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{
+		PortfolioID:     req.Msg.PortfolioId,
+		PageSize:        1000,
+		HideExcluded: true,
+	})
 	if err != nil {
 		return nil, toConnectError(err)
 	}
@@ -229,7 +238,7 @@ func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Requ
 		from = req.Msg.From.AsTime()
 	}
 
-	quoteAssetID := "usd"
+	quoteAssetID := defaultQuoteAsset
 	if req.Msg.BenchmarkAssetId != "" {
 		quoteAssetID = req.Msg.BenchmarkAssetId
 	}
@@ -330,7 +339,7 @@ func (h *Handler) UpdateHolding(ctx context.Context, req *connect.Request[apiv1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("holding with ID is required"))
 	}
 
-	fields := []string{"amount", "decimals", "portfolio_id"}
+	fields := []string{"amount", "decimals", "portfolio_id", "excluded"}
 	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
 		fields = req.Msg.UpdateMask.Paths
 	}
@@ -418,7 +427,7 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account with ID is required"))
 	}
 
-	fields := []string{"name", "description", "type", "data"}
+	fields := []string{"name", "description", "type", "data", "portfolio_id"}
 	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
 		fields = req.Msg.UpdateMask.Paths
 	}
@@ -503,15 +512,64 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	if !ok || address == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account.data.address is required for wallet sync"))
 	}
-	chain := account.Data["chain"]
-	if chain == "" {
-		chain = "eth"
+
+	// Resolve which chains to sync.
+	// If chain field is empty or "auto": discover active chains via the provider API.
+	// Otherwise accept comma-separated list: "eth,base,arbitrum".
+	var syncErrors []string
+	chainRaw := strings.TrimSpace(account.Data["chain"])
+	var chains []string
+	if chainRaw == "" || chainRaw == "auto" {
+		discovered, err := h.walletSyncer.GetActiveChains(ctx, address)
+		if err != nil {
+			h.log.Warn("chain auto-discovery failed, falling back to eth", "error", err)
+			chains = []string{"eth"}
+		} else if len(discovered) == 0 {
+			chains = []string{"eth"}
+		} else {
+			chains = discovered
+			h.log.Info("auto-discovered chains", "address", address, "chains", chains)
+		}
+	} else {
+		chains = splitChains(chainRaw)
 	}
 
-	// Fetch balances from Moralis
-	balances, err := h.walletSyncer.GetWalletTokenBalances(ctx, chain, address)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("fetch wallet balances: %w", err))
+	// Collect balances across all chains, merging same-symbol tokens.
+	// Key: symbol (uppercase). Amounts are raw integer strings summed as int64.
+	type accumulated struct {
+		bal   entity.WalletBalance
+		total int64
+	}
+	bySymbol := make(map[string]*accumulated)
+
+	addBalance := func(b entity.WalletBalance) {
+		var amt int64
+		if _, err := fmt.Sscanf(b.Amount, "%d", &amt); err != nil || amt == 0 {
+			return
+		}
+		if entry, ok := bySymbol[b.Symbol]; ok {
+			entry.total += amt
+		} else {
+			bySymbol[b.Symbol] = &accumulated{bal: b, total: amt}
+		}
+	}
+
+	for _, chain := range chains {
+		erc20, err := h.walletSyncer.GetWalletTokenBalances(ctx, chain, address)
+		if err != nil {
+			syncErrors = append(syncErrors, fmt.Sprintf("chain %s ERC-20: %v", chain, err))
+			continue
+		}
+		for _, b := range erc20 {
+			addBalance(b)
+		}
+
+		native, err := h.walletSyncer.GetNativeBalance(ctx, chain, address)
+		if err != nil {
+			syncErrors = append(syncErrors, fmt.Sprintf("chain %s native: %v", chain, err))
+		} else if native != nil {
+			addBalance(*native)
+		}
 	}
 
 	// Build symbol → asset ID map from existing assets
@@ -542,19 +600,26 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	defaultPortfolioID := account.PortfolioID
 
 	var assetsUpserted, holdingsUpserted int32
-	var syncErrors []string
 
-	for _, bal := range balances {
+	for _, entry := range bySymbol {
+		bal := entry.bal
+		amount := entry.total
 		symbol := bal.Symbol
 
 		// Ensure asset exists
 		assetID, exists := symbolToAssetID[symbol]
 		if !exists {
+			// Store contract address as a tag so price providers can look up by address.
+			var tags []string
+			if bal.ContractAddress != "" {
+				tags = append(tags, "contract:"+bal.ContractAddress)
+			}
 			createResp, err := h.mdClient.CreateAsset(ctx, connect.NewRequest(&apiv1.CreateAssetRequest{
 				Asset: &apiv1.Asset{
 					Name:   bal.Name,
 					Symbol: &symbol,
 					Type:   apiv1.AssetType_ASSET_TYPE_CRYPTOCURRENCY,
+					Tags:   tags,
 				},
 			}))
 			if err != nil {
@@ -564,13 +629,6 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 			assetID = createResp.Msg.Id
 			symbolToAssetID[symbol] = assetID
 			assetsUpserted++
-		}
-
-		// Parse raw balance string to int64
-		var amount int64
-		if _, err := fmt.Sscanf(bal.Amount, "%d", &amount); err != nil {
-			syncErrors = append(syncErrors, fmt.Sprintf("parse amount for %s: %v", symbol, err))
-			continue
 		}
 
 		if existing, ok := holdingByAssetID[assetID]; ok {
@@ -757,6 +815,7 @@ func holdingFromProto(h *apiv1.Holding) *entity.Holding {
 		Decimals:  h.Decimals,
 		AssetID:   h.AssetId,
 		AccountID: h.AccountId,
+		Excluded:  h.Excluded,
 	}
 	if h.PortfolioId != nil {
 		result.PortfolioID = *h.PortfolioId
@@ -771,6 +830,7 @@ func holdingToProto(h *entity.Holding) *apiv1.Holding {
 		Decimals:  h.Decimals,
 		AssetId:   h.AssetID,
 		AccountId: h.AccountID,
+		Excluded:  h.Excluded,
 		CreatedAt: timestamppb.New(h.CreatedAt),
 		UpdatedAt: timestamppb.New(h.UpdatedAt),
 	}
@@ -824,6 +884,25 @@ func transactionFromProto(t *apiv1.Transaction) *entity.Transaction {
 		AccountID: t.AccountId,
 		Data:      t.Data,
 	}
+}
+
+// splitChains splits a comma-separated chain string, defaulting to ["eth"] when empty.
+func splitChains(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return []string{"eth"}
+	}
+	parts := strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' })
+	if len(parts) == 0 {
+		return []string{"eth"}
+	}
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
 }
 
 func transactionToProto(t *entity.Transaction) *apiv1.Transaction {

@@ -16,7 +16,6 @@ const (
 	ProviderName = "binance"
 
 	sourceID      = ProviderName
-	baseAssetID   = "usdt"
 	priceDecimals = uint32(8)
 	divisor       = 1e8
 	interval      = "latest"
@@ -31,6 +30,9 @@ type Provider struct {
 func NewProvider(client *Client) *Provider {
 	return &Provider{client: client}
 }
+
+// BaseAssetSymbol returns the ticker of the quote currency used by Binance ("USDT").
+func (p *Provider) BaseAssetSymbol() string { return "USDT" }
 
 // FetchPrices fetches current prices from Binance for the given assets.
 // Binance symbols are derived from asset symbols as UPPER(symbol)+"USDT"
@@ -68,10 +70,10 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 		}
 		last := int64(math.Round(price * divisor))
 		result = append(result, entity.StoredPrice{
-			SourceID:    sourceID,
-			AssetID:     assetID,
-			BaseAssetID: baseAssetID,
-			Interval:    interval,
+			SourceID: sourceID,
+			AssetID:  assetID,
+			// BaseAssetID is intentionally empty — resolved by FetchExternalPrices handler.
+			Interval: interval,
 			Decimals:    priceDecimals,
 			Last:        last,
 			Timestamp:   now,

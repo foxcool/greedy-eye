@@ -39,6 +39,22 @@ func (m *mockStore) GetAsset(ctx context.Context, id string) (*entity.Asset, err
 	return nil, args.Error(1)
 }
 
+func (m *mockStore) GetAssetBySymbol(ctx context.Context, symbol string) (*entity.Asset, error) {
+	args := m.Called(ctx, symbol)
+	if v := args.Get(0); v != nil {
+		return v.(*entity.Asset), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockStore) GetOrCreateAssetBySymbol(ctx context.Context, symbol, nameIfNew string, typeIfNew entity.AssetType) (*entity.Asset, error) {
+	args := m.Called(ctx, symbol, nameIfNew, typeIfNew)
+	if v := args.Get(0); v != nil {
+		return v.(*entity.Asset), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockStore) UpdateAsset(ctx context.Context, asset *entity.Asset, fields []string) (*entity.Asset, error) {
 	args := m.Called(ctx, asset, fields)
 	if v := args.Get(0); v != nil {
@@ -305,17 +321,46 @@ func TestGetLatestPrice_MissingFields(t *testing.T) {
 }
 
 func TestGetLatestPrice_OK(t *testing.T) {
+	const baseUUID = "00000000-0000-0000-0000-000000000001"
 	s := &mockStore{}
-	s.On("GetLatestPrice", mock.Anything, "a-1", "usdt", "").Return(&entity.StoredPrice{
-		ID: "p-1", AssetID: "a-1", BaseAssetID: "usdt",
+	s.On("GetLatestPrice", mock.Anything, "a-1", baseUUID, "").Return(&entity.StoredPrice{
+		ID: "p-1", AssetID: "a-1", BaseAssetID: baseUUID,
 	}, nil)
 	h := newHandler(s)
 
 	resp, err := h.GetLatestPrice(context.Background(), connect.NewRequest(&apiv1.GetLatestPriceRequest{
-		AssetId: "a-1", BaseAssetId: "usdt",
+		AssetId: "a-1", BaseAssetId: baseUUID,
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, "p-1", resp.Msg.Id)
+}
+
+func TestGetLatestPrice_SymbolResolved(t *testing.T) {
+	const resolvedUUID = "00000000-0000-0000-0000-000000000002"
+	s := &mockStore{}
+	s.On("GetAssetBySymbol", mock.Anything, "USD").Return(&entity.Asset{ID: resolvedUUID}, nil)
+	s.On("GetLatestPrice", mock.Anything, "a-1", resolvedUUID, "").Return(&entity.StoredPrice{
+		ID: "p-2", AssetID: "a-1", BaseAssetID: resolvedUUID,
+	}, nil)
+	h := newHandler(s)
+
+	resp, err := h.GetLatestPrice(context.Background(), connect.NewRequest(&apiv1.GetLatestPriceRequest{
+		AssetId: "a-1", BaseAssetId: "usd", // lowercase symbol, not UUID
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "p-2", resp.Msg.Id)
+}
+
+func TestGetLatestPrice_SymbolNotFound(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAssetBySymbol", mock.Anything, "UNKNOWN").Return(nil, store.ErrNotFound)
+	h := newHandler(s)
+
+	_, err := h.GetLatestPrice(context.Background(), connect.NewRequest(&apiv1.GetLatestPriceRequest{
+		AssetId: "a-1", BaseAssetId: "unknown",
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 }
 
 // --- Tests: Stubs return Unimplemented ---

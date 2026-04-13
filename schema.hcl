@@ -132,6 +132,11 @@ table "assets" {
     columns = [column.id]
   }
 
+  index "asset_symbol" {
+    columns = [column.symbol]
+    unique  = true
+  }
+
   index "asset_tags" {
     columns = [column.tags]
     type    = GIN
@@ -216,6 +221,11 @@ table "holdings" {
   column "portfolio_id" {
     type = uuid
     null = true
+  }
+  column "excluded" {
+    type    = boolean
+    null    = false
+    default = false
   }
 
   primary_key {
@@ -309,18 +319,18 @@ table "prices" {
     unique  = true
   }
 
-  foreign_key "prices_assets_prices" {
+  foreign_key "prices_assets_asset" {
     columns     = [column.asset_id]
     ref_columns = [table.assets.column.id]
     on_update   = NO_ACTION
     on_delete   = NO_ACTION
   }
 
-  foreign_key "prices_assets_prices_base" {
+  foreign_key "prices_assets_base_asset" {
     columns     = [column.base_asset_id]
     ref_columns = [table.assets.column.id]
     on_update   = NO_ACTION
-    on_delete   = NO_ACTION
+    on_delete   = RESTRICT
   }
 }
 

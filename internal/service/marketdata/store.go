@@ -13,6 +13,8 @@ type Store interface {
 	// Assets
 	CreateAsset(ctx context.Context, asset *entity.Asset) (*entity.Asset, error)
 	GetAsset(ctx context.Context, id string) (*entity.Asset, error)
+	GetAssetBySymbol(ctx context.Context, symbol string) (*entity.Asset, error)
+	GetOrCreateAssetBySymbol(ctx context.Context, symbol, nameIfNew string, typeIfNew entity.AssetType) (*entity.Asset, error)
 	UpdateAsset(ctx context.Context, asset *entity.Asset, fields []string) (*entity.Asset, error)
 	DeleteAsset(ctx context.Context, id string) error
 	ListAssets(ctx context.Context, opts ListAssetsOpts) ([]*entity.Asset, string, error)

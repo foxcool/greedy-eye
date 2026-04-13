@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
+
+	"github.com/google/uuid"
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
@@ -17,9 +20,14 @@ import (
 )
 
 // PriceProvider fetches prices from an external source.
-// Each implementation encapsulates its own SourceID, BaseAssetID, Decimals, and Interval.
 type PriceProvider interface {
+	// FetchPrices fetches current prices for the given assets.
+	// Returned StoredPrice.BaseAssetID is intentionally empty — the handler resolves
+	// the base asset UUID from BaseAssetSymbol() before persisting.
 	FetchPrices(ctx context.Context, assets []*entity.Asset) ([]entity.StoredPrice, error)
+	// BaseAssetSymbol returns the ticker of the quote currency (e.g. "USD", "USDT").
+	// Used by FetchExternalPrices to resolve or create the base asset on demand.
+	BaseAssetSymbol() string
 }
 
 // Handler implements apiv1connect.MarketDataServiceHandler.
@@ -177,17 +185,36 @@ func (h *Handler) GetLatestPrice(ctx context.Context, req *connect.Request[apiv1
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset_id and base_asset_id are required"))
 	}
 
+	baseAssetID, err := h.resolveAssetID(ctx, req.Msg.BaseAssetId)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
 	var sourceID string
 	if req.Msg.SourceId != nil {
 		sourceID = *req.Msg.SourceId
 	}
 
-	price, err := h.store.GetLatestPrice(ctx, req.Msg.AssetId, req.Msg.BaseAssetId, sourceID)
+	price, err := h.store.GetLatestPrice(ctx, req.Msg.AssetId, baseAssetID, sourceID)
 	if err != nil {
 		return nil, toConnectError(err)
 	}
 
 	return connect.NewResponse(priceToProto(price)), nil
+}
+
+// resolveAssetID returns id unchanged if it is a valid UUID, otherwise treats it
+// as a symbol and looks up the asset by symbol. This allows callers to pass either
+// a UUID or a well-known ticker (e.g. "USD", "usd") interchangeably.
+func (h *Handler) resolveAssetID(ctx context.Context, id string) (string, error) {
+	if _, err := uuid.Parse(id); err == nil {
+		return id, nil
+	}
+	asset, err := h.store.GetAssetBySymbol(ctx, strings.ToUpper(id))
+	if err != nil {
+		return "", fmt.Errorf("resolve asset %q: %w", id, err)
+	}
+	return asset.ID, nil
 }
 
 // ListPriceHistory returns price history for an asset pair.
@@ -196,9 +223,14 @@ func (h *Handler) ListPriceHistory(ctx context.Context, req *connect.Request[api
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset_id and base_asset_id are required"))
 	}
 
+	baseAssetID, err := h.resolveAssetID(ctx, req.Msg.BaseAssetId)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
 	opts := ListPriceHistoryOpts{
 		AssetID:     req.Msg.AssetId,
-		BaseAssetID: req.Msg.BaseAssetId,
+		BaseAssetID: baseAssetID,
 	}
 	if req.Msg.SourceId != nil {
 		opts.SourceID = *req.Msg.SourceId
@@ -337,6 +369,9 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	var fetchErrs []string
 	var totalFetched int
 
+	// Cache base asset UUIDs per symbol to avoid repeated lookups across providers.
+	baseAssetCache := map[string]string{} // symbol → UUID
+
 	for name, provider := range h.providers {
 		if len(req.Msg.SourceIds) > 0 && !slices.Contains(req.Msg.SourceIds, name) {
 			continue
@@ -346,15 +381,32 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
 			continue
 		}
+
+		// Resolve base asset UUID for this provider (create the asset if it doesn't exist yet).
+		sym := strings.ToUpper(provider.BaseAssetSymbol())
+		baseID, ok := baseAssetCache[sym]
+		if !ok {
+			baseAsset, err := h.store.GetOrCreateAssetBySymbol(ctx, sym, sym, entity.AssetTypeForex)
+			if err != nil {
+				fetchErrs = append(fetchErrs, fmt.Sprintf("%s: resolve base asset %s: %v", name, sym, err))
+				continue
+			}
+			baseID = baseAsset.ID
+			baseAssetCache[sym] = baseID
+		}
+
 		totalFetched += len(results)
 		for i := range results {
+			results[i].BaseAssetID = baseID
 			allPrices = append(allPrices, &results[i])
 		}
 	}
 
 	stored, err := h.store.CreatePrices(ctx, allPrices)
 	if err != nil {
-		return nil, toConnectError(err)
+		// Partial failures are non-fatal: surface them in the response errors field.
+		h.log.Warn("some prices failed to store", "error", err)
+		fetchErrs = append(fetchErrs, err.Error())
 	}
 
 	return connect.NewResponse(&apiv1.FetchExternalPricesResponse{

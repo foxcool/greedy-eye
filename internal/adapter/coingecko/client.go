@@ -131,6 +131,76 @@ func (c *Client) GetMultiplePrices(ctx context.Context, assetIDs []string, curre
 	return result, nil
 }
 
+// GetTokenPricesByContract retrieves prices for ERC-20 tokens by their contract addresses.
+// platform is the CoinGecko platform ID, e.g. "ethereum", "base", "polygon-pos".
+func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, addresses []string, currency string) (map[string]*PriceData, error) {
+	if len(addresses) == 0 {
+		return map[string]*PriceData{}, nil
+	}
+
+	// CoinGecko supports batching up to 30 addresses per request on free tier.
+	const batchSize = 30
+	result := make(map[string]*PriceData, len(addresses))
+
+	for i := 0; i < len(addresses); i += batchSize {
+		end := i + batchSize
+		if end > len(addresses) {
+			end = len(addresses)
+		}
+		batch := addresses[i:end]
+
+		url := fmt.Sprintf(
+			"%s/simple/token_price/%s?contract_addresses=%s&vs_currencies=%s&include_24hr_high=true&include_24hr_low=true",
+			c.baseURL,
+			platform,
+			strings.Join(batch, ","),
+			currency,
+		)
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("create request: %w", err)
+		}
+		if c.apiKey != "" {
+			req.Header.Set("x-cg-demo-api-key", c.apiKey)
+		}
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("do request: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("unexpected status %d from CoinGecko token_price", resp.StatusCode)
+		}
+
+		// Response: { "0x...": { "usd": 1.23, "usd_24h_high": 1.30, "usd_24h_low": 1.10 }, ... }
+		var raw map[string]map[string]float64
+		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("decode response: %w", err)
+		}
+		_ = resp.Body.Close()
+
+		now := time.Now()
+		for addr, prices := range raw {
+			price := prices[currency]
+			if price == 0 {
+				continue
+			}
+			result[addr] = &PriceData{
+				Price:     price,
+				High24h:   prices[currency+"_24h_high"],
+				Low24h:    prices[currency+"_24h_low"],
+				Timestamp: now,
+			}
+		}
+	}
+
+	return result, nil
+}
+
 // GetCurrentPrice retrieves current price for an asset.
 func (c *Client) GetCurrentPrice(ctx context.Context, assetID string, currency string) (*PriceData, error) {
 	prices, err := c.GetMultiplePrices(ctx, []string{assetID}, currency)
