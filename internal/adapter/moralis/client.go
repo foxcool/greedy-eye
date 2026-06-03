@@ -160,14 +160,7 @@ func (c *Client) GetWalletTokenBalances(ctx context.Context, chain string, addre
 
 	result := make([]Balance, 0, len(tokens))
 	for _, t := range tokens {
-		result = append(result, Balance{
-			TokenAddress: t.TokenAddress,
-			Symbol:       t.Symbol,
-			Name:         t.Name,
-			Decimals:     t.Decimals,
-			Balance:      t.Balance,
-			Thumbnail:    t.Thumbnail,
-		})
+		result = append(result, Balance(t))
 	}
 	return result, nil
 }
