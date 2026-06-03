@@ -203,7 +203,8 @@ table "holdings" {
     null = false
   }
   column "amount" {
-    type = bigint
+    # NUMERIC (arbitrary precision) holds raw uint256 token balances that overflow bigint.
+    type = numeric
     null = false
   }
   column "decimals" {
@@ -274,27 +275,28 @@ table "prices" {
     null = false
   }
   column "last" {
-    type = bigint
+    # NUMERIC: raw integer price scaled by decimals; arbitrary precision, no overflow.
+    type = numeric
     null = false
   }
   column "open" {
-    type = bigint
+    type = numeric
     null = true
   }
   column "high" {
-    type = bigint
+    type = numeric
     null = true
   }
   column "low" {
-    type = bigint
+    type = numeric
     null = true
   }
   column "close" {
-    type = bigint
+    type = numeric
     null = true
   }
   column "volume" {
-    type = bigint
+    type = numeric
     null = true
   }
   column "timestamp" {

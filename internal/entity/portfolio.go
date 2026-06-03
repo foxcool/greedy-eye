@@ -3,6 +3,8 @@ package entity
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 // Portfolio represents a collection of holdings managed by a user.
@@ -43,7 +45,7 @@ type Account struct {
 // Holding represents a specific quantity of an Asset held within an Account.
 type Holding struct {
 	ID          string
-	Amount      int64
+	Amount      decimal.Decimal // Raw integer balance scaled by Decimals (value = Amount / 10^Decimals); holds uint256.
 	Decimals    uint32
 	AssetID     string
 	AccountID   string

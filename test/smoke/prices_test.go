@@ -8,11 +8,20 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	v1 "github.com/foxcool/greedy-eye/internal/api/v1"
 	binanceadapter "github.com/foxcool/greedy-eye/internal/adapter/binance"
+	v1 "github.com/foxcool/greedy-eye/internal/api/v1"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// assertPositivePrice parses a raw integer price string and asserts it is > 0.
+func assertPositivePrice(t *testing.T, raw, msg string) {
+	t.Helper()
+	d, err := decimal.NewFromString(raw)
+	require.NoError(t, err, "price must be a valid decimal string")
+	assert.True(t, d.IsPositive(), msg)
+}
 
 // TestFetchExternalPrices_Binance always runs — Binance ticker endpoint is public (no API key).
 // Creates a BTC asset, fetches its price from Binance, verifies the price is stored.
@@ -47,7 +56,7 @@ func TestFetchExternalPrices_Binance(t *testing.T) {
 		BaseAssetId: "USDT",
 	}))
 	require.NoError(t, err)
-	assert.Greater(t, latestResp.Msg.GetLast(), int64(0), "BTC price should be > 0")
+	assertPositivePrice(t, latestResp.Msg.GetLast(), "BTC price should be > 0")
 	assert.Equal(t, binanceadapter.ProviderName, latestResp.Msg.GetSourceId())
 }
 
@@ -89,6 +98,6 @@ func TestFetchExternalPrices_CoinGecko(t *testing.T) {
 		BaseAssetId: "USD",
 	}))
 	require.NoError(t, err)
-	assert.Greater(t, latestResp.Msg.GetLast(), int64(0), "BTC/USD price should be > 0")
+	assertPositivePrice(t, latestResp.Msg.GetLast(), "BTC/USD price should be > 0")
 	assert.Equal(t, "coingecko", latestResp.Msg.GetSourceId())
 }

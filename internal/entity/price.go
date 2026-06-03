@@ -23,7 +23,8 @@ type Price struct {
 }
 
 // StoredPrice represents price data from database.
-// Uses int64 with decimals field for efficient storage.
+// Amounts are raw integers scaled by Decimals (value = amount / 10^Decimals), carried as
+// decimal.Decimal and stored in NUMERIC columns. Optional OHLCV fields use NullDecimal.
 type StoredPrice struct {
 	ID          string
 	SourceID    string
@@ -31,11 +32,11 @@ type StoredPrice struct {
 	BaseAssetID string
 	Interval    string
 	Decimals    uint32
-	Last        int64
-	Open        *int64
-	High        *int64
-	Low         *int64
-	Close       *int64
-	Volume      *int64
+	Last        decimal.Decimal
+	Open        decimal.NullDecimal
+	High        decimal.NullDecimal
+	Low         decimal.NullDecimal
+	Close       decimal.NullDecimal
+	Volume      decimal.NullDecimal
 	Timestamp   time.Time
 }

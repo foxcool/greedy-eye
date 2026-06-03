@@ -11,14 +11,15 @@ type WalletBalance struct {
 	ContractAddress string // EVM token contract address; empty for native coins
 }
 
-// WalletSyncer fetches token balances for a blockchain wallet.
+// WalletSyncer fetches token balances for a blockchain wallet across one or more chains.
+//
+// The implementation owns all provider-specific mechanics: chain discovery, per-chain
+// fan-out, and native-vs-token balance retrieval. Callers receive a flat, normalized list
+// of balances and remain unaware of the underlying provider's API shape.
 type WalletSyncer interface {
-	// GetWalletTokenBalances returns ERC-20 / SPL / etc. token balances.
-	GetWalletTokenBalances(ctx context.Context, chain, address string) ([]WalletBalance, error)
-	// GetNativeBalance returns the native coin balance (ETH, MATIC, BNB, …).
-	// Returns nil without error when the balance is zero or chain is unsupported.
-	GetNativeBalance(ctx context.Context, chain, address string) (*WalletBalance, error)
-	// GetActiveChains returns the chains where this address has had activity.
-	// Used for auto-discovery when no explicit chain is configured.
-	GetActiveChains(ctx context.Context, address string) ([]string, error)
+	// SyncWallet returns native and token balances for the address across the given chains.
+	// When chains is empty, the implementation auto-discovers the chains with activity.
+	// A non-nil error may accompany a partial result: balances gathered before the failure
+	// are still returned so the caller can surface per-chain errors without losing data.
+	SyncWallet(ctx context.Context, address string, chains []string) ([]WalletBalance, error)
 }

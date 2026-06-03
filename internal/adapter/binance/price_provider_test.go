@@ -45,16 +45,16 @@ func TestFetchPrices_OK(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, prices, 2)
 
-	byAsset := make(map[string]int64, 2)
+	byAsset := make(map[string]string, 2)
 	for _, sp := range prices {
 		assert.Equal(t, "binance", sp.SourceID)
 		assert.Empty(t, sp.BaseAssetID) // resolved by handler, not provider
 		assert.Equal(t, "latest", sp.Interval)
 		assert.Equal(t, uint32(8), sp.Decimals)
-		byAsset[sp.AssetID] = sp.Last
+		byAsset[sp.AssetID] = sp.Last.String()
 	}
-	assert.Equal(t, int64(6700012345678), byAsset["uuid-btc"])
-	assert.Equal(t, int64(350000000000), byAsset["uuid-eth"])
+	assert.Equal(t, "6700012345678", byAsset["uuid-btc"])
+	assert.Equal(t, "350000000000", byAsset["uuid-eth"])
 }
 
 func TestFetchPrices_EmptyAssets(t *testing.T) {

@@ -11,9 +11,9 @@ import (
 
 // Client implements PriceProvider interface for CoinGecko
 type Client struct {
-	apiKey    string
-	baseURL   string
-	rateLimit time.Duration
+	apiKey     string
+	baseURL    string
+	rateLimit  time.Duration
 	httpClient *http.Client
 }
 
@@ -55,24 +55,24 @@ func NewClient(cfg Config) *Client {
 	}
 
 	return &Client{
-		apiKey:    cfg.APIKey,
-		baseURL:   baseURL,
-		rateLimit: rateLimit,
+		apiKey:     cfg.APIKey,
+		baseURL:    baseURL,
+		rateLimit:  rateLimit,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
 // coingeckoMarketItem is the JSON shape from /coins/markets endpoint.
 type coingeckoMarketItem struct {
-	ID                  string  `json:"id"`
-	Symbol              string  `json:"symbol"`
-	CurrentPrice        float64 `json:"current_price"`
-	MarketCap           float64 `json:"market_cap"`
-	TotalVolume         float64 `json:"total_volume"`
-	PriceChange24h      float64 `json:"price_change_24h"`
-	PriceChangePct24h   float64 `json:"price_change_percentage_24h"`
-	High24h             float64 `json:"high_24h"`
-	Low24h              float64 `json:"low_24h"`
+	ID                string  `json:"id"`
+	Symbol            string  `json:"symbol"`
+	CurrentPrice      float64 `json:"current_price"`
+	MarketCap         float64 `json:"market_cap"`
+	TotalVolume       float64 `json:"total_volume"`
+	PriceChange24h    float64 `json:"price_change_24h"`
+	PriceChangePct24h float64 `json:"price_change_percentage_24h"`
+	High24h           float64 `json:"high_24h"`
+	Low24h            float64 `json:"low_24h"`
 }
 
 // GetMultiplePrices retrieves current prices for multiple assets.

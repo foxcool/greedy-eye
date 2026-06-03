@@ -7,16 +7,17 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"math/big"
 	"strings"
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/shopspring/decimal"
 	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
 	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/store"
+	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -43,10 +44,10 @@ func NewHandler(store Store, log *slog.Logger) *Handler {
 func (h *Handler) WithMarketDataClient(mc MarketDataClient) *Handler {
 	return &Handler{
 		UnimplementedPortfolioServiceHandler: h.UnimplementedPortfolioServiceHandler,
-		store:        h.store,
-		mdClient:     mc,
-		walletSyncer: h.walletSyncer,
-		log:          h.log,
+		store:                                h.store,
+		mdClient:                             mc,
+		walletSyncer:                         h.walletSyncer,
+		log:                                  h.log,
 	}
 }
 
@@ -54,10 +55,10 @@ func (h *Handler) WithMarketDataClient(mc MarketDataClient) *Handler {
 func (h *Handler) WithWalletSyncer(ws entity.WalletSyncer) *Handler {
 	return &Handler{
 		UnimplementedPortfolioServiceHandler: h.UnimplementedPortfolioServiceHandler,
-		store:        h.store,
-		mdClient:     h.mdClient,
-		walletSyncer: ws,
-		log:          h.log,
+		store:                                h.store,
+		mdClient:                             h.mdClient,
+		walletSyncer:                         ws,
+		log:                                  h.log,
 	}
 }
 
@@ -176,8 +177,8 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 	}
 
 	holdings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{
-		PortfolioID:     req.Msg.PortfolioId,
-		PageSize:        1000,
+		PortfolioID:  req.Msg.PortfolioId,
+		PageSize:     1000,
 		HideExcluded: true,
 	})
 	if err != nil {
@@ -199,17 +200,23 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 		}
 		price := priceResp.Msg
 
+		priceLast, err := decimal.NewFromString(price.Last)
+		if err != nil {
+			h.log.Warn("skip price with unparseable last", "asset_id", hld.AssetID, "last", price.Last, "error", err)
+			continue
+		}
+
 		// value = amount * price.Last / 10^(holding.Decimals + price.Decimals)
 		divisor := decimal.New(1, int32(hld.Decimals)+int32(price.Decimals))
-		holdingValue := decimal.New(hld.Amount, 0).
-			Mul(decimal.New(price.Last, 0)).
+		holdingValue := hld.Amount.
+			Mul(priceLast).
 			Div(divisor)
 
 		total = total.Add(holdingValue)
 	}
 
-	// Convert to result decimals (e.g., 2 for USD cents)
-	resultAmount := total.Mul(decimal.New(1, int32(resultDecimals))).IntPart()
+	// Convert to result decimals (e.g., 2 for USD cents) as a raw integer decimal string.
+	resultAmount := total.Mul(decimal.New(1, int32(resultDecimals))).Round(0).String()
 
 	return connect.NewResponse(&apiv1.PortfolioValueResponse{
 		PortfolioId:      req.Msg.PortfolioId,
@@ -263,9 +270,15 @@ func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Requ
 		}
 		latestPrice := latestResp.Msg
 
+		latestLast, err := decimal.NewFromString(latestPrice.Last)
+		if err != nil {
+			h.log.Warn("skip price with unparseable last", "asset_id", hld.AssetID, "last", latestPrice.Last, "error", err)
+			continue
+		}
+
 		divisorCurrent := decimal.New(1, int32(hld.Decimals)+int32(latestPrice.Decimals))
-		holdingCurrent := decimal.New(hld.Amount, 0).
-			Mul(decimal.New(latestPrice.Last, 0)).
+		holdingCurrent := hld.Amount.
+			Mul(latestLast).
 			Div(divisorCurrent)
 		currentValue = currentValue.Add(holdingCurrent)
 
@@ -286,9 +299,16 @@ func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Requ
 		}
 		fromPrice := histResp.Msg.Prices[0]
 
+		fromLast, err := decimal.NewFromString(fromPrice.Last)
+		if err != nil {
+			h.log.Warn("skip historical price with unparseable last", "asset_id", hld.AssetID, "last", fromPrice.Last, "error", err)
+			fromValue = fromValue.Add(holdingCurrent)
+			continue
+		}
+
 		divisorFrom := decimal.New(1, int32(hld.Decimals)+int32(fromPrice.Decimals))
-		holdingFrom := decimal.New(hld.Amount, 0).
-			Mul(decimal.New(fromPrice.Last, 0)).
+		holdingFrom := hld.Amount.
+			Mul(fromLast).
 			Div(divisorFrom)
 		fromValue = fromValue.Add(holdingFrom)
 	}
@@ -513,62 +533,43 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account.data.address is required for wallet sync"))
 	}
 
-	// Resolve which chains to sync.
-	// If chain field is empty or "auto": discover active chains via the provider API.
-	// Otherwise accept comma-separated list: "eth,base,arbitrum".
+	// Resolve which chains to sync from the account config.
+	// Empty or "auto" → let the syncer auto-discover (pass nil).
+	// Otherwise a comma-separated list: "eth,base,arbitrum".
 	var syncErrors []string
-	chainRaw := strings.TrimSpace(account.Data["chain"])
 	var chains []string
-	if chainRaw == "" || chainRaw == "auto" {
-		discovered, err := h.walletSyncer.GetActiveChains(ctx, address)
-		if err != nil {
-			h.log.Warn("chain auto-discovery failed, falling back to eth", "error", err)
-			chains = []string{"eth"}
-		} else if len(discovered) == 0 {
-			chains = []string{"eth"}
-		} else {
-			chains = discovered
-			h.log.Info("auto-discovered chains", "address", address, "chains", chains)
-		}
-	} else {
+	if chainRaw := strings.TrimSpace(account.Data["chain"]); chainRaw != "" && chainRaw != "auto" {
 		chains = splitChains(chainRaw)
 	}
 
-	// Collect balances across all chains, merging same-symbol tokens.
-	// Key: symbol (uppercase). Amounts are raw integer strings summed as int64.
+	// The syncer owns all provider mechanics (discovery, fan-out, native vs token).
+	// Partial failures arrive as a joined error alongside the balances gathered so far.
+	balances, err := h.walletSyncer.SyncWallet(ctx, address, chains)
+	if err != nil {
+		syncErrors = append(syncErrors, err.Error())
+	}
+
+	// Merge same-symbol tokens across chains. Raw balances are arbitrary-precision
+	// integers (uint256 on-chain), summed as big.Int and stored as a decimal string.
 	type accumulated struct {
 		bal   entity.WalletBalance
-		total int64
+		total *big.Int
 	}
 	bySymbol := make(map[string]*accumulated)
 
-	addBalance := func(b entity.WalletBalance) {
-		var amt int64
-		if _, err := fmt.Sscanf(b.Amount, "%d", &amt); err != nil || amt == 0 {
-			return
-		}
-		if entry, ok := bySymbol[b.Symbol]; ok {
-			entry.total += amt
-		} else {
-			bySymbol[b.Symbol] = &accumulated{bal: b, total: amt}
-		}
-	}
-
-	for _, chain := range chains {
-		erc20, err := h.walletSyncer.GetWalletTokenBalances(ctx, chain, address)
-		if err != nil {
-			syncErrors = append(syncErrors, fmt.Sprintf("chain %s ERC-20: %v", chain, err))
+	for _, b := range balances {
+		amt, ok := new(big.Int).SetString(strings.TrimSpace(b.Amount), 10)
+		if !ok {
+			syncErrors = append(syncErrors, fmt.Sprintf("parse amount %q for %s", b.Amount, b.Symbol))
 			continue
 		}
-		for _, b := range erc20 {
-			addBalance(b)
+		if amt.Sign() == 0 {
+			continue
 		}
-
-		native, err := h.walletSyncer.GetNativeBalance(ctx, chain, address)
-		if err != nil {
-			syncErrors = append(syncErrors, fmt.Sprintf("chain %s native: %v", chain, err))
-		} else if native != nil {
-			addBalance(*native)
+		if entry, ok := bySymbol[b.Symbol]; ok {
+			entry.total.Add(entry.total, amt)
+		} else {
+			bySymbol[b.Symbol] = &accumulated{bal: b, total: amt}
 		}
 	}
 
@@ -603,8 +604,10 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 
 	for _, entry := range bySymbol {
 		bal := entry.bal
-		amount := entry.total
 		symbol := bal.Symbol
+
+		// holdings.amount is NUMERIC; store the full uint256 sum as a decimal integer.
+		amount := decimal.NewFromBigInt(entry.total, 0)
 
 		// Ensure asset exists
 		assetID, exists := symbolToAssetID[symbol]
@@ -809,9 +812,10 @@ func portfolioToProto(p *entity.Portfolio) *apiv1.Portfolio {
 }
 
 func holdingFromProto(h *apiv1.Holding) *entity.Holding {
+	amount, _ := decimal.NewFromString(h.Amount) // invalid/empty → zero
 	result := &entity.Holding{
 		ID:        h.Id,
-		Amount:    h.Amount,
+		Amount:    amount,
 		Decimals:  h.Decimals,
 		AssetID:   h.AssetId,
 		AccountID: h.AccountId,
@@ -826,7 +830,7 @@ func holdingFromProto(h *apiv1.Holding) *entity.Holding {
 func holdingToProto(h *entity.Holding) *apiv1.Holding {
 	result := &apiv1.Holding{
 		Id:        h.ID,
-		Amount:    h.Amount,
+		Amount:    h.Amount.String(),
 		Decimals:  h.Decimals,
 		AssetId:   h.AssetID,
 		AccountId: h.AccountID,

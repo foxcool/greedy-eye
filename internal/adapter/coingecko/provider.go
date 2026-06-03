@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math"
 	"strings"
 	"time"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/shopspring/decimal"
 )
 
 const (
@@ -17,7 +17,6 @@ const (
 
 	sourceID      = ProviderName
 	priceDecimals = uint32(8)
-	divisor       = 1e8
 	interval      = "latest"
 
 	// cgQuoteCurrency is the currency code used in CoinGecko API requests.
@@ -125,8 +124,8 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 		id      string
 		address string
 	}
-	var contractAssets []contractAsset   // ERC-20 with known contract address
-	var nativeAssets []*entity.Asset     // native coins looked up by symbol
+	var contractAssets []contractAsset // ERC-20 with known contract address
+	var nativeAssets []*entity.Asset   // native coins looked up by symbol
 
 	for _, a := range assets {
 		if addr := contractTag(a.Tags); addr != "" {
@@ -202,10 +201,12 @@ func contractTag(tags []string) string {
 	return ""
 }
 
+// scaled converts a float price to a raw integer scaled by priceDecimals as a decimal.
+func scaled(v float64) decimal.Decimal {
+	return decimal.NewFromFloat(v).Shift(int32(priceDecimals)).Round(0)
+}
+
 func storedPrice(assetID string, pd *PriceData, now time.Time) entity.StoredPrice {
-	last := int64(math.Round(pd.Price * divisor))
-	high := int64(math.Round(pd.High24h * divisor))
-	low := int64(math.Round(pd.Low24h * divisor))
 	ts := pd.Timestamp
 	if ts.IsZero() {
 		ts = now
@@ -214,11 +215,11 @@ func storedPrice(assetID string, pd *PriceData, now time.Time) entity.StoredPric
 		SourceID: sourceID,
 		AssetID:  assetID,
 		// BaseAssetID is intentionally empty — resolved by FetchExternalPrices handler.
-		Interval: interval,
-		Decimals:    priceDecimals,
-		Last:        last,
-		High:        &high,
-		Low:         &low,
-		Timestamp:   ts,
+		Interval:  interval,
+		Decimals:  priceDecimals,
+		Last:      scaled(pd.Price),
+		High:      decimal.NullDecimal{Decimal: scaled(pd.High24h), Valid: true},
+		Low:       decimal.NullDecimal{Decimal: scaled(pd.Low24h), Valid: true},
+		Timestamp: ts,
 	}
 }

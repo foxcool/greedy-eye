@@ -3,12 +3,11 @@ package binance
 import (
 	"context"
 	"fmt"
-	"math"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/shopspring/decimal"
 )
 
 const (
@@ -17,7 +16,6 @@ const (
 
 	sourceID      = ProviderName
 	priceDecimals = uint32(8)
-	divisor       = 1e8
 	interval      = "latest"
 )
 
@@ -64,19 +62,20 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 		if !ok {
 			continue
 		}
-		price, err := strconv.ParseFloat(t.Price, 64)
+		price, err := decimal.NewFromString(t.Price)
 		if err != nil {
 			continue
 		}
-		last := int64(math.Round(price * divisor))
+		// Store as a raw integer scaled by priceDecimals (value = last / 10^priceDecimals).
+		last := price.Shift(int32(priceDecimals)).Round(0)
 		result = append(result, entity.StoredPrice{
 			SourceID: sourceID,
 			AssetID:  assetID,
 			// BaseAssetID is intentionally empty — resolved by FetchExternalPrices handler.
-			Interval: interval,
-			Decimals:    priceDecimals,
-			Last:        last,
-			Timestamp:   now,
+			Interval:  interval,
+			Decimals:  priceDecimals,
+			Last:      last,
+			Timestamp: now,
 		})
 	}
 	return result, nil

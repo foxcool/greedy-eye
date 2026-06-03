@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
@@ -51,9 +52,9 @@ func (h *Handler) WithProvider(name string, p PriceProvider) *Handler {
 	providers[name] = p
 	return &Handler{
 		UnimplementedMarketDataServiceHandler: h.UnimplementedMarketDataServiceHandler,
-		store:     h.store,
-		providers: providers,
-		log:       h.log,
+		store:                                 h.store,
+		providers:                             providers,
+		log:                                   h.log,
 	}
 }
 
@@ -462,6 +463,36 @@ func assetToProto(e *entity.Asset) *apiv1.Asset {
 	}
 }
 
+// parseDecimal parses a raw integer decimal string, returning zero on empty/invalid input.
+func parseDecimal(s string) decimal.Decimal {
+	d, err := decimal.NewFromString(s)
+	if err != nil {
+		return decimal.Zero
+	}
+	return d
+}
+
+// parseNullDecimal converts an optional proto string into a NullDecimal.
+func parseNullDecimal(s *string) decimal.NullDecimal {
+	if s == nil {
+		return decimal.NullDecimal{}
+	}
+	d, err := decimal.NewFromString(*s)
+	if err != nil {
+		return decimal.NullDecimal{}
+	}
+	return decimal.NullDecimal{Decimal: d, Valid: true}
+}
+
+// nullDecimalToProto converts a NullDecimal into an optional proto string.
+func nullDecimalToProto(d decimal.NullDecimal) *string {
+	if !d.Valid {
+		return nil
+	}
+	s := d.Decimal.String()
+	return &s
+}
+
 func priceFromProto(p *apiv1.Price) *entity.StoredPrice {
 	price := &entity.StoredPrice{
 		ID:          p.Id,
@@ -470,12 +501,12 @@ func priceFromProto(p *apiv1.Price) *entity.StoredPrice {
 		BaseAssetID: p.BaseAssetId,
 		Interval:    p.Interval,
 		Decimals:    p.Decimals,
-		Last:        p.Last,
-		Open:        p.Open,
-		High:        p.High,
-		Low:         p.Low,
-		Close:       p.Close,
-		Volume:      p.Volume,
+		Last:        parseDecimal(p.Last),
+		Open:        parseNullDecimal(p.Open),
+		High:        parseNullDecimal(p.High),
+		Low:         parseNullDecimal(p.Low),
+		Close:       parseNullDecimal(p.Close),
+		Volume:      parseNullDecimal(p.Volume),
 	}
 	if p.Timestamp != nil {
 		price.Timestamp = p.Timestamp.AsTime()
@@ -491,12 +522,12 @@ func priceToProto(e *entity.StoredPrice) *apiv1.Price {
 		BaseAssetId: e.BaseAssetID,
 		Interval:    e.Interval,
 		Decimals:    e.Decimals,
-		Last:        e.Last,
-		Open:        e.Open,
-		High:        e.High,
-		Low:         e.Low,
-		Close:       e.Close,
-		Volume:      e.Volume,
+		Last:        e.Last.String(),
+		Open:        nullDecimalToProto(e.Open),
+		High:        nullDecimalToProto(e.High),
+		Low:         nullDecimalToProto(e.Low),
+		Close:       nullDecimalToProto(e.Close),
+		Volume:      nullDecimalToProto(e.Volume),
 		Timestamp:   timestamppb.New(e.Timestamp),
 	}
 }

@@ -2,10 +2,10 @@ package middleware
 
 import (
 	"context"
-	"net/http"
-	"testing"
 	"log/slog"
+	"net/http"
 	"os"
+	"testing"
 
 	"connectrpc.com/connect"
 	"github.com/foxcool/greedy-eye/internal/entity"

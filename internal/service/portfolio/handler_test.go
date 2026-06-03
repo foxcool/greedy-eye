@@ -13,6 +13,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/store"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -167,15 +168,15 @@ func (m *mockStore) ListTransactions(ctx context.Context, opts ListTransactionsO
 // Fixed UUID v7 constants for use across unit tests.
 // Using real UUID format so tests remain valid if UUID validation moves to handler layer.
 const (
-	testUserID      = "01926d35-6a1e-7001-8001-000000000001"
-	testUserID2     = "01926d35-6a1e-7001-8001-000000000002"
-	testPortfolioID = "01926d35-6a1e-7002-8002-000000000001"
+	testUserID       = "01926d35-6a1e-7001-8001-000000000001"
+	testUserID2      = "01926d35-6a1e-7001-8001-000000000002"
+	testPortfolioID  = "01926d35-6a1e-7002-8002-000000000001"
 	testPortfolioID2 = "01926d35-6a1e-7002-8002-000000000002"
-	testAccountID   = "01926d35-6a1e-7003-8003-000000000001"
-	testHoldingID   = "01926d35-6a1e-7004-8004-000000000001"
-	testHoldingID2  = "01926d35-6a1e-7004-8004-000000000002"
-	testAssetID     = "01926d35-6a1e-7005-8005-000000000001"
-	testTxID        = "01926d35-6a1e-7006-8006-000000000001"
+	testAccountID    = "01926d35-6a1e-7003-8003-000000000001"
+	testHoldingID    = "01926d35-6a1e-7004-8004-000000000001"
+	testHoldingID2   = "01926d35-6a1e-7004-8004-000000000002"
+	testAssetID      = "01926d35-6a1e-7005-8005-000000000001"
+	testTxID         = "01926d35-6a1e-7006-8006-000000000001"
 )
 
 // --- Helpers ---
@@ -212,7 +213,7 @@ func testAccount(id string) *entity.Account {
 func testHolding(id string) *entity.Holding {
 	return &entity.Holding{
 		ID:        id,
-		Amount:    100000,
+		Amount:    decimal.NewFromInt(100000),
 		Decimals:  8,
 		AssetID:   testAssetID,
 		AccountID: testAccountID,
@@ -367,7 +368,7 @@ func TestCreateHolding_OK(t *testing.T) {
 	h := newHandler(s)
 
 	resp, err := h.CreateHolding(context.Background(), connect.NewRequest(&apiv1.CreateHoldingRequest{
-		Holding: &apiv1.Holding{AssetId: testAssetID, AccountId: testAccountID, Amount: 100000, Decimals: 8},
+		Holding: &apiv1.Holding{AssetId: testAssetID, AccountId: testAccountID, Amount: "100000", Decimals: 8},
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, testHoldingID, resp.Msg.Id)
@@ -427,4 +428,107 @@ func TestStubs_ReturnUnimplemented(t *testing.T) {
 
 	_, err = h.GetPortfolioPerformance(ctx, connect.NewRequest(&apiv1.GetPortfolioPerformanceRequest{}))
 	assert.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
+}
+
+// --- Mock WalletSyncer ---
+
+type mockWalletSyncer struct {
+	mock.Mock
+}
+
+func (m *mockWalletSyncer) SyncWallet(ctx context.Context, address string, chains []string) ([]entity.WalletBalance, error) {
+	args := m.Called(ctx, address, chains)
+	if v := args.Get(0); v != nil {
+		return v.([]entity.WalletBalance), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+// --- Mock MarketDataClient ---
+
+type mockMDClient struct {
+	mock.Mock
+}
+
+func (m *mockMDClient) CreateAsset(ctx context.Context, req *connect.Request[apiv1.CreateAssetRequest]) (*connect.Response[apiv1.Asset], error) {
+	args := m.Called(ctx, req)
+	if v := args.Get(0); v != nil {
+		return v.(*connect.Response[apiv1.Asset]), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockMDClient) ListAssets(ctx context.Context, req *connect.Request[apiv1.ListAssetsRequest]) (*connect.Response[apiv1.ListAssetsResponse], error) {
+	args := m.Called(ctx, req)
+	if v := args.Get(0); v != nil {
+		return v.(*connect.Response[apiv1.ListAssetsResponse]), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockMDClient) GetLatestPrice(ctx context.Context, req *connect.Request[apiv1.GetLatestPriceRequest]) (*connect.Response[apiv1.Price], error) {
+	args := m.Called(ctx, req)
+	if v := args.Get(0); v != nil {
+		return v.(*connect.Response[apiv1.Price]), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockMDClient) ListPriceHistory(ctx context.Context, req *connect.Request[apiv1.ListPriceHistoryRequest]) (*connect.Response[apiv1.ListPriceHistoryResponse], error) {
+	args := m.Called(ctx, req)
+	if v := args.Get(0); v != nil {
+		return v.(*connect.Response[apiv1.ListPriceHistoryResponse]), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockMDClient) FetchExternalPrices(ctx context.Context, req *connect.Request[apiv1.FetchExternalPricesRequest]) (*connect.Response[apiv1.FetchExternalPricesResponse], error) {
+	args := m.Called(ctx, req)
+	if v := args.Get(0); v != nil {
+		return v.(*connect.Response[apiv1.FetchExternalPricesResponse]), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+// TestSyncAccount_LargeBalance verifies a uint256 balance that overflows int64 is stored
+// losslessly as a decimal string (regression for the bigint storage limit).
+func TestSyncAccount_LargeBalance(t *testing.T) {
+	// 1000 ETH at 18 decimals = 1e21, well above int64 max (~9.2e18).
+	const bigAmount = "1000000000000000000000"
+
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	// The created holding must carry the full uint256 string, not a truncated int64.
+	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		return h.Amount.String() == bigAmount && h.Decimals == 18
+	})).Return(&entity.Holding{ID: testHoldingID}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{
+		{Symbol: "ETH", Name: "Ethereum", Amount: bigAmount, Decimals: 18},
+	}, nil)
+
+	md := &mockMDClient{}
+	md.On("ListAssets", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
+	md.On("CreateAsset", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	resp, err := h.SyncAccount(context.Background(), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.Errors)
+	assert.Equal(t, int32(1), resp.Msg.AssetsUpserted)
+	assert.Equal(t, int32(1), resp.Msg.HoldingsUpserted)
+	s.AssertExpectations(t)
 }

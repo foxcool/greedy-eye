@@ -66,11 +66,11 @@ type ListAccountsOpts struct {
 
 // ListHoldingsOpts contains options for listing holdings.
 type ListHoldingsOpts struct {
-	PortfolioID     string
-	AccountID       string
-	AssetID         string
-	PageSize        int
-	PageToken       string
+	PortfolioID string
+	AccountID   string
+	AssetID     string
+	PageSize    int
+	PageToken   string
 	// HideExcluded filters out holdings where excluded=true when set to true.
 	HideExcluded bool
 }

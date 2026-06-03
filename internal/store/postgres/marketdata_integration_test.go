@@ -14,6 +14,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -42,11 +43,9 @@ func createTestAsset(t *testing.T, s *MarketDataStore, name string) *entity.Asse
 
 func createTestPrice(t *testing.T, s *MarketDataStore, assetID, baseAssetID, sourceID string) *entity.StoredPrice {
 	t.Helper()
-	open := rand.Int64N(1000000)
-	close := rand.Int64N(1000000)
-	high := rand.Int64N(1000000)
-	low := rand.Int64N(1000000)
-	volume := rand.Int64N(1000000)
+	nd := func() decimal.NullDecimal {
+		return decimal.NullDecimal{Decimal: decimal.NewFromInt(rand.Int64N(1000000)), Valid: true}
+	}
 
 	price := &entity.StoredPrice{
 		SourceID:    sourceID,
@@ -54,12 +53,12 @@ func createTestPrice(t *testing.T, s *MarketDataStore, assetID, baseAssetID, sou
 		BaseAssetID: baseAssetID,
 		Interval:    "latest",
 		Decimals:    4,
-		Last:        rand.Int64N(1000000),
-		Open:        &open,
-		Close:       &close,
-		High:        &high,
-		Low:         &low,
-		Volume:      &volume,
+		Last:        decimal.NewFromInt(rand.Int64N(1000000)),
+		Open:        nd(),
+		Close:       nd(),
+		High:        nd(),
+		Low:         nd(),
+		Volume:      nd(),
 		Timestamp:   time.Now(),
 	}
 
@@ -274,7 +273,7 @@ func TestCreatePrice(t *testing.T) {
 			AssetID:     asset1.ID,
 			BaseAssetID: asset2.ID,
 			Interval:    "1m",
-			Last:        1000000,
+			Last:        decimal.NewFromInt(1000000),
 			Decimals:    2,
 			Timestamp:   time.Now(),
 		}
@@ -289,7 +288,7 @@ func TestCreatePrice(t *testing.T) {
 			SourceID:    "binance",
 			BaseAssetID: asset2.ID,
 			Interval:    "1m",
-			Last:        1000000,
+			Last:        decimal.NewFromInt(1000000),
 		}
 		_, err := s.CreatePrice(context.Background(), price)
 		assert.ErrorIs(t, err, store.ErrInvalidArgument)
@@ -301,7 +300,7 @@ func TestCreatePrice(t *testing.T) {
 			AssetID:     uuid.New().String(),
 			BaseAssetID: asset2.ID,
 			Interval:    "1m",
-			Last:        1000000,
+			Last:        decimal.NewFromInt(1000000),
 		}
 		_, err := s.CreatePrice(context.Background(), price)
 		assert.ErrorIs(t, err, store.ErrConstraint)

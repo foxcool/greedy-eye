@@ -191,13 +191,14 @@ type Price struct {
 	// Examples: "1m", "5m", "1h", "4h", "1d", "tick", "latest".
 	Interval string `protobuf:"bytes,5,opt,name=interval,proto3" json:"interval,omitempty"`
 	Decimals uint32 `protobuf:"varint,6,opt,name=decimals,proto3" json:"decimals,omitempty"`
-	Last     int64  `protobuf:"varint,7,opt,name=last,proto3" json:"last,omitempty"`
+	// Prices are raw integers scaled by `decimals`, sent as decimal strings (precision-safe).
+	Last string `protobuf:"bytes,7,opt,name=last,proto3" json:"last,omitempty"`
 	// OHLCV data - applicable when 'interval' represents a standard candle type.
-	Open          *int64                 `protobuf:"varint,8,opt,name=open,proto3,oneof" json:"open,omitempty"`
-	High          *int64                 `protobuf:"varint,9,opt,name=high,proto3,oneof" json:"high,omitempty"`
-	Low           *int64                 `protobuf:"varint,10,opt,name=low,proto3,oneof" json:"low,omitempty"`
-	Close         *int64                 `protobuf:"varint,11,opt,name=close,proto3,oneof" json:"close,omitempty"`
-	Volume        *int64                 `protobuf:"varint,12,opt,name=volume,proto3,oneof" json:"volume,omitempty"`
+	Open          *string                `protobuf:"bytes,8,opt,name=open,proto3,oneof" json:"open,omitempty"`
+	High          *string                `protobuf:"bytes,9,opt,name=high,proto3,oneof" json:"high,omitempty"`
+	Low           *string                `protobuf:"bytes,10,opt,name=low,proto3,oneof" json:"low,omitempty"`
+	Close         *string                `protobuf:"bytes,11,opt,name=close,proto3,oneof" json:"close,omitempty"`
+	Volume        *string                `protobuf:"bytes,12,opt,name=volume,proto3,oneof" json:"volume,omitempty"`
 	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -275,46 +276,46 @@ func (x *Price) GetDecimals() uint32 {
 	return 0
 }
 
-func (x *Price) GetLast() int64 {
+func (x *Price) GetLast() string {
 	if x != nil {
 		return x.Last
 	}
-	return 0
+	return ""
 }
 
-func (x *Price) GetOpen() int64 {
+func (x *Price) GetOpen() string {
 	if x != nil && x.Open != nil {
 		return *x.Open
 	}
-	return 0
+	return ""
 }
 
-func (x *Price) GetHigh() int64 {
+func (x *Price) GetHigh() string {
 	if x != nil && x.High != nil {
 		return *x.High
 	}
-	return 0
+	return ""
 }
 
-func (x *Price) GetLow() int64 {
+func (x *Price) GetLow() string {
 	if x != nil && x.Low != nil {
 		return *x.Low
 	}
-	return 0
+	return ""
 }
 
-func (x *Price) GetClose() int64 {
+func (x *Price) GetClose() string {
 	if x != nil && x.Close != nil {
 		return *x.Close
 	}
-	return 0
+	return ""
 }
 
-func (x *Price) GetVolume() int64 {
+func (x *Price) GetVolume() string {
 	if x != nil && x.Volume != nil {
 		return *x.Volume
 	}
-	return 0
+	return ""
 }
 
 func (x *Price) GetTimestamp() *timestamppb.Timestamp {
@@ -1415,13 +1416,13 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\rbase_asset_id\x18\x04 \x01(\tR\vbaseAssetId\x12\x1a\n" +
 	"\binterval\x18\x05 \x01(\tR\binterval\x12\x1a\n" +
 	"\bdecimals\x18\x06 \x01(\rR\bdecimals\x12\x12\n" +
-	"\x04last\x18\a \x01(\x03R\x04last\x12\x17\n" +
-	"\x04open\x18\b \x01(\x03H\x00R\x04open\x88\x01\x01\x12\x17\n" +
-	"\x04high\x18\t \x01(\x03H\x01R\x04high\x88\x01\x01\x12\x15\n" +
+	"\x04last\x18\a \x01(\tR\x04last\x12\x17\n" +
+	"\x04open\x18\b \x01(\tH\x00R\x04open\x88\x01\x01\x12\x17\n" +
+	"\x04high\x18\t \x01(\tH\x01R\x04high\x88\x01\x01\x12\x15\n" +
 	"\x03low\x18\n" +
-	" \x01(\x03H\x02R\x03low\x88\x01\x01\x12\x19\n" +
-	"\x05close\x18\v \x01(\x03H\x03R\x05close\x88\x01\x01\x12\x1b\n" +
-	"\x06volume\x18\f \x01(\x03H\x04R\x06volume\x88\x01\x01\x128\n" +
+	" \x01(\tH\x02R\x03low\x88\x01\x01\x12\x19\n" +
+	"\x05close\x18\v \x01(\tH\x03R\x05close\x88\x01\x01\x12\x1b\n" +
+	"\x06volume\x18\f \x01(\tH\x04R\x06volume\x88\x01\x01\x128\n" +
 	"\ttimestamp\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\ttimestampB\a\n" +
 	"\x05_openB\a\n" +
 	"\x05_highB\x06\n" +

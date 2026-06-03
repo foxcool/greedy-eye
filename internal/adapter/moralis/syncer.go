@@ -2,13 +2,13 @@ package moralis
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
 )
 
-// nativeToken returns the native coin metadata for a given Moralis chain identifier.
-// Returns ("", "") when the chain is unknown.
+// nativeToken maps a Moralis chain identifier to its native coin metadata.
 var nativeToken = map[string]struct{ symbol, name string }{
 	"eth":       {"ETH", "Ethereum"},
 	"base":      {"ETH", "Ethereum"},
@@ -35,7 +35,49 @@ func NewWalletSyncer(c *Client) *WalletSyncerAdapter {
 	return &WalletSyncerAdapter{client: c}
 }
 
-func (a *WalletSyncerAdapter) GetWalletTokenBalances(ctx context.Context, chain, address string) ([]entity.WalletBalance, error) {
+// SyncWallet fetches native and token balances across the given chains, returning a flat
+// normalized list. When chains is empty it auto-discovers chains with activity, falling
+// back to "eth" if discovery fails or yields nothing. Per-chain failures are joined into
+// the returned error while the balances gathered so far are still returned.
+func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, chains []string) ([]entity.WalletBalance, error) {
+	if len(chains) == 0 {
+		chains = a.resolveChains(ctx, address)
+	}
+
+	var (
+		result []entity.WalletBalance
+		errs   []error
+	)
+	for _, chain := range chains {
+		tokens, err := a.tokenBalances(ctx, chain, address)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("chain %s tokens: %w", chain, err))
+		} else {
+			result = append(result, tokens...)
+		}
+
+		native, err := a.nativeBalance(ctx, chain, address)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("chain %s native: %w", chain, err))
+		} else if native != nil {
+			result = append(result, *native)
+		}
+	}
+
+	return result, errors.Join(errs...)
+}
+
+// resolveChains discovers chains with activity, falling back to "eth".
+func (a *WalletSyncerAdapter) resolveChains(ctx context.Context, address string) []string {
+	discovered, err := a.client.GetActiveChains(ctx, address)
+	if err != nil || len(discovered) == 0 {
+		return []string{"eth"}
+	}
+	return discovered
+}
+
+// tokenBalances returns ERC-20 token balances for a single chain.
+func (a *WalletSyncerAdapter) tokenBalances(ctx context.Context, chain, address string) ([]entity.WalletBalance, error) {
 	balances, err := a.client.GetWalletTokenBalances(ctx, chain, address)
 	if err != nil {
 		return nil, err
@@ -53,14 +95,13 @@ func (a *WalletSyncerAdapter) GetWalletTokenBalances(ctx context.Context, chain,
 	return result, nil
 }
 
-func (a *WalletSyncerAdapter) GetActiveChains(ctx context.Context, address string) ([]string, error) {
-	return a.client.GetActiveChains(ctx, address)
-}
-
-func (a *WalletSyncerAdapter) GetNativeBalance(ctx context.Context, chain, address string) (*entity.WalletBalance, error) {
+// nativeBalance returns the native coin balance for a single chain, or nil when the
+// balance is zero. Unknown chains are skipped (nil, nil) rather than erroring, so a
+// chain set that mixes supported and unsupported networks still syncs the rest.
+func (a *WalletSyncerAdapter) nativeBalance(ctx context.Context, chain, address string) (*entity.WalletBalance, error) {
 	native, ok := nativeToken[chain]
 	if !ok {
-		return nil, fmt.Errorf("unsupported chain for native balance: %s", chain)
+		return nil, nil
 	}
 
 	raw, err := a.client.GetWalletBalance(ctx, chain, address)

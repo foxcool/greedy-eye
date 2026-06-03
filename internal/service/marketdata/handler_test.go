@@ -10,6 +10,7 @@ import (
 	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/store"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -286,7 +287,7 @@ func TestCreatePrice_OK(t *testing.T) {
 		AssetID:     "a-1",
 		BaseAssetID: "usdt",
 		SourceID:    "binance",
-		Last:        50000,
+		Last:        decimal.NewFromInt(50000),
 		Timestamp:   now,
 	}
 	s.On("CreatePrice", mock.Anything, mock.Anything).Return(stored, nil)

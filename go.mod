@@ -6,6 +6,7 @@ require (
 	connectrpc.com/connect v1.19.1
 	github.com/getsentry/sentry-go v0.29.0
 	github.com/google/uuid v1.6.0
+	github.com/jackc/pgx-shopspring-decimal v0.0.0-20220624020537-1d36b5a1853e
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/knadh/koanf v1.5.0
 	github.com/shopspring/decimal v1.4.0

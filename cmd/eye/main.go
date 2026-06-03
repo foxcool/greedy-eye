@@ -23,7 +23,6 @@ import (
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
 	"github.com/foxcool/greedy-eye/internal/store/postgres"
 	"github.com/getsentry/sentry-go"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )
@@ -61,7 +60,7 @@ func run() error {
 		return fmt.Errorf("database URL cannot be empty")
 	}
 
-	pool, err := pgxpool.New(context.Background(), config.DB.URL)
+	pool, err := postgres.NewPool(context.Background(), config.DB.URL)
 	if err != nil {
 		return fmt.Errorf("connect to database: %w", err)
 	}
@@ -188,8 +187,6 @@ func createLogger(level string) *slog.Logger {
 	}
 	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 }
-
-
 
 func loggingInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {

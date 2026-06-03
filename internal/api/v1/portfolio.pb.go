@@ -292,9 +292,11 @@ func (x *Portfolio) GetUpdatedAt() *timestamppb.Timestamp {
 
 // Holding represents a specific quantity of an Asset held within an Account.
 type Holding struct {
-	state       protoimpl.MessageState `protogen:"open.v1"`
-	Id          string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Amount      int64                  `protobuf:"varint,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Raw integer balance as a decimal string (scaled by `decimals`).
+	// String because uint256 on-chain balances overflow int64.
+	Amount      string                 `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
 	Decimals    uint32                 `protobuf:"varint,3,opt,name=decimals,proto3" json:"decimals,omitempty"`
 	AssetId     string                 `protobuf:"bytes,4,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
 	AccountId   string                 `protobuf:"bytes,5,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
@@ -344,11 +346,11 @@ func (x *Holding) GetId() string {
 	return ""
 }
 
-func (x *Holding) GetAmount() int64 {
+func (x *Holding) GetAmount() string {
 	if x != nil {
 		return x.Amount
 	}
-	return 0
+	return ""
 }
 
 func (x *Holding) GetDecimals() uint32 {
@@ -960,10 +962,11 @@ func (x *CalculatePortfolioValueRequest) GetAtTime() *timestamppb.Timestamp {
 }
 
 type PortfolioValueResponse struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	PortfolioId      string                 `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
-	QuoteAssetId     string                 `protobuf:"bytes,2,opt,name=quote_asset_id,json=quoteAssetId,proto3" json:"quote_asset_id,omitempty"`
-	TotalValueAmount int64                  `protobuf:"varint,3,opt,name=total_value_amount,json=totalValueAmount,proto3" json:"total_value_amount,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	PortfolioId  string                 `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
+	QuoteAssetId string                 `protobuf:"bytes,2,opt,name=quote_asset_id,json=quoteAssetId,proto3" json:"quote_asset_id,omitempty"`
+	// Total value as a raw integer decimal string (scaled by `decimals`).
+	TotalValueAmount string                 `protobuf:"bytes,3,opt,name=total_value_amount,json=totalValueAmount,proto3" json:"total_value_amount,omitempty"`
 	Decimals         uint32                 `protobuf:"varint,4,opt,name=decimals,proto3" json:"decimals,omitempty"`
 	CalculationTime  *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=calculation_time,json=calculationTime,proto3" json:"calculation_time,omitempty"`
 	unknownFields    protoimpl.UnknownFields
@@ -1014,11 +1017,11 @@ func (x *PortfolioValueResponse) GetQuoteAssetId() string {
 	return ""
 }
 
-func (x *PortfolioValueResponse) GetTotalValueAmount() int64 {
+func (x *PortfolioValueResponse) GetTotalValueAmount() string {
 	if x != nil {
 		return x.TotalValueAmount
 	}
-	return 0
+	return ""
 }
 
 func (x *PortfolioValueResponse) GetDecimals() uint32 {
@@ -2160,7 +2163,7 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\f_description\"\xd2\x02\n" +
 	"\aHolding\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
-	"\x06amount\x18\x02 \x01(\x03R\x06amount\x12\x1a\n" +
+	"\x06amount\x18\x02 \x01(\tR\x06amount\x12\x1a\n" +
 	"\bdecimals\x18\x03 \x01(\rR\bdecimals\x12\x19\n" +
 	"\basset_id\x18\x04 \x01(\tR\aassetId\x12\x1d\n" +
 	"\n" +
@@ -2235,7 +2238,7 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x16PortfolioValueResponse\x12!\n" +
 	"\fportfolio_id\x18\x01 \x01(\tR\vportfolioId\x12$\n" +
 	"\x0equote_asset_id\x18\x02 \x01(\tR\fquoteAssetId\x12,\n" +
-	"\x12total_value_amount\x18\x03 \x01(\x03R\x10totalValueAmount\x12\x1a\n" +
+	"\x12total_value_amount\x18\x03 \x01(\tR\x10totalValueAmount\x12\x1a\n" +
 	"\bdecimals\x18\x04 \x01(\rR\bdecimals\x12E\n" +
 	"\x10calculation_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x0fcalculationTime\"\xcd\x01\n" +
 	"\x1eGetPortfolioPerformanceRequest\x12!\n" +

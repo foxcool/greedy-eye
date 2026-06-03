@@ -45,13 +45,14 @@ message Price {
   // Examples: "1m", "5m", "1h", "4h", "1d", "tick", "latest".
   string interval = 5;
   uint32 decimals = 6;
-  int64 last = 7;
+  // Prices are raw integers scaled by `decimals`, sent as decimal strings (precision-safe).
+  string last = 7;
   // OHLCV data - applicable when 'interval' represents a standard candle type.
-  optional int64 open = 8;
-  optional int64 high = 9;
-  optional int64 low = 10;
-  optional int64 close = 11;
-  optional int64 volume = 12;
+  optional string open = 8;
+  optional string high = 9;
+  optional string low = 10;
+  optional string close = 11;
+  optional string volume = 12;
   google.protobuf.Timestamp timestamp = 13;
 }
 
