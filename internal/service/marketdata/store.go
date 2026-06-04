@@ -22,6 +22,9 @@ type Store interface {
 	// Prices
 	CreatePrice(ctx context.Context, price *entity.StoredPrice) (*entity.StoredPrice, error)
 	CreatePrices(ctx context.Context, prices []*entity.StoredPrice) (int, error)
+	// GetLatestPrice returns the asset's most recent price. An empty baseAssetID or
+	// sourceID means "any" for that filter; omitting baseAssetID yields the price in
+	// whatever pair the asset trades against (used for cross-rate valuation).
 	GetLatestPrice(ctx context.Context, assetID, baseAssetID, sourceID string) (*entity.StoredPrice, error)
 	ListPriceHistory(ctx context.Context, opts ListPriceHistoryOpts) ([]*entity.StoredPrice, string, error)
 	DeletePrice(ctx context.Context, id string) error

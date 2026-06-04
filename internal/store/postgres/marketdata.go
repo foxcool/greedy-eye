@@ -447,23 +447,30 @@ func (s *MarketDataStore) CreatePrices(ctx context.Context, prices []*entity.Sto
 
 // GetLatestPrice returns the most recent price for asset/base/source.
 func (s *MarketDataStore) GetLatestPrice(ctx context.Context, assetID, baseAssetID, sourceID string) (*entity.StoredPrice, error) {
-	if assetID == "" || baseAssetID == "" {
-		return nil, fmt.Errorf("%w: asset_id and base_asset_id are required", store.ErrInvalidArgument)
+	if assetID == "" {
+		return nil, fmt.Errorf("%w: asset_id is required", store.ErrInvalidArgument)
 	}
 
-	args := []any{assetID, baseAssetID}
-	sourceFilter := ""
+	// base_asset_id and source_id are optional filters: empty means "any". Omitting
+	// base_asset_id yields the asset's latest price in whatever pair it trades against,
+	// which portfolio valuation uses to convert via cross rates.
+	args := []any{assetID}
+	filters := ""
+	if baseAssetID != "" {
+		args = append(args, baseAssetID)
+		filters += fmt.Sprintf(" AND base_asset_id = $%d", len(args))
+	}
 	if sourceID != "" {
-		sourceFilter = "AND source_id = $3"
 		args = append(args, sourceID)
+		filters += fmt.Sprintf(" AND source_id = $%d", len(args))
 	}
 
 	query := fmt.Sprintf(`
 		SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, timestamp
 		FROM prices
-		WHERE asset_id = $1 AND base_asset_id = $2 %s
+		WHERE asset_id = $1%s
 		ORDER BY timestamp DESC
-		LIMIT 1`, sourceFilter)
+		LIMIT 1`, filters)
 
 	var price entity.StoredPrice
 	err := s.pool.QueryRow(ctx, query, args...).Scan(

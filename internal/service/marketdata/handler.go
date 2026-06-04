@@ -154,7 +154,10 @@ func (h *Handler) CreatePrice(ctx context.Context, req *connect.Request[apiv1.Cr
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("price is required"))
 	}
 
-	price := priceFromProto(req.Msg.Price)
+	price, err := priceFromProto(req.Msg.Price)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 	created, err := h.store.CreatePrice(ctx, price)
 	if err != nil {
 		return nil, toConnectError(err)
@@ -167,7 +170,11 @@ func (h *Handler) CreatePrice(ctx context.Context, req *connect.Request[apiv1.Cr
 func (h *Handler) CreatePrices(ctx context.Context, req *connect.Request[apiv1.CreatePricesRequest]) (*connect.Response[apiv1.CreatePricesResponse], error) {
 	prices := make([]*entity.StoredPrice, 0, len(req.Msg.Prices))
 	for _, p := range req.Msg.Prices {
-		prices = append(prices, priceFromProto(p))
+		price, err := priceFromProto(p)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		prices = append(prices, price)
 	}
 
 	count, err := h.store.CreatePrices(ctx, prices)
@@ -180,13 +187,17 @@ func (h *Handler) CreatePrices(ctx context.Context, req *connect.Request[apiv1.C
 	}), nil
 }
 
-// GetLatestPrice returns the most recent price for an asset pair.
+// GetLatestPrice returns the most recent price for an asset. When base_asset_id is
+// provided it returns the price in that specific pair; when omitted it returns the
+// latest price in whatever base the asset actually trades against (the response's
+// base_asset_id tells the caller which). This lets callers value an asset without
+// knowing its quote currency in advance.
 func (h *Handler) GetLatestPrice(ctx context.Context, req *connect.Request[apiv1.GetLatestPriceRequest]) (*connect.Response[apiv1.Price], error) {
-	if req.Msg.AssetId == "" || req.Msg.BaseAssetId == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset_id and base_asset_id are required"))
+	if req.Msg.AssetId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset_id is required"))
 	}
 
-	baseAssetID, err := h.resolveAssetID(ctx, req.Msg.BaseAssetId)
+	assetID, err := h.resolveAssetID(ctx, req.Msg.AssetId)
 	if err != nil {
 		return nil, toConnectError(err)
 	}
@@ -196,7 +207,17 @@ func (h *Handler) GetLatestPrice(ctx context.Context, req *connect.Request[apiv1
 		sourceID = *req.Msg.SourceId
 	}
 
-	price, err := h.store.GetLatestPrice(ctx, req.Msg.AssetId, baseAssetID, sourceID)
+	// base_asset_id is optional: empty means "any base", letting the store return the
+	// asset's latest price in whatever pair it trades against.
+	var baseAssetID string
+	if req.Msg.BaseAssetId != "" {
+		baseAssetID, err = h.resolveAssetID(ctx, req.Msg.BaseAssetId)
+		if err != nil {
+			return nil, toConnectError(err)
+		}
+	}
+
+	price, err := h.store.GetLatestPrice(ctx, assetID, baseAssetID, sourceID)
 	if err != nil {
 		return nil, toConnectError(err)
 	}
@@ -463,25 +484,26 @@ func assetToProto(e *entity.Asset) *apiv1.Asset {
 	}
 }
 
-// parseDecimal parses a raw integer decimal string, returning zero on empty/invalid input.
-func parseDecimal(s string) decimal.Decimal {
-	d, err := decimal.NewFromString(s)
-	if err != nil {
-		return decimal.Zero
+// parseDecimal parses a raw integer decimal string. Empty is treated as unset (zero);
+// a non-empty but malformed value is an error rather than a silent zero.
+func parseDecimal(s string) (decimal.Decimal, error) {
+	if s == "" {
+		return decimal.Zero, nil
 	}
-	return d
+	return decimal.NewFromString(s)
 }
 
-// parseNullDecimal converts an optional proto string into a NullDecimal.
-func parseNullDecimal(s *string) decimal.NullDecimal {
+// parseNullDecimal converts an optional proto string into a NullDecimal. A nil pointer
+// is a valid absent value; a non-nil but malformed value is an error.
+func parseNullDecimal(s *string) (decimal.NullDecimal, error) {
 	if s == nil {
-		return decimal.NullDecimal{}
+		return decimal.NullDecimal{}, nil
 	}
 	d, err := decimal.NewFromString(*s)
 	if err != nil {
-		return decimal.NullDecimal{}
+		return decimal.NullDecimal{}, err
 	}
-	return decimal.NullDecimal{Decimal: d, Valid: true}
+	return decimal.NullDecimal{Decimal: d, Valid: true}, nil
 }
 
 // nullDecimalToProto converts a NullDecimal into an optional proto string.
@@ -493,7 +515,32 @@ func nullDecimalToProto(d decimal.NullDecimal) *string {
 	return &s
 }
 
-func priceFromProto(p *apiv1.Price) *entity.StoredPrice {
+func priceFromProto(p *apiv1.Price) (*entity.StoredPrice, error) {
+	last, err := parseDecimal(p.Last)
+	if err != nil {
+		return nil, fmt.Errorf("invalid last %q: %w", p.Last, err)
+	}
+	open, err := parseNullDecimal(p.Open)
+	if err != nil {
+		return nil, fmt.Errorf("invalid open: %w", err)
+	}
+	high, err := parseNullDecimal(p.High)
+	if err != nil {
+		return nil, fmt.Errorf("invalid high: %w", err)
+	}
+	low, err := parseNullDecimal(p.Low)
+	if err != nil {
+		return nil, fmt.Errorf("invalid low: %w", err)
+	}
+	closeVal, err := parseNullDecimal(p.Close)
+	if err != nil {
+		return nil, fmt.Errorf("invalid close: %w", err)
+	}
+	volume, err := parseNullDecimal(p.Volume)
+	if err != nil {
+		return nil, fmt.Errorf("invalid volume: %w", err)
+	}
+
 	price := &entity.StoredPrice{
 		ID:          p.Id,
 		SourceID:    p.SourceId,
@@ -501,17 +548,17 @@ func priceFromProto(p *apiv1.Price) *entity.StoredPrice {
 		BaseAssetID: p.BaseAssetId,
 		Interval:    p.Interval,
 		Decimals:    p.Decimals,
-		Last:        parseDecimal(p.Last),
-		Open:        parseNullDecimal(p.Open),
-		High:        parseNullDecimal(p.High),
-		Low:         parseNullDecimal(p.Low),
-		Close:       parseNullDecimal(p.Close),
-		Volume:      parseNullDecimal(p.Volume),
+		Last:        last,
+		Open:        open,
+		High:        high,
+		Low:         low,
+		Close:       closeVal,
+		Volume:      volume,
 	}
 	if p.Timestamp != nil {
 		price.Timestamp = p.Timestamp.AsTime()
 	}
-	return price
+	return price, nil
 }
 
 func priceToProto(e *entity.StoredPrice) *apiv1.Price {

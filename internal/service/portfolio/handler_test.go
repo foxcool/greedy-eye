@@ -417,6 +417,43 @@ func TestCreateTransaction_OK(t *testing.T) {
 	assert.Equal(t, testTxID, resp.Msg.Id)
 }
 
+// TestCalculatePortfolioValue_CrossRate verifies a holding priced only in its own
+// traded pair (USDT) is valued in the requested quote (USD) via a cross rate, and that
+// a depeg in the USDT/USD leg is reflected rather than assuming USDT == 1 USD.
+func TestCalculatePortfolioValue_CrossRate(t *testing.T) {
+	const (
+		assetX   = "00000000-0000-0000-0000-0000000000a1"
+		usdtUUID = "00000000-0000-0000-0000-0000000000d7"
+	)
+	s := &mockStore{}
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{{
+		ID: testHoldingID, AssetID: assetX, Amount: decimal.NewFromInt(100000000), Decimals: 8, // 1.0 token
+	}}, "", nil)
+
+	md := &mockMDClient{}
+	// 1. No direct X/USD price.
+	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
+		return r.Msg.AssetId == assetX && r.Msg.BaseAssetId == "USD"
+	})).Return(nil, connect.NewError(connect.CodeNotFound, errors.New("not found")))
+	// 2. X actually trades in USDT at 2.0.
+	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
+		return r.Msg.AssetId == assetX && r.Msg.BaseAssetId == ""
+	})).Return(connect.NewResponse(&apiv1.Price{Last: "200000000", Decimals: 8, BaseAssetId: usdtUUID}), nil)
+	// 3. USDT depegged to 0.99 USD.
+	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
+		return r.Msg.AssetId == usdtUUID && r.Msg.BaseAssetId == "USD"
+	})).Return(connect.NewResponse(&apiv1.Price{Last: "99000000", Decimals: 8, BaseAssetId: "USD"}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+	resp, err := h.CalculatePortfolioValue(context.Background(), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
+		PortfolioId: testPortfolioID,
+	}))
+	require.NoError(t, err)
+	// 1.0 token × 2.0 USDT × 0.99 USD/USDT = 1.98 USD → 198 (2 decimals).
+	assert.Equal(t, "198", resp.Msg.TotalValueAmount)
+	assert.Equal(t, uint32(2), resp.Msg.Decimals)
+}
+
 // --- Tests: Stubs return Unimplemented ---
 
 func TestStubs_ReturnUnimplemented(t *testing.T) {
