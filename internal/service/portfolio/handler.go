@@ -621,11 +621,16 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 		syncErrors = append(syncErrors, err.Error())
 	}
 
-	// Merge same-symbol tokens across chains. Raw balances are arbitrary-precision
-	// integers (uint256 on-chain), summed as big.Int and stored as a decimal string.
+	// Merge same-symbol tokens across chains, keyed by the canonical (uppercase) symbol
+	// so "usdc"/"USDC" collapse into one holding. The same symbol can carry different
+	// decimals per chain (e.g. USDC is 6 on Ethereum, 18 on BSC), so balances are summed
+	// as real quantities (raw / 10^decimals) and stored at the largest decimals seen —
+	// summing raw integers across mismatched scales would corrupt the total.
 	type accumulated struct {
-		bal   entity.WalletBalance
-		total *big.Int
+		name            string
+		contractAddress string
+		qty             decimal.Decimal // real token quantity, decimals applied
+		decimals        int             // max decimals seen → stored holding scale
 	}
 	bySymbol := make(map[string]*accumulated)
 
@@ -638,10 +643,23 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 		if amt.Sign() == 0 {
 			continue
 		}
-		if entry, ok := bySymbol[b.Symbol]; ok {
-			entry.total.Add(entry.total, amt)
+		symbol := entity.NormalizeSymbol(b.Symbol)
+		qty := decimal.NewFromBigInt(amt, int32(-b.Decimals)) // raw / 10^decimals
+		if entry, ok := bySymbol[symbol]; ok {
+			entry.qty = entry.qty.Add(qty)
+			if b.Decimals > entry.decimals {
+				entry.decimals = b.Decimals
+			}
+			if entry.contractAddress == "" {
+				entry.contractAddress = b.ContractAddress
+			}
 		} else {
-			bySymbol[b.Symbol] = &accumulated{bal: b, total: amt}
+			bySymbol[symbol] = &accumulated{
+				name:            b.Name,
+				contractAddress: b.ContractAddress,
+				qty:             qty,
+				decimals:        b.Decimals,
+			}
 		}
 	}
 
@@ -656,7 +674,7 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	symbolToAssetID := make(map[string]string, len(listResp.Msg.Assets))
 	for _, a := range listResp.Msg.Assets {
 		if a.Symbol != nil {
-			symbolToAssetID[*a.Symbol] = a.Id
+			symbolToAssetID[entity.NormalizeSymbol(*a.Symbol)] = a.Id
 		}
 	}
 
@@ -674,24 +692,23 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 
 	var assetsUpserted, holdingsUpserted int32
 
-	for _, entry := range bySymbol {
-		bal := entry.bal
-		symbol := bal.Symbol
-
-		// holdings.amount is NUMERIC; store the full uint256 sum as a decimal integer.
-		amount := decimal.NewFromBigInt(entry.total, 0)
+	for symbol, entry := range bySymbol {
+		decimals := uint32(entry.decimals)
+		// holdings.amount is NUMERIC: store the merged quantity as a raw integer at the
+		// holding's decimals scale (exact — qty has at most `decimals` fractional digits).
+		amount := entry.qty.Shift(int32(entry.decimals))
 
 		// Ensure asset exists
 		assetID, exists := symbolToAssetID[symbol]
 		if !exists {
 			// Store contract address as a tag so price providers can look up by address.
 			var tags []string
-			if bal.ContractAddress != "" {
-				tags = append(tags, "contract:"+bal.ContractAddress)
+			if entry.contractAddress != "" {
+				tags = append(tags, "contract:"+entry.contractAddress)
 			}
 			createResp, err := h.mdClient.CreateAsset(ctx, connect.NewRequest(&apiv1.CreateAssetRequest{
 				Asset: &apiv1.Asset{
-					Name:   bal.Name,
+					Name:   entry.name,
 					Symbol: &symbol,
 					Type:   apiv1.AssetType_ASSET_TYPE_CRYPTOCURRENCY,
 					Tags:   tags,
@@ -709,7 +726,7 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 		if existing, ok := holdingByAssetID[assetID]; ok {
 			// Update existing holding: only refresh amount/decimals; never touch portfolio assignment
 			existing.Amount = amount
-			existing.Decimals = uint32(bal.Decimals)
+			existing.Decimals = decimals
 			if _, err := h.store.UpdateHolding(ctx, existing, []string{"amount", "decimals"}); err != nil {
 				syncErrors = append(syncErrors, fmt.Sprintf("update holding %s: %v", symbol, err))
 				continue
@@ -721,7 +738,7 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 				AccountID:   req.Msg.AccountId,
 				PortfolioID: defaultPortfolioID,
 				Amount:      amount,
-				Decimals:    uint32(bal.Decimals),
+				Decimals:    decimals,
 			})
 			if err != nil {
 				syncErrors = append(syncErrors, fmt.Sprintf("create holding %s: %v", symbol, err))

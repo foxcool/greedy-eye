@@ -232,7 +232,7 @@ func (h *Handler) resolveAssetID(ctx context.Context, id string) (string, error)
 	if _, err := uuid.Parse(id); err == nil {
 		return id, nil
 	}
-	asset, err := h.store.GetAssetBySymbol(ctx, strings.ToUpper(id))
+	asset, err := h.store.GetAssetBySymbol(ctx, id) // store normalizes symbol case
 	if err != nil {
 		return "", fmt.Errorf("resolve asset %q: %w", id, err)
 	}

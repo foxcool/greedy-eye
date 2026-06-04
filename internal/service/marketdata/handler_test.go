@@ -360,7 +360,8 @@ func TestGetLatestPrice_SymbolResolved(t *testing.T) {
 	const resolvedUUID = "00000000-0000-0000-0000-000000000002"
 	const assetUUID = "00000000-0000-0000-0000-0000000000a1"
 	s := &mockStore{}
-	s.On("GetAssetBySymbol", mock.Anything, "USD").Return(&entity.Asset{ID: resolvedUUID}, nil)
+	// Handler passes the symbol through verbatim; the real store normalizes case.
+	s.On("GetAssetBySymbol", mock.Anything, "usd").Return(&entity.Asset{ID: resolvedUUID}, nil)
 	s.On("GetLatestPrice", mock.Anything, assetUUID, resolvedUUID, "").Return(&entity.StoredPrice{
 		ID: "p-2", AssetID: assetUUID, BaseAssetID: resolvedUUID,
 	}, nil)
@@ -376,7 +377,7 @@ func TestGetLatestPrice_SymbolResolved(t *testing.T) {
 func TestGetLatestPrice_SymbolNotFound(t *testing.T) {
 	const assetUUID = "00000000-0000-0000-0000-0000000000a1"
 	s := &mockStore{}
-	s.On("GetAssetBySymbol", mock.Anything, "UNKNOWN").Return(nil, store.ErrNotFound)
+	s.On("GetAssetBySymbol", mock.Anything, "unknown").Return(nil, store.ErrNotFound)
 	h := newHandler(s)
 
 	_, err := h.GetLatestPrice(context.Background(), connect.NewRequest(&apiv1.GetLatestPriceRequest{

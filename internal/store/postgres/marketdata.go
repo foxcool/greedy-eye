@@ -43,6 +43,8 @@ func (s *MarketDataStore) CreateAsset(ctx context.Context, asset *entity.Asset) 
 		return nil, fmt.Errorf("%w: asset type is required", store.ErrInvalidArgument)
 	}
 
+	asset.Symbol = entity.NormalizeSymbol(asset.Symbol)
+
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate ID: %w", err)
@@ -145,8 +147,10 @@ func (s *MarketDataStore) GetOrCreateAssetBySymbol(ctx context.Context, symbol, 
 	return created, nil
 }
 
-// GetAssetBySymbol returns an asset by its symbol (case-sensitive).
+// GetAssetBySymbol returns an asset by its symbol. The symbol is normalized
+// (trim + uppercase) so lookups are case-insensitive.
 func (s *MarketDataStore) GetAssetBySymbol(ctx context.Context, symbol string) (*entity.Asset, error) {
+	symbol = entity.NormalizeSymbol(symbol)
 	if symbol == "" {
 		return nil, fmt.Errorf("%w: symbol is required", store.ErrInvalidArgument)
 	}
@@ -201,7 +205,7 @@ func (s *MarketDataStore) UpdateAsset(ctx context.Context, asset *entity.Asset, 
 		switch field {
 		case "symbol":
 			setClauses = append(setClauses, fmt.Sprintf("symbol = $%d", argIdx))
-			args = append(args, asset.Symbol)
+			args = append(args, entity.NormalizeSymbol(asset.Symbol))
 			argIdx++
 		case "name":
 			setClauses = append(setClauses, fmt.Sprintf("name = $%d", argIdx))

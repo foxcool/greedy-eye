@@ -569,3 +569,46 @@ func TestSyncAccount_LargeBalance(t *testing.T) {
 	assert.Equal(t, int32(1), resp.Msg.HoldingsUpserted)
 	s.AssertExpectations(t)
 }
+
+// TestSyncAccount_MergeMixedDecimals verifies the same symbol across chains with
+// different decimals (USDC is 6 on Ethereum, 18 on BSC) and mixed case is merged by
+// real quantity, not by summing raw integers at mismatched scales.
+func TestSyncAccount_MergeMixedDecimals(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth,bsc"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	// 1.0 USDC (6 dec) + 2.0 USDC (18 dec) = 3.0 USDC, stored at max decimals (18).
+	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		return h.Amount.String() == "3000000000000000000" && h.Decimals == 18
+	})).Return(&entity.Holding{ID: testHoldingID}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth", "bsc"}).Return([]entity.WalletBalance{
+		{Symbol: "usdc", Name: "USD Coin", Amount: "1000000", Decimals: 6},              // 1.0 on Ethereum
+		{Symbol: "USDC", Name: "USD Coin", Amount: "2000000000000000000", Decimals: 18}, // 2.0 on BSC
+	}, nil)
+
+	md := &mockMDClient{}
+	md.On("ListAssets", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
+	md.On("CreateAsset", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	resp, err := h.SyncAccount(context.Background(), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.Errors)
+	// One asset, one holding — the two chain balances collapsed into a single USDC holding.
+	assert.Equal(t, int32(1), resp.Msg.AssetsUpserted)
+	assert.Equal(t, int32(1), resp.Msg.HoldingsUpserted)
+	s.AssertExpectations(t)
+}
