@@ -32,6 +32,9 @@ func NewProvider(client *Client) *Provider {
 // BaseAssetSymbol returns the ticker of the quote currency used by Binance ("USDT").
 func (p *Provider) BaseAssetSymbol() string { return "USDT" }
 
+// BaseAssetType reports that Binance's quote currency (USDT) is a cryptocurrency stablecoin.
+func (p *Provider) BaseAssetType() entity.AssetType { return entity.AssetTypeCryptocurrency }
+
 // FetchPrices fetches current prices from Binance for the given assets.
 // Binance symbols are derived from asset symbols as UPPER(symbol)+"USDT"
 // (e.g., asset.Symbol="BTC" → "BTCUSDT").

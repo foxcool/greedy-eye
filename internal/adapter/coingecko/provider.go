@@ -107,6 +107,9 @@ func NewProvider(c *Client) *Provider {
 // BaseAssetSymbol returns the ticker of the quote currency used by CoinGecko ("USD").
 func (p *Provider) BaseAssetSymbol() string { return "USD" }
 
+// BaseAssetType reports that CoinGecko's quote currency (USD) is fiat (forex).
+func (p *Provider) BaseAssetType() entity.AssetType { return entity.AssetTypeForex }
+
 // FetchPrices fetches prices from CoinGecko for the given assets.
 //
 // Strategy:

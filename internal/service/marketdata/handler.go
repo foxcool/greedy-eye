@@ -29,6 +29,9 @@ type PriceProvider interface {
 	// BaseAssetSymbol returns the ticker of the quote currency (e.g. "USD", "USDT").
 	// Used by FetchExternalPrices to resolve or create the base asset on demand.
 	BaseAssetSymbol() string
+	// BaseAssetType is the asset type to use when the base asset must be created.
+	// Fiat quotes (USD) are forex; stablecoin quotes (USDT) are cryptocurrency.
+	BaseAssetType() entity.AssetType
 }
 
 // Handler implements apiv1connect.MarketDataServiceHandler.
@@ -408,7 +411,7 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		sym := strings.ToUpper(provider.BaseAssetSymbol())
 		baseID, ok := baseAssetCache[sym]
 		if !ok {
-			baseAsset, err := h.store.GetOrCreateAssetBySymbol(ctx, sym, sym, entity.AssetTypeForex)
+			baseAsset, err := h.store.GetOrCreateAssetBySymbol(ctx, sym, sym, provider.BaseAssetType())
 			if err != nil {
 				fetchErrs = append(fetchErrs, fmt.Sprintf("%s: resolve base asset %s: %v", name, sym, err))
 				continue
