@@ -275,12 +275,14 @@ message ListPortfoliosResponse {
 
 message CalculatePortfolioValueRequest {
   string portfolio_id = 1;
+  // Quote currency: either an asset UUID or a ticker symbol (e.g. "USD"). Defaults to USD.
   string quote_asset_id = 2;
   google.protobuf.Timestamp at_time = 3;
 }
 
 message PortfolioValueResponse {
   string portfolio_id = 1;
+  // Echoes the requested quote (UUID or symbol) used to value the portfolio.
   string quote_asset_id = 2;
   // Total value as a raw integer decimal string (scaled by `decimals`).
   string total_value_amount = 3;

@@ -902,8 +902,9 @@ func (x *ListPortfoliosResponse) GetNextPageToken() string {
 }
 
 type CalculatePortfolioValueRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	PortfolioId   string                 `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	PortfolioId string                 `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
+	// Quote currency: either an asset UUID or a ticker symbol (e.g. "USD"). Defaults to USD.
 	QuoteAssetId  string                 `protobuf:"bytes,2,opt,name=quote_asset_id,json=quoteAssetId,proto3" json:"quote_asset_id,omitempty"`
 	AtTime        *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=at_time,json=atTime,proto3" json:"at_time,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -962,9 +963,10 @@ func (x *CalculatePortfolioValueRequest) GetAtTime() *timestamppb.Timestamp {
 }
 
 type PortfolioValueResponse struct {
-	state        protoimpl.MessageState `protogen:"open.v1"`
-	PortfolioId  string                 `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
-	QuoteAssetId string                 `protobuf:"bytes,2,opt,name=quote_asset_id,json=quoteAssetId,proto3" json:"quote_asset_id,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	PortfolioId string                 `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
+	// Echoes the requested quote (UUID or symbol) used to value the portfolio.
+	QuoteAssetId string `protobuf:"bytes,2,opt,name=quote_asset_id,json=quoteAssetId,proto3" json:"quote_asset_id,omitempty"`
 	// Total value as a raw integer decimal string (scaled by `decimals`).
 	TotalValueAmount string                 `protobuf:"bytes,3,opt,name=total_value_amount,json=totalValueAmount,proto3" json:"total_value_amount,omitempty"`
 	Decimals         uint32                 `protobuf:"varint,4,opt,name=decimals,proto3" json:"decimals,omitempty"`
