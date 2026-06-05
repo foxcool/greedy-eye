@@ -9,7 +9,7 @@ import (
 
 	"connectrpc.com/connect"
 	binanceadapter "github.com/foxcool/greedy-eye/internal/adapter/binance"
-	v1 "github.com/foxcool/greedy-eye/internal/api/v1"
+	v1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

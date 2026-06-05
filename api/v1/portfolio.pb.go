@@ -2386,9 +2386,9 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x0eGetTransaction\x12\x1d.eye.v1.GetTransactionRequest\x1a\x13.eye.v1.Transaction\"!\x82\xd3\xe4\x93\x02\x1b\x12\x19/api/v1/transactions/{id}\x12\x86\x01\n" +
 	"\x11UpdateTransaction\x12 .eye.v1.UpdateTransactionRequest\x1a\x13.eye.v1.Transaction\":\x82\xd3\xe4\x93\x024:\vtransaction\x1a%/api/v1/transactions/{transaction.id}\x12s\n" +
 	"\x10ListTransactions\x12\x1f.eye.v1.ListTransactionsRequest\x1a .eye.v1.ListTransactionsResponse\"\x1c\x82\xd3\xe4\x93\x02\x16\x12\x14/api/v1/transactions\x12r\n" +
-	"\vSyncAccount\x12\x1a.eye.v1.SyncAccountRequest\x1a\x1b.eye.v1.SyncAccountResponse\"*\x82\xd3\xe4\x93\x02$\"\"/api/v1/accounts/{account_id}/syncB\x8a\x01\n" +
+	"\vSyncAccount\x12\x1a.eye.v1.SyncAccountRequest\x1a\x1b.eye.v1.SyncAccountResponse\"*\x82\xd3\xe4\x93\x02$\"\"/api/v1/accounts/{account_id}/syncB\x81\x01\n" +
 	"\n" +
-	"com.eye.v1B\x0ePortfolioProtoP\x01Z3github.com/foxcool/greedy-eye/internal/api/v1;apiv1\xa2\x02\x03EXX\xaa\x02\x06Eye.V1\xca\x02\x06Eye\\V1\xe2\x02\x12Eye\\V1\\GPBMetadata\xea\x02\aEye::V1b\x06proto3"
+	"com.eye.v1B\x0ePortfolioProtoP\x01Z*github.com/foxcool/greedy-eye/api/v1;apiv1\xa2\x02\x03EXX\xaa\x02\x06Eye.V1\xca\x02\x06Eye\\V1\xe2\x02\x12Eye\\V1\\GPBMetadata\xea\x02\aEye::V1b\x06proto3"
 
 var (
 	file_v1_portfolio_proto_rawDescOnce sync.Once

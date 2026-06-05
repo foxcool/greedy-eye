@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	binanceadapter "github.com/foxcool/greedy-eye/internal/adapter/binance"
 	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
 	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
-	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/service/automation"

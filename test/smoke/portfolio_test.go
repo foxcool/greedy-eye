@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	v1 "github.com/foxcool/greedy-eye/internal/api/v1"
+	v1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -8,7 +8,7 @@ import "google/protobuf/timestamp.proto";
 import "google/protobuf/field_mask.proto";
 import "google/api/annotations.proto";
 
-option go_package = "github.com/foxcool/greedy-eye/internal/api/v1;apiv1";
+option go_package = "github.com/foxcool/greedy-eye/api/v1;apiv1";
 
 // =============================================================================
 // TYPES

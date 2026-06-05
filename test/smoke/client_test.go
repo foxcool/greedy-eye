@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	"connectrpc.com/connect"
-	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
+	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 )
 
 // headerInterceptor is a client-side Connect interceptor that adds HTTP headers to each request.

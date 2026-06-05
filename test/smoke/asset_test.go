@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	v1 "github.com/foxcool/greedy-eye/internal/api/v1"
-	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
+	v1 "github.com/foxcool/greedy-eye/api/v1"
+	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"

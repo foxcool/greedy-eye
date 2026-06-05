@@ -12,8 +12,8 @@ import (
 	"github.com/shopspring/decimal"
 
 	"connectrpc.com/connect"
-	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
-	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
+	apiv1 "github.com/foxcool/greedy-eye/api/v1"
+	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"google.golang.org/protobuf/types/known/emptypb"

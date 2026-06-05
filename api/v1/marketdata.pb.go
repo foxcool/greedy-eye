@@ -1550,9 +1550,9 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\x14ListPricesByInterval\x12#.eye.v1.ListPricesByIntervalRequest\x1a .eye.v1.ListPriceHistoryResponse\";\x82\xd3\xe4\x93\x025\x123/api/v1/prices/{asset_id}/{base_asset_id}/intervals\x12^\n" +
 	"\vDeletePrice\x12\x1a.eye.v1.DeletePriceRequest\x1a\x16.google.protobuf.Empty\"\x1b\x82\xd3\xe4\x93\x02\x15*\x13/api/v1/prices/{id}\x12[\n" +
 	"\fDeletePrices\x12\x1b.eye.v1.DeletePricesRequest\x1a\x16.google.protobuf.Empty\"\x16\x82\xd3\xe4\x93\x02\x10*\x0e/api/v1/prices\x12\x88\x01\n" +
-	"\x13FetchExternalPrices\x12\".eye.v1.FetchExternalPricesRequest\x1a#.eye.v1.FetchExternalPricesResponse\"(\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/api/v1/prices/fetch-externalB\x8b\x01\n" +
+	"\x13FetchExternalPrices\x12\".eye.v1.FetchExternalPricesRequest\x1a#.eye.v1.FetchExternalPricesResponse\"(\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/api/v1/prices/fetch-externalB\x82\x01\n" +
 	"\n" +
-	"com.eye.v1B\x0fMarketdataProtoP\x01Z3github.com/foxcool/greedy-eye/internal/api/v1;apiv1\xa2\x02\x03EXX\xaa\x02\x06Eye.V1\xca\x02\x06Eye\\V1\xe2\x02\x12Eye\\V1\\GPBMetadata\xea\x02\aEye::V1b\x06proto3"
+	"com.eye.v1B\x0fMarketdataProtoP\x01Z*github.com/foxcool/greedy-eye/api/v1;apiv1\xa2\x02\x03EXX\xaa\x02\x06Eye.V1\xca\x02\x06Eye\\V1\xe2\x02\x12Eye\\V1\\GPBMetadata\xea\x02\aEye::V1b\x06proto3"
 
 var (
 	file_v1_marketdata_proto_rawDescOnce sync.Once

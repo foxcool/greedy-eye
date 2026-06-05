@@ -2748,9 +2748,9 @@ const file_v1_automation_proto_rawDesc = "" +
 	"\x13CreateRuleExecution\x12\".eye.v1.CreateRuleExecutionRequest\x1a\x15.eye.v1.RuleExecution\"/\x82\xd3\xe4\x93\x02):\x0erule_execution\"\x17/api/v1/rule-executions\x12p\n" +
 	"\x10GetRuleExecution\x12\x1f.eye.v1.GetRuleExecutionRequest\x1a\x15.eye.v1.RuleExecution\"$\x82\xd3\xe4\x93\x02\x1e\x12\x1c/api/v1/rule-executions/{id}\x12\x95\x01\n" +
 	"\x13UpdateRuleExecution\x12\".eye.v1.UpdateRuleExecutionRequest\x1a\x15.eye.v1.RuleExecution\"C\x82\xd3\xe4\x93\x02=:\x0erule_execution\x1a+/api/v1/rule-executions/{rule_execution.id}\x12|\n" +
-	"\x12ListRuleExecutions\x12!.eye.v1.ListRuleExecutionsRequest\x1a\".eye.v1.ListRuleExecutionsResponse\"\x1f\x82\xd3\xe4\x93\x02\x19\x12\x17/api/v1/rule-executionsB\x8b\x01\n" +
+	"\x12ListRuleExecutions\x12!.eye.v1.ListRuleExecutionsRequest\x1a\".eye.v1.ListRuleExecutionsResponse\"\x1f\x82\xd3\xe4\x93\x02\x19\x12\x17/api/v1/rule-executionsB\x82\x01\n" +
 	"\n" +
-	"com.eye.v1B\x0fAutomationProtoP\x01Z3github.com/foxcool/greedy-eye/internal/api/v1;apiv1\xa2\x02\x03EXX\xaa\x02\x06Eye.V1\xca\x02\x06Eye\\V1\xe2\x02\x12Eye\\V1\\GPBMetadata\xea\x02\aEye::V1b\x06proto3"
+	"com.eye.v1B\x0fAutomationProtoP\x01Z*github.com/foxcool/greedy-eye/api/v1;apiv1\xa2\x02\x03EXX\xaa\x02\x06Eye.V1\xca\x02\x06Eye\\V1\xe2\x02\x12Eye\\V1\\GPBMetadata\xea\x02\aEye::V1b\x06proto3"
 
 var (
 	file_v1_automation_proto_rawDescOnce sync.Once
