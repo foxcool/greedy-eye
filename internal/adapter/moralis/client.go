@@ -27,7 +27,9 @@ type Balance struct {
 	Name         string
 	Decimals     int
 	Balance      string // Raw balance as string to avoid precision loss
-	Thumbnail    string
+	Thumbnail        string
+	PossibleSpam     bool // Moralis spam classification; scam tokens often clone real symbols
+	VerifiedContract bool // Moralis contract verification; fake clones are unverified
 }
 
 // Transaction represents a blockchain transaction
@@ -123,7 +125,9 @@ type moralisERC20Token struct {
 	Name         string `json:"name"`
 	Decimals     int    `json:"decimals"`
 	Balance      string `json:"balance"`
-	Thumbnail    string `json:"thumbnail"`
+	Thumbnail        string `json:"thumbnail"`
+	PossibleSpam     bool   `json:"possible_spam"`
+	VerifiedContract bool   `json:"verified_contract"`
 }
 
 func (c *Client) doGet(ctx context.Context, path string) (*http.Response, error) {

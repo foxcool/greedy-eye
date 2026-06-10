@@ -84,6 +84,13 @@ func (a *WalletSyncerAdapter) tokenBalances(ctx context.Context, chain, address 
 	}
 	result := make([]entity.WalletBalance, 0, len(balances))
 	for _, b := range balances {
+		// Scam tokens clone real symbols (fake USDT airdrops etc.) and would
+		// merge into legitimate holdings downstream — drop at the source.
+		// Moralis misses some scams in possible_spam (a fake USDT passed), so
+		// unverified contracts are dropped too; majors are all verified.
+		if b.PossibleSpam || !b.VerifiedContract {
+			continue
+		}
 		result = append(result, entity.WalletBalance{
 			Symbol:          b.Symbol,
 			Name:            b.Name,
