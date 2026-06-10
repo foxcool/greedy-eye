@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -90,12 +91,28 @@ func (c *Client) doGetURL(ctx context.Context, url string) (*http.Response, erro
 type moralisActiveChain struct {
 	Chain   string `json:"chain"`
 	ChainID string `json:"chain_id"`
+	// Non-null only for chains where the wallet actually transacted.
+	FirstTransaction json.RawMessage `json:"first_transaction"`
+}
+
+// candidateChains is the set Moralis is asked to probe for activity. Without an
+// explicit chains parameter the endpoint only checks eth, hiding L2/sidechain
+// balances. The chains endpoint rejects scroll/zksync/fantom even though other
+// Moralis endpoints support them, so those stay out of the list.
+var candidateChains = []string{
+	"eth", "base", "arbitrum", "optimism", "linea",
+	"polygon", "bsc", "avalanche",
 }
 
 // GetActiveChains returns the list of EVM chains where the address has had activity.
 // Uses the Moralis v2.2 wallet chains endpoint.
 func (c *Client) GetActiveChains(ctx context.Context, address string) ([]string, error) {
-	url := fmt.Sprintf("https://deep-index.moralis.io/api/v2.2/wallets/%s/chains", address)
+	params := make([]string, 0, len(candidateChains))
+	for _, ch := range candidateChains {
+		params = append(params, "chains%5B%5D="+ch) // chains[]=<chain>
+	}
+	url := fmt.Sprintf("https://deep-index.moralis.io/api/v2.2/wallets/%s/chains?%s",
+		address, strings.Join(params, "&"))
 	resp, err := c.doGetURL(ctx, url)
 	if err != nil {
 		return nil, err
@@ -111,7 +128,8 @@ func (c *Client) GetActiveChains(ctx context.Context, address string) ([]string,
 
 	chains := make([]string, 0, len(result.ActiveChains))
 	for _, ac := range result.ActiveChains {
-		if ac.Chain != "" {
+		active := len(ac.FirstTransaction) > 0 && string(ac.FirstTransaction) != "null"
+		if ac.Chain != "" && active {
 			chains = append(chains, ac.Chain)
 		}
 	}
