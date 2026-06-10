@@ -66,6 +66,10 @@ type ListAccountsOpts struct {
 
 // ListHoldingsOpts contains options for listing holdings.
 type ListHoldingsOpts struct {
+	// UserID scopes results to holdings whose owning portfolio (own or
+	// inherited from the account) belongs to this user. Holdings outside
+	// any portfolio are scoped by account owner instead.
+	UserID      string
 	PortfolioID string
 	AccountID   string
 	AssetID     string

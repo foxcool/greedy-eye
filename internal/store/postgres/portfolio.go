@@ -751,6 +751,16 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 	argIdx := 1
 	whereClauses := []string{}
 
+	// Scope by owning portfolio (holding's own or inherited from account).
+	// Holdings outside any portfolio fall back to the account owner.
+	// Revisit when shared portfolio ownership lands: replace the p.user_id
+	// check with a portfolio-visibility predicate.
+	if opts.UserID != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("(p.user_id = $%d OR (p.id IS NULL AND a.user_id = $%d))", argIdx, argIdx))
+		args = append(args, opts.UserID)
+		argIdx++
+	}
+
 	// Use COALESCE(h.portfolio_id, a.portfolio_id) so holdings with NULL portfolio_id
 	// inherit the account's portfolio_id for filtering.
 	if opts.PortfolioID != "" {
@@ -793,6 +803,7 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 		SELECT h.id, h.amount, h.decimals, h.asset_id, h.account_id, h.portfolio_id, h.excluded, h.created_at, h.updated_at
 		FROM holdings h
 		LEFT JOIN accounts a ON a.id = h.account_id
+		LEFT JOIN portfolios p ON p.id = COALESCE(h.portfolio_id, a.portfolio_id)
 		%s
 		ORDER BY h.id
 		LIMIT $%d`,

@@ -446,7 +446,12 @@ func (h *Handler) UpdateHolding(ctx context.Context, req *connect.Request[apiv1.
 }
 
 func (h *Handler) ListHoldings(ctx context.Context, req *connect.Request[apiv1.ListHoldingsRequest]) (*connect.Response[apiv1.ListHoldingsResponse], error) {
-	opts := ListHoldingsOpts{}
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+	}
+
+	opts := ListHoldingsOpts{UserID: user.ID}
 	if req.Msg.PortfolioId != nil {
 		opts.PortfolioID = *req.Msg.PortfolioId
 	}

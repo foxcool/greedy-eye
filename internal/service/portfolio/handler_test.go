@@ -377,16 +377,24 @@ func TestCreateHolding_OK(t *testing.T) {
 func TestListHoldings_WithFilters(t *testing.T) {
 	s := &mockStore{}
 	portfolioID := testPortfolioID
-	s.On("ListHoldings", mock.Anything, ListHoldingsOpts{PortfolioID: testPortfolioID}).
+	s.On("ListHoldings", mock.Anything, ListHoldingsOpts{UserID: testUserID, PortfolioID: testPortfolioID}).
 		Return([]*entity.Holding{testHolding(testHoldingID), testHolding(testHoldingID2)}, "next", nil)
 	h := newHandler(s)
 
-	resp, err := h.ListHoldings(context.Background(), connect.NewRequest(&apiv1.ListHoldingsRequest{
+	resp, err := h.ListHoldings(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ListHoldingsRequest{
 		PortfolioId: &portfolioID,
 	}))
 	require.NoError(t, err)
 	assert.Len(t, resp.Msg.Holdings, 2)
 	assert.Equal(t, "next", resp.Msg.NextPageToken)
+}
+
+func TestListHoldings_Unauthenticated(t *testing.T) {
+	h := newHandler(&mockStore{})
+
+	_, err := h.ListHoldings(context.Background(), connect.NewRequest(&apiv1.ListHoldingsRequest{}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 }
 
 // --- Tests: Transaction ---
