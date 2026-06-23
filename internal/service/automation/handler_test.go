@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -132,7 +133,8 @@ func TestCreateRule_OK(t *testing.T) {
 	s.On("CreateRule", mock.Anything, mock.Anything).Return(testRule("r-1"), nil)
 	h := newHandler(s)
 
-	resp, err := h.CreateRule(context.Background(), connect.NewRequest(&apiv1.CreateRuleRequest{
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	resp, err := h.CreateRule(ctx, connect.NewRequest(&apiv1.CreateRuleRequest{
 		Rule: &apiv1.Rule{Name: "DCA Rule", RuleType: "dca", PortfolioId: "p-1"},
 	}))
 	require.NoError(t, err)
@@ -186,11 +188,12 @@ func TestDeleteRule_OK(t *testing.T) {
 func TestListRules_WithFilters(t *testing.T) {
 	s := &mockStore{}
 	portfolioID := "p-1"
-	s.On("ListRules", mock.Anything, ListRulesOpts{PortfolioID: "p-1"}).
+	s.On("ListRules", mock.Anything, ListRulesOpts{UserID: "user-1", PortfolioID: "p-1"}).
 		Return([]*entity.Rule{testRule("r-1")}, "", nil)
 	h := newHandler(s)
 
-	resp, err := h.ListRules(context.Background(), connect.NewRequest(&apiv1.ListRulesRequest{
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	resp, err := h.ListRules(ctx, connect.NewRequest(&apiv1.ListRulesRequest{
 		PortfolioId: &portfolioID,
 	}))
 	require.NoError(t, err)
