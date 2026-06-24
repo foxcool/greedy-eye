@@ -3,12 +3,11 @@ package binance
 import (
 	"context"
 	"fmt"
-	"math"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/shopspring/decimal"
 )
 
 const (
@@ -16,9 +15,7 @@ const (
 	ProviderName = "binance"
 
 	sourceID      = ProviderName
-	baseAssetID   = "usdt"
 	priceDecimals = uint32(8)
-	divisor       = 1e8
 	interval      = "latest"
 )
 
@@ -31,6 +28,12 @@ type Provider struct {
 func NewProvider(client *Client) *Provider {
 	return &Provider{client: client}
 }
+
+// BaseAssetSymbol returns the ticker of the quote currency used by Binance ("USDT").
+func (p *Provider) BaseAssetSymbol() string { return "USDT" }
+
+// BaseAssetType reports that Binance's quote currency (USDT) is a cryptocurrency stablecoin.
+func (p *Provider) BaseAssetType() entity.AssetType { return entity.AssetTypeCryptocurrency }
 
 // FetchPrices fetches current prices from Binance for the given assets.
 // Binance symbols are derived from asset symbols as UPPER(symbol)+"USDT"
@@ -62,19 +65,20 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 		if !ok {
 			continue
 		}
-		price, err := strconv.ParseFloat(t.Price, 64)
+		price, err := decimal.NewFromString(t.Price)
 		if err != nil {
 			continue
 		}
-		last := int64(math.Round(price * divisor))
+		// Store as a raw integer scaled by priceDecimals (value = last / 10^priceDecimals).
+		last := price.Shift(int32(priceDecimals)).Round(0)
 		result = append(result, entity.StoredPrice{
-			SourceID:    sourceID,
-			AssetID:     assetID,
-			BaseAssetID: baseAssetID,
-			Interval:    interval,
-			Decimals:    priceDecimals,
-			Last:        last,
-			Timestamp:   now,
+			SourceID: sourceID,
+			AssetID:  assetID,
+			// BaseAssetID is intentionally empty — resolved by FetchExternalPrices handler.
+			Interval:  interval,
+			Decimals:  priceDecimals,
+			Last:      last,
+			Timestamp: now,
 		})
 	}
 	return result, nil

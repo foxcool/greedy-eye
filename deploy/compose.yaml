@@ -31,6 +31,12 @@ services:
       EYE_LOGGING_LEVEL: INFO
       EYE_SENTRY_ENVIRONMENT: "development"
       EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/eye/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
     labels:
       - "traefik.enable=true"
       # Connect-RPC / gRPC routes
@@ -158,13 +164,8 @@ services:
     working_dir: /go/src/github.com/foxcool/greedy-eye
     env_file: secrets.env
     environment:
-      EYE_LOGGING_LEVEL: INFO
-      EYE_SENTRY_ENVIRONMENT: "test"
       EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
-      # Flag to indicate running in test environment
-      DOCKER_COMPOSE_TEST: "true"
+      SMOKE_BACKEND_URL: "http://eye-dev:8080"
     depends_on:
-      postgres:
+      eye-dev:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully

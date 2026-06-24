@@ -6,26 +6,31 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
+	"math/big"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/shopspring/decimal"
-	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
-	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
+	apiv1 "github.com/foxcool/greedy-eye/api/v1"
+	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/store"
+	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// defaultQuoteAsset is the symbol used when the caller omits quote_asset_id.
+// The marketdata handler resolves it to a UUID via GetAssetBySymbol.
+const defaultQuoteAsset = "USD"
+
 // Handler implements apiv1connect.PortfolioServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedPortfolioServiceHandler
 	store        Store
-	mdClient     MarketDataClient // optional; nil if not configured
+	mdClient     MarketDataClient    // optional; nil if not configured
 	walletSyncer entity.WalletSyncer // optional; nil if not configured
 	log          *slog.Logger
 }
@@ -38,10 +43,10 @@ func NewHandler(store Store, log *slog.Logger) *Handler {
 func (h *Handler) WithMarketDataClient(mc MarketDataClient) *Handler {
 	return &Handler{
 		UnimplementedPortfolioServiceHandler: h.UnimplementedPortfolioServiceHandler,
-		store:        h.store,
-		mdClient:     mc,
-		walletSyncer: h.walletSyncer,
-		log:          h.log,
+		store:                                h.store,
+		mdClient:                             mc,
+		walletSyncer:                         h.walletSyncer,
+		log:                                  h.log,
 	}
 }
 
@@ -49,10 +54,10 @@ func (h *Handler) WithMarketDataClient(mc MarketDataClient) *Handler {
 func (h *Handler) WithWalletSyncer(ws entity.WalletSyncer) *Handler {
 	return &Handler{
 		UnimplementedPortfolioServiceHandler: h.UnimplementedPortfolioServiceHandler,
-		store:        h.store,
-		mdClient:     h.mdClient,
-		walletSyncer: ws,
-		log:          h.log,
+		store:                                h.store,
+		mdClient:                             h.mdClient,
+		walletSyncer:                         ws,
+		log:                                  h.log,
 	}
 }
 
@@ -167,10 +172,14 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 
 	quoteAssetID := req.Msg.QuoteAssetId
 	if quoteAssetID == "" {
-		quoteAssetID = "usd"
+		quoteAssetID = defaultQuoteAsset
 	}
 
-	holdings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{PortfolioID: req.Msg.PortfolioId, PageSize: 1000})
+	holdings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{
+		PortfolioID:  req.Msg.PortfolioId,
+		PageSize:     1000,
+		HideExcluded: true,
+	})
 	if err != nil {
 		return nil, toConnectError(err)
 	}
@@ -179,28 +188,21 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 	total := decimal.Zero
 
 	for _, hld := range holdings {
-		priceResp, err := h.mdClient.GetLatestPrice(ctx, connect.NewRequest(&apiv1.GetLatestPriceRequest{
-			AssetId: hld.AssetID, BaseAssetId: quoteAssetID,
-		}))
+		unit, ok, err := h.unitPrice(ctx, hld.AssetID, quoteAssetID)
 		if err != nil {
-			if connect.CodeOf(err) == connect.CodeNotFound {
-				continue // skip assets without price data
-			}
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get price for %s: %w", hld.AssetID, err))
 		}
-		price := priceResp.Msg
+		if !ok {
+			continue // no price path for this asset → skip
+		}
 
-		// value = amount * price.Last / 10^(holding.Decimals + price.Decimals)
-		divisor := decimal.New(1, int32(hld.Decimals)+int32(price.Decimals))
-		holdingValue := decimal.New(hld.Amount, 0).
-			Mul(decimal.New(price.Last, 0)).
-			Div(divisor)
-
+		// value = (amount / 10^holding.Decimals) * unitPrice
+		holdingValue := hld.Amount.Shift(-int32(hld.Decimals)).Mul(unit)
 		total = total.Add(holdingValue)
 	}
 
-	// Convert to result decimals (e.g., 2 for USD cents)
-	resultAmount := total.Mul(decimal.New(1, int32(resultDecimals))).IntPart()
+	// Convert to result decimals (e.g., 2 for USD cents) as a raw integer decimal string.
+	resultAmount := total.Mul(decimal.New(1, int32(resultDecimals))).Round(0).String()
 
 	return connect.NewResponse(&apiv1.PortfolioValueResponse{
 		PortfolioId:      req.Msg.PortfolioId,
@@ -211,8 +213,88 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 	}), nil
 }
 
-// Ensure math is referenced (used for potential rounding in future).
-var _ = math.Round
+// unitPrice returns the per-token price of assetID expressed in quoteAssetID as a
+// real-unit decimal (i.e. already divided by the price's decimals).
+//
+// A position is priced in whatever pair it actually trades in (USDT, RUB, BTC, …); the
+// quote currency is not assumed. Resolution:
+//  1. direct  — a price quoted straight in quoteAssetID
+//  2. cross   — the asset's latest price in its own base B, converted B→quote
+//
+// ok is false when no price path exists; a non-nil error signals an unexpected failure.
+func (h *Handler) unitPrice(ctx context.Context, assetID, quoteAssetID string) (decimal.Decimal, bool, error) {
+	if p, ok, err := h.realPrice(ctx, assetID, quoteAssetID); err != nil || ok {
+		return p, ok, err
+	}
+
+	// The asset's actual traded pair: latest price in whatever base it has.
+	baseID, value, ok, err := h.latestAnyBase(ctx, assetID)
+	if err != nil || !ok {
+		return decimal.Zero, false, err
+	}
+
+	rate, ok, err := h.crossRate(ctx, baseID, quoteAssetID)
+	if err != nil || !ok {
+		return decimal.Zero, false, err
+	}
+	return value.Mul(rate), true, nil
+}
+
+// crossRate returns how many units of quoteID one unit of baseID is worth, using a
+// direct baseID/quoteID price or, failing that, the inverse quoteID/baseID price.
+func (h *Handler) crossRate(ctx context.Context, baseID, quoteID string) (decimal.Decimal, bool, error) {
+	if r, ok, err := h.realPrice(ctx, baseID, quoteID); err != nil || ok {
+		return r, ok, err
+	}
+	inv, ok, err := h.realPrice(ctx, quoteID, baseID)
+	if err != nil || !ok || inv.IsZero() {
+		return decimal.Zero, false, err
+	}
+	return decimal.NewFromInt(1).Div(inv), true, nil
+}
+
+// latestAnyBase returns the asset's most recent price regardless of base, as the base
+// asset ID and the real-unit value. ok is false when no price exists.
+func (h *Handler) latestAnyBase(ctx context.Context, assetID string) (string, decimal.Decimal, bool, error) {
+	resp, err := h.mdClient.GetLatestPrice(ctx, connect.NewRequest(&apiv1.GetLatestPriceRequest{
+		AssetId: assetID, // BaseAssetId omitted → latest in any base
+	}))
+	if err != nil {
+		if connect.CodeOf(err) == connect.CodeNotFound {
+			return "", decimal.Zero, false, nil
+		}
+		return "", decimal.Zero, false, err
+	}
+	last, err := decimal.NewFromString(resp.Msg.Last)
+	if err != nil {
+		h.log.Warn("skip price with unparseable last",
+			"asset_id", assetID, "base_asset_id", resp.Msg.BaseAssetId, "last", resp.Msg.Last, "error", err)
+		return "", decimal.Zero, false, nil
+	}
+	return resp.Msg.BaseAssetId, last.Shift(-int32(resp.Msg.Decimals)), true, nil
+}
+
+// realPrice returns the latest price of assetID in baseID as a real-unit decimal
+// (value = last / 10^decimals). ok is false when no price exists (NotFound) or the
+// stored value is unparseable; a non-nil error is returned only for unexpected failures.
+func (h *Handler) realPrice(ctx context.Context, assetID, baseID string) (decimal.Decimal, bool, error) {
+	resp, err := h.mdClient.GetLatestPrice(ctx, connect.NewRequest(&apiv1.GetLatestPriceRequest{
+		AssetId: assetID, BaseAssetId: baseID,
+	}))
+	if err != nil {
+		if connect.CodeOf(err) == connect.CodeNotFound {
+			return decimal.Zero, false, nil
+		}
+		return decimal.Zero, false, err
+	}
+	last, err := decimal.NewFromString(resp.Msg.Last)
+	if err != nil {
+		h.log.Warn("skip price with unparseable last",
+			"asset_id", assetID, "base_asset_id", baseID, "last", resp.Msg.Last, "error", err)
+		return decimal.Zero, false, nil
+	}
+	return last.Shift(-int32(resp.Msg.Decimals)), true, nil
+}
 
 // GetPortfolioPerformance calculates return over a time range using stored price history.
 // If no `from` is set, defaults to 30 days ago. Requires marketStore.
@@ -229,7 +311,7 @@ func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Requ
 		from = req.Msg.From.AsTime()
 	}
 
-	quoteAssetID := "usd"
+	quoteAssetID := defaultQuoteAsset
 	if req.Msg.BenchmarkAssetId != "" {
 		quoteAssetID = req.Msg.BenchmarkAssetId
 	}
@@ -254,9 +336,15 @@ func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Requ
 		}
 		latestPrice := latestResp.Msg
 
+		latestLast, err := decimal.NewFromString(latestPrice.Last)
+		if err != nil {
+			h.log.Warn("skip price with unparseable last", "asset_id", hld.AssetID, "last", latestPrice.Last, "error", err)
+			continue
+		}
+
 		divisorCurrent := decimal.New(1, int32(hld.Decimals)+int32(latestPrice.Decimals))
-		holdingCurrent := decimal.New(hld.Amount, 0).
-			Mul(decimal.New(latestPrice.Last, 0)).
+		holdingCurrent := hld.Amount.
+			Mul(latestLast).
 			Div(divisorCurrent)
 		currentValue = currentValue.Add(holdingCurrent)
 
@@ -277,9 +365,16 @@ func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Requ
 		}
 		fromPrice := histResp.Msg.Prices[0]
 
+		fromLast, err := decimal.NewFromString(fromPrice.Last)
+		if err != nil {
+			h.log.Warn("skip historical price with unparseable last", "asset_id", hld.AssetID, "last", fromPrice.Last, "error", err)
+			fromValue = fromValue.Add(holdingCurrent)
+			continue
+		}
+
 		divisorFrom := decimal.New(1, int32(hld.Decimals)+int32(fromPrice.Decimals))
-		holdingFrom := decimal.New(hld.Amount, 0).
-			Mul(decimal.New(fromPrice.Last, 0)).
+		holdingFrom := hld.Amount.
+			Mul(fromLast).
 			Div(divisorFrom)
 		fromValue = fromValue.Add(holdingFrom)
 	}
@@ -303,7 +398,10 @@ func (h *Handler) CreateHolding(ctx context.Context, req *connect.Request[apiv1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("holding is required"))
 	}
 
-	holding := holdingFromProto(req.Msg.Holding)
+	holding, err := holdingFromProto(req.Msg.Holding)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 	created, err := h.store.CreateHolding(ctx, holding)
 	if err != nil {
 		return nil, toConnectError(err)
@@ -330,12 +428,15 @@ func (h *Handler) UpdateHolding(ctx context.Context, req *connect.Request[apiv1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("holding with ID is required"))
 	}
 
-	fields := []string{"amount", "decimals", "portfolio_id"}
+	fields := []string{"amount", "decimals", "portfolio_id", "excluded"}
 	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
 		fields = req.Msg.UpdateMask.Paths
 	}
 
-	holding := holdingFromProto(req.Msg.Holding)
+	holding, err := holdingFromProto(req.Msg.Holding)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 	updated, err := h.store.UpdateHolding(ctx, holding, fields)
 	if err != nil {
 		return nil, toConnectError(err)
@@ -345,7 +446,12 @@ func (h *Handler) UpdateHolding(ctx context.Context, req *connect.Request[apiv1.
 }
 
 func (h *Handler) ListHoldings(ctx context.Context, req *connect.Request[apiv1.ListHoldingsRequest]) (*connect.Response[apiv1.ListHoldingsResponse], error) {
-	opts := ListHoldingsOpts{}
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+	}
+
+	opts := ListHoldingsOpts{UserID: user.ID}
 	if req.Msg.PortfolioId != nil {
 		opts.PortfolioID = *req.Msg.PortfolioId
 	}
@@ -418,7 +524,7 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account with ID is required"))
 	}
 
-	fields := []string{"name", "description", "type", "data"}
+	fields := []string{"name", "description", "type", "data", "portfolio_id"}
 	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
 		fields = req.Msg.UpdateMask.Paths
 	}
@@ -503,15 +609,63 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	if !ok || address == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account.data.address is required for wallet sync"))
 	}
-	chain := account.Data["chain"]
-	if chain == "" {
-		chain = "eth"
+
+	// Resolve which chains to sync from the account config.
+	// Empty or "auto" → let the syncer auto-discover (pass nil).
+	// Otherwise a comma-separated list: "eth,base,arbitrum".
+	var syncErrors []string
+	var chains []string
+	if chainRaw := strings.TrimSpace(account.Data["chain"]); chainRaw != "" && chainRaw != "auto" {
+		chains = splitChains(chainRaw)
 	}
 
-	// Fetch balances from Moralis
-	balances, err := h.walletSyncer.GetWalletTokenBalances(ctx, chain, address)
+	// The syncer owns all provider mechanics (discovery, fan-out, native vs token).
+	// Partial failures arrive as a joined error alongside the balances gathered so far.
+	balances, err := h.walletSyncer.SyncWallet(ctx, address, chains)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("fetch wallet balances: %w", err))
+		syncErrors = append(syncErrors, err.Error())
+	}
+
+	// Merge same-symbol tokens across chains, keyed by the canonical (uppercase) symbol
+	// so "usdc"/"USDC" collapse into one holding. The same symbol can carry different
+	// decimals per chain (e.g. USDC is 6 on Ethereum, 18 on BSC), so balances are summed
+	// as real quantities (raw / 10^decimals) and stored at the largest decimals seen —
+	// summing raw integers across mismatched scales would corrupt the total.
+	type accumulated struct {
+		name            string
+		contractAddress string
+		qty             decimal.Decimal // real token quantity, decimals applied
+		decimals        int             // max decimals seen → stored holding scale
+	}
+	bySymbol := make(map[string]*accumulated)
+
+	for _, b := range balances {
+		amt, ok := new(big.Int).SetString(strings.TrimSpace(b.Amount), 10)
+		if !ok {
+			syncErrors = append(syncErrors, fmt.Sprintf("parse amount %q for %s", b.Amount, b.Symbol))
+			continue
+		}
+		if amt.Sign() == 0 {
+			continue
+		}
+		symbol := entity.NormalizeSymbol(b.Symbol)
+		qty := decimal.NewFromBigInt(amt, int32(-b.Decimals)) // raw / 10^decimals
+		if entry, ok := bySymbol[symbol]; ok {
+			entry.qty = entry.qty.Add(qty)
+			if b.Decimals > entry.decimals {
+				entry.decimals = b.Decimals
+			}
+			if entry.contractAddress == "" {
+				entry.contractAddress = b.ContractAddress
+			}
+		} else {
+			bySymbol[symbol] = &accumulated{
+				name:            b.Name,
+				contractAddress: b.ContractAddress,
+				qty:             qty,
+				decimals:        b.Decimals,
+			}
+		}
 	}
 
 	// Build symbol → asset ID map from existing assets
@@ -525,7 +679,7 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	symbolToAssetID := make(map[string]string, len(listResp.Msg.Assets))
 	for _, a := range listResp.Msg.Assets {
 		if a.Symbol != nil {
-			symbolToAssetID[*a.Symbol] = a.Id
+			symbolToAssetID[entity.NormalizeSymbol(*a.Symbol)] = a.Id
 		}
 	}
 
@@ -542,19 +696,27 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	defaultPortfolioID := account.PortfolioID
 
 	var assetsUpserted, holdingsUpserted int32
-	var syncErrors []string
 
-	for _, bal := range balances {
-		symbol := bal.Symbol
+	for symbol, entry := range bySymbol {
+		decimals := uint32(entry.decimals)
+		// holdings.amount is NUMERIC: store the merged quantity as a raw integer at the
+		// holding's decimals scale (exact — qty has at most `decimals` fractional digits).
+		amount := entry.qty.Shift(int32(entry.decimals))
 
 		// Ensure asset exists
 		assetID, exists := symbolToAssetID[symbol]
 		if !exists {
+			// Store contract address as a tag so price providers can look up by address.
+			var tags []string
+			if entry.contractAddress != "" {
+				tags = append(tags, "contract:"+entry.contractAddress)
+			}
 			createResp, err := h.mdClient.CreateAsset(ctx, connect.NewRequest(&apiv1.CreateAssetRequest{
 				Asset: &apiv1.Asset{
-					Name:   bal.Name,
+					Name:   entry.name,
 					Symbol: &symbol,
 					Type:   apiv1.AssetType_ASSET_TYPE_CRYPTOCURRENCY,
+					Tags:   tags,
 				},
 			}))
 			if err != nil {
@@ -566,17 +728,10 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 			assetsUpserted++
 		}
 
-		// Parse raw balance string to int64
-		var amount int64
-		if _, err := fmt.Sscanf(bal.Amount, "%d", &amount); err != nil {
-			syncErrors = append(syncErrors, fmt.Sprintf("parse amount for %s: %v", symbol, err))
-			continue
-		}
-
 		if existing, ok := holdingByAssetID[assetID]; ok {
 			// Update existing holding: only refresh amount/decimals; never touch portfolio assignment
 			existing.Amount = amount
-			existing.Decimals = uint32(bal.Decimals)
+			existing.Decimals = decimals
 			if _, err := h.store.UpdateHolding(ctx, existing, []string{"amount", "decimals"}); err != nil {
 				syncErrors = append(syncErrors, fmt.Sprintf("update holding %s: %v", symbol, err))
 				continue
@@ -588,7 +743,7 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 				AccountID:   req.Msg.AccountId,
 				PortfolioID: defaultPortfolioID,
 				Amount:      amount,
-				Decimals:    uint32(bal.Decimals),
+				Decimals:    decimals,
 			})
 			if err != nil {
 				syncErrors = append(syncErrors, fmt.Sprintf("create holding %s: %v", symbol, err))
@@ -750,27 +905,39 @@ func portfolioToProto(p *entity.Portfolio) *apiv1.Portfolio {
 	return result
 }
 
-func holdingFromProto(h *apiv1.Holding) *entity.Holding {
+func holdingFromProto(h *apiv1.Holding) (*entity.Holding, error) {
+	// Empty amount is treated as unset (zero) so partial updates that omit it still work;
+	// a non-empty but malformed amount is rejected rather than silently coerced to zero.
+	amount := decimal.Zero
+	if h.Amount != "" {
+		var err error
+		amount, err = decimal.NewFromString(h.Amount)
+		if err != nil {
+			return nil, fmt.Errorf("invalid amount %q: %w", h.Amount, err)
+		}
+	}
 	result := &entity.Holding{
 		ID:        h.Id,
-		Amount:    h.Amount,
+		Amount:    amount,
 		Decimals:  h.Decimals,
 		AssetID:   h.AssetId,
 		AccountID: h.AccountId,
+		Excluded:  h.Excluded,
 	}
 	if h.PortfolioId != nil {
 		result.PortfolioID = *h.PortfolioId
 	}
-	return result
+	return result, nil
 }
 
 func holdingToProto(h *entity.Holding) *apiv1.Holding {
 	result := &apiv1.Holding{
 		Id:        h.ID,
-		Amount:    h.Amount,
+		Amount:    h.Amount.String(),
 		Decimals:  h.Decimals,
 		AssetId:   h.AssetID,
 		AccountId: h.AccountID,
+		Excluded:  h.Excluded,
 		CreatedAt: timestamppb.New(h.CreatedAt),
 		UpdatedAt: timestamppb.New(h.UpdatedAt),
 	}
@@ -824,6 +991,25 @@ func transactionFromProto(t *apiv1.Transaction) *entity.Transaction {
 		AccountID: t.AccountId,
 		Data:      t.Data,
 	}
+}
+
+// splitChains splits a comma-separated chain string, defaulting to ["eth"] when empty.
+func splitChains(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return []string{"eth"}
+	}
+	parts := strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' })
+	if len(parts) == 0 {
+		return []string{"eth"}
+	}
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
 }
 
 func transactionToProto(t *entity.Transaction) *apiv1.Transaction {

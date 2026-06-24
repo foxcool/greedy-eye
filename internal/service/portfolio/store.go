@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
-	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
+	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
 )
 
@@ -66,11 +66,17 @@ type ListAccountsOpts struct {
 
 // ListHoldingsOpts contains options for listing holdings.
 type ListHoldingsOpts struct {
+	// UserID scopes results to holdings whose owning portfolio (own or
+	// inherited from the account) belongs to this user. Holdings outside
+	// any portfolio are scoped by account owner instead.
+	UserID      string
 	PortfolioID string
 	AccountID   string
 	AssetID     string
 	PageSize    int
 	PageToken   string
+	// HideExcluded filters out holdings where excluded=true when set to true.
+	HideExcluded bool
 }
 
 // ListTransactionsOpts contains options for listing transactions.

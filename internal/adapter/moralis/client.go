@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -27,7 +28,9 @@ type Balance struct {
 	Name         string
 	Decimals     int
 	Balance      string // Raw balance as string to avoid precision loss
-	Thumbnail    string
+	Thumbnail        string
+	PossibleSpam     bool // Moralis spam classification; scam tokens often clone real symbols
+	VerifiedContract bool // Moralis contract verification; fake clones are unverified
 }
 
 // Transaction represents a blockchain transaction
@@ -64,14 +67,85 @@ func NewClient(cfg Config) *Client {
 	}
 }
 
+// doGetURL is like doGet but takes a full URL instead of a path suffix.
+func (c *Client) doGetURL(ctx context.Context, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("X-API-Key", c.apiKey)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("moralis API status %d for %s", resp.StatusCode, url)
+	}
+	return resp, nil
+}
+
+// moralisActiveChain is one entry from the /api/v2.2/wallets/{address}/chains response.
+type moralisActiveChain struct {
+	Chain   string `json:"chain"`
+	ChainID string `json:"chain_id"`
+	// Non-null only for chains where the wallet actually transacted.
+	FirstTransaction json.RawMessage `json:"first_transaction"`
+}
+
+// candidateChains is the set Moralis is asked to probe for activity. Without an
+// explicit chains parameter the endpoint only checks eth, hiding L2/sidechain
+// balances. The chains endpoint rejects scroll/zksync/fantom even though other
+// Moralis endpoints support them, so those stay out of the list.
+var candidateChains = []string{
+	"eth", "base", "arbitrum", "optimism", "linea",
+	"polygon", "bsc", "avalanche",
+}
+
+// GetActiveChains returns the list of EVM chains where the address has had activity.
+// Uses the Moralis v2.2 wallet chains endpoint.
+func (c *Client) GetActiveChains(ctx context.Context, address string) ([]string, error) {
+	params := make([]string, 0, len(candidateChains))
+	for _, ch := range candidateChains {
+		params = append(params, "chains%5B%5D="+ch) // chains[]=<chain>
+	}
+	url := fmt.Sprintf("https://deep-index.moralis.io/api/v2.2/wallets/%s/chains?%s",
+		address, strings.Join(params, "&"))
+	resp, err := c.doGetURL(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var result struct {
+		ActiveChains []moralisActiveChain `json:"active_chains"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode active chains: %w", err)
+	}
+
+	chains := make([]string, 0, len(result.ActiveChains))
+	for _, ac := range result.ActiveChains {
+		active := len(ac.FirstTransaction) > 0 && string(ac.FirstTransaction) != "null"
+		if ac.Chain != "" && active {
+			chains = append(chains, ac.Chain)
+		}
+	}
+	return chains, nil
+}
+
 // moralisERC20Token is the JSON shape from /v2/{address}/erc20 endpoint.
 type moralisERC20Token struct {
 	TokenAddress string `json:"token_address"`
 	Symbol       string `json:"symbol"`
 	Name         string `json:"name"`
-	Decimals     string `json:"decimals"` // returned as string by Moralis
+	Decimals     int    `json:"decimals"`
 	Balance      string `json:"balance"`
-	Thumbnail    string `json:"thumbnail"`
+	Thumbnail        string `json:"thumbnail"`
+	PossibleSpam     bool   `json:"possible_spam"`
+	VerifiedContract bool   `json:"verified_contract"`
 }
 
 func (c *Client) doGet(ctx context.Context, path string) (*http.Response, error) {
@@ -108,16 +182,7 @@ func (c *Client) GetWalletTokenBalances(ctx context.Context, chain string, addre
 
 	result := make([]Balance, 0, len(tokens))
 	for _, t := range tokens {
-		dec := 18
-		_, _ = fmt.Sscanf(t.Decimals, "%d", &dec) // best-effort; default 18
-		result = append(result, Balance{
-			TokenAddress: t.TokenAddress,
-			Symbol:       t.Symbol,
-			Name:         t.Name,
-			Decimals:     dec,
-			Balance:      t.Balance,
-			Thumbnail:    t.Thumbnail,
-		})
+		result = append(result, Balance(t))
 	}
 	return result, nil
 }

@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	binanceadapter "github.com/foxcool/greedy-eye/internal/adapter/binance"
 	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
 	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
-	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
@@ -23,7 +23,6 @@ import (
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
 	"github.com/foxcool/greedy-eye/internal/store/postgres"
 	"github.com/getsentry/sentry-go"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )
@@ -61,7 +60,7 @@ func run() error {
 		return fmt.Errorf("database URL cannot be empty")
 	}
 
-	pool, err := pgxpool.New(context.Background(), config.DB.URL)
+	pool, err := postgres.NewPool(context.Background(), config.DB.URL)
 	if err != nil {
 		return fmt.Errorf("connect to database: %w", err)
 	}
@@ -85,9 +84,10 @@ func run() error {
 		}
 	})
 
-	// Initialize optional CoinGecko provider
+	mdStore := postgres.NewMarketDataStore(pool)
+
+	// Initialize price providers.
 	cgClient := coingecko.NewClient(coingecko.Config{APIKey: config.CoinGecko.APIKey, Pro: config.CoinGecko.Pro})
-	cgProvider := coingecko.NewProvider(cgClient)
 
 	// Initialize optional Moralis wallet syncer
 	var walletSyncer entity.WalletSyncer
@@ -102,8 +102,8 @@ func run() error {
 		middleware.UserProvisioningInterceptor(userStore, log),
 		loggingInterceptor(log),
 	)
-	mdHandler := marketdata.NewHandler(postgres.NewMarketDataStore(pool), log).
-		WithProvider(coingecko.ProviderName, cgProvider).
+	mdHandler := marketdata.NewHandler(mdStore, log).
+		WithProvider(coingecko.ProviderName, coingecko.NewProvider(cgClient)).
 		WithProvider(binanceadapter.ProviderName, binanceadapter.NewProvider(
 			binanceadapter.NewClient(binanceadapter.Config{
 				APIKey:    config.Binance.APIKey,
@@ -188,17 +188,20 @@ func createLogger(level string) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 }
 
-
 func loggingInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 			start := time.Now()
 			resp, err := next(ctx, req)
-			log.Info("request",
+			attrs := []any{
 				slog.String("procedure", req.Spec().Procedure),
 				slog.Duration("duration", time.Since(start)),
 				slog.Bool("error", err != nil),
-			)
+			}
+			if err != nil {
+				attrs = append(attrs, slog.String("error_msg", err.Error()))
+			}
+			log.Info("request", attrs...)
 			return resp, err
 		}
 	}

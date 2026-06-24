@@ -11,9 +11,9 @@ import (
 
 // Client implements PriceProvider interface for CoinGecko
 type Client struct {
-	apiKey    string
-	baseURL   string
-	rateLimit time.Duration
+	apiKey     string
+	baseURL    string
+	rateLimit  time.Duration
 	httpClient *http.Client
 }
 
@@ -55,24 +55,24 @@ func NewClient(cfg Config) *Client {
 	}
 
 	return &Client{
-		apiKey:    cfg.APIKey,
-		baseURL:   baseURL,
-		rateLimit: rateLimit,
+		apiKey:     cfg.APIKey,
+		baseURL:    baseURL,
+		rateLimit:  rateLimit,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
 // coingeckoMarketItem is the JSON shape from /coins/markets endpoint.
 type coingeckoMarketItem struct {
-	ID                  string  `json:"id"`
-	Symbol              string  `json:"symbol"`
-	CurrentPrice        float64 `json:"current_price"`
-	MarketCap           float64 `json:"market_cap"`
-	TotalVolume         float64 `json:"total_volume"`
-	PriceChange24h      float64 `json:"price_change_24h"`
-	PriceChangePct24h   float64 `json:"price_change_percentage_24h"`
-	High24h             float64 `json:"high_24h"`
-	Low24h              float64 `json:"low_24h"`
+	ID                string  `json:"id"`
+	Symbol            string  `json:"symbol"`
+	CurrentPrice      float64 `json:"current_price"`
+	MarketCap         float64 `json:"market_cap"`
+	TotalVolume       float64 `json:"total_volume"`
+	PriceChange24h    float64 `json:"price_change_24h"`
+	PriceChangePct24h float64 `json:"price_change_percentage_24h"`
+	High24h           float64 `json:"high_24h"`
+	Low24h            float64 `json:"low_24h"`
 }
 
 // GetMultiplePrices retrieves current prices for multiple assets.
@@ -125,6 +125,76 @@ func (c *Client) GetMultiplePrices(ctx context.Context, assetIDs []string, curre
 			High24h:       item.High24h,
 			Low24h:        item.Low24h,
 			Timestamp:     now,
+		}
+	}
+
+	return result, nil
+}
+
+// GetTokenPricesByContract retrieves prices for ERC-20 tokens by their contract addresses.
+// platform is the CoinGecko platform ID, e.g. "ethereum", "base", "polygon-pos".
+func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, addresses []string, currency string) (map[string]*PriceData, error) {
+	if len(addresses) == 0 {
+		return map[string]*PriceData{}, nil
+	}
+
+	// CoinGecko supports batching up to 30 addresses per request on free tier.
+	const batchSize = 30
+	result := make(map[string]*PriceData, len(addresses))
+
+	for i := 0; i < len(addresses); i += batchSize {
+		end := i + batchSize
+		if end > len(addresses) {
+			end = len(addresses)
+		}
+		batch := addresses[i:end]
+
+		url := fmt.Sprintf(
+			"%s/simple/token_price/%s?contract_addresses=%s&vs_currencies=%s&include_24hr_high=true&include_24hr_low=true",
+			c.baseURL,
+			platform,
+			strings.Join(batch, ","),
+			currency,
+		)
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("create request: %w", err)
+		}
+		if c.apiKey != "" {
+			req.Header.Set("x-cg-demo-api-key", c.apiKey)
+		}
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("do request: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("unexpected status %d from CoinGecko token_price", resp.StatusCode)
+		}
+
+		// Response: { "0x...": { "usd": 1.23, "usd_24h_high": 1.30, "usd_24h_low": 1.10 }, ... }
+		var raw map[string]map[string]float64
+		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("decode response: %w", err)
+		}
+		_ = resp.Body.Close()
+
+		now := time.Now()
+		for addr, prices := range raw {
+			price := prices[currency]
+			if price == 0 {
+				continue
+			}
+			result[addr] = &PriceData{
+				Price:     price,
+				High24h:   prices[currency+"_24h_high"],
+				Low24h:    prices[currency+"_24h_low"],
+				Timestamp: now,
+			}
 		}
 	}
 

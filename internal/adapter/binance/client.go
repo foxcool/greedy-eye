@@ -43,17 +43,17 @@ type Balance struct {
 
 // Order represents a trading order
 type Order struct {
-	OrderID       string
-	Symbol        string
-	Side          string // BUY, SELL
-	Type          string // MARKET, LIMIT
-	Price         float64
-	Quantity      float64
-	ExecutedQty   float64
-	Status        string
-	TimeInForce   string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	OrderID     string
+	Symbol      string
+	Side        string // BUY, SELL
+	Type        string // MARKET, LIMIT
+	Price       float64
+	Quantity    float64
+	ExecutedQty float64
+	Status      string
+	TimeInForce string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // Trade represents a completed trade

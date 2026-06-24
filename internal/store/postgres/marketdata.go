@@ -43,6 +43,8 @@ func (s *MarketDataStore) CreateAsset(ctx context.Context, asset *entity.Asset) 
 		return nil, fmt.Errorf("%w: asset type is required", store.ErrInvalidArgument)
 	}
 
+	asset.Symbol = entity.NormalizeSymbol(asset.Symbol)
+
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate ID: %w", err)
@@ -118,6 +120,74 @@ func (s *MarketDataStore) GetAsset(ctx context.Context, id string) (*entity.Asse
 	return &asset, nil
 }
 
+// GetOrCreateAssetBySymbol returns an existing asset by symbol or creates a new one.
+// typeIfNew and nameIfNew are used only when creating. Safe under concurrent inserts:
+// if a concurrent write wins the race, the existing row is returned.
+func (s *MarketDataStore) GetOrCreateAssetBySymbol(ctx context.Context, symbol, nameIfNew string, typeIfNew entity.AssetType) (*entity.Asset, error) {
+	a, err := s.GetAssetBySymbol(ctx, symbol)
+	if err == nil {
+		return a, nil
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	}
+	created, err := s.CreateAsset(ctx, &entity.Asset{
+		Symbol: symbol,
+		Name:   nameIfNew,
+		Type:   typeIfNew,
+		Tags:   []string{},
+	})
+	if err != nil {
+		// Concurrent insert: another process created it first — read back.
+		if errors.Is(err, store.ErrConstraint) {
+			return s.GetAssetBySymbol(ctx, symbol)
+		}
+		return nil, err
+	}
+	return created, nil
+}
+
+// GetAssetBySymbol returns an asset by its symbol. The symbol is normalized
+// (trim + uppercase) so lookups are case-insensitive.
+func (s *MarketDataStore) GetAssetBySymbol(ctx context.Context, symbol string) (*entity.Asset, error) {
+	symbol = entity.NormalizeSymbol(symbol)
+	if symbol == "" {
+		return nil, fmt.Errorf("%w: symbol is required", store.ErrInvalidArgument)
+	}
+
+	query := `
+		SELECT id, symbol, name, type, tags, created_at, updated_at
+		FROM assets
+		WHERE symbol = $1`
+
+	var asset entity.Asset
+	var typeStr string
+	var tagsJSON []byte
+
+	err := s.pool.QueryRow(ctx, query, symbol).Scan(
+		&asset.ID,
+		&asset.Symbol,
+		&asset.Name,
+		&typeStr,
+		&tagsJSON,
+		&asset.CreatedAt,
+		&asset.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: asset with symbol %s", store.ErrNotFound, symbol)
+		}
+		return nil, fmt.Errorf("failed to get asset by symbol: %w", err)
+	}
+
+	asset.Type = stringToAssetType(typeStr)
+	if err := json.Unmarshal(tagsJSON, &asset.Tags); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal tags: %w", err)
+	}
+
+	return &asset, nil
+}
+
 // UpdateAsset updates an asset with the specified fields.
 func (s *MarketDataStore) UpdateAsset(ctx context.Context, asset *entity.Asset, fields []string) (*entity.Asset, error) {
 	if asset == nil || asset.ID == "" {
@@ -135,7 +205,7 @@ func (s *MarketDataStore) UpdateAsset(ctx context.Context, asset *entity.Asset, 
 		switch field {
 		case "symbol":
 			setClauses = append(setClauses, fmt.Sprintf("symbol = $%d", argIdx))
-			args = append(args, asset.Symbol)
+			args = append(args, entity.NormalizeSymbol(asset.Symbol))
 			argIdx++
 		case "name":
 			setClauses = append(setClauses, fmt.Sprintf("name = $%d", argIdx))
@@ -361,36 +431,50 @@ func (s *MarketDataStore) CreatePrice(ctx context.Context, price *entity.StoredP
 }
 
 // CreatePrices creates multiple prices in bulk.
+// Individual failures are counted and returned as a combined error so callers
+// can surface partial success instead of silently dropping records.
 func (s *MarketDataStore) CreatePrices(ctx context.Context, prices []*entity.StoredPrice) (int, error) {
 	count := 0
+	var errs []string
 	for _, p := range prices {
-		_, err := s.CreatePrice(ctx, p)
-		if err == nil {
+		if _, err := s.CreatePrice(ctx, p); err != nil {
+			errs = append(errs, fmt.Sprintf("%s/%s: %v", p.AssetID, p.BaseAssetID, err))
+		} else {
 			count++
 		}
+	}
+	if len(errs) > 0 {
+		return count, fmt.Errorf("%d price(s) failed: %s", len(errs), strings.Join(errs, "; "))
 	}
 	return count, nil
 }
 
 // GetLatestPrice returns the most recent price for asset/base/source.
 func (s *MarketDataStore) GetLatestPrice(ctx context.Context, assetID, baseAssetID, sourceID string) (*entity.StoredPrice, error) {
-	if assetID == "" || baseAssetID == "" {
-		return nil, fmt.Errorf("%w: asset_id and base_asset_id are required", store.ErrInvalidArgument)
+	if assetID == "" {
+		return nil, fmt.Errorf("%w: asset_id is required", store.ErrInvalidArgument)
 	}
 
-	args := []any{assetID, baseAssetID}
-	sourceFilter := ""
+	// base_asset_id and source_id are optional filters: empty means "any". Omitting
+	// base_asset_id yields the asset's latest price in whatever pair it trades against,
+	// which portfolio valuation uses to convert via cross rates.
+	args := []any{assetID}
+	filters := ""
+	if baseAssetID != "" {
+		args = append(args, baseAssetID)
+		filters += fmt.Sprintf(" AND base_asset_id = $%d", len(args))
+	}
 	if sourceID != "" {
-		sourceFilter = "AND source_id = $3"
 		args = append(args, sourceID)
+		filters += fmt.Sprintf(" AND source_id = $%d", len(args))
 	}
 
 	query := fmt.Sprintf(`
 		SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, timestamp
 		FROM prices
-		WHERE asset_id = $1 AND base_asset_id = $2 %s
+		WHERE asset_id = $1%s
 		ORDER BY timestamp DESC
-		LIMIT 1`, sourceFilter)
+		LIMIT 1`, filters)
 
 	var price entity.StoredPrice
 	err := s.pool.QueryRow(ctx, query, args...).Scan(
@@ -592,9 +676,6 @@ func (s *MarketDataStore) DeletePrices(ctx context.Context, opts marketdata.Dele
 	}
 
 	if opts.BaseAssetID != "" {
-		if !isValidUUID(opts.BaseAssetID) {
-			return fmt.Errorf("%w: invalid base_asset_id format", store.ErrInvalidArgument)
-		}
 		whereClauses = append(whereClauses, fmt.Sprintf("base_asset_id = $%d", argIdx))
 		args = append(args, opts.BaseAssetID)
 		argIdx++

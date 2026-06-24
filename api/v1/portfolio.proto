@@ -8,7 +8,7 @@ import "google/protobuf/timestamp.proto";
 import "google/protobuf/field_mask.proto";
 import "google/api/annotations.proto";
 
-option go_package = "github.com/foxcool/greedy-eye/internal/api/v1;apiv1";
+option go_package = "github.com/foxcool/greedy-eye/api/v1;apiv1";
 
 // =============================================================================
 // TYPES
@@ -54,13 +54,17 @@ message Portfolio {
 // Holding represents a specific quantity of an Asset held within an Account.
 message Holding {
   string id = 1;
-  int64 amount = 2;
+  // Raw integer balance as a decimal string (scaled by `decimals`).
+  // String because uint256 on-chain balances overflow int64.
+  string amount = 2;
   uint32 decimals = 3;
   string asset_id = 4;
   string account_id = 5;
   optional string portfolio_id = 6;
   google.protobuf.Timestamp created_at = 7;
   google.protobuf.Timestamp updated_at = 8;
+  // If true, explicitly excluded from all portfolio calculations (e.g. spam/scam tokens).
+  bool excluded = 9;
 }
 
 // Account represents a user's connection to an external financial entity.
@@ -271,14 +275,17 @@ message ListPortfoliosResponse {
 
 message CalculatePortfolioValueRequest {
   string portfolio_id = 1;
+  // Quote currency: either an asset UUID or a ticker symbol (e.g. "USD"). Defaults to USD.
   string quote_asset_id = 2;
   google.protobuf.Timestamp at_time = 3;
 }
 
 message PortfolioValueResponse {
   string portfolio_id = 1;
+  // Echoes the requested quote (UUID or symbol) used to value the portfolio.
   string quote_asset_id = 2;
-  int64 total_value_amount = 3;
+  // Total value as a raw integer decimal string (scaled by `decimals`).
+  string total_value_amount = 3;
   uint32 decimals = 4;
   google.protobuf.Timestamp calculation_time = 5;
 }

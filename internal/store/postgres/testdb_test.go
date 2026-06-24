@@ -60,7 +60,7 @@ func NewTestDB(ctx context.Context) (*TestDB, error) {
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
 
-	pool, err := pgxpool.New(ctx, connStr)
+	pool, err := NewPool(ctx, connStr)
 	if err != nil {
 		container.Terminate(ctx)
 		return nil, fmt.Errorf("create connection pool: %w", err)

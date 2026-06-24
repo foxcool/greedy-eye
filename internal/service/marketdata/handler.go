@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
+
+	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 
 	"connectrpc.com/connect"
-	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
-	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
+	apiv1 "github.com/foxcool/greedy-eye/api/v1"
+	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -17,9 +21,17 @@ import (
 )
 
 // PriceProvider fetches prices from an external source.
-// Each implementation encapsulates its own SourceID, BaseAssetID, Decimals, and Interval.
 type PriceProvider interface {
+	// FetchPrices fetches current prices for the given assets.
+	// Returned StoredPrice.BaseAssetID is intentionally empty — the handler resolves
+	// the base asset UUID from BaseAssetSymbol() before persisting.
 	FetchPrices(ctx context.Context, assets []*entity.Asset) ([]entity.StoredPrice, error)
+	// BaseAssetSymbol returns the ticker of the quote currency (e.g. "USD", "USDT").
+	// Used by FetchExternalPrices to resolve or create the base asset on demand.
+	BaseAssetSymbol() string
+	// BaseAssetType is the asset type to use when the base asset must be created.
+	// Fiat quotes (USD) are forex; stablecoin quotes (USDT) are cryptocurrency.
+	BaseAssetType() entity.AssetType
 }
 
 // Handler implements apiv1connect.MarketDataServiceHandler.
@@ -43,9 +55,9 @@ func (h *Handler) WithProvider(name string, p PriceProvider) *Handler {
 	providers[name] = p
 	return &Handler{
 		UnimplementedMarketDataServiceHandler: h.UnimplementedMarketDataServiceHandler,
-		store:     h.store,
-		providers: providers,
-		log:       h.log,
+		store:                                 h.store,
+		providers:                             providers,
+		log:                                   h.log,
 	}
 }
 
@@ -145,7 +157,10 @@ func (h *Handler) CreatePrice(ctx context.Context, req *connect.Request[apiv1.Cr
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("price is required"))
 	}
 
-	price := priceFromProto(req.Msg.Price)
+	price, err := priceFromProto(req.Msg.Price)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 	created, err := h.store.CreatePrice(ctx, price)
 	if err != nil {
 		return nil, toConnectError(err)
@@ -158,7 +173,11 @@ func (h *Handler) CreatePrice(ctx context.Context, req *connect.Request[apiv1.Cr
 func (h *Handler) CreatePrices(ctx context.Context, req *connect.Request[apiv1.CreatePricesRequest]) (*connect.Response[apiv1.CreatePricesResponse], error) {
 	prices := make([]*entity.StoredPrice, 0, len(req.Msg.Prices))
 	for _, p := range req.Msg.Prices {
-		prices = append(prices, priceFromProto(p))
+		price, err := priceFromProto(p)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		prices = append(prices, price)
 	}
 
 	count, err := h.store.CreatePrices(ctx, prices)
@@ -171,10 +190,19 @@ func (h *Handler) CreatePrices(ctx context.Context, req *connect.Request[apiv1.C
 	}), nil
 }
 
-// GetLatestPrice returns the most recent price for an asset pair.
+// GetLatestPrice returns the most recent price for an asset. When base_asset_id is
+// provided it returns the price in that specific pair; when omitted it returns the
+// latest price in whatever base the asset actually trades against (the response's
+// base_asset_id tells the caller which). This lets callers value an asset without
+// knowing its quote currency in advance.
 func (h *Handler) GetLatestPrice(ctx context.Context, req *connect.Request[apiv1.GetLatestPriceRequest]) (*connect.Response[apiv1.Price], error) {
-	if req.Msg.AssetId == "" || req.Msg.BaseAssetId == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset_id and base_asset_id are required"))
+	if req.Msg.AssetId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset_id is required"))
+	}
+
+	assetID, err := h.resolveAssetID(ctx, req.Msg.AssetId)
+	if err != nil {
+		return nil, toConnectError(err)
 	}
 
 	var sourceID string
@@ -182,12 +210,36 @@ func (h *Handler) GetLatestPrice(ctx context.Context, req *connect.Request[apiv1
 		sourceID = *req.Msg.SourceId
 	}
 
-	price, err := h.store.GetLatestPrice(ctx, req.Msg.AssetId, req.Msg.BaseAssetId, sourceID)
+	// base_asset_id is optional: empty means "any base", letting the store return the
+	// asset's latest price in whatever pair it trades against.
+	var baseAssetID string
+	if req.Msg.BaseAssetId != "" {
+		baseAssetID, err = h.resolveAssetID(ctx, req.Msg.BaseAssetId)
+		if err != nil {
+			return nil, toConnectError(err)
+		}
+	}
+
+	price, err := h.store.GetLatestPrice(ctx, assetID, baseAssetID, sourceID)
 	if err != nil {
 		return nil, toConnectError(err)
 	}
 
 	return connect.NewResponse(priceToProto(price)), nil
+}
+
+// resolveAssetID returns id unchanged if it is a valid UUID, otherwise treats it
+// as a symbol and looks up the asset by symbol. This allows callers to pass either
+// a UUID or a well-known ticker (e.g. "USD", "usd") interchangeably.
+func (h *Handler) resolveAssetID(ctx context.Context, id string) (string, error) {
+	if _, err := uuid.Parse(id); err == nil {
+		return id, nil
+	}
+	asset, err := h.store.GetAssetBySymbol(ctx, id) // store normalizes symbol case
+	if err != nil {
+		return "", fmt.Errorf("resolve asset %q: %w", id, err)
+	}
+	return asset.ID, nil
 }
 
 // ListPriceHistory returns price history for an asset pair.
@@ -196,9 +248,14 @@ func (h *Handler) ListPriceHistory(ctx context.Context, req *connect.Request[api
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset_id and base_asset_id are required"))
 	}
 
+	baseAssetID, err := h.resolveAssetID(ctx, req.Msg.BaseAssetId)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
 	opts := ListPriceHistoryOpts{
 		AssetID:     req.Msg.AssetId,
-		BaseAssetID: req.Msg.BaseAssetId,
+		BaseAssetID: baseAssetID,
 	}
 	if req.Msg.SourceId != nil {
 		opts.SourceID = *req.Msg.SourceId
@@ -337,6 +394,9 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	var fetchErrs []string
 	var totalFetched int
 
+	// Cache base asset UUIDs per symbol to avoid repeated lookups across providers.
+	baseAssetCache := map[string]string{} // symbol → UUID
+
 	for name, provider := range h.providers {
 		if len(req.Msg.SourceIds) > 0 && !slices.Contains(req.Msg.SourceIds, name) {
 			continue
@@ -346,15 +406,32 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
 			continue
 		}
+
+		// Resolve base asset UUID for this provider (create the asset if it doesn't exist yet).
+		sym := strings.ToUpper(provider.BaseAssetSymbol())
+		baseID, ok := baseAssetCache[sym]
+		if !ok {
+			baseAsset, err := h.store.GetOrCreateAssetBySymbol(ctx, sym, sym, provider.BaseAssetType())
+			if err != nil {
+				fetchErrs = append(fetchErrs, fmt.Sprintf("%s: resolve base asset %s: %v", name, sym, err))
+				continue
+			}
+			baseID = baseAsset.ID
+			baseAssetCache[sym] = baseID
+		}
+
 		totalFetched += len(results)
 		for i := range results {
+			results[i].BaseAssetID = baseID
 			allPrices = append(allPrices, &results[i])
 		}
 	}
 
 	stored, err := h.store.CreatePrices(ctx, allPrices)
 	if err != nil {
-		return nil, toConnectError(err)
+		// Partial failures are non-fatal: surface them in the response errors field.
+		h.log.Warn("some prices failed to store", "error", err)
+		fetchErrs = append(fetchErrs, err.Error())
 	}
 
 	return connect.NewResponse(&apiv1.FetchExternalPricesResponse{
@@ -410,7 +487,63 @@ func assetToProto(e *entity.Asset) *apiv1.Asset {
 	}
 }
 
-func priceFromProto(p *apiv1.Price) *entity.StoredPrice {
+// parseDecimal parses a raw integer decimal string. Empty is treated as unset (zero);
+// a non-empty but malformed value is an error rather than a silent zero.
+func parseDecimal(s string) (decimal.Decimal, error) {
+	if s == "" {
+		return decimal.Zero, nil
+	}
+	return decimal.NewFromString(s)
+}
+
+// parseNullDecimal converts an optional proto string into a NullDecimal. A nil pointer
+// is a valid absent value; a non-nil but malformed value is an error.
+func parseNullDecimal(s *string) (decimal.NullDecimal, error) {
+	if s == nil {
+		return decimal.NullDecimal{}, nil
+	}
+	d, err := decimal.NewFromString(*s)
+	if err != nil {
+		return decimal.NullDecimal{}, err
+	}
+	return decimal.NullDecimal{Decimal: d, Valid: true}, nil
+}
+
+// nullDecimalToProto converts a NullDecimal into an optional proto string.
+func nullDecimalToProto(d decimal.NullDecimal) *string {
+	if !d.Valid {
+		return nil
+	}
+	s := d.Decimal.String()
+	return &s
+}
+
+func priceFromProto(p *apiv1.Price) (*entity.StoredPrice, error) {
+	last, err := parseDecimal(p.Last)
+	if err != nil {
+		return nil, fmt.Errorf("invalid last %q: %w", p.Last, err)
+	}
+	open, err := parseNullDecimal(p.Open)
+	if err != nil {
+		return nil, fmt.Errorf("invalid open: %w", err)
+	}
+	high, err := parseNullDecimal(p.High)
+	if err != nil {
+		return nil, fmt.Errorf("invalid high: %w", err)
+	}
+	low, err := parseNullDecimal(p.Low)
+	if err != nil {
+		return nil, fmt.Errorf("invalid low: %w", err)
+	}
+	closeVal, err := parseNullDecimal(p.Close)
+	if err != nil {
+		return nil, fmt.Errorf("invalid close: %w", err)
+	}
+	volume, err := parseNullDecimal(p.Volume)
+	if err != nil {
+		return nil, fmt.Errorf("invalid volume: %w", err)
+	}
+
 	price := &entity.StoredPrice{
 		ID:          p.Id,
 		SourceID:    p.SourceId,
@@ -418,17 +551,17 @@ func priceFromProto(p *apiv1.Price) *entity.StoredPrice {
 		BaseAssetID: p.BaseAssetId,
 		Interval:    p.Interval,
 		Decimals:    p.Decimals,
-		Last:        p.Last,
-		Open:        p.Open,
-		High:        p.High,
-		Low:         p.Low,
-		Close:       p.Close,
-		Volume:      p.Volume,
+		Last:        last,
+		Open:        open,
+		High:        high,
+		Low:         low,
+		Close:       closeVal,
+		Volume:      volume,
 	}
 	if p.Timestamp != nil {
 		price.Timestamp = p.Timestamp.AsTime()
 	}
-	return price
+	return price, nil
 }
 
 func priceToProto(e *entity.StoredPrice) *apiv1.Price {
@@ -439,12 +572,12 @@ func priceToProto(e *entity.StoredPrice) *apiv1.Price {
 		BaseAssetId: e.BaseAssetID,
 		Interval:    e.Interval,
 		Decimals:    e.Decimals,
-		Last:        e.Last,
-		Open:        e.Open,
-		High:        e.High,
-		Low:         e.Low,
-		Close:       e.Close,
-		Volume:      e.Volume,
+		Last:        e.Last.String(),
+		Open:        nullDecimalToProto(e.Open),
+		High:        nullDecimalToProto(e.High),
+		Low:         nullDecimalToProto(e.Low),
+		Close:       nullDecimalToProto(e.Close),
+		Volume:      nullDecimalToProto(e.Volume),
 		Timestamp:   timestamppb.New(e.Timestamp),
 	}
 }

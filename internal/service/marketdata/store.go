@@ -13,6 +13,8 @@ type Store interface {
 	// Assets
 	CreateAsset(ctx context.Context, asset *entity.Asset) (*entity.Asset, error)
 	GetAsset(ctx context.Context, id string) (*entity.Asset, error)
+	GetAssetBySymbol(ctx context.Context, symbol string) (*entity.Asset, error)
+	GetOrCreateAssetBySymbol(ctx context.Context, symbol, nameIfNew string, typeIfNew entity.AssetType) (*entity.Asset, error)
 	UpdateAsset(ctx context.Context, asset *entity.Asset, fields []string) (*entity.Asset, error)
 	DeleteAsset(ctx context.Context, id string) error
 	ListAssets(ctx context.Context, opts ListAssetsOpts) ([]*entity.Asset, string, error)
@@ -20,6 +22,9 @@ type Store interface {
 	// Prices
 	CreatePrice(ctx context.Context, price *entity.StoredPrice) (*entity.StoredPrice, error)
 	CreatePrices(ctx context.Context, prices []*entity.StoredPrice) (int, error)
+	// GetLatestPrice returns the asset's most recent price. An empty baseAssetID or
+	// sourceID means "any" for that filter; omitting baseAssetID yields the price in
+	// whatever pair the asset trades against (used for cross-rate valuation).
 	GetLatestPrice(ctx context.Context, assetID, baseAssetID, sourceID string) (*entity.StoredPrice, error)
 	ListPriceHistory(ctx context.Context, opts ListPriceHistoryOpts) ([]*entity.StoredPrice, string, error)
 	DeletePrice(ctx context.Context, id string) error

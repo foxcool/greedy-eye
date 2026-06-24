@@ -8,9 +8,10 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
-	"github.com/foxcool/greedy-eye/internal/api/v1/apiv1connect"
+	apiv1 "github.com/foxcool/greedy-eye/api/v1"
+	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -35,10 +36,16 @@ func (h *Handler) CreateRule(ctx context.Context, req *connect.Request[apiv1.Cre
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rule is required"))
 	}
 
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+	}
+
 	r, err := ruleFromProto(req.Msg.Rule)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	r.UserID = user.ID
 
 	created, err := h.store.CreateRule(ctx, r)
 	if err != nil {
@@ -109,8 +116,14 @@ func (h *Handler) DeleteRule(ctx context.Context, req *connect.Request[apiv1.Del
 }
 
 func (h *Handler) ListRules(ctx context.Context, req *connect.Request[apiv1.ListRulesRequest]) (*connect.Response[apiv1.ListRulesResponse], error) {
-	opts := ListRulesOpts{}
-	if req.Msg.UserId != nil {
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+	}
+
+	// Scope to the caller; allow an explicit override (admin) like PortfolioService.
+	opts := ListRulesOpts{UserID: user.ID}
+	if req.Msg.UserId != nil && *req.Msg.UserId != "" {
 		opts.UserID = *req.Msg.UserId
 	}
 	if req.Msg.PortfolioId != nil {

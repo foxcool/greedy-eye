@@ -51,4 +51,3 @@ func getTestPool(t *testing.T) *pgxpool.Pool {
 
 	return testDB.Pool
 }
-

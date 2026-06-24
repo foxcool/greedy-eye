@@ -6,7 +6,7 @@ COMPOSE=docker compose -p eye --env-file deploy/.env
 COMPOSE_FILE=deploy/compose.yaml
 
 .PHONY: gen go-gen up debug down logs clean buf-gen docs-api \
-        test test-unit test-integration schema-apply schema-diff \
+        test test-unit test-integration test-smoke schema-apply schema-diff \
         lint vet check
 
 # Generate all code
@@ -49,6 +49,13 @@ test-integration:
 	@which atlas > /dev/null || (echo "Atlas CLI required: curl -sSf https://atlasgo.sh | sh" && exit 1)
 	@echo "Running integration tests..."
 	go test -v -p 1 -tags=integration ./internal/store/postgres/...
+
+# Run smoke tests against the live compose stack.
+# Starts eye-dev (and its deps postgres + migrate) automatically via depends_on.
+# API keys come from deploy/secrets.env. Binance always runs; CoinGecko/Moralis need keys.
+test-smoke:
+	$(COMPOSE) -f $(COMPOSE_FILE) --profile default --profile test run --rm \
+		eye-test go test -v -p 1 -tags=smoke -timeout 120s ./test/smoke/...
 
 # Atlas: apply schema to dev database (uses compose migrate service — no env vars needed)
 schema-apply:

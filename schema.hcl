@@ -132,6 +132,11 @@ table "assets" {
     columns = [column.id]
   }
 
+  index "asset_symbol" {
+    columns = [column.symbol]
+    unique  = true
+  }
+
   index "asset_tags" {
     columns = [column.tags]
     type    = GIN
@@ -198,7 +203,8 @@ table "holdings" {
     null = false
   }
   column "amount" {
-    type = bigint
+    # NUMERIC (arbitrary precision) holds raw uint256 token balances that overflow bigint.
+    type = numeric
     null = false
   }
   column "decimals" {
@@ -216,6 +222,11 @@ table "holdings" {
   column "portfolio_id" {
     type = uuid
     null = true
+  }
+  column "excluded" {
+    type    = boolean
+    null    = false
+    default = false
   }
 
   primary_key {
@@ -264,27 +275,28 @@ table "prices" {
     null = false
   }
   column "last" {
-    type = bigint
+    # NUMERIC: raw integer price scaled by decimals; arbitrary precision, no overflow.
+    type = numeric
     null = false
   }
   column "open" {
-    type = bigint
+    type = numeric
     null = true
   }
   column "high" {
-    type = bigint
+    type = numeric
     null = true
   }
   column "low" {
-    type = bigint
+    type = numeric
     null = true
   }
   column "close" {
-    type = bigint
+    type = numeric
     null = true
   }
   column "volume" {
-    type = bigint
+    type = numeric
     null = true
   }
   column "timestamp" {
@@ -309,18 +321,18 @@ table "prices" {
     unique  = true
   }
 
-  foreign_key "prices_assets_prices" {
+  foreign_key "prices_assets_asset" {
     columns     = [column.asset_id]
     ref_columns = [table.assets.column.id]
     on_update   = NO_ACTION
     on_delete   = NO_ACTION
   }
 
-  foreign_key "prices_assets_prices_base" {
+  foreign_key "prices_assets_base_asset" {
     columns     = [column.base_asset_id]
     ref_columns = [table.assets.column.id]
     on_update   = NO_ACTION
-    on_delete   = NO_ACTION
+    on_delete   = RESTRICT
   }
 }
 

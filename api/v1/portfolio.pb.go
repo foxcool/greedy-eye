@@ -292,15 +292,19 @@ func (x *Portfolio) GetUpdatedAt() *timestamppb.Timestamp {
 
 // Holding represents a specific quantity of an Asset held within an Account.
 type Holding struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Amount        int64                  `protobuf:"varint,2,opt,name=amount,proto3" json:"amount,omitempty"`
-	Decimals      uint32                 `protobuf:"varint,3,opt,name=decimals,proto3" json:"decimals,omitempty"`
-	AssetId       string                 `protobuf:"bytes,4,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
-	AccountId     string                 `protobuf:"bytes,5,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	PortfolioId   *string                `protobuf:"bytes,6,opt,name=portfolio_id,json=portfolioId,proto3,oneof" json:"portfolio_id,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Raw integer balance as a decimal string (scaled by `decimals`).
+	// String because uint256 on-chain balances overflow int64.
+	Amount      string                 `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	Decimals    uint32                 `protobuf:"varint,3,opt,name=decimals,proto3" json:"decimals,omitempty"`
+	AssetId     string                 `protobuf:"bytes,4,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
+	AccountId   string                 `protobuf:"bytes,5,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	PortfolioId *string                `protobuf:"bytes,6,opt,name=portfolio_id,json=portfolioId,proto3,oneof" json:"portfolio_id,omitempty"`
+	CreatedAt   *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt   *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// If true, explicitly excluded from all portfolio calculations (e.g. spam/scam tokens).
+	Excluded      bool `protobuf:"varint,9,opt,name=excluded,proto3" json:"excluded,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -342,11 +346,11 @@ func (x *Holding) GetId() string {
 	return ""
 }
 
-func (x *Holding) GetAmount() int64 {
+func (x *Holding) GetAmount() string {
 	if x != nil {
 		return x.Amount
 	}
-	return 0
+	return ""
 }
 
 func (x *Holding) GetDecimals() uint32 {
@@ -389,6 +393,13 @@ func (x *Holding) GetUpdatedAt() *timestamppb.Timestamp {
 		return x.UpdatedAt
 	}
 	return nil
+}
+
+func (x *Holding) GetExcluded() bool {
+	if x != nil {
+		return x.Excluded
+	}
+	return false
 }
 
 // Account represents a user's connection to an external financial entity.
@@ -891,8 +902,9 @@ func (x *ListPortfoliosResponse) GetNextPageToken() string {
 }
 
 type CalculatePortfolioValueRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	PortfolioId   string                 `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	PortfolioId string                 `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
+	// Quote currency: either an asset UUID or a ticker symbol (e.g. "USD"). Defaults to USD.
 	QuoteAssetId  string                 `protobuf:"bytes,2,opt,name=quote_asset_id,json=quoteAssetId,proto3" json:"quote_asset_id,omitempty"`
 	AtTime        *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=at_time,json=atTime,proto3" json:"at_time,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -951,10 +963,12 @@ func (x *CalculatePortfolioValueRequest) GetAtTime() *timestamppb.Timestamp {
 }
 
 type PortfolioValueResponse struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	PortfolioId      string                 `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
-	QuoteAssetId     string                 `protobuf:"bytes,2,opt,name=quote_asset_id,json=quoteAssetId,proto3" json:"quote_asset_id,omitempty"`
-	TotalValueAmount int64                  `protobuf:"varint,3,opt,name=total_value_amount,json=totalValueAmount,proto3" json:"total_value_amount,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	PortfolioId string                 `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
+	// Echoes the requested quote (UUID or symbol) used to value the portfolio.
+	QuoteAssetId string `protobuf:"bytes,2,opt,name=quote_asset_id,json=quoteAssetId,proto3" json:"quote_asset_id,omitempty"`
+	// Total value as a raw integer decimal string (scaled by `decimals`).
+	TotalValueAmount string                 `protobuf:"bytes,3,opt,name=total_value_amount,json=totalValueAmount,proto3" json:"total_value_amount,omitempty"`
 	Decimals         uint32                 `protobuf:"varint,4,opt,name=decimals,proto3" json:"decimals,omitempty"`
 	CalculationTime  *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=calculation_time,json=calculationTime,proto3" json:"calculation_time,omitempty"`
 	unknownFields    protoimpl.UnknownFields
@@ -1005,11 +1019,11 @@ func (x *PortfolioValueResponse) GetQuoteAssetId() string {
 	return ""
 }
 
-func (x *PortfolioValueResponse) GetTotalValueAmount() int64 {
+func (x *PortfolioValueResponse) GetTotalValueAmount() string {
 	if x != nil {
 		return x.TotalValueAmount
 	}
-	return 0
+	return ""
 }
 
 func (x *PortfolioValueResponse) GetDecimals() uint32 {
@@ -2148,10 +2162,10 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\tDataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12*\n" +
 	"\x05value\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\x05value:\x028\x01B\x0e\n" +
-	"\f_description\"\xb6\x02\n" +
+	"\f_description\"\xd2\x02\n" +
 	"\aHolding\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
-	"\x06amount\x18\x02 \x01(\x03R\x06amount\x12\x1a\n" +
+	"\x06amount\x18\x02 \x01(\tR\x06amount\x12\x1a\n" +
 	"\bdecimals\x18\x03 \x01(\rR\bdecimals\x12\x19\n" +
 	"\basset_id\x18\x04 \x01(\tR\aassetId\x12\x1d\n" +
 	"\n" +
@@ -2160,7 +2174,8 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAtB\x0f\n" +
+	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x1a\n" +
+	"\bexcluded\x18\t \x01(\bR\bexcludedB\x0f\n" +
 	"\r_portfolio_id\"\xbd\x03\n" +
 	"\aAccount\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
@@ -2225,7 +2240,7 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x16PortfolioValueResponse\x12!\n" +
 	"\fportfolio_id\x18\x01 \x01(\tR\vportfolioId\x12$\n" +
 	"\x0equote_asset_id\x18\x02 \x01(\tR\fquoteAssetId\x12,\n" +
-	"\x12total_value_amount\x18\x03 \x01(\x03R\x10totalValueAmount\x12\x1a\n" +
+	"\x12total_value_amount\x18\x03 \x01(\tR\x10totalValueAmount\x12\x1a\n" +
 	"\bdecimals\x18\x04 \x01(\rR\bdecimals\x12E\n" +
 	"\x10calculation_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x0fcalculationTime\"\xcd\x01\n" +
 	"\x1eGetPortfolioPerformanceRequest\x12!\n" +
@@ -2371,9 +2386,9 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x0eGetTransaction\x12\x1d.eye.v1.GetTransactionRequest\x1a\x13.eye.v1.Transaction\"!\x82\xd3\xe4\x93\x02\x1b\x12\x19/api/v1/transactions/{id}\x12\x86\x01\n" +
 	"\x11UpdateTransaction\x12 .eye.v1.UpdateTransactionRequest\x1a\x13.eye.v1.Transaction\":\x82\xd3\xe4\x93\x024:\vtransaction\x1a%/api/v1/transactions/{transaction.id}\x12s\n" +
 	"\x10ListTransactions\x12\x1f.eye.v1.ListTransactionsRequest\x1a .eye.v1.ListTransactionsResponse\"\x1c\x82\xd3\xe4\x93\x02\x16\x12\x14/api/v1/transactions\x12r\n" +
-	"\vSyncAccount\x12\x1a.eye.v1.SyncAccountRequest\x1a\x1b.eye.v1.SyncAccountResponse\"*\x82\xd3\xe4\x93\x02$\"\"/api/v1/accounts/{account_id}/syncB\x8a\x01\n" +
+	"\vSyncAccount\x12\x1a.eye.v1.SyncAccountRequest\x1a\x1b.eye.v1.SyncAccountResponse\"*\x82\xd3\xe4\x93\x02$\"\"/api/v1/accounts/{account_id}/syncB\x81\x01\n" +
 	"\n" +
-	"com.eye.v1B\x0ePortfolioProtoP\x01Z3github.com/foxcool/greedy-eye/internal/api/v1;apiv1\xa2\x02\x03EXX\xaa\x02\x06Eye.V1\xca\x02\x06Eye\\V1\xe2\x02\x12Eye\\V1\\GPBMetadata\xea\x02\aEye::V1b\x06proto3"
+	"com.eye.v1B\x0ePortfolioProtoP\x01Z*github.com/foxcool/greedy-eye/api/v1;apiv1\xa2\x02\x03EXX\xaa\x02\x06Eye.V1\xca\x02\x06Eye\\V1\xe2\x02\x12Eye\\V1\\GPBMetadata\xea\x02\aEye::V1b\x06proto3"
 
 var (
 	file_v1_portfolio_proto_rawDescOnce sync.Once

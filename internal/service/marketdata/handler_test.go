@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	apiv1 "github.com/foxcool/greedy-eye/internal/api/v1"
+	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/store"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -33,6 +34,22 @@ func (m *mockStore) CreateAsset(ctx context.Context, asset *entity.Asset) (*enti
 
 func (m *mockStore) GetAsset(ctx context.Context, id string) (*entity.Asset, error) {
 	args := m.Called(ctx, id)
+	if v := args.Get(0); v != nil {
+		return v.(*entity.Asset), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockStore) GetAssetBySymbol(ctx context.Context, symbol string) (*entity.Asset, error) {
+	args := m.Called(ctx, symbol)
+	if v := args.Get(0); v != nil {
+		return v.(*entity.Asset), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockStore) GetOrCreateAssetBySymbol(ctx context.Context, symbol, nameIfNew string, typeIfNew entity.AssetType) (*entity.Asset, error) {
+	args := m.Called(ctx, symbol, nameIfNew, typeIfNew)
 	if v := args.Get(0); v != nil {
 		return v.(*entity.Asset), args.Error(1)
 	}
@@ -270,7 +287,7 @@ func TestCreatePrice_OK(t *testing.T) {
 		AssetID:     "a-1",
 		BaseAssetID: "usdt",
 		SourceID:    "binance",
-		Last:        50000,
+		Last:        decimal.NewFromInt(50000),
 		Timestamp:   now,
 	}
 	s.On("CreatePrice", mock.Anything, mock.Anything).Return(stored, nil)
@@ -292,7 +309,6 @@ func TestGetLatestPrice_MissingFields(t *testing.T) {
 		req  *apiv1.GetLatestPriceRequest
 	}{
 		{"missing both", &apiv1.GetLatestPriceRequest{}},
-		{"missing base_asset_id", &apiv1.GetLatestPriceRequest{AssetId: "a-1"}},
 		{"missing asset_id", &apiv1.GetLatestPriceRequest{BaseAssetId: "usdt"}},
 	}
 	for _, tt := range tests {
@@ -305,17 +321,70 @@ func TestGetLatestPrice_MissingFields(t *testing.T) {
 }
 
 func TestGetLatestPrice_OK(t *testing.T) {
+	const baseUUID = "00000000-0000-0000-0000-000000000001"
+	const assetUUID = "00000000-0000-0000-0000-0000000000a1"
 	s := &mockStore{}
-	s.On("GetLatestPrice", mock.Anything, "a-1", "usdt", "").Return(&entity.StoredPrice{
-		ID: "p-1", AssetID: "a-1", BaseAssetID: "usdt",
+	s.On("GetLatestPrice", mock.Anything, assetUUID, baseUUID, "").Return(&entity.StoredPrice{
+		ID: "p-1", AssetID: assetUUID, BaseAssetID: baseUUID,
 	}, nil)
 	h := newHandler(s)
 
 	resp, err := h.GetLatestPrice(context.Background(), connect.NewRequest(&apiv1.GetLatestPriceRequest{
-		AssetId: "a-1", BaseAssetId: "usdt",
+		AssetId: assetUUID, BaseAssetId: baseUUID,
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, "p-1", resp.Msg.Id)
+}
+
+// TestGetLatestPrice_AnyBase verifies that omitting base_asset_id returns the asset's
+// latest price in whatever base it trades against (used for portfolio cross-rate valuation).
+func TestGetLatestPrice_AnyBase(t *testing.T) {
+	const tradedBase = "00000000-0000-0000-0000-0000000000aa"
+	const assetUUID = "00000000-0000-0000-0000-0000000000a1"
+	s := &mockStore{}
+	// Empty base_asset_id → store called with empty base ("any pair").
+	s.On("GetLatestPrice", mock.Anything, assetUUID, "", "").Return(&entity.StoredPrice{
+		ID: "p-9", AssetID: assetUUID, BaseAssetID: tradedBase,
+	}, nil)
+	h := newHandler(s)
+
+	resp, err := h.GetLatestPrice(context.Background(), connect.NewRequest(&apiv1.GetLatestPriceRequest{
+		AssetId: assetUUID, // no BaseAssetId
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "p-9", resp.Msg.Id)
+	assert.Equal(t, tradedBase, resp.Msg.GetBaseAssetId())
+}
+
+func TestGetLatestPrice_SymbolResolved(t *testing.T) {
+	const resolvedUUID = "00000000-0000-0000-0000-000000000002"
+	const assetUUID = "00000000-0000-0000-0000-0000000000a1"
+	s := &mockStore{}
+	// Handler passes the symbol through verbatim; the real store normalizes case.
+	s.On("GetAssetBySymbol", mock.Anything, "usd").Return(&entity.Asset{ID: resolvedUUID}, nil)
+	s.On("GetLatestPrice", mock.Anything, assetUUID, resolvedUUID, "").Return(&entity.StoredPrice{
+		ID: "p-2", AssetID: assetUUID, BaseAssetID: resolvedUUID,
+	}, nil)
+	h := newHandler(s)
+
+	resp, err := h.GetLatestPrice(context.Background(), connect.NewRequest(&apiv1.GetLatestPriceRequest{
+		AssetId: assetUUID, BaseAssetId: "usd", // lowercase symbol, not UUID
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "p-2", resp.Msg.Id)
+}
+
+func TestGetLatestPrice_SymbolNotFound(t *testing.T) {
+	const assetUUID = "00000000-0000-0000-0000-0000000000a1"
+	s := &mockStore{}
+	s.On("GetAssetBySymbol", mock.Anything, "unknown").Return(nil, store.ErrNotFound)
+	h := newHandler(s)
+
+	_, err := h.GetLatestPrice(context.Background(), connect.NewRequest(&apiv1.GetLatestPriceRequest{
+		AssetId: assetUUID, BaseAssetId: "unknown",
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 }
 
 // --- Tests: Stubs return Unimplemented ---

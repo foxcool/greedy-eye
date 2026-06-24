@@ -41,7 +41,7 @@ type Rule struct {
 	ID            string
 	Name          string
 	Description   string
-	RuleType      string          // e.g. "dca", "rebalancing", "stop_loss", "withdrawal"
+	RuleType      string // e.g. "dca", "rebalancing", "stop_loss", "withdrawal"
 	PortfolioID   string
 	UserID        string
 	Status        RuleStatus
