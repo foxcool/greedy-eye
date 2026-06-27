@@ -136,8 +136,9 @@ func run() error {
 
 	// Create server with h2c (HTTP/2 cleartext) support for Connect
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", config.Server.Port),
-		Handler: h2c.NewHandler(mux, &http2.Server{}),
+		Addr:              fmt.Sprintf(":%d", config.Server.Port),
+		Handler:           h2c.NewHandler(mux, &http2.Server{}),
+		ReadHeaderTimeout: 10 * time.Second, // mitigate Slowloris (gosec G112)
 	}
 
 	// Start server in background
