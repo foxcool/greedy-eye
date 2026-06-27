@@ -1,21 +1,66 @@
-name: Security Review
-
-permissions:
-  pull-requests: write  # Needed for leaving PR comments
-  contents: read
+name: Security
 
 on:
+  push:
+    branches: [ main, develop ]
   pull_request:
 
 jobs:
-  security:
+  govulncheck:
+    name: Scan dependencies for vulnerabilities
     runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Run govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-input: stable
+
+  gosec:
+    name: Static security analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run gosec
+        uses: securego/gosec@master
+        with:
+          args: -exclude-generated ./...
+
+  gitleaks:
+    name: Scan for committed secrets
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  security-review:
+    name: Claude security review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write  # Needed for leaving PR comments
+      contents: read
+
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 2
-      
+
       - uses: anthropics/claude-code-security-review@main
         with:
           comment-pr: true

@@ -31,7 +31,7 @@ Built as a learning project to demonstrate production-ready Go architecture for 
 **Extensible Architecture**
 - Modular gRPC services for different data sources
 - Easy to add new adapters for exchanges or price feeds
-- REST API via gRPC-Gateway for external integrations
+- Connect-RPC serves REST and gRPC on a single endpoint for external integrations
 
 ---
 
@@ -73,15 +73,14 @@ cd greedy-eye
 make up
 make schema-apply
 
-# Servers:
-# HTTP API: http://localhost:8080
-# gRPC:     localhost:50051
+# Server (Connect-RPC over h2c — REST + gRPC on one port):
+# http://localhost:8080
 ```
 
 ### Health Check
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:8080/eye/health
 ```
 
 ### Run Tests
