@@ -186,7 +186,7 @@ func (h *Handler) CreatePrices(ctx context.Context, req *connect.Request[apiv1.C
 	}
 
 	return connect.NewResponse(&apiv1.CreatePricesResponse{
-		CreatedCount: int32(count),
+		CreatedCount: int32(count), // #nosec G115 -- count of rows created, bounded by request size
 	}), nil
 }
 
@@ -435,8 +435,8 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	}
 
 	return connect.NewResponse(&apiv1.FetchExternalPricesResponse{
-		PricesFetched: int32(totalFetched),
-		PricesStored:  int32(stored),
+		PricesFetched: int32(totalFetched), // #nosec G115 -- count of fetched prices, bounded by request size
+		PricesStored:  int32(stored),       // #nosec G115 -- count of rows stored, bounded by request size
 		Errors:        fetchErrs,
 	}), nil
 }

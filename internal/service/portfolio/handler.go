@@ -197,7 +197,7 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 		}
 
 		// value = (amount / 10^holding.Decimals) * unitPrice
-		holdingValue := hld.Amount.Shift(-int32(hld.Decimals)).Mul(unit)
+		holdingValue := hld.Amount.Shift(-decI32(hld.Decimals)).Mul(unit)
 		total = total.Add(holdingValue)
 	}
 
@@ -271,7 +271,7 @@ func (h *Handler) latestAnyBase(ctx context.Context, assetID string) (string, de
 			"asset_id", assetID, "base_asset_id", resp.Msg.BaseAssetId, "last", resp.Msg.Last, "error", err)
 		return "", decimal.Zero, false, nil
 	}
-	return resp.Msg.BaseAssetId, last.Shift(-int32(resp.Msg.Decimals)), true, nil
+	return resp.Msg.BaseAssetId, last.Shift(-decI32(resp.Msg.Decimals)), true, nil
 }
 
 // realPrice returns the latest price of assetID in baseID as a real-unit decimal
@@ -293,7 +293,7 @@ func (h *Handler) realPrice(ctx context.Context, assetID, baseID string) (decima
 			"asset_id", assetID, "base_asset_id", baseID, "last", resp.Msg.Last, "error", err)
 		return decimal.Zero, false, nil
 	}
-	return last.Shift(-int32(resp.Msg.Decimals)), true, nil
+	return last.Shift(-decI32(resp.Msg.Decimals)), true, nil
 }
 
 // GetPortfolioPerformance calculates return over a time range using stored price history.
@@ -342,7 +342,7 @@ func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Requ
 			continue
 		}
 
-		divisorCurrent := decimal.New(1, int32(hld.Decimals)+int32(latestPrice.Decimals))
+		divisorCurrent := decimal.New(1, decI32(hld.Decimals)+decI32(latestPrice.Decimals))
 		holdingCurrent := hld.Amount.
 			Mul(latestLast).
 			Div(divisorCurrent)
@@ -372,7 +372,7 @@ func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Requ
 			continue
 		}
 
-		divisorFrom := decimal.New(1, int32(hld.Decimals)+int32(fromPrice.Decimals))
+		divisorFrom := decimal.New(1, decI32(hld.Decimals)+decI32(fromPrice.Decimals))
 		holdingFrom := hld.Amount.
 			Mul(fromLast).
 			Div(divisorFrom)
@@ -649,7 +649,7 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 			continue
 		}
 		symbol := entity.NormalizeSymbol(b.Symbol)
-		qty := decimal.NewFromBigInt(amt, int32(-b.Decimals)) // raw / 10^decimals
+		qty := decimal.NewFromBigInt(amt, -intToI32(b.Decimals)) // raw / 10^decimals
 		if entry, ok := bySymbol[symbol]; ok {
 			entry.qty = entry.qty.Add(qty)
 			if b.Decimals > entry.decimals {
@@ -698,10 +698,10 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	var assetsUpserted, holdingsUpserted int32
 
 	for symbol, entry := range bySymbol {
-		decimals := uint32(entry.decimals)
+		decimals := intToU32(entry.decimals)
 		// holdings.amount is NUMERIC: store the merged quantity as a raw integer at the
 		// holding's decimals scale (exact — qty has at most `decimals` fractional digits).
-		amount := entry.qty.Shift(int32(entry.decimals))
+		amount := entry.qty.Shift(intToI32(entry.decimals))
 
 		// Ensure asset exists
 		assetID, exists := symbolToAssetID[symbol]
