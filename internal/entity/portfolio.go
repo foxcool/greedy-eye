@@ -2,6 +2,8 @@ package entity
 
 import (
 	"encoding/json"
+	"fmt"
+	"slices"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -27,19 +29,89 @@ const (
 	AccountTypeExchange
 	AccountTypeBank
 	AccountTypeBroker
+	AccountTypeService // Pure data-provider API key (Moralis, Etherscan, ...); no holdings of its own
 )
+
+// String returns the canonical lowercase name of the account type.
+func (t AccountType) String() string {
+	switch t {
+	case AccountTypeWallet:
+		return "wallet"
+	case AccountTypeExchange:
+		return "exchange"
+	case AccountTypeBank:
+		return "bank"
+	case AccountTypeBroker:
+		return "broker"
+	case AccountTypeService:
+		return "service"
+	default:
+		return "unspecified"
+	}
+}
+
+// AccountCapability names an operation the account credentials allow.
+type AccountCapability string
+
+const (
+	CapabilityPortfolioSync AccountCapability = "portfolio_sync"
+	CapabilityTrading       AccountCapability = "trading"
+	CapabilityMarketData    AccountCapability = "market_data"
+	CapabilityOnchainLookup AccountCapability = "onchain_lookup"
+)
+
+// allowedCapabilities maps each account type to the capabilities its
+// credentials can grant.
+var allowedCapabilities = map[AccountType][]AccountCapability{
+	AccountTypeWallet:   {CapabilityPortfolioSync},
+	AccountTypeExchange: {CapabilityPortfolioSync, CapabilityTrading, CapabilityMarketData},
+	AccountTypeBank:     {CapabilityPortfolioSync},
+	AccountTypeBroker:   {CapabilityPortfolioSync, CapabilityTrading, CapabilityMarketData},
+	AccountTypeService:  {CapabilityMarketData, CapabilityOnchainLookup},
+}
+
+// systemScopeableCapabilities are user-agnostic: results don't belong to the
+// credential owner, so an admin may share them system-wide. portfolio_sync and
+// trading always stay personal.
+var systemScopeableCapabilities = []AccountCapability{
+	CapabilityMarketData,
+	CapabilityOnchainLookup,
+}
 
 // Account represents a user's connection to an external financial entity.
 type Account struct {
-	ID          string
-	UserID      string
-	Name        string
-	Description string
-	Type        AccountType
-	Data        map[string]string // API keys, identifiers, etc.
-	PortfolioID string            // Optional; holdings synced from this account belong to this portfolio by default
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID           string
+	UserID       string
+	Name         string
+	Description  string
+	Type         AccountType
+	Data         map[string]string   // API keys, identifiers, etc.
+	Capabilities []AccountCapability // What the account credentials allow
+	SystemScopes []AccountCapability // Subset of Capabilities usable system-wide for any user; admin-managed
+	PortfolioID  string              // Optional; holdings synced from this account belong to this portfolio by default
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// ValidateCapabilities checks the capability invariants:
+// capabilities must be allowed for the account type, and system scopes must be
+// a subset of capabilities limited to user-agnostic ones.
+func (a *Account) ValidateCapabilities() error {
+	allowed := allowedCapabilities[a.Type]
+	for _, c := range a.Capabilities {
+		if !slices.Contains(allowed, c) {
+			return fmt.Errorf("capability %q is not allowed for account type %q", c, a.Type)
+		}
+	}
+	for _, s := range a.SystemScopes {
+		if !slices.Contains(a.Capabilities, s) {
+			return fmt.Errorf("system scope %q is not among account capabilities", s)
+		}
+		if !slices.Contains(systemScopeableCapabilities, s) {
+			return fmt.Errorf("capability %q cannot be system-scoped", s)
+		}
+	}
+	return nil
 }
 
 // Holding represents a specific quantity of an Asset held within an Account.

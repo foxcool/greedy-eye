@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
@@ -295,6 +296,61 @@ func (s *PortfolioStore) ListPortfolios(ctx context.Context, opts portfolio.List
 
 // --- Account methods ---
 
+const accountColumns = "id, user_id, name, description, type, data, capabilities, system_scopes, portfolio_id, created_at, updated_at"
+
+// scanAccount reads one account row in accountColumns order.
+func scanAccount(row interface{ Scan(dest ...any) error }) (*entity.Account, error) {
+	var a entity.Account
+	var description *string
+	var typeStr string
+	var dataJSON, capabilitiesJSON, systemScopesJSON []byte
+	var portfolioID *string
+
+	err := row.Scan(
+		&a.ID,
+		&a.UserID,
+		&a.Name,
+		&description,
+		&typeStr,
+		&dataJSON,
+		&capabilitiesJSON,
+		&systemScopesJSON,
+		&portfolioID,
+		&a.CreatedAt,
+		&a.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if description != nil {
+		a.Description = *description
+	}
+	if portfolioID != nil {
+		a.PortfolioID = *portfolioID
+	}
+	a.Type = stringToAccountType(typeStr)
+	if err := json.Unmarshal(dataJSON, &a.Data); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal data: %w", err)
+	}
+	if err := json.Unmarshal(capabilitiesJSON, &a.Capabilities); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal capabilities: %w", err)
+	}
+	if err := json.Unmarshal(systemScopesJSON, &a.SystemScopes); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal system_scopes: %w", err)
+	}
+
+	return &a, nil
+}
+
+// marshalCapabilities encodes a capability list as a JSON array, mapping nil to [].
+func marshalCapabilities(caps []entity.AccountCapability) ([]byte, error) {
+	if caps == nil {
+		caps = []entity.AccountCapability{}
+	}
+	return json.Marshal(caps)
+}
+
 func (s *PortfolioStore) CreateAccount(ctx context.Context, a *entity.Account) (*entity.Account, error) {
 	if a == nil {
 		return nil, fmt.Errorf("%w: account is required", store.ErrInvalidArgument)
@@ -308,6 +364,9 @@ func (s *PortfolioStore) CreateAccount(ctx context.Context, a *entity.Account) (
 	if a.Type == entity.AccountTypeUnspecified {
 		return nil, fmt.Errorf("%w: account type is required", store.ErrInvalidArgument)
 	}
+	if err := a.ValidateCapabilities(); err != nil {
+		return nil, fmt.Errorf("%w: %v", store.ErrInvalidArgument, err)
+	}
 
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -319,10 +378,18 @@ func (s *PortfolioStore) CreateAccount(ctx context.Context, a *entity.Account) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal data: %w", err)
 	}
+	capabilitiesJSON, err := marshalCapabilities(a.Capabilities)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal capabilities: %w", err)
+	}
+	systemScopesJSON, err := marshalCapabilities(a.SystemScopes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal system_scopes: %w", err)
+	}
 
 	query := `
-		INSERT INTO accounts (id, user_id, name, description, type, data, portfolio_id, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+		INSERT INTO accounts (id, user_id, name, description, type, data, capabilities, system_scopes, portfolio_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
 		RETURNING created_at, updated_at`
 
 	err = s.pool.QueryRow(ctx, query,
@@ -332,6 +399,8 @@ func (s *PortfolioStore) CreateAccount(ctx context.Context, a *entity.Account) (
 		nullableString(a.Description),
 		accountTypeToString(a.Type),
 		dataJSON,
+		capabilitiesJSON,
+		systemScopesJSON,
 		nullableString(a.PortfolioID),
 	).Scan(&a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
@@ -352,28 +421,12 @@ func (s *PortfolioStore) GetAccount(ctx context.Context, id string) (*entity.Acc
 		return nil, fmt.Errorf("%w: invalid account ID format", store.ErrInvalidArgument)
 	}
 
-	query := `
-		SELECT id, user_id, name, description, type, data, portfolio_id, created_at, updated_at
+	query := fmt.Sprintf(`
+		SELECT %s
 		FROM accounts
-		WHERE id = $1`
+		WHERE id = $1`, accountColumns)
 
-	var a entity.Account
-	var description *string
-	var typeStr string
-	var dataJSON []byte
-	var portfolioID *string
-
-	err := s.pool.QueryRow(ctx, query, id).Scan(
-		&a.ID,
-		&a.UserID,
-		&a.Name,
-		&description,
-		&typeStr,
-		&dataJSON,
-		&portfolioID,
-		&a.CreatedAt,
-		&a.UpdatedAt,
-	)
+	a, err := scanAccount(s.pool.QueryRow(ctx, query, id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("%w: account with ID %s", store.ErrNotFound, id)
@@ -381,18 +434,7 @@ func (s *PortfolioStore) GetAccount(ctx context.Context, id string) (*entity.Acc
 		return nil, fmt.Errorf("failed to get account: %w", err)
 	}
 
-	if description != nil {
-		a.Description = *description
-	}
-	if portfolioID != nil {
-		a.PortfolioID = *portfolioID
-	}
-	a.Type = stringToAccountType(typeStr)
-	if err := json.Unmarshal(dataJSON, &a.Data); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal data: %w", err)
-	}
-
-	return &a, nil
+	return a, nil
 }
 
 func (s *PortfolioStore) UpdateAccount(ctx context.Context, a *entity.Account, fields []string) (*entity.Account, error) {
@@ -401,6 +443,30 @@ func (s *PortfolioStore) UpdateAccount(ctx context.Context, a *entity.Account, f
 	}
 	if !isValidUUID(a.ID) {
 		return nil, fmt.Errorf("%w: invalid account ID format", store.ErrInvalidArgument)
+	}
+
+	// Capability invariants span type, capabilities, and system_scopes; on a
+	// partial update they must hold for the merged state, not just the patch.
+	if slices.ContainsFunc(fields, func(f string) bool {
+		return f == "type" || f == "capabilities" || f == "system_scopes"
+	}) {
+		merged, err := s.GetAccount(ctx, a.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, field := range fields {
+			switch field {
+			case "type":
+				merged.Type = a.Type
+			case "capabilities":
+				merged.Capabilities = a.Capabilities
+			case "system_scopes":
+				merged.SystemScopes = a.SystemScopes
+			}
+		}
+		if err := merged.ValidateCapabilities(); err != nil {
+			return nil, fmt.Errorf("%w: %v", store.ErrInvalidArgument, err)
+		}
 	}
 
 	setClauses := []string{"updated_at = NOW()"}
@@ -431,6 +497,22 @@ func (s *PortfolioStore) UpdateAccount(ctx context.Context, a *entity.Account, f
 			}
 			setClauses = append(setClauses, fmt.Sprintf("data = $%d", argIdx))
 			args = append(args, dataJSON)
+			argIdx++
+		case "capabilities":
+			capabilitiesJSON, err := marshalCapabilities(a.Capabilities)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal capabilities: %w", err)
+			}
+			setClauses = append(setClauses, fmt.Sprintf("capabilities = $%d", argIdx))
+			args = append(args, capabilitiesJSON)
+			argIdx++
+		case "system_scopes":
+			systemScopesJSON, err := marshalCapabilities(a.SystemScopes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal system_scopes: %w", err)
+			}
+			setClauses = append(setClauses, fmt.Sprintf("system_scopes = $%d", argIdx))
+			args = append(args, systemScopesJSON)
 			argIdx++
 		case "portfolio_id":
 			setClauses = append(setClauses, fmt.Sprintf("portfolio_id = $%d", argIdx))
@@ -517,12 +599,12 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, user_id, name, description, type, data, portfolio_id, created_at, updated_at
+		SELECT %s
 		FROM accounts
 		%s
 		ORDER BY id
 		LIMIT $%d`,
-		whereClause, argIdx)
+		accountColumns, whereClause, argIdx)
 	args = append(args, limit+1)
 
 	rows, err := s.pool.Query(ctx, query, args...)
@@ -533,38 +615,11 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 
 	accounts := make([]*entity.Account, 0, limit)
 	for rows.Next() {
-		var a entity.Account
-		var description *string
-		var typeStr string
-		var dataJSON []byte
-		var portfolioID *string
-
-		if err := rows.Scan(
-			&a.ID,
-			&a.UserID,
-			&a.Name,
-			&description,
-			&typeStr,
-			&dataJSON,
-			&portfolioID,
-			&a.CreatedAt,
-			&a.UpdatedAt,
-		); err != nil {
+		a, err := scanAccount(rows)
+		if err != nil {
 			return nil, "", fmt.Errorf("failed to scan account: %w", err)
 		}
-
-		if description != nil {
-			a.Description = *description
-		}
-		if portfolioID != nil {
-			a.PortfolioID = *portfolioID
-		}
-		a.Type = stringToAccountType(typeStr)
-		if err := json.Unmarshal(dataJSON, &a.Data); err != nil {
-			return nil, "", fmt.Errorf("failed to unmarshal data: %w", err)
-		}
-
-		accounts = append(accounts, &a)
+		accounts = append(accounts, a)
 	}
 
 	var nextPageToken string
@@ -575,6 +630,43 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 	}
 
 	return accounts, nextPageToken, nil
+}
+
+// ListSystemAccountsByCapability returns accounts whose admin-granted system
+// scopes include the given capability, regardless of owner. Used to resolve
+// shared provider credentials for user-agnostic operations.
+func (s *PortfolioStore) ListSystemAccountsByCapability(ctx context.Context, capability entity.AccountCapability) ([]*entity.Account, error) {
+	if capability == "" {
+		return nil, fmt.Errorf("%w: capability is required", store.ErrInvalidArgument)
+	}
+
+	scopeJSON, err := json.Marshal([]entity.AccountCapability{capability})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal capability: %w", err)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT %s
+		FROM accounts
+		WHERE system_scopes @> $1
+		ORDER BY id`, accountColumns)
+
+	rows, err := s.pool.Query(ctx, query, scopeJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list system accounts: %w", err)
+	}
+	defer rows.Close()
+
+	accounts := []*entity.Account{}
+	for rows.Next() {
+		a, err := scanAccount(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan account: %w", err)
+		}
+		accounts = append(accounts, a)
+	}
+
+	return accounts, nil
 }
 
 // --- Holding methods ---
@@ -1117,18 +1209,7 @@ func nullableString(s string) *string {
 }
 
 func accountTypeToString(t entity.AccountType) string {
-	switch t {
-	case entity.AccountTypeWallet:
-		return "wallet"
-	case entity.AccountTypeExchange:
-		return "exchange"
-	case entity.AccountTypeBank:
-		return "bank"
-	case entity.AccountTypeBroker:
-		return "broker"
-	default:
-		return "unspecified"
-	}
+	return t.String()
 }
 
 func stringToAccountType(s string) entity.AccountType {
@@ -1141,6 +1222,8 @@ func stringToAccountType(s string) entity.AccountType {
 		return entity.AccountTypeBank
 	case "broker":
 		return entity.AccountTypeBroker
+	case "service":
+		return entity.AccountTypeService
 	default:
 		return entity.AccountTypeUnspecified
 	}
