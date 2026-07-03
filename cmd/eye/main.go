@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/service/automation"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
+	storecrypto "github.com/foxcool/greedy-eye/internal/store/crypto"
 	"github.com/foxcool/greedy-eye/internal/store/postgres"
 	"github.com/getsentry/sentry-go"
 	"golang.org/x/net/http2"
@@ -96,6 +98,22 @@ func run() error {
 		walletSyncer = moralisadapter.NewWalletSyncer(moralisClient)
 	}
 
+	// Initialize accounts.data encryption at rest (ADR-001)
+	var portfolioStoreOpts []postgres.PortfolioStoreOption
+	if config.Security.MasterKey != "" {
+		masterKey, err := base64.StdEncoding.DecodeString(config.Security.MasterKey)
+		if err != nil {
+			return fmt.Errorf("decode security master key: %w", err)
+		}
+		encryptor, err := storecrypto.NewEncryptor(masterKey)
+		if err != nil {
+			return fmt.Errorf("init encryptor: %w", err)
+		}
+		portfolioStoreOpts = append(portfolioStoreOpts, postgres.WithEncryptor(encryptor))
+	} else {
+		log.Warn("SECURITY_MASTERKEY is not set: accounts.data is stored in plaintext")
+	}
+
 	// Register Connect handlers
 	userStore := postgres.NewUserStore(pool)
 	interceptor := connect.WithInterceptors(
@@ -117,7 +135,7 @@ func run() error {
 			path, handler := apiv1connect.NewMarketDataServiceHandler(mdHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypePortfolio:
-			pHandler := portfolio.NewHandler(postgres.NewPortfolioStore(pool), log).
+			pHandler := portfolio.NewHandler(postgres.NewPortfolioStore(pool, portfolioStoreOpts...), log).
 				WithMarketDataClient(mdHandler).
 				WithWalletSyncer(walletSyncer)
 			path, handler := apiv1connect.NewPortfolioServiceHandler(pHandler, interceptor)

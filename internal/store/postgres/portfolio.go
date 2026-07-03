@@ -12,6 +12,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
 	"github.com/foxcool/greedy-eye/internal/store"
+	storecrypto "github.com/foxcool/greedy-eye/internal/store/crypto"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,13 +21,27 @@ import (
 // PortfolioStore implements portfolio.Store using PostgreSQL.
 type PortfolioStore struct {
 	pool *pgxpool.Pool
+	// encryptor seals accounts.data at rest (ADR-001); nil = plaintext mode.
+	encryptor *storecrypto.Encryptor
 }
 
 // Compile-time interface implementation check.
 var _ portfolio.Store = (*PortfolioStore)(nil)
 
-func NewPortfolioStore(pool *pgxpool.Pool) *PortfolioStore {
-	return &PortfolioStore{pool: pool}
+// PortfolioStoreOption configures a PortfolioStore.
+type PortfolioStoreOption func(*PortfolioStore)
+
+// WithEncryptor enables encryption at rest for accounts.data.
+func WithEncryptor(e *storecrypto.Encryptor) PortfolioStoreOption {
+	return func(s *PortfolioStore) { s.encryptor = e }
+}
+
+func NewPortfolioStore(pool *pgxpool.Pool, opts ...PortfolioStoreOption) *PortfolioStore {
+	s := &PortfolioStore{pool: pool}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // --- Portfolio methods ---
@@ -298,8 +313,52 @@ func (s *PortfolioStore) ListPortfolios(ctx context.Context, opts portfolio.List
 
 const accountColumns = "id, user_id, name, description, type, data, capabilities, system_scopes, portfolio_id, created_at, updated_at"
 
+// encDataKey marks the encrypted form of accounts.data: {"enc": "v1:..."} (ADR-001).
+const encDataKey = "enc"
+
+// marshalAccountData serializes the data map, sealing it when encryption is enabled.
+func (s *PortfolioStore) marshalAccountData(accountID string, data map[string]string) ([]byte, error) {
+	plain, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal data: %w", err)
+	}
+	if s.encryptor == nil {
+		return plain, nil
+	}
+	sealed, err := s.encryptor.Encrypt(accountID, plain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt data: %w", err)
+	}
+	return json.Marshal(map[string]string{encDataKey: sealed})
+}
+
+// unmarshalAccountData reads a stored data value, transparently opening the
+// {"enc": ...} wrapper; legacy plaintext rows pass through unchanged.
+func (s *PortfolioStore) unmarshalAccountData(accountID string, raw []byte) (map[string]string, error) {
+	var m map[string]string
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal data: %w", err)
+	}
+	sealed, ok := m[encDataKey]
+	if !ok || len(m) != 1 {
+		return m, nil // legacy plaintext row
+	}
+	if s.encryptor == nil {
+		return nil, fmt.Errorf("account %s data is encrypted but no master key is configured", accountID)
+	}
+	plain, err := s.encryptor.Decrypt(accountID, sealed)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt data for account %s: %w", accountID, err)
+	}
+	var data map[string]string
+	if err := json.Unmarshal(plain, &data); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal decrypted data: %w", err)
+	}
+	return data, nil
+}
+
 // scanAccount reads one account row in accountColumns order.
-func scanAccount(row interface{ Scan(dest ...any) error }) (*entity.Account, error) {
+func (s *PortfolioStore) scanAccount(row interface{ Scan(dest ...any) error }) (*entity.Account, error) {
 	var a entity.Account
 	var description *string
 	var typeStr string
@@ -330,8 +389,8 @@ func scanAccount(row interface{ Scan(dest ...any) error }) (*entity.Account, err
 		a.PortfolioID = *portfolioID
 	}
 	a.Type = stringToAccountType(typeStr)
-	if err := json.Unmarshal(dataJSON, &a.Data); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal data: %w", err)
+	if a.Data, err = s.unmarshalAccountData(a.ID, dataJSON); err != nil {
+		return nil, err
 	}
 	if err := json.Unmarshal(capabilitiesJSON, &a.Capabilities); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal capabilities: %w", err)
@@ -374,9 +433,9 @@ func (s *PortfolioStore) CreateAccount(ctx context.Context, a *entity.Account) (
 	}
 	a.ID = id.String()
 
-	dataJSON, err := json.Marshal(a.Data)
+	dataJSON, err := s.marshalAccountData(a.ID, a.Data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal data: %w", err)
+		return nil, err
 	}
 	capabilitiesJSON, err := marshalCapabilities(a.Capabilities)
 	if err != nil {
@@ -426,7 +485,7 @@ func (s *PortfolioStore) GetAccount(ctx context.Context, id string) (*entity.Acc
 		FROM accounts
 		WHERE id = $1`, accountColumns)
 
-	a, err := scanAccount(s.pool.QueryRow(ctx, query, id))
+	a, err := s.scanAccount(s.pool.QueryRow(ctx, query, id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("%w: account with ID %s", store.ErrNotFound, id)
@@ -491,9 +550,9 @@ func (s *PortfolioStore) UpdateAccount(ctx context.Context, a *entity.Account, f
 			if a.Data == nil {
 				continue // Not provided — preserve existing credentials
 			}
-			dataJSON, err := json.Marshal(a.Data)
+			dataJSON, err := s.marshalAccountData(a.ID, a.Data)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal data: %w", err)
+				return nil, err
 			}
 			setClauses = append(setClauses, fmt.Sprintf("data = $%d", argIdx))
 			args = append(args, dataJSON)
@@ -615,7 +674,7 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 
 	accounts := make([]*entity.Account, 0, limit)
 	for rows.Next() {
-		a, err := scanAccount(rows)
+		a, err := s.scanAccount(rows)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to scan account: %w", err)
 		}
@@ -659,7 +718,7 @@ func (s *PortfolioStore) ListSystemAccountsByCapability(ctx context.Context, cap
 
 	accounts := []*entity.Account{}
 	for rows.Next() {
-		a, err := scanAccount(rows)
+		a, err := s.scanAccount(rows)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan account: %w", err)
 		}

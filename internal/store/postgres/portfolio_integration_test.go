@@ -3,11 +3,14 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/service/portfolio"
 	"github.com/foxcool/greedy-eye/internal/store"
+	storecrypto "github.com/foxcool/greedy-eye/internal/store/crypto"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -149,4 +152,99 @@ func TestListSystemAccountsByCapability(t *testing.T) {
 
 	_, err = s.ListSystemAccountsByCapability(ctx, "")
 	require.ErrorIs(t, err, store.ErrInvalidArgument)
+}
+
+func newTestEncryptor(t *testing.T) *storecrypto.Encryptor {
+	t.Helper()
+	e, err := storecrypto.NewEncryptor(bytes.Repeat([]byte{7}, 32))
+	require.NoError(t, err)
+	return e
+}
+
+func TestAccountDataEncryptionRoundtrip(t *testing.T) {
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	s := NewPortfolioStore(pool, WithEncryptor(newTestEncryptor(t)))
+	ctx := context.Background()
+
+	user := createTestUser(t, users)
+	data := map[string]string{"api_key": "top-secret", "address": "0xabc"}
+
+	created, err := s.CreateAccount(ctx, &entity.Account{
+		UserID: user.ID,
+		Name:   "encrypted account",
+		Type:   entity.AccountTypeService,
+		Data:   data,
+	})
+	require.NoError(t, err)
+
+	// On disk: {"enc": "v1:..."} wrapper, no plaintext secrets.
+	var rawData []byte
+	require.NoError(t, pool.QueryRow(ctx, "SELECT data FROM accounts WHERE id = $1", created.ID).Scan(&rawData))
+	assert.NotContains(t, string(rawData), "top-secret")
+	assert.Contains(t, string(rawData), `"enc": "v1:`)
+
+	// Through the store: transparent decryption.
+	got, err := s.GetAccount(ctx, created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, data, got.Data)
+
+	// Update re-encrypts.
+	updatedData := map[string]string{"api_key": "rotated-secret"}
+	updated, err := s.UpdateAccount(ctx, &entity.Account{ID: created.ID, Data: updatedData}, []string{"data"})
+	require.NoError(t, err)
+	assert.Equal(t, updatedData, updated.Data)
+	require.NoError(t, pool.QueryRow(ctx, "SELECT data FROM accounts WHERE id = $1", created.ID).Scan(&rawData))
+	assert.NotContains(t, string(rawData), "rotated-secret")
+
+	// List paths decrypt too.
+	listed, _, err := s.ListAccounts(ctx, portfolio.ListAccountsOpts{UserID: user.ID})
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Equal(t, updatedData, listed[0].Data)
+}
+
+func TestAccountDataLegacyPlaintextReadable(t *testing.T) {
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	plain := NewPortfolioStore(pool)
+	encrypted := NewPortfolioStore(pool, WithEncryptor(newTestEncryptor(t)))
+	ctx := context.Background()
+
+	user := createTestUser(t, users)
+
+	// Row written before encryption was enabled.
+	legacy, err := plain.CreateAccount(ctx, &entity.Account{
+		UserID: user.ID,
+		Name:   "legacy plaintext",
+		Type:   entity.AccountTypeWallet,
+		Data:   map[string]string{"address": "0xlegacy"},
+	})
+	require.NoError(t, err)
+
+	got, err := encrypted.GetAccount(ctx, legacy.ID)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"address": "0xlegacy"}, got.Data)
+}
+
+func TestAccountDataEncryptedUnreadableWithoutKey(t *testing.T) {
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	encrypted := NewPortfolioStore(pool, WithEncryptor(newTestEncryptor(t)))
+	plain := NewPortfolioStore(pool)
+	ctx := context.Background()
+
+	user := createTestUser(t, users)
+
+	created, err := encrypted.CreateAccount(ctx, &entity.Account{
+		UserID: user.ID,
+		Name:   "sealed",
+		Type:   entity.AccountTypeService,
+		Data:   map[string]string{"api_key": "sealed-secret"},
+	})
+	require.NoError(t, err)
+
+	_, err = plain.GetAccount(ctx, created.ID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no master key")
 }
