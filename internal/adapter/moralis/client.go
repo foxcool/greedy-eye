@@ -16,6 +16,9 @@ type Client struct {
 	httpClient *http.Client
 }
 
+// ProviderName is the canonical provider slug for Moralis credentials.
+const ProviderName = "moralis"
+
 // Config holds Moralis client configuration
 type Config struct {
 	APIKey string
@@ -23,11 +26,11 @@ type Config struct {
 
 // Balance represents wallet balance for a token
 type Balance struct {
-	TokenAddress string
-	Symbol       string
-	Name         string
-	Decimals     int
-	Balance      string // Raw balance as string to avoid precision loss
+	TokenAddress     string
+	Symbol           string
+	Name             string
+	Decimals         int
+	Balance          string // Raw balance as string to avoid precision loss
 	Thumbnail        string
 	PossibleSpam     bool // Moralis spam classification; scam tokens often clone real symbols
 	VerifiedContract bool // Moralis contract verification; fake clones are unverified
@@ -138,11 +141,11 @@ func (c *Client) GetActiveChains(ctx context.Context, address string) ([]string,
 
 // moralisERC20Token is the JSON shape from /v2/{address}/erc20 endpoint.
 type moralisERC20Token struct {
-	TokenAddress string `json:"token_address"`
-	Symbol       string `json:"symbol"`
-	Name         string `json:"name"`
-	Decimals     int    `json:"decimals"`
-	Balance      string `json:"balance"`
+	TokenAddress     string `json:"token_address"`
+	Symbol           string `json:"symbol"`
+	Name             string `json:"name"`
+	Decimals         int    `json:"decimals"`
+	Balance          string `json:"balance"`
 	Thumbnail        string `json:"thumbnail"`
 	PossibleSpam     bool   `json:"possible_spam"`
 	VerifiedContract bool   `json:"verified_contract"`
