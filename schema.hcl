@@ -69,6 +69,20 @@ table "accounts" {
     type = jsonb
     null = false
   }
+  # Capabilities the account credentials allow (portfolio_sync, trading,
+  # market_data, onchain_lookup); JSON array of strings.
+  column "capabilities" {
+    type    = jsonb
+    null    = false
+    default = sql("'[]'")
+  }
+  # Subset of capabilities shared system-wide (usable for any user's operations);
+  # admin-managed, only user-agnostic capabilities allowed.
+  column "system_scopes" {
+    type    = jsonb
+    null    = false
+    default = sql("'[]'")
+  }
   column "user_id" {
     type = uuid
     null = false
@@ -80,6 +94,11 @@ table "accounts" {
 
   primary_key {
     columns = [column.id]
+  }
+
+  index "account_system_scopes" {
+    columns = [column.system_scopes]
+    type    = GIN
   }
 
   foreign_key "accounts_users_accounts" {
