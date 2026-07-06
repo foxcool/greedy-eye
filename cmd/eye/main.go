@@ -98,7 +98,7 @@ func run() error {
 		walletSyncer = moralisadapter.NewWalletSyncer(moralisClient)
 	}
 
-	// Initialize accounts.data encryption at rest (ADR-001)
+	// Initialize accounts.data encryption at rest (ADR-005)
 	var portfolioStoreOpts []postgres.PortfolioStoreOption
 	if config.Security.MasterKey != "" {
 		masterKey, err := base64.StdEncoding.DecodeString(config.Security.MasterKey)

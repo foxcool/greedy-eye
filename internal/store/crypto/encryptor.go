@@ -1,5 +1,5 @@
 // Package crypto provides application-level encryption for sensitive store
-// payloads, as described in docs/adr/001-account-data-encryption.md.
+// payloads, as described in ADR-005 (docs/architecture.md §9).
 package crypto
 
 import (

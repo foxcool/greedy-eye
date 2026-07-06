@@ -45,7 +45,7 @@ type Config struct {
 	} `koanf:"binance"`
 	Security struct {
 		// MasterKey is a base64-encoded 32-byte key for accounts.data
-		// encryption at rest (ADR-001). Empty = plaintext mode.
+		// encryption at rest (ADR-005). Empty = plaintext mode.
 		MasterKey string `koanf:"masterKey"`
 	} `koanf:"security"`
 }

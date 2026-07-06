@@ -21,7 +21,7 @@ import (
 // PortfolioStore implements portfolio.Store using PostgreSQL.
 type PortfolioStore struct {
 	pool *pgxpool.Pool
-	// encryptor seals accounts.data at rest (ADR-001); nil = plaintext mode.
+	// encryptor seals accounts.data at rest (ADR-005); nil = plaintext mode.
 	encryptor *storecrypto.Encryptor
 }
 
@@ -313,7 +313,7 @@ func (s *PortfolioStore) ListPortfolios(ctx context.Context, opts portfolio.List
 
 const accountColumns = "id, user_id, name, description, type, data, capabilities, system_scopes, portfolio_id, created_at, updated_at"
 
-// encDataKey marks the encrypted form of accounts.data: {"enc": "v1:..."} (ADR-001).
+// encDataKey marks the encrypted form of accounts.data: {"enc": "v1:..."} (ADR-005).
 const encDataKey = "enc"
 
 // marshalAccountData serializes the data map, sealing it when encryption is enabled.
