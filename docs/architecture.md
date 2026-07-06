@@ -533,6 +533,29 @@ Cron / API Client → AutomationService/ExecuteRule
   - ➕ Auth reused across multiple services
   - ➖ Dependency on external service availability
 
+### ADR-005: Application-level encryption for accounts.data
+- **Status**: accepted
+- **Context**: Provider credentials (API keys/secrets) move from env config into `accounts.data`
+  (jsonb). A database dump must not leak them. Nothing queries `data` content via SQL — the store
+  reads/writes the map only as a whole.
+- **Decision**: AES-256-GCM in the Go store layer (not pgcrypto). The whole JSON-serialized map is
+  encrypted as one blob and stored as `{"enc": "v1:<base64(nonce || ciphertext)>"}` — the column
+  stays jsonb, no migration. Per-record keys via HKDF-SHA256 from a 32-byte master key
+  (`EYE_SECURITY_MASTERKEY`, base64), `info` = account ID, so ciphertext is bound to its row.
+  Read path: a map with the single `enc` key is decrypted; any other shape is a legacy plaintext
+  row, returned as is and re-encrypted on its next update. Empty key = plaintext mode with a
+  startup warning (dev); production must set the key.
+- **Consequences**:
+  - ➕ Key never reaches the DB process, SQL statements, or server logs; unit-testable
+  - ➕ No schema migration; legacy rows stay readable; format versioned (`v1:`) for rotation
+  - ➕ Encrypted values can't be swapped between rows (fails GCM authentication)
+  - ➖ Wallet addresses no longer visible in raw SQL
+  - ➖ Losing the master key loses all encrypted `accounts.data`; key rotation and legacy backfill
+    are follow-ups
+- **Rejected**: pgcrypto (key surfaces in `pg_stat_statements`/server logs, PG-coupled);
+  per-field encryption (needs a secret-field classification, mixed-plaintext states);
+  single static key without HKDF (swappable ciphertexts, shared nonce space)
+
 ---
 
 ## 10. Quality Requirements
@@ -639,7 +662,7 @@ System Quality
 
 ---
 
-**Document Version**: 1.3
-**Last Updated**: 2026-03-03
+**Document Version**: 1.4
+**Last Updated**: 2026-07-06
 **Owner**: foxcool
 **Status**: Active

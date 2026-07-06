@@ -43,6 +43,11 @@ type Config struct {
 		APISecret string `koanf:"apiSecret"`
 		Sandbox   bool   `koanf:"sandbox"`
 	} `koanf:"binance"`
+	Security struct {
+		// MasterKey is a base64-encoded 32-byte key for accounts.data
+		// encryption at rest (ADR-005). Empty = plaintext mode.
+		MasterKey string `koanf:"masterKey"`
+	} `koanf:"security"`
 }
 
 // ServiceConfig is a config for a service
