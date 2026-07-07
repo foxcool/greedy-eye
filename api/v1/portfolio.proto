@@ -20,6 +20,8 @@ enum AccountType {
   ACCOUNT_TYPE_EXCHANGE = 2;
   ACCOUNT_TYPE_BANK = 3;
   ACCOUNT_TYPE_BROKER = 4;
+  // Pure data-provider API key (Moralis, Etherscan, ...); no holdings of its own.
+  ACCOUNT_TYPE_SERVICE = 5;
 }
 
 enum TransactionType {
@@ -74,11 +76,21 @@ message Account {
   string name = 3;
   optional string description = 4;
   AccountType type = 5;
+  // Provider identifiers and credentials. Secret-looking keys (api_key,
+  // api_secret, *_token, *_password) are write-only: responses return a
+  // "••••"+last4 mask instead of the value. Sending a masked value back in
+  // an update keeps the stored secret; sending a new value rotates it.
   map<string, string> data = 6;
   google.protobuf.Timestamp created_at = 7;
   google.protobuf.Timestamp updated_at = 8;
   // If set, holdings synced from this account are assigned to this portfolio (can be overridden per holding).
   optional string portfolio_id = 9;
+  // What the account credentials allow (e.g. "portfolio_sync", "trading",
+  // "market_data", "onchain_lookup"). Validated against the account type.
+  repeated string capabilities = 10;
+  // Subset of capabilities shared system-wide for any user. Admin-managed:
+  // mutations require the admin role and an explicit update_mask entry.
+  repeated string system_scopes = 11;
 }
 
 // Transaction represents a financial event involving assets, accounts, and portfolios.

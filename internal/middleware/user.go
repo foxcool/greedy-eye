@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
@@ -29,8 +30,10 @@ func ContextWithUser(ctx context.Context, user *entity.User) context.Context {
 	return context.WithValue(ctx, userContextKey, user)
 }
 
-// UserProvisioningInterceptor reads X-User-Id and X-User-Email from request headers,
-// lazily provisions the user in the local DB, and injects it into the context.
+// UserProvisioningInterceptor reads X-User-Id, X-User-Email and X-User-Roles
+// from request headers, lazily provisions the user in the local DB, and
+// injects it into the context. Roles are per-request and never persisted —
+// the auth service (psina) owns them.
 func UserProvisioningInterceptor(store UserProvisioner, log *slog.Logger) connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
@@ -47,8 +50,24 @@ func UserProvisioningInterceptor(store UserProvisioner, log *slog.Logger) connec
 				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("user provisioning failed"))
 			}
 
+			user.Roles = parseRoles(req.Header().Get("X-User-Roles"))
+
 			ctx = context.WithValue(ctx, userContextKey, user)
 			return next(ctx, req)
 		}
 	}
+}
+
+// parseRoles splits the comma-joined X-User-Roles header value.
+func parseRoles(header string) []string {
+	if header == "" {
+		return nil
+	}
+	var roles []string
+	for r := range strings.SplitSeq(header, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			roles = append(roles, r)
+		}
+	}
+	return roles
 }

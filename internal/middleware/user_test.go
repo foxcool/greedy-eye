@@ -102,6 +102,36 @@ func TestUserProvisioningInterceptor_HappyPath(t *testing.T) {
 	assert.Equal(t, email, u.Email)
 }
 
+func TestUserProvisioningInterceptor_Roles(t *testing.T) {
+	const userID = "01932d35-6a1e-7000-8000-000000000003"
+
+	prov := &mockProvisioner{}
+	prov.On("GetOrCreate", mock.Anything, userID, "").Return(&entity.User{ID: userID}, nil)
+
+	interceptor := UserProvisioningInterceptor(prov, newLogger())
+
+	for header, want := range map[string][]string{
+		"":                nil,
+		"admin":           {"admin"},
+		"admin, operator": {"admin", "operator"},
+		" , admin ,":      {"admin"},
+	} {
+		req := &mockRequest{headers: http.Header{"X-User-Id": []string{userID}}}
+		if header != "" {
+			req.headers.Set("X-User-Roles", header)
+		}
+
+		var capturedCtx context.Context
+		fn := interceptor(captureNext(&capturedCtx))
+		_, err := fn(context.Background(), req)
+		require.NoError(t, err, header)
+
+		u, ok := UserFromContext(capturedCtx)
+		require.True(t, ok, header)
+		assert.Equal(t, want, u.Roles, header)
+	}
+}
+
 func TestUserProvisioningInterceptor_StoreError(t *testing.T) {
 	const userID = "01932d35-6a1e-7000-8000-000000000002"
 
