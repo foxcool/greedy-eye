@@ -138,6 +138,14 @@ func run() error {
 				), nil
 			},
 		},
+		ExchangeSyncers: map[string]credentials.ExchangeSyncerFactory{
+			binanceadapter.ProviderName: func(a *entity.Account) (entity.ExchangeSyncer, error) {
+				return binanceadapter.NewExchangeSyncer(binanceadapter.NewClient(binanceadapter.Config{
+					APIKey:    a.Data["api_key"],
+					APISecret: a.Data["api_secret"],
+				})), nil
+			},
+		},
 		PriceProviders: map[string]credentials.PriceProviderFactory{
 			coingecko.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
 				return coingecko.NewProvider(coingecko.NewClient(coingecko.Config{
@@ -176,7 +184,8 @@ func run() error {
 			pHandler := portfolio.NewHandler(portfolioStore, log).
 				WithMarketDataClient(mdHandler).
 				WithWalletSyncer(walletSyncer).
-				WithWalletSyncerSource(credResolver)
+				WithWalletSyncerSource(credResolver).
+				WithExchangeSyncerSource(credResolver)
 			path, handler := apiv1connect.NewPortfolioServiceHandler(pHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypeAutomation:
