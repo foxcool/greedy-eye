@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"slices"
 	"strings"
 	"time"
 
@@ -510,6 +511,14 @@ func (h *Handler) CreateAccount(ctx context.Context, req *connect.Request[apiv1.
 
 	account := accountFromProto(req.Msg.Account)
 	account.UserID = user.ID
+	for k, v := range account.Data {
+		if strings.HasPrefix(v, maskPrefix) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("data key %q holds a masked value; send the real secret", k))
+		}
+	}
+	if len(account.SystemScopes) > 0 && !user.IsAdmin() {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("only admins may set system scopes"))
+	}
 	created, err := h.store.CreateAccount(ctx, account)
 	if err != nil {
 		return nil, toConnectError(err)
@@ -536,18 +545,60 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account with ID is required"))
 	}
 
-	fields := []string{"name", "description", "type", "data", "portfolio_id"}
+	// system_scopes is deliberately absent from the defaults: it is only
+	// updated when explicitly named in the update_mask, and only by admins.
+	fields := []string{"name", "description", "type", "data", "portfolio_id", "capabilities"}
 	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
 		fields = req.Msg.UpdateMask.Paths
 	}
 
+	if slices.Contains(fields, "system_scopes") {
+		user, ok := middleware.UserFromContext(ctx)
+		if !ok {
+			return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+		}
+		if !user.IsAdmin() {
+			return nil, connect.NewError(connect.CodePermissionDenied, errors.New("only admins may change system scopes"))
+		}
+	}
+
 	account := accountFromProto(req.Msg.Account)
+	if slices.Contains(fields, "data") {
+		if err := h.restoreMaskedSecrets(ctx, account); err != nil {
+			return nil, err
+		}
+	}
 	updated, err := h.store.UpdateAccount(ctx, account, fields)
 	if err != nil {
 		return nil, toConnectError(err)
 	}
 
 	return connect.NewResponse(accountToProto(updated)), nil
+}
+
+// restoreMaskedSecrets implements write-only secret semantics on update:
+// masked incoming values are replaced with the currently stored ones, so
+// clients can echo back the masked data map without wiping credentials.
+func (h *Handler) restoreMaskedSecrets(ctx context.Context, account *entity.Account) error {
+	var existing *entity.Account
+	for k, v := range account.Data {
+		if !strings.HasPrefix(v, maskPrefix) {
+			continue
+		}
+		if existing == nil {
+			var err error
+			existing, err = h.store.GetAccount(ctx, account.ID)
+			if err != nil {
+				return toConnectError(err)
+			}
+		}
+		stored, ok := existing.Data[k]
+		if !ok {
+			return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("data key %q holds a masked value but no stored secret exists", k))
+		}
+		account.Data[k] = stored
+	}
+	return nil
 }
 
 func (h *Handler) DeleteAccount(ctx context.Context, req *connect.Request[apiv1.DeleteAccountRequest]) (*connect.Response[emptypb.Empty], error) {
@@ -977,11 +1028,13 @@ func holdingToProto(h *entity.Holding) *apiv1.Holding {
 
 func accountFromProto(a *apiv1.Account) *entity.Account {
 	result := &entity.Account{
-		ID:     a.Id,
-		UserID: a.UserId,
-		Name:   a.Name,
-		Type:   entity.AccountType(a.Type),
-		Data:   a.Data,
+		ID:           a.Id,
+		UserID:       a.UserId,
+		Name:         a.Name,
+		Type:         entity.AccountType(a.Type),
+		Data:         a.Data,
+		Capabilities: capabilitiesFromProto(a.Capabilities),
+		SystemScopes: capabilitiesFromProto(a.SystemScopes),
 	}
 	if a.Description != nil {
 		result.Description = *a.Description
@@ -994,13 +1047,15 @@ func accountFromProto(a *apiv1.Account) *entity.Account {
 
 func accountToProto(a *entity.Account) *apiv1.Account {
 	result := &apiv1.Account{
-		Id:        a.ID,
-		UserId:    a.UserID,
-		Name:      a.Name,
-		Type:      apiv1.AccountType(a.Type),
-		Data:      a.Data,
-		CreatedAt: timestamppb.New(a.CreatedAt),
-		UpdatedAt: timestamppb.New(a.UpdatedAt),
+		Id:           a.ID,
+		UserId:       a.UserID,
+		Name:         a.Name,
+		Type:         apiv1.AccountType(a.Type),
+		Data:         maskSecrets(a.Data),
+		Capabilities: capabilitiesToProto(a.Capabilities),
+		SystemScopes: capabilitiesToProto(a.SystemScopes),
+		CreatedAt:    timestamppb.New(a.CreatedAt),
+		UpdatedAt:    timestamppb.New(a.UpdatedAt),
 	}
 	if a.Description != "" {
 		result.Description = &a.Description
@@ -1009,6 +1064,80 @@ func accountToProto(a *entity.Account) *apiv1.Account {
 		result.PortfolioId = &a.PortfolioID
 	}
 	return result
+}
+
+func capabilitiesFromProto(caps []string) []entity.AccountCapability {
+	if len(caps) == 0 {
+		return nil
+	}
+	result := make([]entity.AccountCapability, len(caps))
+	for i, c := range caps {
+		result[i] = entity.AccountCapability(c)
+	}
+	return result
+}
+
+func capabilitiesToProto(caps []entity.AccountCapability) []string {
+	if len(caps) == 0 {
+		return nil
+	}
+	result := make([]string, len(caps))
+	for i, c := range caps {
+		result[i] = string(c)
+	}
+	return result
+}
+
+// maskPrefix marks a secret value as masked in API responses; an incoming
+// value with this prefix means "keep the stored secret".
+const maskPrefix = "••••"
+
+// nonSecretDataKeys are accounts.data keys that look secret-ish by name but
+// are safe to return as is.
+var nonSecretDataKeys = map[string]bool{
+	"provider": true,
+	"address":  true,
+	"chain":    true,
+	"pro":      true,
+}
+
+// isSecretKey classifies accounts.data keys by name: anything containing
+// key/secret/token/password is treated as a credential unless explicitly
+// allowlisted. Fail-safe: an unknown provider's credential key gets masked
+// without code changes.
+func isSecretKey(key string) bool {
+	if nonSecretDataKeys[key] {
+		return false
+	}
+	k := strings.ToLower(key)
+	for _, marker := range []string{"key", "secret", "token", "password"} {
+		if strings.Contains(k, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// maskSecrets returns a copy of data with secret values replaced by
+// maskPrefix+last4 (or just maskPrefix for short values). The input map is
+// shared with the credentials resolver and must not be mutated.
+func maskSecrets(data map[string]string) map[string]string {
+	if data == nil {
+		return nil
+	}
+	masked := make(map[string]string, len(data))
+	for k, v := range data {
+		if isSecretKey(k) {
+			// last4 only when it reveals at most half of the secret
+			if len(v) >= 8 {
+				v = maskPrefix + v[len(v)-4:]
+			} else {
+				v = maskPrefix
+			}
+		}
+		masked[k] = v
+	}
+	return masked
 }
 
 func transactionFromProto(t *apiv1.Transaction) *entity.Transaction {

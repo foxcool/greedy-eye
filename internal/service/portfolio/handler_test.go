@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
 // --- Mock Store ---
@@ -189,6 +191,10 @@ func ctxWithUser(userID string) context.Context {
 	return middleware.ContextWithUser(context.Background(), &entity.User{ID: userID})
 }
 
+func ctxWithAdmin(userID string) context.Context {
+	return middleware.ContextWithUser(context.Background(), &entity.User{ID: userID, Roles: []string{"admin"}})
+}
+
 func testPortfolio(id string) *entity.Portfolio {
 	return &entity.Portfolio{
 		ID:        id,
@@ -351,6 +357,167 @@ func TestDeleteAccount_OK(t *testing.T) {
 
 	_, err := h.DeleteAccount(context.Background(), connect.NewRequest(&apiv1.DeleteAccountRequest{Id: testAccountID}))
 	require.NoError(t, err)
+}
+
+func TestIsSecretKey(t *testing.T) {
+	secret := []string{"api_key", "api_secret", "gate_token", "password", "PRIVATE_KEY"}
+	for _, k := range secret {
+		assert.True(t, isSecretKey(k), k)
+	}
+	plain := []string{"provider", "address", "chain", "pro", "label"}
+	for _, k := range plain {
+		assert.False(t, isSecretKey(k), k)
+	}
+}
+
+func TestMaskSecrets(t *testing.T) {
+	assert.Nil(t, maskSecrets(nil))
+
+	data := map[string]string{
+		"provider":   "binance",
+		"api_key":    "abcdef1a2b",
+		"api_secret": "short",
+	}
+	masked := maskSecrets(data)
+	assert.Equal(t, "binance", masked["provider"])
+	assert.Equal(t, maskPrefix+"1a2b", masked["api_key"])
+	assert.Equal(t, maskPrefix, masked["api_secret"])
+	// input map is shared with the credentials resolver and must stay intact
+	assert.Equal(t, "abcdef1a2b", data["api_key"])
+}
+
+func TestCreateAccount_MasksSecretsInResponse(t *testing.T) {
+	created := testAccount(testAccountID)
+	created.Data = map[string]string{"provider": "binance", "api_key": "abcdef1a2b"}
+	created.Capabilities = []entity.AccountCapability{entity.CapabilityMarketData}
+
+	s := &mockStore{}
+	s.On("CreateAccount", mock.Anything, mock.Anything).Return(created, nil)
+	h := newHandler(s)
+
+	resp, err := h.CreateAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreateAccountRequest{
+		Account: &apiv1.Account{Name: "Binance", Data: map[string]string{"provider": "binance", "api_key": "abcdef1a2b"}},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, maskPrefix+"1a2b", resp.Msg.Data["api_key"])
+	assert.Equal(t, "binance", resp.Msg.Data["provider"])
+	assert.Equal(t, []string{"market_data"}, resp.Msg.Capabilities)
+}
+
+func TestCreateAccount_RejectsMaskedValue(t *testing.T) {
+	h := newHandler(&mockStore{})
+	_, err := h.CreateAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreateAccountRequest{
+		Account: &apiv1.Account{Name: "Binance", Data: map[string]string{"api_key": maskPrefix + "1a2b"}},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
+func TestCreateAccount_SystemScopesRequireAdmin(t *testing.T) {
+	account := &apiv1.Account{
+		Name:         "Moralis",
+		Type:         apiv1.AccountType(entity.AccountTypeService),
+		Capabilities: []string{"onchain_lookup"},
+		SystemScopes: []string{"onchain_lookup"},
+	}
+
+	h := newHandler(&mockStore{})
+	_, err := h.CreateAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreateAccountRequest{Account: account}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+	s := &mockStore{}
+	s.On("CreateAccount", mock.Anything, mock.Anything).Return(testAccount(testAccountID), nil)
+	h = newHandler(s)
+	_, err = h.CreateAccount(ctxWithAdmin(testUserID), connect.NewRequest(&apiv1.CreateAccountRequest{Account: account}))
+	require.NoError(t, err)
+}
+
+func TestGetAccount_MasksSecrets(t *testing.T) {
+	account := testAccount(testAccountID)
+	account.Data = map[string]string{"api_secret": "abcdefx9z0"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(account, nil)
+	h := newHandler(s)
+
+	resp, err := h.GetAccount(context.Background(), connect.NewRequest(&apiv1.GetAccountRequest{Id: testAccountID}))
+	require.NoError(t, err)
+	assert.Equal(t, maskPrefix+"x9z0", resp.Msg.Data["api_secret"])
+}
+
+func TestUpdateAccount_MaskedSecretPreserved(t *testing.T) {
+	existing := testAccount(testAccountID)
+	existing.Data = map[string]string{"provider": "binance", "api_key": "abcdef1a2b"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(existing, nil)
+	s.On("UpdateAccount", mock.Anything, mock.MatchedBy(func(a *entity.Account) bool {
+		return a.Data["api_key"] == "abcdef1a2b" && a.Data["provider"] == "kraken"
+	}), mock.Anything).Return(existing, nil)
+	h := newHandler(s)
+
+	_, err := h.UpdateAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdateAccountRequest{
+		Account: &apiv1.Account{
+			Id:   testAccountID,
+			Data: map[string]string{"provider": "kraken", "api_key": maskPrefix + "1a2b"},
+		},
+	}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+}
+
+func TestUpdateAccount_MaskedValueWithoutStoredSecret(t *testing.T) {
+	existing := testAccount(testAccountID)
+	existing.Data = map[string]string{"provider": "binance"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(existing, nil)
+	h := newHandler(s)
+
+	_, err := h.UpdateAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdateAccountRequest{
+		Account: &apiv1.Account{Id: testAccountID, Data: map[string]string{"api_key": maskPrefix + "1a2b"}},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
+func TestUpdateAccount_SystemScopesNotInDefaultMask(t *testing.T) {
+	s := &mockStore{}
+	s.On("UpdateAccount", mock.Anything, mock.Anything, mock.MatchedBy(func(fields []string) bool {
+		return !slices.Contains(fields, "system_scopes") && slices.Contains(fields, "capabilities")
+	})).Return(testAccount(testAccountID), nil)
+	h := newHandler(s)
+
+	// no admin role needed: system_scopes stays untouched without an explicit mask
+	_, err := h.UpdateAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdateAccountRequest{
+		Account: &apiv1.Account{Id: testAccountID, Name: "Renamed", SystemScopes: []string{"market_data"}},
+	}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+}
+
+func TestUpdateAccount_SystemScopesRequireAdmin(t *testing.T) {
+	req := connect.NewRequest(&apiv1.UpdateAccountRequest{
+		Account:    &apiv1.Account{Id: testAccountID, SystemScopes: []string{"market_data"}},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"system_scopes"}},
+	})
+
+	h := newHandler(&mockStore{})
+	_, err := h.UpdateAccount(ctxWithUser(testUserID), req)
+	require.Error(t, err)
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+	_, err = h.UpdateAccount(context.Background(), req)
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+
+	s := &mockStore{}
+	s.On("UpdateAccount", mock.Anything, mock.Anything, []string{"system_scopes"}).Return(testAccount(testAccountID), nil)
+	h = newHandler(s)
+	_, err = h.UpdateAccount(ctxWithAdmin(testUserID), req)
+	require.NoError(t, err)
+	s.AssertExpectations(t)
 }
 
 // --- Tests: Holding ---

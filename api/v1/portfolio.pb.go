@@ -34,6 +34,8 @@ const (
 	AccountType_ACCOUNT_TYPE_EXCHANGE    AccountType = 2
 	AccountType_ACCOUNT_TYPE_BANK        AccountType = 3
 	AccountType_ACCOUNT_TYPE_BROKER      AccountType = 4
+	// Pure data-provider API key (Moralis, Etherscan, ...); no holdings of its own.
+	AccountType_ACCOUNT_TYPE_SERVICE AccountType = 5
 )
 
 // Enum value maps for AccountType.
@@ -44,6 +46,7 @@ var (
 		2: "ACCOUNT_TYPE_EXCHANGE",
 		3: "ACCOUNT_TYPE_BANK",
 		4: "ACCOUNT_TYPE_BROKER",
+		5: "ACCOUNT_TYPE_SERVICE",
 	}
 	AccountType_value = map[string]int32{
 		"ACCOUNT_TYPE_UNSPECIFIED": 0,
@@ -51,6 +54,7 @@ var (
 		"ACCOUNT_TYPE_EXCHANGE":    2,
 		"ACCOUNT_TYPE_BANK":        3,
 		"ACCOUNT_TYPE_BROKER":      4,
+		"ACCOUNT_TYPE_SERVICE":     5,
 	}
 )
 
@@ -410,11 +414,21 @@ type Account struct {
 	Name        string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Description *string                `protobuf:"bytes,4,opt,name=description,proto3,oneof" json:"description,omitempty"`
 	Type        AccountType            `protobuf:"varint,5,opt,name=type,proto3,enum=eye.v1.AccountType" json:"type,omitempty"`
-	Data        map[string]string      `protobuf:"bytes,6,rep,name=data,proto3" json:"data,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	CreatedAt   *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt   *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// Provider identifiers and credentials. Secret-looking keys (api_key,
+	// api_secret, *_token, *_password) are write-only: responses return a
+	// "••••"+last4 mask instead of the value. Sending a masked value back in
+	// an update keeps the stored secret; sending a new value rotates it.
+	Data      map[string]string      `protobuf:"bytes,6,rep,name=data,proto3" json:"data,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	// If set, holdings synced from this account are assigned to this portfolio (can be overridden per holding).
-	PortfolioId   *string `protobuf:"bytes,9,opt,name=portfolio_id,json=portfolioId,proto3,oneof" json:"portfolio_id,omitempty"`
+	PortfolioId *string `protobuf:"bytes,9,opt,name=portfolio_id,json=portfolioId,proto3,oneof" json:"portfolio_id,omitempty"`
+	// What the account credentials allow (e.g. "portfolio_sync", "trading",
+	// "market_data", "onchain_lookup"). Validated against the account type.
+	Capabilities []string `protobuf:"bytes,10,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	// Subset of capabilities shared system-wide for any user. Admin-managed:
+	// mutations require the admin role and an explicit update_mask entry.
+	SystemScopes  []string `protobuf:"bytes,11,rep,name=system_scopes,json=systemScopes,proto3" json:"system_scopes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -510,6 +524,20 @@ func (x *Account) GetPortfolioId() string {
 		return *x.PortfolioId
 	}
 	return ""
+}
+
+func (x *Account) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
+func (x *Account) GetSystemScopes() []string {
+	if x != nil {
+		return x.SystemScopes
+	}
+	return nil
 }
 
 // Transaction represents a financial event involving assets, accounts, and portfolios.
@@ -2176,7 +2204,7 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x1a\n" +
 	"\bexcluded\x18\t \x01(\bR\bexcludedB\x0f\n" +
-	"\r_portfolio_id\"\xbd\x03\n" +
+	"\r_portfolio_id\"\x86\x04\n" +
 	"\aAccount\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x12\n" +
@@ -2188,7 +2216,10 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
 	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12&\n" +
-	"\fportfolio_id\x18\t \x01(\tH\x01R\vportfolioId\x88\x01\x01\x1a7\n" +
+	"\fportfolio_id\x18\t \x01(\tH\x01R\vportfolioId\x88\x01\x01\x12\"\n" +
+	"\fcapabilities\x18\n" +
+	" \x03(\tR\fcapabilities\x12#\n" +
+	"\rsystem_scopes\x18\v \x03(\tR\fsystemScopes\x1a7\n" +
 	"\tDataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x0e\n" +
@@ -2342,13 +2373,14 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12'\n" +
 	"\x0fassets_upserted\x18\x02 \x01(\x05R\x0eassetsUpserted\x12+\n" +
 	"\x11holdings_upserted\x18\x03 \x01(\x05R\x10holdingsUpserted\x12\x16\n" +
-	"\x06errors\x18\x04 \x03(\tR\x06errors*\x8f\x01\n" +
+	"\x06errors\x18\x04 \x03(\tR\x06errors*\xa9\x01\n" +
 	"\vAccountType\x12\x1c\n" +
 	"\x18ACCOUNT_TYPE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13ACCOUNT_TYPE_WALLET\x10\x01\x12\x19\n" +
 	"\x15ACCOUNT_TYPE_EXCHANGE\x10\x02\x12\x15\n" +
 	"\x11ACCOUNT_TYPE_BANK\x10\x03\x12\x17\n" +
-	"\x13ACCOUNT_TYPE_BROKER\x10\x04*\xcc\x01\n" +
+	"\x13ACCOUNT_TYPE_BROKER\x10\x04\x12\x18\n" +
+	"\x14ACCOUNT_TYPE_SERVICE\x10\x05*\xcc\x01\n" +
 	"\x0fTransactionType\x12 \n" +
 	"\x1cTRANSACTION_TYPE_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19TRANSACTION_TYPE_EXTENDED\x10\x01\x12\x1a\n" +
