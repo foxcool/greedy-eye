@@ -26,12 +26,19 @@ import (
 // The marketdata handler resolves it to a UUID via GetAssetBySymbol.
 const defaultQuoteAsset = "USD"
 
+// WalletSyncerSource resolves a wallet syncer from stored account credentials
+// for a given user (see internal/service/credentials).
+type WalletSyncerSource interface {
+	WalletSyncerFor(ctx context.Context, userID string) (entity.WalletSyncer, error)
+}
+
 // Handler implements apiv1connect.PortfolioServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedPortfolioServiceHandler
 	store        Store
 	mdClient     MarketDataClient    // optional; nil if not configured
 	walletSyncer entity.WalletSyncer // optional; nil if not configured
+	syncerSource WalletSyncerSource  // optional; takes precedence over walletSyncer
 	log          *slog.Logger
 }
 
@@ -39,26 +46,31 @@ func NewHandler(store Store, log *slog.Logger) *Handler {
 	return &Handler{store: store, log: log}
 }
 
+func (h *Handler) clone() *Handler {
+	copied := *h
+	return &copied
+}
+
 // WithMarketDataClient returns a new Handler with the MarketData client injected.
 func (h *Handler) WithMarketDataClient(mc MarketDataClient) *Handler {
-	return &Handler{
-		UnimplementedPortfolioServiceHandler: h.UnimplementedPortfolioServiceHandler,
-		store:                                h.store,
-		mdClient:                             mc,
-		walletSyncer:                         h.walletSyncer,
-		log:                                  h.log,
-	}
+	copied := h.clone()
+	copied.mdClient = mc
+	return copied
 }
 
 // WithWalletSyncer returns a new Handler with the wallet syncer injected.
 func (h *Handler) WithWalletSyncer(ws entity.WalletSyncer) *Handler {
-	return &Handler{
-		UnimplementedPortfolioServiceHandler: h.UnimplementedPortfolioServiceHandler,
-		store:                                h.store,
-		mdClient:                             h.mdClient,
-		walletSyncer:                         ws,
-		log:                                  h.log,
-	}
+	copied := h.clone()
+	copied.walletSyncer = ws
+	return copied
+}
+
+// WithWalletSyncerSource returns a new Handler resolving wallet syncers from
+// stored account credentials, with walletSyncer as the fallback.
+func (h *Handler) WithWalletSyncerSource(src WalletSyncerSource) *Handler {
+	copied := h.clone()
+	copied.syncerSource = src
+	return copied
 }
 
 // --- Portfolio CRUD ---
@@ -593,7 +605,7 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	if req.Msg.AccountId == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account_id is required"))
 	}
-	if h.walletSyncer == nil || h.mdClient == nil {
+	if (h.walletSyncer == nil && h.syncerSource == nil) || h.mdClient == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("wallet sync not configured"))
 	}
 
@@ -603,6 +615,22 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	}
 	if account.Type != entity.AccountTypeWallet {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("only wallet accounts can be synced"))
+	}
+
+	// Resolve the syncer from stored credentials of the account owner;
+	// the env-configured syncer is the resolver's own fallback.
+	walletSyncer := h.walletSyncer
+	if h.syncerSource != nil {
+		resolved, err := h.syncerSource.WalletSyncerFor(ctx, account.UserID)
+		if err != nil {
+			return nil, toConnectError(err)
+		}
+		if resolved != nil {
+			walletSyncer = resolved
+		}
+	}
+	if walletSyncer == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("wallet sync not configured"))
 	}
 
 	address, ok := account.Data["address"]
@@ -621,7 +649,7 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 
 	// The syncer owns all provider mechanics (discovery, fan-out, native vs token).
 	// Partial failures arrive as a joined error alongside the balances gathered so far.
-	balances, err := h.walletSyncer.SyncWallet(ctx, address, chains)
+	balances, err := walletSyncer.SyncWallet(ctx, address, chains)
 	if err != nil {
 		syncErrors = append(syncErrors, err.Error())
 	}

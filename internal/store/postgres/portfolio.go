@@ -698,21 +698,45 @@ func (s *PortfolioStore) ListSystemAccountsByCapability(ctx context.Context, cap
 	if capability == "" {
 		return nil, fmt.Errorf("%w: capability is required", store.ErrInvalidArgument)
 	}
+	return s.listAccountsByCapabilityColumn(ctx, "system_scopes", capability, "")
+}
 
-	scopeJSON, err := json.Marshal([]entity.AccountCapability{capability})
+// ListUserAccountsByCapability returns the user's own accounts whose
+// capabilities include the given capability.
+func (s *PortfolioStore) ListUserAccountsByCapability(ctx context.Context, userID string, capability entity.AccountCapability) ([]*entity.Account, error) {
+	if capability == "" {
+		return nil, fmt.Errorf("%w: capability is required", store.ErrInvalidArgument)
+	}
+	if userID == "" {
+		return nil, fmt.Errorf("%w: user_id is required", store.ErrInvalidArgument)
+	}
+	return s.listAccountsByCapabilityColumn(ctx, "capabilities", capability, userID)
+}
+
+// listAccountsByCapabilityColumn queries accounts whose jsonb capability
+// column contains the capability, optionally scoped to one user.
+func (s *PortfolioStore) listAccountsByCapabilityColumn(ctx context.Context, column string, capability entity.AccountCapability, userID string) ([]*entity.Account, error) {
+	capJSON, err := json.Marshal([]entity.AccountCapability{capability})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal capability: %w", err)
+	}
+
+	args := []any{capJSON}
+	where := fmt.Sprintf("%s @> $1", column)
+	if userID != "" {
+		where += " AND user_id = $2"
+		args = append(args, userID)
 	}
 
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM accounts
-		WHERE system_scopes @> $1
-		ORDER BY id`, accountColumns)
+		WHERE %s
+		ORDER BY id`, accountColumns, where)
 
-	rows, err := s.pool.Query(ctx, query, scopeJSON)
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list system accounts: %w", err)
+		return nil, fmt.Errorf("failed to list accounts by capability: %w", err)
 	}
 	defer rows.Close()
 

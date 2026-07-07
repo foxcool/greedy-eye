@@ -20,6 +20,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
+	"github.com/foxcool/greedy-eye/internal/service/credentials"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
 	storecrypto "github.com/foxcool/greedy-eye/internal/store/crypto"
@@ -114,6 +115,48 @@ func run() error {
 		log.Warn("SECURITY_MASTERKEY is not set: accounts.data is stored in plaintext")
 	}
 
+	portfolioStore := postgres.NewPortfolioStore(pool, portfolioStoreOpts...)
+
+	// Env-configured price providers stay the fallback registry; the resolver
+	// overlays them with credentials stored in accounts (system → user).
+	envPriceProviders := map[string]marketdata.PriceProvider{
+		coingecko.ProviderName: coingecko.NewProvider(cgClient),
+		binanceadapter.ProviderName: binanceadapter.NewProvider(
+			binanceadapter.NewClient(binanceadapter.Config{
+				APIKey:    config.Binance.APIKey,
+				APISecret: config.Binance.APISecret,
+				Sandbox:   config.Binance.Sandbox,
+			}),
+		),
+	}
+	credResolver := credentials.NewResolver(credentials.Config{
+		Source: portfolioStore,
+		WalletSyncers: map[string]credentials.WalletSyncerFactory{
+			moralisadapter.ProviderName: func(a *entity.Account) (entity.WalletSyncer, error) {
+				return moralisadapter.NewWalletSyncer(
+					moralisadapter.NewClient(moralisadapter.Config{APIKey: a.Data["api_key"]}),
+				), nil
+			},
+		},
+		PriceProviders: map[string]credentials.PriceProviderFactory{
+			coingecko.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return coingecko.NewProvider(coingecko.NewClient(coingecko.Config{
+					APIKey: a.Data["api_key"],
+					Pro:    a.Data["pro"] == "true",
+				})), nil
+			},
+			binanceadapter.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return binanceadapter.NewProvider(binanceadapter.NewClient(binanceadapter.Config{
+					APIKey:    a.Data["api_key"],
+					APISecret: a.Data["api_secret"],
+				})), nil
+			},
+		},
+		EnvWalletSyncer:   walletSyncer,
+		EnvPriceProviders: envPriceProviders,
+		Log:               log,
+	})
+
 	// Register Connect handlers
 	userStore := postgres.NewUserStore(pool)
 	interceptor := connect.WithInterceptors(
@@ -121,23 +164,19 @@ func run() error {
 		loggingInterceptor(log),
 	)
 	mdHandler := marketdata.NewHandler(mdStore, log).
-		WithProvider(coingecko.ProviderName, coingecko.NewProvider(cgClient)).
-		WithProvider(binanceadapter.ProviderName, binanceadapter.NewProvider(
-			binanceadapter.NewClient(binanceadapter.Config{
-				APIKey:    config.Binance.APIKey,
-				APISecret: config.Binance.APISecret,
-				Sandbox:   config.Binance.Sandbox,
-			}),
-		))
+		WithProvider(coingecko.ProviderName, envPriceProviders[coingecko.ProviderName]).
+		WithProvider(binanceadapter.ProviderName, envPriceProviders[binanceadapter.ProviderName]).
+		WithProviderSource(credResolver)
 	for _, svc := range config.Services {
 		switch svc.Type {
 		case ServiceConfigTypeMarketData:
 			path, handler := apiv1connect.NewMarketDataServiceHandler(mdHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypePortfolio:
-			pHandler := portfolio.NewHandler(postgres.NewPortfolioStore(pool, portfolioStoreOpts...), log).
+			pHandler := portfolio.NewHandler(portfolioStore, log).
 				WithMarketDataClient(mdHandler).
-				WithWalletSyncer(walletSyncer)
+				WithWalletSyncer(walletSyncer).
+				WithWalletSyncerSource(credResolver)
 			path, handler := apiv1connect.NewPortfolioServiceHandler(pHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypeAutomation:
