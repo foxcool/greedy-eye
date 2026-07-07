@@ -1,8 +1,11 @@
 package credentials
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -179,3 +182,51 @@ func TestResolverPropagatesSourceErrors(t *testing.T) {
 // PriceProviderFactory alias sanity: keep marketdata import used even if tests change.
 var _ marketdata.PriceProvider = (*fakeProvider)(nil)
 var _ entity.WalletSyncer = (*fakeSyncer)(nil)
+
+func TestEnvFallbackWarnsOncePerProvider(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+
+	r := NewResolver(Config{
+		Source:          &fakeSource{},
+		EnvWalletSyncer: &fakeSyncer{name: "env"},
+		EnvPriceProviders: map[string]marketdata.PriceProvider{
+			"coingecko": &fakeProvider{name: "env-cg"},
+		},
+		Log: log,
+	})
+
+	for range 3 {
+		_, err := r.WalletSyncerFor(context.Background(), "u1")
+		require.NoError(t, err)
+		_, err = r.PriceProvidersFor(context.Background(), "u1")
+		require.NoError(t, err)
+	}
+
+	out := buf.String()
+	assert.Equal(t, 1, strings.Count(out, "provider=wallet_syncer"), out)
+	assert.Equal(t, 1, strings.Count(out, "provider=coingecko"), out)
+}
+
+func TestNoEnvFallbackWarnWhenAccountBacked(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	now := time.Now()
+
+	r := NewResolver(Config{
+		Source: &fakeSource{system: []*entity.Account{account("sys", "coingecko", now)}},
+		PriceProviders: map[string]PriceProviderFactory{
+			"coingecko": func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return &fakeProvider{name: a.ID}, nil
+			},
+		},
+		EnvPriceProviders: map[string]marketdata.PriceProvider{
+			"coingecko": &fakeProvider{name: "env-cg"},
+		},
+		Log: log,
+	})
+
+	_, err := r.PriceProvidersFor(context.Background(), "u1")
+	require.NoError(t, err)
+	assert.NotContains(t, buf.String(), "deprecated")
+}

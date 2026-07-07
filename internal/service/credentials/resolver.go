@@ -50,6 +50,9 @@ type Resolver struct {
 
 	mu    sync.Mutex
 	cache map[string]cacheEntry // "<kind>:<account_id>" → built client
+
+	warnMu     sync.Mutex
+	warnedEnvs map[string]bool // env-fallback warnings already emitted, keyed by kind/slug
 }
 
 type cacheEntry struct {
@@ -58,7 +61,22 @@ type cacheEntry struct {
 }
 
 func NewResolver(cfg Config) *Resolver {
-	return &Resolver{cfg: cfg, cache: map[string]cacheEntry{}}
+	return &Resolver{cfg: cfg, cache: map[string]cacheEntry{}, warnedEnvs: map[string]bool{}}
+}
+
+// warnEnvFallback logs once per process per key that an env-configured client
+// was used instead of account-based credentials. Env keys are deprecated
+// (g27): migrate them into system accounts.
+func (r *Resolver) warnEnvFallback(key string) {
+	r.warnMu.Lock()
+	defer r.warnMu.Unlock()
+	if r.warnedEnvs[key] {
+		return
+	}
+	r.warnedEnvs[key] = true
+	if r.cfg.Log != nil {
+		r.cfg.Log.Warn("env provider credentials used (deprecated); migrate to a system account", slog.String("provider", key))
+	}
 }
 
 // accountsFor returns candidate accounts for the capability in resolution
@@ -120,6 +138,9 @@ func (r *Resolver) WalletSyncerFor(ctx context.Context, userID string) (entity.W
 		return client.(entity.WalletSyncer), nil
 	}
 
+	if r.cfg.EnvWalletSyncer != nil {
+		r.warnEnvFallback("wallet_syncer")
+	}
 	return r.cfg.EnvWalletSyncer, nil
 }
 
@@ -137,6 +158,7 @@ func (r *Resolver) PriceProvidersFor(ctx context.Context, userID string) (map[st
 
 	// candidates are ordered user-first; iterate in reverse so system accounts
 	// apply first and the user's own credentials overwrite them.
+	accountBacked := make(map[string]bool, len(candidates))
 	for i := len(candidates) - 1; i >= 0; i-- {
 		a := candidates[i]
 		slug := a.Data[DataProviderKey]
@@ -149,6 +171,13 @@ func (r *Resolver) PriceProvidersFor(ctx context.Context, userID string) (map[st
 			return nil, fmt.Errorf("build price provider from account %s: %w", a.ID, err)
 		}
 		providers[slug] = client.(marketdata.PriceProvider)
+		accountBacked[slug] = true
+	}
+
+	for slug := range r.cfg.EnvPriceProviders {
+		if !accountBacked[slug] {
+			r.warnEnvFallback(slug)
+		}
 	}
 
 	return providers, nil

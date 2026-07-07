@@ -76,6 +76,54 @@ func (h *Handler) WithWalletSyncerSource(src WalletSyncerSource) *Handler {
 
 // --- Portfolio CRUD ---
 
+// ownedPortfolio loads a portfolio and enforces ownership.
+func (h *Handler) ownedPortfolio(ctx context.Context, id string) (*entity.Portfolio, error) {
+	p, err := h.store.GetPortfolio(ctx, id)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+	if err := middleware.EnsureOwner(ctx, p.UserID); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// ownedAccount loads an account and enforces ownership.
+func (h *Handler) ownedAccount(ctx context.Context, id string) (*entity.Account, error) {
+	a, err := h.store.GetAccount(ctx, id)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+	if err := middleware.EnsureOwner(ctx, a.UserID); err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+// ownedHolding loads a holding and enforces ownership via its account.
+func (h *Handler) ownedHolding(ctx context.Context, id string) (*entity.Holding, error) {
+	hld, err := h.store.GetHolding(ctx, id)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+	if _, err := h.ownedAccount(ctx, hld.AccountID); err != nil {
+		return nil, err
+	}
+	return hld, nil
+}
+
+// ownedTransaction loads a transaction and enforces ownership via its account.
+func (h *Handler) ownedTransaction(ctx context.Context, id string) (*entity.Transaction, error) {
+	t, err := h.store.GetTransaction(ctx, id)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+	if _, err := h.ownedAccount(ctx, t.AccountID); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
 func (h *Handler) CreatePortfolio(ctx context.Context, req *connect.Request[apiv1.CreatePortfolioRequest]) (*connect.Response[apiv1.Portfolio], error) {
 	if req.Msg.Portfolio == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio is required"))
@@ -101,9 +149,9 @@ func (h *Handler) GetPortfolio(ctx context.Context, req *connect.Request[apiv1.G
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio ID is required"))
 	}
 
-	p, err := h.store.GetPortfolio(ctx, req.Msg.Id)
+	p, err := h.ownedPortfolio(ctx, req.Msg.Id)
 	if err != nil {
-		return nil, toConnectError(err)
+		return nil, err
 	}
 
 	return connect.NewResponse(portfolioToProto(p)), nil
@@ -112,6 +160,10 @@ func (h *Handler) GetPortfolio(ctx context.Context, req *connect.Request[apiv1.G
 func (h *Handler) UpdatePortfolio(ctx context.Context, req *connect.Request[apiv1.UpdatePortfolioRequest]) (*connect.Response[apiv1.Portfolio], error) {
 	if req.Msg.Portfolio == nil || req.Msg.Portfolio.Id == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio with ID is required"))
+	}
+
+	if _, err := h.ownedPortfolio(ctx, req.Msg.Portfolio.Id); err != nil {
+		return nil, err
 	}
 
 	fields := []string{"name", "description", "data"}
@@ -133,6 +185,10 @@ func (h *Handler) DeletePortfolio(ctx context.Context, req *connect.Request[apiv
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio ID is required"))
 	}
 
+	if _, err := h.ownedPortfolio(ctx, req.Msg.Id); err != nil {
+		return nil, err
+	}
+
 	if err := h.store.DeletePortfolio(ctx, req.Msg.Id); err != nil {
 		return nil, toConnectError(err)
 	}
@@ -147,8 +203,8 @@ func (h *Handler) ListPortfolios(ctx context.Context, req *connect.Request[apiv1
 	}
 
 	opts := ListPortfoliosOpts{UserID: user.ID}
-	if req.Msg.UserId != nil && *req.Msg.UserId != "" {
-		opts.UserID = *req.Msg.UserId // allow explicit override (admin)
+	if req.Msg.UserId != nil && *req.Msg.UserId != "" && user.IsAdmin() {
+		opts.UserID = *req.Msg.UserId // explicit override is admin-only
 	}
 	if req.Msg.PageSize != nil {
 		opts.PageSize = int(*req.Msg.PageSize)
@@ -181,6 +237,10 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 	}
 	if req.Msg.PortfolioId == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio_id is required"))
+	}
+
+	if _, err := h.ownedPortfolio(ctx, req.Msg.PortfolioId); err != nil {
+		return nil, err
 	}
 
 	quoteAssetID := req.Msg.QuoteAssetId
@@ -319,6 +379,10 @@ func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Requ
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio_id is required"))
 	}
 
+	if _, err := h.ownedPortfolio(ctx, req.Msg.PortfolioId); err != nil {
+		return nil, err
+	}
+
 	from := time.Now().AddDate(0, 0, -30) // default: 30 days
 	if req.Msg.From != nil {
 		from = req.Msg.From.AsTime()
@@ -415,6 +479,15 @@ func (h *Handler) CreateHolding(ctx context.Context, req *connect.Request[apiv1.
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	// The target account (and portfolio, when set) must belong to the caller.
+	if _, err := h.ownedAccount(ctx, holding.AccountID); err != nil {
+		return nil, err
+	}
+	if holding.PortfolioID != "" {
+		if _, err := h.ownedPortfolio(ctx, holding.PortfolioID); err != nil {
+			return nil, err
+		}
+	}
 	created, err := h.store.CreateHolding(ctx, holding)
 	if err != nil {
 		return nil, toConnectError(err)
@@ -428,9 +501,9 @@ func (h *Handler) GetHolding(ctx context.Context, req *connect.Request[apiv1.Get
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("holding ID is required"))
 	}
 
-	holding, err := h.store.GetHolding(ctx, req.Msg.Id)
+	holding, err := h.ownedHolding(ctx, req.Msg.Id)
 	if err != nil {
-		return nil, toConnectError(err)
+		return nil, err
 	}
 
 	return connect.NewResponse(holdingToProto(holding)), nil
@@ -439,6 +512,10 @@ func (h *Handler) GetHolding(ctx context.Context, req *connect.Request[apiv1.Get
 func (h *Handler) UpdateHolding(ctx context.Context, req *connect.Request[apiv1.UpdateHoldingRequest]) (*connect.Response[apiv1.Holding], error) {
 	if req.Msg.Holding == nil || req.Msg.Holding.Id == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("holding with ID is required"))
+	}
+
+	if _, err := h.ownedHolding(ctx, req.Msg.Holding.Id); err != nil {
+		return nil, err
 	}
 
 	fields := []string{"amount", "decimals", "portfolio_id", "excluded"}
@@ -532,9 +609,9 @@ func (h *Handler) GetAccount(ctx context.Context, req *connect.Request[apiv1.Get
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account ID is required"))
 	}
 
-	account, err := h.store.GetAccount(ctx, req.Msg.Id)
+	account, err := h.ownedAccount(ctx, req.Msg.Id)
 	if err != nil {
-		return nil, toConnectError(err)
+		return nil, err
 	}
 
 	return connect.NewResponse(accountToProto(account)), nil
@@ -543,6 +620,11 @@ func (h *Handler) GetAccount(ctx context.Context, req *connect.Request[apiv1.Get
 func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.UpdateAccountRequest]) (*connect.Response[apiv1.Account], error) {
 	if req.Msg.Account == nil || req.Msg.Account.Id == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account with ID is required"))
+	}
+
+	existing, err := h.ownedAccount(ctx, req.Msg.Account.Id)
+	if err != nil {
+		return nil, err
 	}
 
 	// system_scopes is deliberately absent from the defaults: it is only
@@ -563,8 +645,13 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 	}
 
 	account := accountFromProto(req.Msg.Account)
+	if slices.Contains(fields, "portfolio_id") && account.PortfolioID != "" && account.PortfolioID != existing.PortfolioID {
+		if _, err := h.ownedPortfolio(ctx, account.PortfolioID); err != nil {
+			return nil, err
+		}
+	}
 	if slices.Contains(fields, "data") {
-		if err := h.restoreMaskedSecrets(ctx, account); err != nil {
+		if err := restoreMaskedSecrets(account, existing); err != nil {
 			return nil, err
 		}
 	}
@@ -579,18 +666,10 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 // restoreMaskedSecrets implements write-only secret semantics on update:
 // masked incoming values are replaced with the currently stored ones, so
 // clients can echo back the masked data map without wiping credentials.
-func (h *Handler) restoreMaskedSecrets(ctx context.Context, account *entity.Account) error {
-	var existing *entity.Account
+func restoreMaskedSecrets(account, existing *entity.Account) error {
 	for k, v := range account.Data {
 		if !strings.HasPrefix(v, maskPrefix) {
 			continue
-		}
-		if existing == nil {
-			var err error
-			existing, err = h.store.GetAccount(ctx, account.ID)
-			if err != nil {
-				return toConnectError(err)
-			}
 		}
 		stored, ok := existing.Data[k]
 		if !ok {
@@ -604,6 +683,10 @@ func (h *Handler) restoreMaskedSecrets(ctx context.Context, account *entity.Acco
 func (h *Handler) DeleteAccount(ctx context.Context, req *connect.Request[apiv1.DeleteAccountRequest]) (*connect.Response[emptypb.Empty], error) {
 	if req.Msg.Id == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account ID is required"))
+	}
+
+	if _, err := h.ownedAccount(ctx, req.Msg.Id); err != nil {
+		return nil, err
 	}
 
 	if err := h.store.DeleteAccount(ctx, req.Msg.Id); err != nil {
@@ -620,8 +703,8 @@ func (h *Handler) ListAccounts(ctx context.Context, req *connect.Request[apiv1.L
 	}
 
 	opts := ListAccountsOpts{UserID: user.ID}
-	if req.Msg.UserId != nil && *req.Msg.UserId != "" {
-		opts.UserID = *req.Msg.UserId // allow explicit override (admin)
+	if req.Msg.UserId != nil && *req.Msg.UserId != "" && user.IsAdmin() {
+		opts.UserID = *req.Msg.UserId // explicit override is admin-only
 	}
 	if req.Msg.Type != nil {
 		opts.Type = entity.AccountType(*req.Msg.Type)
@@ -660,9 +743,9 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("wallet sync not configured"))
 	}
 
-	account, err := h.store.GetAccount(ctx, req.Msg.AccountId)
+	account, err := h.ownedAccount(ctx, req.Msg.AccountId)
 	if err != nil {
-		return nil, toConnectError(err)
+		return nil, err
 	}
 	if account.Type != entity.AccountTypeWallet {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("only wallet accounts can be synced"))
@@ -855,6 +938,10 @@ func (h *Handler) CreateTransaction(ctx context.Context, req *connect.Request[ap
 	}
 
 	tx := transactionFromProto(req.Msg.Transaction)
+	// The target account must belong to the caller.
+	if _, err := h.ownedAccount(ctx, tx.AccountID); err != nil {
+		return nil, err
+	}
 	created, err := h.store.CreateTransaction(ctx, tx)
 	if err != nil {
 		return nil, toConnectError(err)
@@ -868,9 +955,9 @@ func (h *Handler) GetTransaction(ctx context.Context, req *connect.Request[apiv1
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("transaction ID is required"))
 	}
 
-	tx, err := h.store.GetTransaction(ctx, req.Msg.Id)
+	tx, err := h.ownedTransaction(ctx, req.Msg.Id)
 	if err != nil {
-		return nil, toConnectError(err)
+		return nil, err
 	}
 
 	return connect.NewResponse(transactionToProto(tx)), nil
@@ -879,6 +966,10 @@ func (h *Handler) GetTransaction(ctx context.Context, req *connect.Request[apiv1
 func (h *Handler) UpdateTransaction(ctx context.Context, req *connect.Request[apiv1.UpdateTransactionRequest]) (*connect.Response[apiv1.Transaction], error) {
 	if req.Msg.Transaction == nil || req.Msg.Transaction.Id == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("transaction with ID is required"))
+	}
+
+	if _, err := h.ownedTransaction(ctx, req.Msg.Transaction.Id); err != nil {
+		return nil, err
 	}
 
 	fields := []string{"status", "data"}
@@ -896,7 +987,16 @@ func (h *Handler) UpdateTransaction(ctx context.Context, req *connect.Request[ap
 }
 
 func (h *Handler) ListTransactions(ctx context.Context, req *connect.Request[apiv1.ListTransactionsRequest]) (*connect.Response[apiv1.ListTransactionsResponse], error) {
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+	}
+
+	// Admins see everything; everyone else only their own accounts' transactions.
 	opts := ListTransactionsOpts{}
+	if !user.IsAdmin() {
+		opts.UserID = user.ID
+	}
 	if req.Msg.AccountId != nil {
 		opts.AccountID = *req.Msg.AccountId
 	}

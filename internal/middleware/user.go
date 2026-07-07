@@ -58,6 +58,20 @@ func UserProvisioningInterceptor(store UserProvisioner, log *slog.Logger) connec
 	}
 }
 
+// EnsureOwner hides entities the caller doesn't own: unless the caller is the
+// owner or an admin, it reports CodeNotFound (not PermissionDenied) so foreign
+// IDs are indistinguishable from missing ones.
+func EnsureOwner(ctx context.Context, ownerID string) error {
+	user, ok := UserFromContext(ctx)
+	if !ok {
+		return connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("user not found in context"))
+	}
+	if user.ID != ownerID && !user.IsAdmin() {
+		return connect.NewError(connect.CodeNotFound, fmt.Errorf("not found"))
+	}
+	return nil
+}
+
 // parseRoles splits the comma-joined X-User-Roles header value.
 func parseRoles(header string) []string {
 	if header == "" {

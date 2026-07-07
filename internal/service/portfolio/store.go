@@ -81,6 +81,8 @@ type ListHoldingsOpts struct {
 
 // ListTransactionsOpts contains options for listing transactions.
 type ListTransactionsOpts struct {
+	// UserID scopes results to transactions of accounts owned by this user.
+	UserID    string
 	AccountID string
 	AssetID   string
 	Type      entity.TransactionType

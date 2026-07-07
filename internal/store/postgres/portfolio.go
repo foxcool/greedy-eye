@@ -1187,6 +1187,13 @@ func (s *PortfolioStore) ListTransactions(ctx context.Context, opts portfolio.Li
 	argIdx := 1
 	whereClauses := []string{}
 
+	// Scope by account owner. Revisit with the shared-ownership ADR (vnr).
+	if opts.UserID != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("account_id IN (SELECT id FROM accounts WHERE user_id = $%d)", argIdx))
+		args = append(args, opts.UserID)
+		argIdx++
+	}
+
 	if opts.AccountID != "" {
 		whereClauses = append(whereClauses, fmt.Sprintf("account_id = $%d", argIdx))
 		args = append(args, opts.AccountID)
