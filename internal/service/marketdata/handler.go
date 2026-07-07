@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 
@@ -15,6 +16,7 @@ import (
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -34,31 +36,46 @@ type PriceProvider interface {
 	BaseAssetType() entity.AssetType
 }
 
+// ProviderSource resolves the effective price provider registry for a user
+// from stored account credentials (see internal/service/credentials).
+type ProviderSource interface {
+	PriceProvidersFor(ctx context.Context, userID string) (map[string]PriceProvider, error)
+}
+
 // Handler implements apiv1connect.MarketDataServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedMarketDataServiceHandler
-	store     Store
-	providers map[string]PriceProvider // keyed by source name e.g. "coingecko"
-	log       *slog.Logger
+	store          Store
+	providers      map[string]PriceProvider // keyed by source name e.g. "coingecko"
+	providerSource ProviderSource           // optional; takes precedence over providers
+	log            *slog.Logger
 }
 
 func NewHandler(store Store, log *slog.Logger) *Handler {
 	return &Handler{store: store, log: log}
 }
 
+func (h *Handler) clone() *Handler {
+	copied := *h
+	return &copied
+}
+
 // WithProvider returns a new Handler with the named price provider added.
 func (h *Handler) WithProvider(name string, p PriceProvider) *Handler {
 	providers := make(map[string]PriceProvider, len(h.providers)+1)
-	for k, v := range h.providers {
-		providers[k] = v
-	}
+	maps.Copy(providers, h.providers)
 	providers[name] = p
-	return &Handler{
-		UnimplementedMarketDataServiceHandler: h.UnimplementedMarketDataServiceHandler,
-		store:                                 h.store,
-		providers:                             providers,
-		log:                                   h.log,
-	}
+	copied := h.clone()
+	copied.providers = providers
+	return copied
+}
+
+// WithProviderSource returns a new Handler resolving providers from stored
+// account credentials; the static registry is the fallback.
+func (h *Handler) WithProviderSource(src ProviderSource) *Handler {
+	copied := h.clone()
+	copied.providerSource = src
+	return copied
 }
 
 // CreateAsset creates a new asset.
@@ -361,7 +378,21 @@ func (h *Handler) FindSimilarAssets(ctx context.Context, req *connect.Request[ap
 // FetchExternalPrices fetches prices from configured providers and stores them.
 // If source_ids is specified in the request, only those providers are called.
 func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[apiv1.FetchExternalPricesRequest]) (*connect.Response[apiv1.FetchExternalPricesResponse], error) {
-	if len(h.providers) == 0 {
+	// Resolve the effective provider registry from stored credentials of the
+	// calling user; the static env-configured registry is the fallback.
+	providers := h.providers
+	if h.providerSource != nil {
+		userID := ""
+		if user, ok := middleware.UserFromContext(ctx); ok {
+			userID = user.ID
+		}
+		resolved, err := h.providerSource.PriceProvidersFor(ctx, userID)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("resolve price providers: %w", err))
+		}
+		providers = resolved
+	}
+	if len(providers) == 0 {
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("no price providers configured"))
 	}
 
@@ -397,7 +428,7 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	// Cache base asset UUIDs per symbol to avoid repeated lookups across providers.
 	baseAssetCache := map[string]string{} // symbol → UUID
 
-	for name, provider := range h.providers {
+	for name, provider := range providers {
 		if len(req.Msg.SourceIds) > 0 && !slices.Contains(req.Msg.SourceIds, name) {
 			continue
 		}

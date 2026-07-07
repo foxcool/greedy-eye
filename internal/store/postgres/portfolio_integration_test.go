@@ -154,6 +154,45 @@ func TestListSystemAccountsByCapability(t *testing.T) {
 	require.ErrorIs(t, err, store.ErrInvalidArgument)
 }
 
+func TestListUserAccountsByCapability(t *testing.T) {
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	s := NewPortfolioStore(pool)
+	ctx := context.Background()
+
+	owner := createTestUser(t, users)
+	other := createTestUser(t, users)
+
+	mine, err := s.CreateAccount(ctx, &entity.Account{
+		UserID:       owner.ID,
+		Name:         "my moralis",
+		Type:         entity.AccountTypeService,
+		Capabilities: []entity.AccountCapability{entity.CapabilityOnchainLookup},
+	})
+	require.NoError(t, err)
+
+	// Someone else's account with the same capability must not leak in.
+	_, err = s.CreateAccount(ctx, &entity.Account{
+		UserID:       other.ID,
+		Name:         "foreign moralis",
+		Type:         entity.AccountTypeService,
+		Capabilities: []entity.AccountCapability{entity.CapabilityOnchainLookup},
+	})
+	require.NoError(t, err)
+
+	got, err := s.ListUserAccountsByCapability(ctx, owner.ID, entity.CapabilityOnchainLookup)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, mine.ID, got[0].ID)
+
+	empty, err := s.ListUserAccountsByCapability(ctx, owner.ID, entity.CapabilityMarketData)
+	require.NoError(t, err)
+	assert.Empty(t, empty)
+
+	_, err = s.ListUserAccountsByCapability(ctx, "", entity.CapabilityOnchainLookup)
+	require.ErrorIs(t, err, store.ErrInvalidArgument)
+}
+
 func newTestEncryptor(t *testing.T) *storecrypto.Encryptor {
 	t.Helper()
 	e, err := storecrypto.NewEncryptor(bytes.Repeat([]byte{7}, 32))
