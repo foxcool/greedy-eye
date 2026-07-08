@@ -33,14 +33,21 @@ type WalletSyncerSource interface {
 	WalletSyncerFor(ctx context.Context, userID string) (entity.WalletSyncer, error)
 }
 
+// ExchangeSyncerSource builds an exchange syncer from a specific account's own
+// stored credentials (see internal/service/credentials).
+type ExchangeSyncerSource interface {
+	ExchangeSyncerForAccount(a *entity.Account) (entity.ExchangeSyncer, error)
+}
+
 // Handler implements apiv1connect.PortfolioServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedPortfolioServiceHandler
-	store        Store
-	mdClient     MarketDataClient    // optional; nil if not configured
-	walletSyncer entity.WalletSyncer // optional; nil if not configured
-	syncerSource WalletSyncerSource  // optional; takes precedence over walletSyncer
-	log          *slog.Logger
+	store          Store
+	mdClient       MarketDataClient     // optional; nil if not configured
+	walletSyncer   entity.WalletSyncer  // optional; nil if not configured
+	syncerSource   WalletSyncerSource   // optional; takes precedence over walletSyncer
+	exchangeSource ExchangeSyncerSource // optional; resolves per-account exchange syncers
+	log            *slog.Logger
 }
 
 func NewHandler(store Store, log *slog.Logger) *Handler {
@@ -71,6 +78,14 @@ func (h *Handler) WithWalletSyncer(ws entity.WalletSyncer) *Handler {
 func (h *Handler) WithWalletSyncerSource(src WalletSyncerSource) *Handler {
 	copied := h.clone()
 	copied.syncerSource = src
+	return copied
+}
+
+// WithExchangeSyncerSource returns a new Handler resolving exchange syncers from
+// stored account credentials.
+func (h *Handler) WithExchangeSyncerSource(src ExchangeSyncerSource) *Handler {
+	copied := h.clone()
+	copied.exchangeSource = src
 	return copied
 }
 
@@ -734,48 +749,94 @@ func (h *Handler) ListAccounts(ctx context.Context, req *connect.Request[apiv1.L
 
 // --- Account sync ---
 
-// SyncAccount fetches external holdings for a wallet account and upserts assets+holdings.
+// syncedBalance is the provider-agnostic balance shape the upsert path consumes.
+// Wallet and exchange syncers both normalize into this.
+type syncedBalance struct {
+	symbol          string
+	name            string
+	amount          string // raw integer string scaled by decimals
+	decimals        int
+	contractAddress string // EVM token contract; empty for exchange/native
+}
+
+// SyncAccount fetches external holdings for a wallet or exchange account and
+// upserts assets+holdings.
 func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.SyncAccountRequest]) (*connect.Response[apiv1.SyncAccountResponse], error) {
 	if req.Msg.AccountId == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account_id is required"))
 	}
-	if (h.walletSyncer == nil && h.syncerSource == nil) || h.mdClient == nil {
-		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("wallet sync not configured"))
+	if h.mdClient == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("account sync not configured"))
 	}
 
 	account, err := h.ownedAccount(ctx, req.Msg.AccountId)
 	if err != nil {
 		return nil, err
 	}
-	if account.Type != entity.AccountTypeWallet {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("only wallet accounts can be synced"))
+
+	var balances []syncedBalance
+	var syncErrors []string
+	switch account.Type {
+	case entity.AccountTypeWallet:
+		balances, syncErrors, err = h.syncWalletBalances(ctx, account)
+	case entity.AccountTypeExchange:
+		balances, syncErrors, err = h.syncExchangeBalances(ctx, account)
+	default:
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("only wallet and exchange accounts can be synced"))
+	}
+	if err != nil {
+		return nil, err
 	}
 
+	assetsUpserted, holdingsUpserted, upsertErrors, err := h.upsertSyncedBalances(ctx, account, balances)
+	if err != nil {
+		return nil, err
+	}
+	syncErrors = append(syncErrors, upsertErrors...)
+
+	// Fetch fresh prices for all synced assets so CalculatePortfolioValue returns current values.
+	if assetsUpserted > 0 || holdingsUpserted > 0 {
+		if _, err := h.mdClient.FetchExternalPrices(ctx, connect.NewRequest(&apiv1.FetchExternalPricesRequest{})); err != nil {
+			h.log.Warn("fetch prices after sync failed", "error", err)
+		}
+	}
+
+	return connect.NewResponse(&apiv1.SyncAccountResponse{
+		AccountId:        req.Msg.AccountId,
+		AssetsUpserted:   assetsUpserted,
+		HoldingsUpserted: holdingsUpserted,
+		Errors:           syncErrors,
+	}), nil
+}
+
+// syncWalletBalances resolves the wallet syncer for the account owner and
+// returns its balances normalized to syncedBalance. A partial failure surfaces
+// as a sync error string, not a hard error.
+func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Account) ([]syncedBalance, []string, error) {
 	// Resolve the syncer from stored credentials of the account owner;
 	// the env-configured syncer is the resolver's own fallback.
 	walletSyncer := h.walletSyncer
 	if h.syncerSource != nil {
 		resolved, err := h.syncerSource.WalletSyncerFor(ctx, account.UserID)
 		if err != nil {
-			return nil, toConnectError(err)
+			return nil, nil, toConnectError(err)
 		}
 		if resolved != nil {
 			walletSyncer = resolved
 		}
 	}
 	if walletSyncer == nil {
-		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("wallet sync not configured"))
+		return nil, nil, connect.NewError(connect.CodeUnimplemented, errors.New("wallet sync not configured"))
 	}
 
 	address, ok := account.Data["address"]
 	if !ok || address == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account.data.address is required for wallet sync"))
+		return nil, nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account.data.address is required for wallet sync"))
 	}
 
 	// Resolve which chains to sync from the account config.
 	// Empty or "auto" → let the syncer auto-discover (pass nil).
 	// Otherwise a comma-separated list: "eth,base,arbitrum".
-	var syncErrors []string
 	var chains []string
 	if chainRaw := strings.TrimSpace(account.Data["chain"]); chainRaw != "" && chainRaw != "auto" {
 		chains = splitChains(chainRaw)
@@ -783,11 +844,60 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 
 	// The syncer owns all provider mechanics (discovery, fan-out, native vs token).
 	// Partial failures arrive as a joined error alongside the balances gathered so far.
+	var syncErrors []string
 	balances, err := walletSyncer.SyncWallet(ctx, address, chains)
 	if err != nil {
 		syncErrors = append(syncErrors, err.Error())
 	}
 
+	result := make([]syncedBalance, 0, len(balances))
+	for _, b := range balances {
+		result = append(result, syncedBalance{
+			symbol:          b.Symbol,
+			name:            b.Name,
+			amount:          b.Amount,
+			decimals:        b.Decimals,
+			contractAddress: b.ContractAddress,
+		})
+	}
+	return result, syncErrors, nil
+}
+
+// syncExchangeBalances builds the exchange syncer from the account's own stored
+// credentials and returns its balances normalized to syncedBalance.
+func (h *Handler) syncExchangeBalances(ctx context.Context, account *entity.Account) ([]syncedBalance, []string, error) {
+	if h.exchangeSource == nil {
+		return nil, nil, connect.NewError(connect.CodeUnimplemented, errors.New("exchange sync not configured"))
+	}
+	syncer, err := h.exchangeSource.ExchangeSyncerForAccount(account)
+	if err != nil {
+		return nil, nil, toConnectError(err)
+	}
+	if syncer == nil {
+		return nil, nil, connect.NewError(connect.CodeInvalidArgument, errors.New("no exchange adapter for account provider; set account.data.provider (e.g. \"binance\")"))
+	}
+
+	var syncErrors []string
+	balances, err := syncer.SyncExchange(ctx)
+	if err != nil {
+		syncErrors = append(syncErrors, err.Error())
+	}
+
+	result := make([]syncedBalance, 0, len(balances))
+	for _, b := range balances {
+		result = append(result, syncedBalance{
+			symbol:   b.Symbol,
+			name:     b.Symbol, // exchanges report only the ticker; use it as the name
+			amount:   b.Amount,
+			decimals: b.Decimals,
+		})
+	}
+	return result, syncErrors, nil
+}
+
+// upsertSyncedBalances merges same-symbol balances, ensures assets exist, and
+// upserts holdings for the account. Returns per-symbol failures as error strings.
+func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Account, balances []syncedBalance) (assetsUpserted, holdingsUpserted int32, syncErrors []string, err error) {
 	// Merge same-symbol tokens across chains, keyed by the canonical (uppercase) symbol
 	// so "usdc"/"USDC" collapse into one holding. The same symbol can carry different
 	// decimals per chain (e.g. USDC is 6 on Ethereum, 18 on BSC), so balances are summed
@@ -802,30 +912,30 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	bySymbol := make(map[string]*accumulated)
 
 	for _, b := range balances {
-		amt, ok := new(big.Int).SetString(strings.TrimSpace(b.Amount), 10)
+		amt, ok := new(big.Int).SetString(strings.TrimSpace(b.amount), 10)
 		if !ok {
-			syncErrors = append(syncErrors, fmt.Sprintf("parse amount %q for %s", b.Amount, b.Symbol))
+			syncErrors = append(syncErrors, fmt.Sprintf("parse amount %q for %s", b.amount, b.symbol))
 			continue
 		}
 		if amt.Sign() == 0 {
 			continue
 		}
-		symbol := entity.NormalizeSymbol(b.Symbol)
-		qty := decimal.NewFromBigInt(amt, -intToI32(b.Decimals)) // raw / 10^decimals
+		symbol := entity.NormalizeSymbol(b.symbol)
+		qty := decimal.NewFromBigInt(amt, -intToI32(b.decimals)) // raw / 10^decimals
 		if entry, ok := bySymbol[symbol]; ok {
 			entry.qty = entry.qty.Add(qty)
-			if b.Decimals > entry.decimals {
-				entry.decimals = b.Decimals
+			if b.decimals > entry.decimals {
+				entry.decimals = b.decimals
 			}
 			if entry.contractAddress == "" {
-				entry.contractAddress = b.ContractAddress
+				entry.contractAddress = b.contractAddress
 			}
 		} else {
 			bySymbol[symbol] = &accumulated{
-				name:            b.Name,
-				contractAddress: b.ContractAddress,
+				name:            b.name,
+				contractAddress: b.contractAddress,
 				qty:             qty,
-				decimals:        b.Decimals,
+				decimals:        b.decimals,
 			}
 		}
 	}
@@ -836,7 +946,7 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 		PageSize: &pageSize,
 	}))
 	if err != nil {
-		return nil, err
+		return 0, 0, nil, err
 	}
 	symbolToAssetID := make(map[string]string, len(listResp.Msg.Assets))
 	for _, a := range listResp.Msg.Assets {
@@ -846,9 +956,9 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	}
 
 	// Build existing holdings map for this account
-	existingHoldings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{AccountID: req.Msg.AccountId, PageSize: 1000})
+	existingHoldings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{AccountID: account.ID, PageSize: 1000})
 	if err != nil {
-		return nil, toConnectError(err)
+		return 0, 0, nil, toConnectError(err)
 	}
 	holdingByAssetID := make(map[string]*entity.Holding, len(existingHoldings))
 	for _, hld := range existingHoldings {
@@ -856,8 +966,6 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	}
 
 	defaultPortfolioID := account.PortfolioID
-
-	var assetsUpserted, holdingsUpserted int32
 
 	for symbol, entry := range bySymbol {
 		decimals := intToU32(entry.decimals)
@@ -902,7 +1010,7 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 			// Create new holding; inherit account's default portfolio if configured
 			_, err := h.store.CreateHolding(ctx, &entity.Holding{
 				AssetID:     assetID,
-				AccountID:   req.Msg.AccountId,
+				AccountID:   account.ID,
 				PortfolioID: defaultPortfolioID,
 				Amount:      amount,
 				Decimals:    decimals,
@@ -915,19 +1023,7 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 		holdingsUpserted++
 	}
 
-	// Fetch fresh prices for all synced assets so CalculatePortfolioValue returns current values.
-	if assetsUpserted > 0 || holdingsUpserted > 0 {
-		if _, err := h.mdClient.FetchExternalPrices(ctx, connect.NewRequest(&apiv1.FetchExternalPricesRequest{})); err != nil {
-			h.log.Warn("fetch prices after sync failed", "error", err)
-		}
-	}
-
-	return connect.NewResponse(&apiv1.SyncAccountResponse{
-		AccountId:        req.Msg.AccountId,
-		AssetsUpserted:   assetsUpserted,
-		HoldingsUpserted: holdingsUpserted,
-		Errors:           syncErrors,
-	}), nil
+	return assetsUpserted, holdingsUpserted, syncErrors, nil
 }
 
 // --- Transaction CRUD ---

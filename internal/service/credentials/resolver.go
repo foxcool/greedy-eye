@@ -30,6 +30,9 @@ type AccountSource interface {
 // WalletSyncerFactory builds a wallet syncer from account credentials.
 type WalletSyncerFactory func(a *entity.Account) (entity.WalletSyncer, error)
 
+// ExchangeSyncerFactory builds an exchange syncer from account credentials.
+type ExchangeSyncerFactory func(a *entity.Account) (entity.ExchangeSyncer, error)
+
 // PriceProviderFactory builds a price provider from account credentials.
 type PriceProviderFactory func(a *entity.Account) (marketdata.PriceProvider, error)
 
@@ -37,6 +40,7 @@ type PriceProviderFactory func(a *entity.Account) (marketdata.PriceProvider, err
 type Config struct {
 	Source            AccountSource
 	WalletSyncers     map[string]WalletSyncerFactory      // keyed by provider slug
+	ExchangeSyncers   map[string]ExchangeSyncerFactory    // keyed by provider slug
 	PriceProviders    map[string]PriceProviderFactory     // keyed by provider slug
 	EnvWalletSyncer   entity.WalletSyncer                 // may be nil
 	EnvPriceProviders map[string]marketdata.PriceProvider // may be empty
@@ -142,6 +146,22 @@ func (r *Resolver) WalletSyncerFor(ctx context.Context, userID string) (entity.W
 		r.warnEnvFallback("wallet_syncer")
 	}
 	return r.cfg.EnvWalletSyncer, nil
+}
+
+// ExchangeSyncerForAccount builds an exchange syncer from the account's own
+// stored credentials (the account being synced holds the API key — there is no
+// user→system fallback as with wallets). Returns nil when no adapter is
+// registered for the account's provider slug.
+func (r *Resolver) ExchangeSyncerForAccount(a *entity.Account) (entity.ExchangeSyncer, error) {
+	factory, ok := r.cfg.ExchangeSyncers[a.Data[DataProviderKey]]
+	if !ok {
+		return nil, nil
+	}
+	client, err := r.clientFor("exchange_syncer", a, func() (any, error) { return factory(a) })
+	if err != nil {
+		return nil, fmt.Errorf("build exchange syncer from account %s: %w", a.ID, err)
+	}
+	return client.(entity.ExchangeSyncer), nil
 }
 
 // PriceProvidersFor resolves the effective price provider registry for the

@@ -906,3 +906,88 @@ func TestSyncAccount_MergeMixedDecimals(t *testing.T) {
 	assert.Equal(t, int32(1), resp.Msg.HoldingsUpserted)
 	s.AssertExpectations(t)
 }
+
+// --- Exchange sync ---
+
+type mockExchangeSyncer struct {
+	mock.Mock
+}
+
+func (m *mockExchangeSyncer) SyncExchange(ctx context.Context) ([]entity.ExchangeBalance, error) {
+	args := m.Called(ctx)
+	if v := args.Get(0); v != nil {
+		return v.([]entity.ExchangeBalance), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+type mockExchangeSource struct {
+	syncer entity.ExchangeSyncer
+	err    error
+}
+
+func (m *mockExchangeSource) ExchangeSyncerForAccount(_ *entity.Account) (entity.ExchangeSyncer, error) {
+	return m.syncer, m.err
+}
+
+func TestSyncAccount_Exchange(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeExchange
+	acct.Data = map[string]string{"provider": "binance", "api_key": "k", "api_secret": "s"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		return h.Amount.String() == "60000000" && h.Decimals == 8
+	})).Return(&entity.Holding{ID: testHoldingID}, nil)
+
+	syncer := &mockExchangeSyncer{}
+	syncer.On("SyncExchange", mock.Anything).Return([]entity.ExchangeBalance{
+		{Symbol: "BTC", Amount: "60000000", Decimals: 8},
+	}, nil)
+
+	md := &mockMDClient{}
+	md.On("ListAssets", mock.Anything, mock.Anything).Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
+	md.On("CreateAsset", mock.Anything, mock.Anything).Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithExchangeSyncerSource(&mockExchangeSource{syncer: syncer})
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: testAccountID}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.Errors)
+	assert.Equal(t, int32(1), resp.Msg.AssetsUpserted)
+	assert.Equal(t, int32(1), resp.Msg.HoldingsUpserted)
+	s.AssertExpectations(t)
+	syncer.AssertExpectations(t)
+}
+
+func TestSyncAccount_ExchangeNoAdapter(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeExchange
+	acct.Data = map[string]string{"provider": "unknown"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+
+	h := newHandler(s).WithMarketDataClient(&mockMDClient{}).WithExchangeSyncerSource(&mockExchangeSource{syncer: nil})
+
+	_, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: testAccountID}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
+func TestSyncAccount_UnsupportedType(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeBank
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+
+	h := newHandler(s).WithMarketDataClient(&mockMDClient{})
+
+	_, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: testAccountID}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}

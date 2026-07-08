@@ -23,3 +23,19 @@ type WalletSyncer interface {
 	// are still returned so the caller can surface per-chain errors without losing data.
 	SyncWallet(ctx context.Context, address string, chains []string) ([]WalletBalance, error)
 }
+
+// ExchangeBalance represents a single asset balance held on a centralized exchange.
+type ExchangeBalance struct {
+	Symbol   string // asset ticker as reported by the exchange (e.g. "BTC")
+	Amount   string // raw integer string scaled by Decimals (free + locked)
+	Decimals int
+}
+
+// ExchangeSyncer fetches account balances from a centralized exchange using the
+// credentials baked into the syncer at construction time (per-account, resolved
+// from stored API keys). Unlike WalletSyncer there is no address: the API key
+// identifies the account.
+type ExchangeSyncer interface {
+	// SyncExchange returns the non-zero spot balances of the credentialed account.
+	SyncExchange(ctx context.Context) ([]ExchangeBalance, error)
+}
