@@ -3,6 +3,12 @@
 Complete guide for developing and maintaining the Greedy Eye universal portfolio management system supporting diverse
 asset types including cryptocurrencies, securities, derivatives, and alternative assets.
 
+> **Source of truth**: `api/v1/*.proto` (API), `schema.hcl` (database),
+> `cmd/eye/main.go` (wiring). This guide is hand-maintained prose — when it
+> disagrees with the code, the code wins. The backend is a 3-service Connect-RPC
+> modular monolith (MarketDataService, PortfolioService, AutomationService) on
+> pgx raw SQL — not Ent, not gRPC-Gateway, not the older 8-service design.
+
 ## Quick Start
 
 ### Prerequisites
@@ -128,57 +134,46 @@ docker exec eye-dev curl -s localhost:8080/eye/health
 
 ## Current Development Status
 
-### Implementation Progress
-- **Phase 1**: Infrastructure Foundation ✅ **COMPLETED**
-- **Phase 2**: Core Architecture ✅ **COMPLETED**  
-- **Phase 3**: Services & API Gateway ✅ **STUB PHASE COMPLETED**
-- **Current**: Business Logic Implementation 🔄
+The backend is a working 3-service Connect-RPC monolith. Core CRUD, portfolio
+valuation, credential-backed external integrations, account sync (wallet +
+exchange), and ownership enforcement are in place. The automation rule engines
+(DCA / rebalancing / stop-loss) and the cron scheduler are the main open items.
 
 ### Service Status
 
-| Service | Status | Implementation | Tests | Integration |
-|---------|--------|---------------|-------|-------------|
-| MarketDataStore | ✅ Complete | pgx + raw SQL | ✅ | ✅ |
-| PortfolioStore | 🔄 In Progress | pgx + raw SQL | ❌ | ❌ |
-| SettingsStore | 🔄 In Progress | pgx + raw SQL | ❌ | ❌ |
-| UserService | ✅ Implemented | Full business logic | ✅ | ✅ |
-| AssetService | ✅ Implemented | Full business logic | ✅ | ✅ |
-| PortfolioService | 🔄 Stubs | API complete | ✅ | ❌ |
-| PriceService | ✅ Implemented | External API integration | ✅ | ✅ |
-| RuleService | 🔄 Stubs | API complete | ✅ | ❌ |
-| **MessengerService** | 🔄 Stubs | Multi-platform architecture | ✅ | ❌ |
-| AuthService | 🔄 Proto | Proto only | ❌ | ❌ |
+| Service | Location | Status |
+|---------|----------|--------|
+| MarketDataService | `internal/service/marketdata/` | ✅ Assets + prices CRUD, FetchExternalPrices (resolver) |
+| PortfolioService | `internal/service/portfolio/` | ✅ CRUD, CalculatePortfolioValue, SyncAccount (wallet + exchange), ownership |
+| AutomationService | `internal/service/automation/` | 🔄 Rule/execution CRUD + status ops done; execution engines stubbed |
+| Credentials resolver | `internal/service/credentials/` | ✅ Per-account provider clients (user → system → env) |
+| User provisioning | `internal/middleware/user.go` | ✅ Header-based (psina), lazy provision, roles per request |
+
+Stores: `MarketDataStore`, `PortfolioStore`, `AutomationStore`, `UserStore`
+(`internal/store/postgres/`, pgx raw SQL). There is no Ent, no StorageService,
+and no standalone Settings/Asset/Price/Rule/Messenger service — those were the
+pre-ADR-003 8-service design and no longer exist.
 
 ### External Adapters Status
 
-Adapter pattern isolates external API dependencies from core logic.
-All adapters use gRPC status codes and interface-based design.
+The credentials resolver builds per-account clients from stored credentials,
+falling back to env-configured clients (env fallback is deprecated — being
+migrated to system accounts).
 
-| Adapter | Provider | Status | Tests | Coverage |
-|---------|----------|--------|-------|----------|
-| Messenger | Telegram | ⚠️ Stubs | ✅ | 45.5% |
-| Price Data | CoinGecko | ⚠️ Stubs | ✅ | 64.3% |
-| Exchange | Binance | ⚠️ Stubs | ✅ | 57.1% |
-| Blockchain | Moralis | ⚠️ Stubs | ✅ | 66.7% |
+| Adapter | Provider | Status |
+|---------|----------|--------|
+| Blockchain | Moralis (`internal/adapter/moralis/`) | ✅ Multi-chain wallet balance sync (`WalletSyncer`) |
+| Exchange | Binance (`internal/adapter/binance/`) | ✅ Signed spot balance sync (`ExchangeSyncer`); ticker prices (batch has a known issue) |
+| Price Data | CoinGecko (`internal/adapter/coingecko/`) | ✅ Live prices |
+| Messenger | Telegram (`internal/adapter/telegram/`) | Notifications |
 
-**Legend**: ⚠️ Stubs = Stub implementation with unimplemented methods, tests verify error handling
+### Recent Milestones
 
-### Recent Achievements
-
-#### v0.0.4-alpha - Adapter Pattern & MessengerService Refactoring
-
-- ✅ **Adapter Architecture**: Implemented adapter pattern for external integrations (Messenger, Price Data, Exchange, Blockchain)
-- ✅ **MessengerService**: Renamed TelegramBotService → MessengerService for multi-platform support
-- ✅ **Stub Implementations**: All 4 adapter categories with comprehensive test coverage (45-67%)
-- ✅ **Proto Simplification**: Simplified Account model to use flexible data maps for provider-specific parameters
-
-#### v0.0.3-alpha - Core Services Implementation
-- ✅ UserService, AssetService, PriceService - full business logic implementation
-- ✅ External price data API integration with price fetching
-- ✅ Integration tests for all core services
-- ✅ Complete service architecture with dependency management
-- ✅ HTTP API Gateway with gRPC-Gateway auto-generation
-- ✅ Comprehensive test coverage (>90%) for all implemented services
+- **Account capabilities & system scopes**: credential model on accounts, admin-shared system scopes, RPC + FE UI.
+- **Encryption at rest (ADR-005)**: AES-256-GCM + per-record HKDF for `accounts.data`; write-only masked secrets over the API.
+- **Credentials resolver**: per-account adapter factories replacing startup singletons; env fallback deprecated.
+- **Ownership audit (IDOR)**: every by-ID / list RPC enforces caller ownership; `user_id` overrides admin-only.
+- **Account sync**: wallet balances (Moralis) and exchange balances (Binance, signed `GET /api/v3/account`).
 
 ## Development Workflow
 
@@ -236,19 +231,18 @@ greedy-eye/
 │   │   ├── coingecko/      # CoinGecko price data client
 │   │   ├── moralis/        # Moralis blockchain client
 │   │   └── telegram/       # Telegram bot client
-│   ├── api/v1/             # Generated protobuf/connect code
 │   ├── entity/             # Domain entities
-│   ├── service/            # Business logic services
-│   │   ├── asset/          # AssetService
-│   │   ├── marketdata/     # MarketData gRPC handler
-│   │   ├── portfolio/      # Portfolio gRPC handler
-│   │   ├── price/          # PriceService
-│   │   ├── rule/           # RuleService
-│   │   ├── settings/       # SettingsStore
-│   │   └── user/           # UserService
+│   ├── middleware/         # Connect interceptors (user provisioning, ownership)
+│   ├── service/            # Connect handlers + business logic
+│   │   ├── marketdata/     # MarketDataService handler
+│   │   ├── portfolio/      # PortfolioService handler
+│   │   ├── automation/     # AutomationService handler
+│   │   └── credentials/    # Per-account provider client resolver
 │   ├── store/              # Data persistence layer
-│   │   └── postgres/       # PostgreSQL implementation (pgx)
+│   │   ├── postgres/       # PostgreSQL implementation (pgx raw SQL)
+│   │   └── crypto/         # accounts.data encryption (ADR-005)
 │   └── testutil/           # Test utilities (testcontainers)
+├── api/v1/                 # Generated protobuf + Connect code (committed)
 ├── schema.hcl              # Database schema (Atlas HCL)
 ├── atlas.hcl               # Atlas configuration
 ├── docs/                   # Documentation
@@ -258,32 +252,37 @@ greedy-eye/
 ## Configuration
 
 ### Environment Variables
+
+Config is loaded via koanf; env vars use the `EYE_` prefix and map to the config
+struct (see `cmd/eye/config.go`). A single Connect-RPC server listens on one HTTP
+port (h2c) — there is no separate gRPC port or gateway.
+
 ```env
 # Database
-DB_URL=postgres://user:pass@localhost:5432/greedy_eye?sslmode=disable
+EYE_DB_URL=postgres://user:pass@localhost:5432/greedy_eye?sslmode=disable
 
-# Server
-GRPC_PORT=50051
-HTTP_PORT=8080
+# Server (single h2c port serving Connect + gRPC)
+EYE_SERVER_PORT=8080
 
 # Logging
-EYE_LOGGING_OUTPUT=STDOUT    # STDOUT or file path
-EYE_LOGGING_LEVEL=INFO       # DEBUG, INFO, WARN, ERROR, FATAL
-EYE_LOGGING_FORMAT=TEXT      # TEXT or JSON
+EYE_LOG_LEVEL=INFO            # DEBUG, INFO, WARN, ERROR
 
-# External APIs
-BINANCE_API_KEY=your_key
-COINGECKO_API_KEY=your_key
-TBANK_INVEST_TOKEN=your_token
+# Secrets: accounts.data encryption (ADR-005). base64 of 32 random bytes.
+# Empty = plaintext mode with a startup warning (dev only).
+EYE_SECURITY_MASTERKEY=...    # openssl rand -base64 32
 
-# Telegram Bot
+# External API keys (env fallback — deprecated, prefer system accounts)
+EYE_MORALIS_APIKEY=your_key
+EYE_COINGECKO_APIKEY=your_key
+EYE_BINANCE_APIKEY=your_key
+EYE_BINANCE_APISECRET=your_secret
+
+# Telegram notifications
 EYE_TELEGRAM_TOKEN=your_token
 EYE_TELEGRAM_CHATIDS="-1001234567890,987654321"
 
-# Speech Services (for TelegramBotService)
-OPENAI_API_KEY=your_key
-GOOGLE_CREDENTIALS_PATH=./credentials.json
-YANDEX_API_KEY=your_key
+# Observability
+EYE_SENTRY_DSN=your_dsn
 ```
 
 ### Configuration File Example (config.yaml)
@@ -301,14 +300,11 @@ telegram:
     - "-1001234567890"  # Group chat ID
     - "987654321"       # Private chat ID
 
-# Enabled services (optional)
+# Enabled services
 services:
-  - asset
+  - marketdata
   - portfolio
-  - price
-  - user
-  - storage
-  - telegram
+  - automation
 ```
 
 ### Money Precision and Decimal Handling
@@ -322,18 +318,20 @@ This applies to transaction amounts, prices, holdings, and other financial value
 
 ### Dependency Graph
 ```
-Store Layer (PostgreSQL + pgx)
+Store Layer (PostgreSQL + pgx raw SQL)
 ├── MarketDataStore (assets, prices)
-├── PortfolioStore (portfolios, holdings, accounts, transactions)
-└── SettingsStore (user preferences)
+├── PortfolioStore (portfolios, holdings, accounts, transactions; crypto for accounts.data)
+├── AutomationStore (rules, rule_executions)
+└── UserStore (users)
 
-Service Layer
-├── UserService
-├── AssetService → MarketDataStore
-├── PriceService → MarketDataStore, AssetService
-├── PortfolioService → PortfolioStore, AssetService
-├── RuleService → UserService, PortfolioService, AssetService, PriceService
-└── MessengerService → All services
+Service Layer (Connect handlers)
+├── MarketDataService → MarketDataStore, credentials resolver (price providers)
+├── PortfolioService  → PortfolioStore, MarketDataService, resolver (wallet/exchange syncers)
+└── AutomationService → AutomationStore
+
+Cross-cutting
+├── credentials.Resolver → PortfolioStore (accounts), adapter factories
+└── middleware (UserProvisioningInterceptor, EnsureOwner)
 ```
 
 ### Service Communication
@@ -405,160 +403,26 @@ func TestStore_CreateAsset(t *testing.T) {
 
 ## Development Roadmap
 
-### Roadmap Overview
+Tracked in beads (`bd ready`). High-level state:
 
-```mermaid
-%%{init: {'theme':'base', 'themeVariables': { 'fontSize':'14px'}}}%%
-graph LR
-    subgraph Foundation["🏗️ Foundation"]
-        direction TB
-        F1[Infrastructure<br/>✅ Done]
-        F2[Database Schema<br/>✅ Done]
-        F3[gRPC Services<br/>✅ Done]
-        F4[HTTP Gateway<br/>✅ Done]
-    end
+**Done**
+- Infrastructure, schema (Atlas), 3-service Connect-RPC monolith
+- Assets + prices CRUD; external price fetch (CoinGecko)
+- Portfolio/holding/account/transaction CRUD; portfolio valuation
+- Account capability model + system scopes; encrypted credentials (ADR-005)
+- Per-account credential resolver; ownership enforcement (IDOR audit)
+- Account sync: wallet (Moralis) + exchange (Binance spot)
 
-    subgraph Core["⚙️ Core Services"]
-        direction TB
-        C1[StorageService<br/>✅ Done]
-        C2[UserService<br/>✅ Done]
-        C3[AssetService<br/>✅ Done]
-        C4[PriceService<br/>✅ Done]
-        C5[Price Data API<br/>✅ Done]
-    end
+**In progress / next**
+- Automation rule engines: DCA, rebalancing, stop-loss (execution stubs today)
+- Cron scheduler for periodic rules
+- Binance batch price fix; Gate.io exchange adapter
+- Deprecate env provider keys once fully migrated to system accounts
 
-    subgraph Portfolio["📊 Portfolio"]
-        direction TB
-        P1[PortfolioService<br/>🔄 In Progress]
-        P2[Holdings Logic<br/>📋 Planned]
-        P3[Transactions<br/>📋 Planned]
-        P4[Analytics<br/>📋 Planned]
-    end
-
-    subgraph Automation["🤖 Automation"]
-        direction TB
-        A1[RuleService<br/>📋 Planned]
-        A2[DCA Engine<br/>📋 Planned]
-        A3[Rebalancing<br/>📋 Planned]
-        A4[Alerts<br/>📋 Planned]
-    end
-
-    subgraph Integration["🔌 Integration"]
-        direction TB
-        I1[Trading APIs<br/>📋 Planned]
-        I2[MessengerBot<br/>📋 Planned]
-        I3[Voice Support<br/>🎯 Future]
-        I4[Additional APIs<br/>🎯 Future]
-    end
-
-    subgraph Production["🚀 Production"]
-        direction TB
-        PR1[AuthService<br/>📋 Planned]
-        PR2[Security<br/>🎯 Future]
-        PR3[Monitoring<br/>🎯 Future]
-        PR4[Deploy<br/>🎯 Future]
-    end
-
-    Foundation --> Core
-    Core --> Portfolio
-    Portfolio --> Automation
-    Core --> Integration
-    Automation --> Production
-    Integration --> Production
-
-    classDef done fill:#10b981,stroke:#065f46,color:#fff,stroke-width:2px
-    classDef progress fill:#f59e0b,stroke:#92400e,color:#fff,stroke-width:2px
-    classDef planned fill:#6b7280,stroke:#374151,color:#fff,stroke-width:2px
-    classDef future fill:#3b82f6,stroke:#1e40af,color:#fff,stroke-width:2px
-
-    class F1,F2,F3,F4,C1,C2,C3,C4,C5 done
-    class P1 progress
-    class P2,P3,P4,A1,A2,A3,A4,I1,I2,PR1 planned
-    class I3,I4,PR2,PR3,PR4 future
-```
-
-### Service Implementation Status
-
-```mermaid
-%%{init: {'theme':'base'}}%%
-mindmap
-  root((Greedy Eye<br/>Services))
-    Foundation ✅
-      StorageService ✅
-        Ent ORM
-        Migrations
-        CRUD Operations
-      Database ✅
-        PostgreSQL
-        Connection Pool
-    Core Services
-      UserService ✅
-        User Management
-        External API Keys
-      AssetService ✅
-        Asset Metadata
-        Multi-type Support
-      PriceService ✅
-        Price Data APIs ✅
-        Price History
-        Trading APIs 📋
-    Business Logic
-      PortfolioService 🔄
-        Holdings 📋
-        Transactions 📋
-        Analytics 📋
-      RuleService 📋
-        Rule Engine 📋
-        DCA 📋
-        Rebalancing 📋
-        Alerts 📋
-    Integration
-      MessengerBot 📋
-        Commands 📋
-        Voice 🎯
-        Notifications 📋
-      External APIs
-        Price Data ✅
-        Trading 📋
-        Additional 🎯
-    Security 🎯
-      AuthService 📋
-        JWT Tokens 📋
-        API Keys 📋
-      Monitoring 🎯
-        Metrics 🎯
-        Logging 🎯
-```
-
-### Current Sprint Goals
-
-#### ✅ Completed
-
-- StorageService with full Ent ORM implementation
-- UserService with business logic and preference management
-- AssetService with multi-asset type support
-- PriceService with external price data API integration
-- Integration tests for all core services
-
-#### 🔄 In Progress
-
-- PortfolioService business logic implementation
-- Additional external API integrations
-
-#### 📋 Next Up
-
-1. **PortfolioService** - Complete portfolio calculations and analytics
-2. **RuleService** - Implement rule engine and automation strategies
-3. **MessengerBot** - Basic command handling and notifications
-4. **AuthService** - JWT authentication and authorization
-
-#### 🎯 Future Milestones
-
-- Advanced analytics and risk management
-- Multi-provider price aggregation
-- Voice interface for messenger bot
-- Additional trading platform integrations
-- Production deployment with monitoring
+**Later**
+- Non-EVM chain sync (Solana, Cosmos, TON, ...)
+- Portfolio analytics / performance metrics
+- Additional broker integrations (T-Invest)
 
 ## Common Development Tasks
 
@@ -606,7 +470,7 @@ go run cmd/eye/main.go
 dlv debug cmd/eye/main.go
 
 # Check service health
-curl http://localhost:8080/health
+curl http://localhost:8080/eye/health
 
 # Verify Atlas schema
 atlas schema inspect --url "file://schema.hcl"
@@ -632,7 +496,7 @@ go test -v -tags=integration -run TestCreateAsset ./internal/store/postgres/...
 ## Troubleshooting
 
 ### Common Issues
-1. **Port conflicts**: Kill processes on 50051/8080
+1. **Port conflicts**: Kill the process on 8080
 2. **Database connection**: Check PostgreSQL status and credentials
 3. **Proto generation**: Ensure buf is installed and updated
 4. **Module issues**: Run `go mod tidy` and `go mod download`

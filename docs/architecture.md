@@ -4,6 +4,13 @@
 
 Universal portfolio management system based on arc42 + C4 Model
 
+> **Source of truth**: the API contract lives in `api/v1/*.proto`, the schema in
+> `schema.hcl`, and the wiring in `cmd/eye/main.go`. This document is
+> hand-maintained prose about that code — when they disagree, the code wins.
+> Some HTTP routes (e.g. `GET /eye/health`) are wired directly in `main.go`, not
+> generated from proto. There is no OpenAPI spec: the service is Connect-RPC,
+> which the OpenAPI generator does not cover.
+
 ---
 
 ## Document Navigation
@@ -278,54 +285,79 @@ graph TB
         MDSP[MarketDataStore]
         PSP[PortfolioStore]
         ASP[AutomationStore]
-        SSP[SettingsStore<br/>users]
+        SSP[UserStore<br/>users]
     end
 
     subgraph "External Adapters"
-        CoinGecko[coingecko adapter<br/>stub]
-        Binance[binance adapter<br/>stub]
-        Moralis[moralis adapter<br/>stub]
-        Telegram[telegram adapter<br/>stub]
+        CoinGecko[coingecko adapter<br/>prices]
+        Binance[binance adapter<br/>prices + balances]
+        Moralis[moralis adapter<br/>wallet balances]
+        Telegram[telegram adapter<br/>notifications]
     end
 
     MDS --> MDSI --> MDSP --> DB[(PostgreSQL)]
     PS  --> PSI  --> PSP  --> DB
     AS  --> ASI  --> ASP  --> DB
 
-    MDS -.->|FetchExternalPrices stub| CoinGecko
-    MDS -.->|FetchExternalPrices stub| Binance
-    MDS -.->|FindSimilarAssets stub| Moralis
+    MDS -.->|FetchExternalPrices via resolver| CoinGecko
+    MDS -.->|FetchExternalPrices| Binance
+    PS  -.->|SyncAccount wallet| Moralis
+    PS  -.->|SyncAccount exchange| Binance
 ```
 
 ### 5.3 Level 3: Service Details
 
 **MarketDataService** (`internal/service/marketdata/`):
 - RPCs implemented: CreateAsset, GetAsset, UpdateAsset, DeleteAsset, ListAssets, CreatePrice,
-  CreatePrices, GetLatestPrice, ListPriceHistory, ListPricesByInterval, DeletePrice, DeletePrices
-- RPCs stubbed: EnrichAssetData, FindSimilarAssets, FetchExternalPrices
+  CreatePrices, GetLatestPrice, ListPriceHistory, ListPricesByInterval, DeletePrice, DeletePrices,
+  FetchExternalPrices (via the credentials resolver: CoinGecko live, Binance batch has issues)
+- RPCs stubbed: EnrichAssetData, FindSimilarAssets
 - Store: `MarketDataStore` (PostgreSQL) — assets + prices
 
 **PortfolioService** (`internal/service/portfolio/`):
-- RPCs implemented: full CRUD for Portfolio, Account, Holding, Transaction
-- RPCs stubbed: CalculatePortfolioValue, GetPortfolioPerformance
+- RPCs implemented: full CRUD for Portfolio, Account, Holding, Transaction; CalculatePortfolioValue;
+  SyncAccount (wallet balances via Moralis, exchange balances via Binance)
+- RPCs stubbed: GetPortfolioPerformance
+- Ownership: every by-ID and list RPC enforces caller ownership (`middleware.EnsureOwner`);
+  `user_id` list overrides are admin-only. See §8.1.
+- Accounts carry a capability model (capabilities + admin-managed system_scopes) and encrypted
+  `data` credentials (ADR-005). See the Account credential model below and §8.1.
 - Store: `PortfolioStore` (PostgreSQL)
 
 **AutomationService** (`internal/service/automation/`):
 - RPCs implemented: CRUD for Rule and RuleExecution, EnableRule, DisableRule, PauseRule,
   ResumeRule, ValidateRule, ExecuteRule, ExecuteRuleAsync, CancelRuleExecution, SimulateRule
+- Ownership enforced per rule (`ownedRule`); execution engines (DCA/rebalancing/stop-loss) are
+  still stubs pending the rule-engine package.
 - Store: `AutomationStore` (PostgreSQL) — `rules` + `rule_executions` tables
 
-**SettingsStore** (`internal/service/settings/`):
-- Provides user CRUD for auth integration (psina)
-- No Connect handler — consumed internally
+**User provisioning** (`internal/middleware/user.go` + `postgres.UserStore`):
+- Users are provisioned lazily from `X-User-Id`/`X-User-Email`/`X-User-Roles` headers set by the
+  auth proxy (psina). Roles are per-request and never persisted (psina owns them). There is no
+  standalone settings/user Connect service.
 
 **External Adapters** (Integration Layer):
 
 The system uses the **Adapter Pattern** to isolate external API dependencies from core business logic.
+Adapters are no longer singletons: the credentials resolver (`internal/service/credentials/`) builds
+per-account clients from stored credentials, falling back to env-configured clients.
 
-- **Price Adapters** (`internal/adapter/coingecko/`, `internal/adapter/binance/`): CoinGecko, Binance (stubs)
-- **Blockchain Adapters** (`internal/adapter/moralis/`): Moralis (stub)
-- **Messenger Adapters** (`internal/adapter/telegram/`): Telegram (stub)
+- **Price Adapters** (`internal/adapter/coingecko/`, `internal/adapter/binance/`): CoinGecko (live
+  prices), Binance (`ticker/price`; batch fails on invalid symbols — tracked separately)
+- **Exchange sync** (`internal/adapter/binance/`): Binance spot balances via the SIGNED
+  `GET /api/v3/account` (HMAC-SHA256) → `entity.ExchangeSyncer`
+- **Blockchain Adapters** (`internal/adapter/moralis/`): Moralis multi-chain wallet balances →
+  `entity.WalletSyncer`
+- **Messenger Adapters** (`internal/adapter/telegram/`): Telegram (notifications)
+
+**Account credential model**:
+- Provider credentials live in `accounts.data` (encrypted at rest, ADR-005), keyed by a `provider`
+  slug (`moralis`, `coingecko`, `binance`). Secret-looking keys are write-only over the API
+  (`••••`+last4 mask; echoing the mask keeps the stored secret).
+- `capabilities` (`portfolio_sync`, `trading`, `market_data`, `onchain_lookup`) declare what the
+  credentials may do, validated against account type.
+- `system_scopes` ⊆ capabilities marks user-agnostic capabilities (market_data, onchain_lookup) an
+  admin shares system-wide. The resolver resolves clients user → system → env.
 
 ---
 
@@ -346,12 +378,25 @@ API Client → MarketDataService → MarketDataStore → PostgreSQL
 #### Scenario 2: Fetch Prices from External Provider
 
 ```text
-API Client → MarketDataService/FetchExternalPrices → (stub) → Error Unimplemented
-  → When implemented: adapter.GetCurrentPrice → CreatePrices
+API Client → MarketDataService/FetchExternalPrices → resolver → adapter → CreatePrices
   1. POST /eye.v1.MarketDataService/FetchExternalPrices
-  2. Handler calls external adapter (CoinGecko / Binance)
-  3. Prices are bulk-inserted via CreatePrices
-  4. Response: FetchExternalPricesResponse{prices_fetched, prices_stored}
+  2. Handler resolves the price providers for the caller (credentials resolver:
+     user account → system account → env fallback)
+  3. Each provider (CoinGecko / Binance) fetches prices for the tracked assets
+  4. Prices are bulk-inserted via CreatePrices
+  5. Response: FetchExternalPricesResponse{prices_fetched, prices_stored, errors}
+```
+
+#### Scenario 2b: Sync Account Balances
+
+```text
+API Client → PortfolioService/SyncAccount → resolver → syncer → upsert holdings
+  1. POST /eye.v1.PortfolioService/SyncAccount (owner or admin only)
+  2. Branch on account type:
+     - wallet   → WalletSyncer (Moralis) by address across chains
+     - exchange → ExchangeSyncer (Binance) via the account's own API key
+  3. Balances normalized, merged by symbol, assets ensured, holdings upserted
+  4. Response: SyncAccountResponse{assets_upserted, holdings_upserted, errors}
 ```
 
 #### Scenario 3: Execute Rebalancing Rule
@@ -426,16 +471,24 @@ Cron / API Client → AutomationService/ExecuteRule
 ### 8.1 Security
 
 **Authentication and Authorization:**
-- **JWT Tokens**: For HTTP API with expiration and refresh logic
-- **API Keys**: For programmatic access with scopes and rate limiting
-- **User Context**: Binding operations to specific user
-- **Service Authentication**: Internal authentication between gRPC services
+- **Delegated auth (psina)**: authentication is handled by the external psina service
+  behind a Traefik `forwardAuth`. It validates the session/token and injects
+  `X-User-Id`, `X-User-Email`, and `X-User-Roles` headers (ADR-004).
+- **User provisioning**: `middleware.UserProvisioningInterceptor` reads those headers, lazily
+  provisions the user, and binds roles to the request context (roles never persisted).
+- **Ownership enforcement**: every by-ID RPC loads the entity and requires the caller to be its
+  owner or an admin (`middleware.EnsureOwner`), returning `NotFound` for foreign IDs so their
+  existence isn't leaked. Holdings/transactions inherit ownership through their account.
+  `user_id` list overrides are admin-only.
+- **Admin-gated mutations**: sharing account credentials system-wide (`system_scopes`) requires the
+  admin role and an explicit update mask.
 
 **Data Protection:**
-- **Encryption at Rest**: Encryption of external API keys in database
-- **Encryption in Transit**: TLS for all external connections
-- **Data Minimization**: Storage of only necessary user data
-- **GDPR Compliance**: User data export and deletion capabilities
+- **Encryption at Rest**: `accounts.data` (provider API keys) is encrypted with AES-256-GCM +
+  per-record HKDF keys in the store layer (ADR-005); the master key
+  (`EYE_SECURITY_MASTERKEY`) never reaches the DB or logs.
+- **Write-only secrets**: the API never returns credential values — only a `••••`+last4 mask.
+- **Encryption in Transit**: TLS for all external connections (Traefik terminates public TLS).
 
 ### 8.2 Performance
 
@@ -622,13 +675,14 @@ System Quality
 
 #### Debt 1: Partial business logic implementation
 
-- Description: CRUD and execution flow implemented for all 3 services. Remaining stubs:
-  CalculatePortfolioValue, GetPortfolioPerformance, EnrichAssetData, FindSimilarAssets,
-  FetchExternalPrices. ExecuteRule runs a minimal synchronous engine (no real trading logic yet).
-- Impact: Core data management and rule lifecycle work; portfolio calculations and external
-  price fetching not yet usable.
-- Resolution Plan: FetchExternalPrices (connects adapters to store) →
-  CalculatePortfolioValue → full rule execution engine with actual trading logic
+- Description: CRUD, portfolio valuation, external price fetch, and account sync (wallet +
+  exchange) are implemented. Remaining stubs: GetPortfolioPerformance, EnrichAssetData,
+  FindSimilarAssets, and the automation execution engines (DCA / rebalancing / stop-loss).
+  ExecuteRule runs a minimal synchronous flow, not real trading logic.
+- Impact: Data management, valuation, and sync work; automated strategy execution does not yet
+  place real trades.
+- Resolution Plan: rule-engine package → DCA/rebalancing/stop-loss engines → cron scheduler →
+  performance metrics.
 
 #### Debt 2: Lack of comprehensive monitoring
 
