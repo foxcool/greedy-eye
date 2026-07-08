@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"bytes"
+	"encoding/base64"
 	"strings"
 	"testing"
 
@@ -95,14 +96,16 @@ func TestDecryptRejectsTamperedCiphertext(t *testing.T) {
 	encoded, err := e.Encrypt("record-1", []byte("payload"))
 	require.NoError(t, err)
 
-	// Flip one character in the base64 payload.
-	tampered := []byte(encoded)
-	last := len(tampered) - 2
-	if tampered[last] == 'A' {
-		tampered[last] = 'B'
-	} else {
-		tampered[last] = 'A'
-	}
-	_, err = e.Decrypt("record-1", string(tampered))
+	// Flip a bit in the raw sealed bytes (the GCM tag) rather than in the
+	// base64 text: a base64 character near padding can have low bits that
+	// decode to the same byte, making a textual flip a silent no-op.
+	raw, ok := strings.CutPrefix(encoded, "v1:")
+	require.True(t, ok)
+	sealed, err := base64.StdEncoding.DecodeString(raw)
+	require.NoError(t, err)
+	sealed[len(sealed)-1] ^= 0x01 // corrupt the last tag byte
+	tampered := "v1:" + base64.StdEncoding.EncodeToString(sealed)
+
+	_, err = e.Decrypt("record-1", tampered)
 	assert.ErrorIs(t, err, ErrInvalidCiphertext)
 }
