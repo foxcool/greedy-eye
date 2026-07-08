@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 64" width="128" height="64">
+  <!-- Greedy Eye mark: heavy-lid eye. Accent: ledger-dark amber (#E5A83B).
+       Geometry mirrors the GreedyEyeLogo component: flat top, semicircular
+       bottom, rim ~6.5%, lid ~11%, pupil 30% clipped by the lid. -->
+  <defs>
+    <clipPath id="ge-eye-shape">
+      <path d="M0 0H128A64 64 0 0 1 0 0Z"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#ge-eye-shape)" fill="#E5A83B">
+    <path d="M0 0H128A64 64 0 0 1 0 0Z" fill="none" stroke="#E5A83B" stroke-width="17"/>
+    <circle cx="64" cy="26" r="19"/>
+    <rect x="0" y="0" width="128" height="14"/>
+  </g>
+</svg>
