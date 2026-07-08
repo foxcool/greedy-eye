@@ -51,7 +51,7 @@ Built as a learning project to demonstrate production-ready Go architecture for 
 **Integrations:**
 - CoinGecko, Binance APIs
 - Telegram Bot (optional interface)
-- OpenAPI 3.0 spec
+- Connect-RPC (JSON + gRPC) from `api/v1/*.proto`
 
 ---
 
@@ -122,22 +122,23 @@ greedy-eye/
 
 - **[Architecture Guide](docs/architecture.md)** — System design, C4 diagrams, service structure
 - **[Development Guide](docs/development.md)** — Setup, workflow, roadmap
-- **[OpenAPI Spec](docs/openapi.yaml)** — HTTP API reference
+- **API reference** — the `api/v1/*.proto` files are the source of truth. Connect-RPC serves them as JSON and gRPC; there is no separate OpenAPI spec (Connect is not covered by the OpenAPI generator).
 
 ---
 
 ## Development Status
 
-**Phase 1-3:** ✅ Complete — Foundation, services, API gateway
-**Phase 4:** 🔄 In Progress — Core business logic implementation
+**Phase 1-3:** ✅ Complete — Foundation, 3-service Connect-RPC API, integrations
+**Phase 4:** 🔄 In Progress — Automation engines & analytics
 **Phase 5:** 📋 Planned — Production hardening
 
 Current implementation:
-- ✅ gRPC service architecture with 3 domain services
-- ✅ Database layer with pgx
-- ✅ External API adapters (CoinGecko, Binance)
-- ✅ Integration test coverage
-- 🔄 Portfolio analytics and insights
+- ✅ 3-service Connect-RPC monolith (MarketData, Portfolio, Automation)
+- ✅ Database layer with pgx raw SQL; encrypted account credentials (ADR-005)
+- ✅ Per-account credential resolver; ownership enforcement across RPCs
+- ✅ Account sync: wallet balances (Moralis) + exchange balances (Binance)
+- ✅ External price fetch (CoinGecko); integration test coverage
+- 🔄 Automation rule engines (DCA / rebalancing / stop-loss) + scheduler
 
 ---
 
@@ -182,4 +183,4 @@ MIT License
 
 ---
 
-**Docs:** [Architecture](docs/architecture.md) • [Development](docs/development.md) • [API](docs/openapi.yaml)
+**Docs:** [Architecture](docs/architecture.md) • [Development](docs/development.md) • API: [`api/v1/*.proto`](api/v1/)
