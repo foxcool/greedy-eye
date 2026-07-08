@@ -59,14 +59,26 @@ func (h *Handler) CreateRule(ctx context.Context, req *connect.Request[apiv1.Cre
 	return connect.NewResponse(proto), nil
 }
 
+// ownedRule loads a rule and enforces ownership.
+func (h *Handler) ownedRule(ctx context.Context, id string) (*entity.Rule, error) {
+	r, err := h.store.GetRule(ctx, id)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+	if err := middleware.EnsureOwner(ctx, r.UserID); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
 func (h *Handler) GetRule(ctx context.Context, req *connect.Request[apiv1.GetRuleRequest]) (*connect.Response[apiv1.Rule], error) {
 	if req.Msg.Id == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rule ID is required"))
 	}
 
-	r, err := h.store.GetRule(ctx, req.Msg.Id)
+	r, err := h.ownedRule(ctx, req.Msg.Id)
 	if err != nil {
-		return nil, toConnectError(err)
+		return nil, err
 	}
 
 	proto, err := ruleToProto(r)
@@ -79,6 +91,10 @@ func (h *Handler) GetRule(ctx context.Context, req *connect.Request[apiv1.GetRul
 func (h *Handler) UpdateRule(ctx context.Context, req *connect.Request[apiv1.UpdateRuleRequest]) (*connect.Response[apiv1.Rule], error) {
 	if req.Msg.Rule == nil || req.Msg.Rule.Id == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rule with ID is required"))
+	}
+
+	if _, err := h.ownedRule(ctx, req.Msg.Rule.Id); err != nil {
+		return nil, err
 	}
 
 	var fields []string
@@ -108,6 +124,10 @@ func (h *Handler) DeleteRule(ctx context.Context, req *connect.Request[apiv1.Del
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rule ID is required"))
 	}
 
+	if _, err := h.ownedRule(ctx, req.Msg.Id); err != nil {
+		return nil, err
+	}
+
 	if err := h.store.DeleteRule(ctx, req.Msg.Id); err != nil {
 		return nil, toConnectError(err)
 	}
@@ -121,9 +141,9 @@ func (h *Handler) ListRules(ctx context.Context, req *connect.Request[apiv1.List
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
 	}
 
-	// Scope to the caller; allow an explicit override (admin) like PortfolioService.
+	// Scope to the caller; explicit override is admin-only like PortfolioService.
 	opts := ListRulesOpts{UserID: user.ID}
-	if req.Msg.UserId != nil && *req.Msg.UserId != "" {
+	if req.Msg.UserId != nil && *req.Msg.UserId != "" && user.IsAdmin() {
 		opts.UserID = *req.Msg.UserId
 	}
 	if req.Msg.PortfolioId != nil {
@@ -186,9 +206,9 @@ func (h *Handler) setRuleStatus(ctx context.Context, ruleID string, status entit
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rule ID is required"))
 	}
 
-	r, err := h.store.GetRule(ctx, ruleID)
+	r, err := h.ownedRule(ctx, ruleID)
 	if err != nil {
-		return nil, toConnectError(err)
+		return nil, err
 	}
 
 	r.Status = status
@@ -241,6 +261,15 @@ func (h *Handler) CreateRuleExecution(ctx context.Context, req *connect.Request[
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
+	// The execution's rule must belong to the caller.
+	rule, err := h.ownedRule(ctx, e.RuleID)
+	if err != nil {
+		return nil, err
+	}
+	if e.UserID == "" {
+		e.UserID = rule.UserID // keep executions visible to the rule owner's scope
+	}
+
 	created, err := h.store.CreateRuleExecution(ctx, e)
 	if err != nil {
 		return nil, toConnectError(err)
@@ -262,6 +291,9 @@ func (h *Handler) GetRuleExecution(ctx context.Context, req *connect.Request[api
 	if err != nil {
 		return nil, toConnectError(err)
 	}
+	if _, err := h.ownedRule(ctx, e.RuleID); err != nil {
+		return nil, err
+	}
 
 	proto, err := ruleExecutionToProto(e)
 	if err != nil {
@@ -273,6 +305,14 @@ func (h *Handler) GetRuleExecution(ctx context.Context, req *connect.Request[api
 func (h *Handler) UpdateRuleExecution(ctx context.Context, req *connect.Request[apiv1.UpdateRuleExecutionRequest]) (*connect.Response[apiv1.RuleExecution], error) {
 	if req.Msg.RuleExecution == nil || req.Msg.RuleExecution.Id == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rule_execution with ID is required"))
+	}
+
+	existing, err := h.store.GetRuleExecution(ctx, req.Msg.RuleExecution.Id)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+	if _, err := h.ownedRule(ctx, existing.RuleID); err != nil {
+		return nil, err
 	}
 
 	var fields []string
@@ -298,14 +338,20 @@ func (h *Handler) UpdateRuleExecution(ctx context.Context, req *connect.Request[
 }
 
 func (h *Handler) ListRuleExecutions(ctx context.Context, req *connect.Request[apiv1.ListRuleExecutionsRequest]) (*connect.Response[apiv1.ListRuleExecutionsResponse], error) {
-	opts := ListRuleExecutionsOpts{}
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+	}
+
+	// Scope to the caller; explicit override is admin-only.
+	opts := ListRuleExecutionsOpts{UserID: user.ID}
 	if req.Msg.RuleId != nil {
 		opts.RuleID = *req.Msg.RuleId
 	}
 	if req.Msg.PortfolioId != nil {
 		opts.PortfolioID = *req.Msg.PortfolioId
 	}
-	if req.Msg.UserId != nil {
+	if req.Msg.UserId != nil && *req.Msg.UserId != "" && user.IsAdmin() {
 		opts.UserID = *req.Msg.UserId
 	}
 	if req.Msg.Status != nil {
@@ -353,9 +399,9 @@ func (h *Handler) ExecuteRule(ctx context.Context, req *connect.Request[apiv1.Ex
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rule_id is required"))
 	}
 
-	rule, err := h.store.GetRule(ctx, req.Msg.RuleId)
+	rule, err := h.ownedRule(ctx, req.Msg.RuleId)
 	if err != nil {
-		return nil, toConnectError(err)
+		return nil, err
 	}
 	if rule.Status != entity.RuleStatusActive {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("rule is not active"))
@@ -414,9 +460,9 @@ func (h *Handler) ExecuteRuleAsync(ctx context.Context, req *connect.Request[api
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rule_id is required"))
 	}
 
-	rule, err := h.store.GetRule(ctx, req.Msg.RuleId)
+	rule, err := h.ownedRule(ctx, req.Msg.RuleId)
 	if err != nil {
-		return nil, toConnectError(err)
+		return nil, err
 	}
 
 	exec := &entity.RuleExecution{
@@ -466,9 +512,9 @@ func (h *Handler) SimulateRule(ctx context.Context, req *connect.Request[apiv1.S
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rule_id is required"))
 	}
 
-	rule, err := h.store.GetRule(ctx, req.Msg.RuleId)
+	rule, err := h.ownedRule(ctx, req.Msg.RuleId)
 	if err != nil {
-		return nil, toConnectError(err)
+		return nil, err
 	}
 
 	var result *apiv1.SimulationResult

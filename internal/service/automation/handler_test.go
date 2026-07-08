@@ -164,7 +164,8 @@ func TestGetRule_OK(t *testing.T) {
 	s.On("GetRule", mock.Anything, "r-1").Return(testRule("r-1"), nil)
 	h := newHandler(s)
 
-	resp, err := h.GetRule(context.Background(), connect.NewRequest(&apiv1.GetRuleRequest{Id: "r-1"}))
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	resp, err := h.GetRule(ctx, connect.NewRequest(&apiv1.GetRuleRequest{Id: "r-1"}))
 	require.NoError(t, err)
 	assert.Equal(t, "r-1", resp.Msg.Id)
 }
@@ -178,10 +179,12 @@ func TestDeleteRule_MissingID(t *testing.T) {
 
 func TestDeleteRule_OK(t *testing.T) {
 	s := &mockStore{}
+	s.On("GetRule", mock.Anything, "r-1").Return(testRule("r-1"), nil)
 	s.On("DeleteRule", mock.Anything, "r-1").Return(nil)
 	h := newHandler(s)
 
-	_, err := h.DeleteRule(context.Background(), connect.NewRequest(&apiv1.DeleteRuleRequest{Id: "r-1"}))
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	_, err := h.DeleteRule(ctx, connect.NewRequest(&apiv1.DeleteRuleRequest{Id: "r-1"}))
 	require.NoError(t, err)
 }
 
@@ -214,7 +217,8 @@ func TestEnableRule_OK(t *testing.T) {
 	}), []string{"status"}).Return(enabled, nil)
 	h := newHandler(s)
 
-	resp, err := h.EnableRule(context.Background(), connect.NewRequest(&apiv1.EnableRuleRequest{RuleId: "r-1"}))
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	resp, err := h.EnableRule(ctx, connect.NewRequest(&apiv1.EnableRuleRequest{RuleId: "r-1"}))
 	require.NoError(t, err)
 	assert.Equal(t, apiv1.RuleStatus_RULE_STATUS_ACTIVE, resp.Msg.Status)
 }
@@ -230,7 +234,8 @@ func TestDisableRule_OK(t *testing.T) {
 	}), []string{"status"}).Return(disabled, nil)
 	h := newHandler(s)
 
-	resp, err := h.DisableRule(context.Background(), connect.NewRequest(&apiv1.DisableRuleRequest{RuleId: "r-1"}))
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	resp, err := h.DisableRule(ctx, connect.NewRequest(&apiv1.DisableRuleRequest{RuleId: "r-1"}))
 	require.NoError(t, err)
 	assert.Equal(t, apiv1.RuleStatus_RULE_STATUS_DISABLED, resp.Msg.Status)
 }
@@ -292,10 +297,12 @@ func TestCreateRuleExecution_MissingExecution(t *testing.T) {
 
 func TestCreateRuleExecution_OK(t *testing.T) {
 	s := &mockStore{}
+	s.On("GetRule", mock.Anything, "r-1").Return(testRule("r-1"), nil)
 	s.On("CreateRuleExecution", mock.Anything, mock.Anything).Return(testExecution("e-1", "r-1"), nil)
 	h := newHandler(s)
 
-	resp, err := h.CreateRuleExecution(context.Background(), connect.NewRequest(&apiv1.CreateRuleExecutionRequest{
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	resp, err := h.CreateRuleExecution(ctx, connect.NewRequest(&apiv1.CreateRuleExecutionRequest{
 		RuleExecution: &apiv1.RuleExecution{RuleId: "r-1"},
 	}))
 	require.NoError(t, err)
@@ -312,11 +319,12 @@ func TestGetRuleExecution_MissingID(t *testing.T) {
 func TestListRuleExecutions_WithFilters(t *testing.T) {
 	s := &mockStore{}
 	ruleID := "r-1"
-	s.On("ListRuleExecutions", mock.Anything, ListRuleExecutionsOpts{RuleID: "r-1"}).
+	s.On("ListRuleExecutions", mock.Anything, ListRuleExecutionsOpts{UserID: "user-1", RuleID: "r-1"}).
 		Return([]*entity.RuleExecution{testExecution("e-1", "r-1"), testExecution("e-2", "r-1")}, "next", nil)
 	h := newHandler(s)
 
-	resp, err := h.ListRuleExecutions(context.Background(), connect.NewRequest(&apiv1.ListRuleExecutionsRequest{
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	resp, err := h.ListRuleExecutions(ctx, connect.NewRequest(&apiv1.ListRuleExecutionsRequest{
 		RuleId: &ruleID,
 	}))
 	require.NoError(t, err)

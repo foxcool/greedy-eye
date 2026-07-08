@@ -274,7 +274,7 @@ func TestGetPortfolio_NotFound(t *testing.T) {
 	s.On("GetPortfolio", mock.Anything, testPortfolioID2).Return(nil, store.ErrNotFound)
 	h := newHandler(s)
 
-	_, err := h.GetPortfolio(context.Background(), connect.NewRequest(&apiv1.GetPortfolioRequest{Id: testPortfolioID2}))
+	_, err := h.GetPortfolio(ctxWithUser(testUserID), connect.NewRequest(&apiv1.GetPortfolioRequest{Id: testPortfolioID2}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 }
@@ -284,7 +284,7 @@ func TestGetPortfolio_OK(t *testing.T) {
 	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
 	h := newHandler(s)
 
-	resp, err := h.GetPortfolio(context.Background(), connect.NewRequest(&apiv1.GetPortfolioRequest{Id: testPortfolioID}))
+	resp, err := h.GetPortfolio(ctxWithUser(testUserID), connect.NewRequest(&apiv1.GetPortfolioRequest{Id: testPortfolioID}))
 	require.NoError(t, err)
 	assert.Equal(t, testPortfolioID, resp.Msg.Id)
 }
@@ -298,10 +298,11 @@ func TestDeletePortfolio_MissingID(t *testing.T) {
 
 func TestDeletePortfolio_OK(t *testing.T) {
 	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
 	s.On("DeletePortfolio", mock.Anything, testPortfolioID).Return(nil)
 	h := newHandler(s)
 
-	_, err := h.DeletePortfolio(context.Background(), connect.NewRequest(&apiv1.DeletePortfolioRequest{Id: testPortfolioID}))
+	_, err := h.DeletePortfolio(ctxWithUser(testUserID), connect.NewRequest(&apiv1.DeletePortfolioRequest{Id: testPortfolioID}))
 	require.NoError(t, err)
 }
 
@@ -345,17 +346,18 @@ func TestGetAccount_NotFound(t *testing.T) {
 	s.On("GetAccount", mock.Anything, testAccountID).Return(nil, store.ErrNotFound)
 	h := newHandler(s)
 
-	_, err := h.GetAccount(context.Background(), connect.NewRequest(&apiv1.GetAccountRequest{Id: testAccountID}))
+	_, err := h.GetAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.GetAccountRequest{Id: testAccountID}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 }
 
 func TestDeleteAccount_OK(t *testing.T) {
 	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
 	s.On("DeleteAccount", mock.Anything, testAccountID).Return(nil)
 	h := newHandler(s)
 
-	_, err := h.DeleteAccount(context.Background(), connect.NewRequest(&apiv1.DeleteAccountRequest{Id: testAccountID}))
+	_, err := h.DeleteAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.DeleteAccountRequest{Id: testAccountID}))
 	require.NoError(t, err)
 }
 
@@ -441,7 +443,7 @@ func TestGetAccount_MasksSecrets(t *testing.T) {
 	s.On("GetAccount", mock.Anything, testAccountID).Return(account, nil)
 	h := newHandler(s)
 
-	resp, err := h.GetAccount(context.Background(), connect.NewRequest(&apiv1.GetAccountRequest{Id: testAccountID}))
+	resp, err := h.GetAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.GetAccountRequest{Id: testAccountID}))
 	require.NoError(t, err)
 	assert.Equal(t, maskPrefix+"x9z0", resp.Msg.Data["api_secret"])
 }
@@ -484,6 +486,7 @@ func TestUpdateAccount_MaskedValueWithoutStoredSecret(t *testing.T) {
 
 func TestUpdateAccount_SystemScopesNotInDefaultMask(t *testing.T) {
 	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
 	s.On("UpdateAccount", mock.Anything, mock.Anything, mock.MatchedBy(func(fields []string) bool {
 		return !slices.Contains(fields, "system_scopes") && slices.Contains(fields, "capabilities")
 	})).Return(testAccount(testAccountID), nil)
@@ -503,7 +506,9 @@ func TestUpdateAccount_SystemScopesRequireAdmin(t *testing.T) {
 		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"system_scopes"}},
 	})
 
-	h := newHandler(&mockStore{})
+	denied := &mockStore{}
+	denied.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	h := newHandler(denied)
 	_, err := h.UpdateAccount(ctxWithUser(testUserID), req)
 	require.Error(t, err)
 	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
@@ -513,11 +518,122 @@ func TestUpdateAccount_SystemScopesRequireAdmin(t *testing.T) {
 	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 
 	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
 	s.On("UpdateAccount", mock.Anything, mock.Anything, []string{"system_scopes"}).Return(testAccount(testAccountID), nil)
 	h = newHandler(s)
 	_, err = h.UpdateAccount(ctxWithAdmin(testUserID), req)
 	require.NoError(t, err)
 	s.AssertExpectations(t)
+}
+
+// --- Tests: ownership (IDOR) ---
+
+func TestOwnership_ForeignEntitiesReportNotFound(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	s.On("GetHolding", mock.Anything, testHoldingID).Return(testHolding(testHoldingID), nil)
+	s.On("GetTransaction", mock.Anything, testTxID).Return(&entity.Transaction{ID: testTxID, AccountID: testAccountID}, nil)
+	h := newHandler(s)
+
+	// All entities are owned by testUserID; testUserID2 must see NotFound,
+	// and no mutation must reach the store.
+	ctx := ctxWithUser(testUserID2)
+
+	calls := map[string]func() error{
+		"GetPortfolio": func() error {
+			_, err := h.GetPortfolio(ctx, connect.NewRequest(&apiv1.GetPortfolioRequest{Id: testPortfolioID}))
+			return err
+		},
+		"UpdatePortfolio": func() error {
+			_, err := h.UpdatePortfolio(ctx, connect.NewRequest(&apiv1.UpdatePortfolioRequest{Portfolio: &apiv1.Portfolio{Id: testPortfolioID, Name: "pwn"}}))
+			return err
+		},
+		"DeletePortfolio": func() error {
+			_, err := h.DeletePortfolio(ctx, connect.NewRequest(&apiv1.DeletePortfolioRequest{Id: testPortfolioID}))
+			return err
+		},
+		"CalculatePortfolioValue": func() error {
+			_, err := h.clone().WithMarketDataClient(&mockMDClient{}).CalculatePortfolioValue(ctx, connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{PortfolioId: testPortfolioID}))
+			return err
+		},
+		"GetAccount": func() error {
+			_, err := h.GetAccount(ctx, connect.NewRequest(&apiv1.GetAccountRequest{Id: testAccountID}))
+			return err
+		},
+		"UpdateAccount": func() error {
+			_, err := h.UpdateAccount(ctx, connect.NewRequest(&apiv1.UpdateAccountRequest{Account: &apiv1.Account{Id: testAccountID, Name: "pwn"}}))
+			return err
+		},
+		"DeleteAccount": func() error {
+			_, err := h.DeleteAccount(ctx, connect.NewRequest(&apiv1.DeleteAccountRequest{Id: testAccountID}))
+			return err
+		},
+		"GetHolding": func() error {
+			_, err := h.GetHolding(ctx, connect.NewRequest(&apiv1.GetHoldingRequest{Id: testHoldingID}))
+			return err
+		},
+		"UpdateHolding": func() error {
+			_, err := h.UpdateHolding(ctx, connect.NewRequest(&apiv1.UpdateHoldingRequest{Holding: &apiv1.Holding{Id: testHoldingID, Amount: "1", Decimals: 1}}))
+			return err
+		},
+		"CreateHolding": func() error {
+			_, err := h.CreateHolding(ctx, connect.NewRequest(&apiv1.CreateHoldingRequest{Holding: &apiv1.Holding{AccountId: testAccountID, AssetId: testAssetID, Amount: "1", Decimals: 1}}))
+			return err
+		},
+		"GetTransaction": func() error {
+			_, err := h.GetTransaction(ctx, connect.NewRequest(&apiv1.GetTransactionRequest{Id: testTxID}))
+			return err
+		},
+		"CreateTransaction": func() error {
+			_, err := h.CreateTransaction(ctx, connect.NewRequest(&apiv1.CreateTransactionRequest{Transaction: &apiv1.Transaction{AccountId: testAccountID}}))
+			return err
+		},
+	}
+	for name, call := range calls {
+		err := call()
+		require.Error(t, err, name)
+		assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err), name)
+	}
+	s.AssertNotCalled(t, "UpdatePortfolio")
+	s.AssertNotCalled(t, "DeletePortfolio")
+	s.AssertNotCalled(t, "UpdateAccount")
+	s.AssertNotCalled(t, "DeleteAccount")
+	s.AssertNotCalled(t, "UpdateHolding")
+	s.AssertNotCalled(t, "CreateHolding")
+	s.AssertNotCalled(t, "CreateTransaction")
+}
+
+func TestOwnership_AdminBypasses(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	s.On("DeleteAccount", mock.Anything, testAccountID).Return(nil)
+	h := newHandler(s)
+
+	// Admin with a different user ID may manage foreign accounts.
+	_, err := h.DeleteAccount(ctxWithAdmin(testUserID2), connect.NewRequest(&apiv1.DeleteAccountRequest{Id: testAccountID}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+}
+
+func TestListAccounts_UserOverrideIsAdminOnly(t *testing.T) {
+	s := &mockStore{}
+	// Non-admin asking for another user's accounts still gets their own scope.
+	s.On("ListAccounts", mock.Anything, ListAccountsOpts{UserID: testUserID2}).Return([]*entity.Account{}, "", nil)
+	h := newHandler(s)
+
+	other := testUserID
+	_, err := h.ListAccounts(ctxWithUser(testUserID2), connect.NewRequest(&apiv1.ListAccountsRequest{UserId: &other}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+
+	// Admin override works.
+	s2 := &mockStore{}
+	s2.On("ListAccounts", mock.Anything, ListAccountsOpts{UserID: testUserID}).Return([]*entity.Account{}, "", nil)
+	h = newHandler(s2)
+	_, err = h.ListAccounts(ctxWithAdmin(testUserID2), connect.NewRequest(&apiv1.ListAccountsRequest{UserId: &other}))
+	require.NoError(t, err)
+	s2.AssertExpectations(t)
 }
 
 // --- Tests: Holding ---
@@ -531,10 +647,11 @@ func TestCreateHolding_MissingHolding(t *testing.T) {
 
 func TestCreateHolding_OK(t *testing.T) {
 	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
 	s.On("CreateHolding", mock.Anything, mock.Anything).Return(testHolding(testHoldingID), nil)
 	h := newHandler(s)
 
-	resp, err := h.CreateHolding(context.Background(), connect.NewRequest(&apiv1.CreateHoldingRequest{
+	resp, err := h.CreateHolding(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreateHoldingRequest{
 		Holding: &apiv1.Holding{AssetId: testAssetID, AccountId: testAccountID, Amount: "100000", Decimals: 8},
 	}))
 	require.NoError(t, err)
@@ -575,6 +692,7 @@ func TestCreateTransaction_MissingTransaction(t *testing.T) {
 
 func TestCreateTransaction_OK(t *testing.T) {
 	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
 	s.On("CreateTransaction", mock.Anything, mock.Anything).Return(&entity.Transaction{
 		ID:        testTxID,
 		Type:      entity.TransactionTypeTrade,
@@ -585,7 +703,7 @@ func TestCreateTransaction_OK(t *testing.T) {
 	}, nil)
 	h := newHandler(s)
 
-	resp, err := h.CreateTransaction(context.Background(), connect.NewRequest(&apiv1.CreateTransactionRequest{
+	resp, err := h.CreateTransaction(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreateTransactionRequest{
 		Transaction: &apiv1.Transaction{AccountId: testAccountID},
 	}))
 	require.NoError(t, err)
@@ -601,6 +719,7 @@ func TestCalculatePortfolioValue_CrossRate(t *testing.T) {
 		usdtUUID = "00000000-0000-0000-0000-0000000000d7"
 	)
 	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{{
 		ID: testHoldingID, AssetID: assetX, Amount: decimal.NewFromInt(100000000), Decimals: 8, // 1.0 token
 	}}, "", nil)
@@ -620,7 +739,7 @@ func TestCalculatePortfolioValue_CrossRate(t *testing.T) {
 	})).Return(connect.NewResponse(&apiv1.Price{Last: "99000000", Decimals: 8, BaseAssetId: "USD"}), nil)
 
 	h := newHandler(s).WithMarketDataClient(md)
-	resp, err := h.CalculatePortfolioValue(context.Background(), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
+	resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
 		PortfolioId: testPortfolioID,
 	}))
 	require.NoError(t, err)
@@ -735,7 +854,7 @@ func TestSyncAccount_LargeBalance(t *testing.T) {
 
 	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
 
-	resp, err := h.SyncAccount(context.Background(), connect.NewRequest(&apiv1.SyncAccountRequest{
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
 		AccountId: testAccountID,
 	}))
 	require.NoError(t, err)
@@ -777,7 +896,7 @@ func TestSyncAccount_MergeMixedDecimals(t *testing.T) {
 
 	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
 
-	resp, err := h.SyncAccount(context.Background(), connect.NewRequest(&apiv1.SyncAccountRequest{
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
 		AccountId: testAccountID,
 	}))
 	require.NoError(t, err)
