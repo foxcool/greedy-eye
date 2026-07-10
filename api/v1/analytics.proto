@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package eye.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/foxcool/greedy-eye/api/v1;apiv1";
+
+// =============================================================================
+// TYPES
+// =============================================================================
+
+// HeatmapScope selects what the heatmap is built over.
+enum HeatmapScope {
+  HEATMAP_SCOPE_UNSPECIFIED = 0;
+  HEATMAP_SCOPE_PORTFOLIO = 1; // one portfolio (scope_id = portfolio id)
+  HEATMAP_SCOPE_BALANCE = 2;   // all user holdings across portfolios
+  HEATMAP_SCOPE_MARKET = 3;    // whole market (requires market metrics)
+  HEATMAP_SCOPE_BASKET = 4;    // named asset basket (scope_id = basket id)
+}
+
+// HeatmapGroupBy is the grouping axis for intermediate nodes.
+// UNSPECIFIED means a flat heatmap (leaves only).
+enum HeatmapGroupBy {
+  HEATMAP_GROUP_BY_UNSPECIFIED = 0;
+  HEATMAP_GROUP_BY_ACCOUNT = 1;
+  HEATMAP_GROUP_BY_PORTFOLIO = 2;
+  HEATMAP_GROUP_BY_ASSET_CLASS = 3;
+  HEATMAP_GROUP_BY_SECTOR = 4;
+  HEATMAP_GROUP_BY_MARKET = 5;
+}
+
+// HeatmapWindow is the lookback window for the color metric.
+enum HeatmapWindow {
+  HEATMAP_WINDOW_UNSPECIFIED = 0; // defaults to 24h
+  HEATMAP_WINDOW_24H = 1;
+  HEATMAP_WINDOW_7D = 2;
+  HEATMAP_WINDOW_30D = 3;
+}
+
+// HeatmapSizeMetric drives tile size.
+enum HeatmapSizeMetric {
+  HEATMAP_SIZE_METRIC_UNSPECIFIED = 0; // defaults to VALUE
+  HEATMAP_SIZE_METRIC_VALUE = 1;       // holding value in quote asset
+  HEATMAP_SIZE_METRIC_MARKET_CAP = 2;  // market scope only
+  HEATMAP_SIZE_METRIC_VOLUME = 3;      // market scope only
+}
+
+// HeatmapColorMetric drives tile color.
+enum HeatmapColorMetric {
+  HEATMAP_COLOR_METRIC_UNSPECIFIED = 0; // defaults to CHANGE_PCT
+  HEATMAP_COLOR_METRIC_CHANGE_PCT = 1;  // price change % over window
+  HEATMAP_COLOR_METRIC_PNL_PCT = 2;     // requires cost basis (not yet available)
+  HEATMAP_COLOR_METRIC_TARGET_DRIFT = 3; // requires target allocations
+}
+
+// HeatmapNode is one tile (leaf) or group (parent) of the treemap.
+// Values are float64 visualization data, not accounting-grade amounts —
+// precise values stay behind PortfolioService/MarketDataService.
+message HeatmapNode {
+  string id = 1;
+  string label = 2;      // asset symbol or group name
+  string parent_id = 3;  // empty for root-level nodes
+  double size = 4;       // size metric in quote asset units (group = sum of children)
+  double color_value = 5; // color metric value (e.g. signed change %); group = size-weighted
+  optional double price = 6; // current unit price in quote asset (leaf only)
+  string asset_id = 7;   // set on leaves; links to asset entity
+}
+
+// =============================================================================
+// SERVICE
+// =============================================================================
+
+// AnalyticsService serves derived, read-only views over portfolio and market
+// data (heatmaps; later: allocations, drift).
+service AnalyticsService {
+  rpc GetHeatmap(GetHeatmapRequest) returns (GetHeatmapResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/analytics/heatmap"
+    };
+  }
+}
+
+message GetHeatmapRequest {
+  HeatmapScope scope = 1;
+  // Scope object id: portfolio id for PORTFOLIO, basket id for BASKET.
+  string scope_id = 2;
+  HeatmapGroupBy group_by = 3;
+  HeatmapWindow window = 4;
+  HeatmapSizeMetric size_metric = 5;
+  HeatmapColorMetric color_metric = 6;
+  // Asset the size/price values are quoted in; defaults to USD.
+  string quote_asset_id = 7;
+}
+
+message GetHeatmapResponse {
+  repeated HeatmapNode nodes = 1;
+  string quote_asset_id = 2;
+  google.protobuf.Timestamp calculated_at = 3;
+}

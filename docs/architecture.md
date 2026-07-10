@@ -190,7 +190,7 @@ graph TB
 
 **Selected Architectural Patterns:**
 - **Modular Monolith**: Balance between development simplicity and scalability
-- **3-service domain API**: MarketDataService, PortfolioService, AutomationService
+- **4-service domain API**: MarketDataService, PortfolioService, AutomationService, AnalyticsService
 - **Layered architecture**: handler → store interface → postgres implementation
 - **CQRS elements**: Separation of read and write operations in critical places
 
@@ -252,9 +252,9 @@ graph TB
 **Level 1 Containers:**
 
 - **greedy-eye binary**:
-  - Purpose: Single Go binary serving 3 domain services over Connect-RPC
+  - Purpose: Single Go binary serving 4 domain services over Connect-RPC
   - Technologies: Go, Connect-RPC, Protocol Buffers, h2c
-  - Services: MarketDataService, PortfolioService, AutomationService
+  - Services: MarketDataService, PortfolioService, AutomationService, AnalyticsService
   - Health check: `GET /eye/health`
 
 - **PostgreSQL Database**:
@@ -273,6 +273,7 @@ graph TB
         MDS[MarketDataService<br/>assets + prices]
         PS[PortfolioService<br/>portfolios, accounts<br/>holdings, transactions]
         AS[AutomationService<br/>rules + executions]
+        ANS[AnalyticsService<br/>heatmaps]
     end
 
     subgraph "Store Interfaces"
@@ -298,6 +299,8 @@ graph TB
     MDS --> MDSI --> MDSP --> DB[(PostgreSQL)]
     PS  --> PSI  --> PSP  --> DB
     AS  --> ASI  --> ASP  --> DB
+    ANS --> PSI
+    ANS -.->|prices, assets| MDS
 
     MDS -.->|FetchExternalPrices via resolver| CoinGecko
     MDS -.->|FetchExternalPrices| Binance
@@ -330,6 +333,16 @@ graph TB
 - Ownership enforced per rule (`ownedRule`); execution engines (DCA/rebalancing/stop-loss) are
   still stubs pending the rule-engine package.
 - Store: `AutomationStore` (PostgreSQL) — `rules` + `rule_executions` tables
+
+**AnalyticsService** (`internal/service/analytics/`):
+- RPCs implemented: GetHeatmap — treemap nodes for scope=PORTFOLIO (flat or grouped by account;
+  tile size = holding value in the quote asset, tile color = price change % over a 24h/7d/30d window)
+- Scopes BALANCE/MARKET/BASKET, PNL/target-drift color metrics and class/sector grouping return
+  Unimplemented until their data prerequisites land (market metrics, asset identity, cost basis)
+- Read-only derived views: no store of its own — reads via `portfolio.Store` (holdings) and the
+  MarketData client (prices, asset labels); price resolution mirrors `portfolio.Handler.unitPrice`
+  (duplicated consciously; extract a shared pricing package on the third consumer)
+- Ownership enforced on the scope portfolio (`middleware.EnsureOwner`)
 
 **User provisioning** (`internal/middleware/user.go` + `postgres.UserStore`):
 - Users are provisioned lazily from `X-User-Id`/`X-User-Email`/`X-User-Roles` headers set by the
@@ -439,7 +452,8 @@ Cron / API Client → AutomationService/ExecuteRule
 │   ├── Connect-RPC h2c Server (:8080)
 │   │   ├── MarketDataService
 │   │   ├── PortfolioService
-│   │   └── AutomationService
+│   │   ├── AutomationService
+│   │   └── AnalyticsService
 │   └── Health: GET /eye/health
 ├── Database Container
 │   ├── PostgreSQL 17+

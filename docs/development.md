@@ -5,9 +5,10 @@ asset types including cryptocurrencies, securities, derivatives, and alternative
 
 > **Source of truth**: `api/v1/*.proto` (API), `schema.hcl` (database),
 > `cmd/eye/main.go` (wiring). This guide is hand-maintained prose — when it
-> disagrees with the code, the code wins. The backend is a 3-service Connect-RPC
-> modular monolith (MarketDataService, PortfolioService, AutomationService) on
-> pgx raw SQL — not Ent, not gRPC-Gateway, not the older 8-service design.
+> disagrees with the code, the code wins. The backend is a 4-service Connect-RPC
+> modular monolith (MarketDataService, PortfolioService, AutomationService,
+> AnalyticsService) on pgx raw SQL — not Ent, not gRPC-Gateway, not the older
+> 8-service design.
 
 ## Quick Start
 
@@ -146,6 +147,7 @@ exchange), and ownership enforcement are in place. The automation rule engines
 | MarketDataService | `internal/service/marketdata/` | ✅ Assets + prices CRUD, FetchExternalPrices (resolver) |
 | PortfolioService | `internal/service/portfolio/` | ✅ CRUD, CalculatePortfolioValue, SyncAccount (wallet + exchange), ownership |
 | AutomationService | `internal/service/automation/` | 🔄 Rule/execution CRUD + status ops done; execution engines stubbed |
+| AnalyticsService | `internal/service/analytics/` | 🔄 GetHeatmap scope=portfolio (flat / by account, change% color); other scopes pending data prerequisites |
 | Credentials resolver | `internal/service/credentials/` | ✅ Per-account provider clients (user → system → env) |
 | User provisioning | `internal/middleware/user.go` | ✅ Header-based (psina), lazy provision, roles per request |
 
@@ -236,6 +238,7 @@ greedy-eye/
 │   ├── service/            # Connect handlers + business logic
 │   │   ├── marketdata/     # MarketDataService handler
 │   │   ├── portfolio/      # PortfolioService handler
+│   │   ├── analytics/      # AnalyticsService handler (heatmaps)
 │   │   ├── automation/     # AutomationService handler
 │   │   └── credentials/    # Per-account provider client resolver
 │   ├── store/              # Data persistence layer
@@ -327,7 +330,8 @@ Store Layer (PostgreSQL + pgx raw SQL)
 Service Layer (Connect handlers)
 ├── MarketDataService → MarketDataStore, credentials resolver (price providers)
 ├── PortfolioService  → PortfolioStore, MarketDataService, resolver (wallet/exchange syncers)
-└── AutomationService → AutomationStore
+├── AutomationService → AutomationStore
+└── AnalyticsService  → PortfolioStore (read-only), MarketDataService (prices, assets)
 
 Cross-cutting
 ├── credentials.Resolver → PortfolioStore (accounts), adapter factories
