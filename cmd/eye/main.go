@@ -19,6 +19,7 @@ import (
 	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
+	"github.com/foxcool/greedy-eye/internal/service/analytics"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
 	"github.com/foxcool/greedy-eye/internal/service/credentials"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
@@ -192,6 +193,11 @@ func run() error {
 			path, handler := apiv1connect.NewAutomationServiceHandler(
 				automation.NewHandler(postgres.NewAutomationStore(pool), log), interceptor,
 			)
+			mux.Handle(path, handler)
+		case ServiceConfigTypeAnalytics:
+			aHandler := analytics.NewHandler(portfolioStore, log).
+				WithMarketDataClient(mdHandler)
+			path, handler := apiv1connect.NewAnalyticsServiceHandler(aHandler, interceptor)
 			mux.Handle(path, handler)
 		default:
 			log.Warn("unknown service type, skipping", slog.String("type", svc.Type))

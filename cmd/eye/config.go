@@ -60,6 +60,7 @@ const (
 	ServiceConfigTypeMarketData = "marketdata"
 	ServiceConfigTypePortfolio  = "portfolio"
 	ServiceConfigTypeAutomation = "automation"
+	ServiceConfigTypeAnalytics  = "analytics"
 )
 
 func getConfig() (*Config, error) {
@@ -75,6 +76,7 @@ func getConfig() (*Config, error) {
 			map[string]any{"type": ServiceConfigTypeMarketData},
 			map[string]any{"type": ServiceConfigTypePortfolio},
 			map[string]any{"type": ServiceConfigTypeAutomation},
+			map[string]any{"type": ServiceConfigTypeAnalytics},
 		},
 	}
 	err = k.Load(confmap.Provider(defaults, "."), nil)
