@@ -335,9 +335,12 @@ graph TB
 - Store: `AutomationStore` (PostgreSQL) — `rules` + `rule_executions` tables
 
 **AnalyticsService** (`internal/service/analytics/`):
-- RPCs implemented: GetHeatmap — treemap nodes for scope=PORTFOLIO (flat or grouped by account;
-  tile size = holding value in the quote asset, tile color = price change % over a 24h/7d/30d window)
-- Scopes BALANCE/MARKET/BASKET, PNL/target-drift color metrics and class/sector grouping return
+- RPCs implemented: GetHeatmap — treemap nodes; tile size = holding value in the quote asset,
+  tile color = price change % over a 24h/7d/30d window
+- Scopes: PORTFOLIO (one portfolio; flat or grouped by account) and BALANCE (all caller's
+  holdings across portfolios; flat, by account, or by portfolio — holdings inherit the account's
+  portfolio, accounts outside any portfolio land in an "unassigned" group)
+- Scopes MARKET/BASKET, PNL/target-drift color metrics and class/sector grouping return
   Unimplemented until their data prerequisites land (market metrics, asset identity, cost basis)
 - Read-only derived views: no store of its own — reads via `portfolio.Store` (holdings) and the
   MarketData client (prices, asset labels); price resolution mirrors `portfolio.Handler.unitPrice`

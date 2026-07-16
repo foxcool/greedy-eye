@@ -147,7 +147,7 @@ exchange), and ownership enforcement are in place. The automation rule engines
 | MarketDataService | `internal/service/marketdata/` | ✅ Assets + prices CRUD, FetchExternalPrices (resolver) |
 | PortfolioService | `internal/service/portfolio/` | ✅ CRUD, CalculatePortfolioValue, SyncAccount (wallet + exchange), ownership |
 | AutomationService | `internal/service/automation/` | 🔄 Rule/execution CRUD + status ops done; execution engines stubbed |
-| AnalyticsService | `internal/service/analytics/` | 🔄 GetHeatmap scope=portfolio (flat / by account, change% color); other scopes pending data prerequisites |
+| AnalyticsService | `internal/service/analytics/` | 🔄 GetHeatmap scope=portfolio+balance (flat / by account / by portfolio, change% color); market/basket pending data prerequisites |
 | Credentials resolver | `internal/service/credentials/` | ✅ Per-account provider clients (user → system → env) |
 | User provisioning | `internal/middleware/user.go` | ✅ Header-based (psina), lazy provision, roles per request |
 

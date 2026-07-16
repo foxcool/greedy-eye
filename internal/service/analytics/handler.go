@@ -11,6 +11,7 @@ import (
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
+	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
 	"github.com/foxcool/greedy-eye/internal/store"
@@ -24,6 +25,10 @@ const defaultQuoteAsset = "USD"
 
 // maxHoldings caps how many holdings a single heatmap reads.
 const maxHoldings = 1000
+
+// unassignedGroupID labels holdings whose account belongs to no portfolio
+// when grouping a balance heatmap by portfolio.
+const unassignedGroupID = "unassigned"
 
 // Handler implements apiv1connect.AnalyticsServiceHandler.
 type Handler struct {
@@ -50,8 +55,8 @@ func (h *Handler) GetHeatmap(ctx context.Context, req *connect.Request[apiv1.Get
 	}
 
 	switch req.Msg.Scope {
-	case apiv1.HeatmapScope_HEATMAP_SCOPE_PORTFOLIO:
-		return h.portfolioHeatmap(ctx, req.Msg)
+	case apiv1.HeatmapScope_HEATMAP_SCOPE_PORTFOLIO, apiv1.HeatmapScope_HEATMAP_SCOPE_BALANCE:
+		return h.heatmap(ctx, req.Msg)
 	case apiv1.HeatmapScope_HEATMAP_SCOPE_UNSPECIFIED:
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("scope is required"))
 	default:
@@ -60,16 +65,14 @@ func (h *Handler) GetHeatmap(ctx context.Context, req *connect.Request[apiv1.Get
 	}
 }
 
-func (h *Handler) portfolioHeatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*connect.Response[apiv1.GetHeatmapResponse], error) {
-	if msg.ScopeId == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("scope_id (portfolio id) is required"))
-	}
-
+// heatmap serves both holding-backed scopes: PORTFOLIO (one portfolio) and
+// BALANCE (all caller's holdings across portfolios).
+func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*connect.Response[apiv1.GetHeatmapResponse], error) {
 	switch msg.SizeMetric {
 	case apiv1.HeatmapSizeMetric_HEATMAP_SIZE_METRIC_UNSPECIFIED, apiv1.HeatmapSizeMetric_HEATMAP_SIZE_METRIC_VALUE:
 	default:
 		return nil, connect.NewError(connect.CodeInvalidArgument,
-			fmt.Errorf("size metric %s does not apply to portfolio scope", msg.SizeMetric))
+			fmt.Errorf("size metric %s does not apply to scope %s", msg.SizeMetric, msg.Scope))
 	}
 
 	switch msg.ColorMetric {
@@ -79,20 +82,46 @@ func (h *Handler) portfolioHeatmap(ctx context.Context, msg *apiv1.GetHeatmapReq
 			fmt.Errorf("color metric %s is not implemented yet", msg.ColorMetric))
 	}
 
+	isBalance := msg.Scope == apiv1.HeatmapScope_HEATMAP_SCOPE_BALANCE
+
 	switch msg.GroupBy {
 	case apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_UNSPECIFIED, apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_ACCOUNT:
+	case apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_PORTFOLIO:
+		if !isBalance {
+			return nil, connect.NewError(connect.CodeInvalidArgument,
+				errors.New("grouping by portfolio only applies to scope BALANCE"))
+		}
 	default:
 		return nil, connect.NewError(connect.CodeUnimplemented,
 			fmt.Errorf("grouping by %s is not implemented yet", msg.GroupBy))
 	}
 
-	p, err := h.store.GetPortfolio(ctx, msg.ScopeId)
-	if err != nil {
-		return nil, toConnectError(err)
+	// Scope resolution: which holdings, and who may see them.
+	var opts portfolio.ListHoldingsOpts
+	if isBalance {
+		if msg.ScopeId != "" {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("scope_id must be empty for scope BALANCE"))
+		}
+		user, ok := middleware.UserFromContext(ctx)
+		if !ok {
+			return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+		}
+		opts.UserID = user.ID
+	} else {
+		if msg.ScopeId == "" {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("scope_id (portfolio id) is required"))
+		}
+		p, err := h.store.GetPortfolio(ctx, msg.ScopeId)
+		if err != nil {
+			return nil, toConnectError(err)
+		}
+		if err := middleware.EnsureOwner(ctx, p.UserID); err != nil {
+			return nil, err
+		}
+		opts.PortfolioID = msg.ScopeId
 	}
-	if err := middleware.EnsureOwner(ctx, p.UserID); err != nil {
-		return nil, err
-	}
+	opts.PageSize = maxHoldings
+	opts.HideExcluded = true
 
 	quoteAssetID := msg.QuoteAssetId
 	if quoteAssetID == "" {
@@ -100,21 +129,18 @@ func (h *Handler) portfolioHeatmap(ctx context.Context, msg *apiv1.GetHeatmapReq
 	}
 	from := time.Now().Add(-windowDuration(msg.Window))
 
-	holdings, _, err := h.store.ListHoldings(ctx, portfolio.ListHoldingsOpts{
-		PortfolioID:  msg.ScopeId,
-		PageSize:     maxHoldings,
-		HideExcluded: true,
-	})
+	holdings, _, err := h.store.ListHoldings(ctx, opts)
 	if err != nil {
 		return nil, toConnectError(err)
 	}
 
 	// Aggregate holding values per leaf. Leaves are per asset when flat,
-	// per (account, asset) when grouped by account.
-	grouped := msg.GroupBy == apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_ACCOUNT
-	type leafKey struct{ accountID, assetID string }
+	// per (group, asset) when grouped.
+	grouped := msg.GroupBy != apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_UNSPECIFIED
+	type leafKey struct{ groupID, assetID string }
 	values := map[leafKey]decimal.Decimal{}
-	assets := map[string]*assetPricing{} // assetID → resolved price/change/label
+	assets := map[string]*assetPricing{}       // assetID → resolved price/change/label
+	accountPortfolios := map[string]string{}   // accountID → its portfolio id (for group_by=portfolio)
 
 	for _, hld := range holdings {
 		ap, err := h.assetPricing(ctx, assets, hld.AssetID, quoteAssetID, from)
@@ -126,7 +152,10 @@ func (h *Handler) portfolioHeatmap(ctx context.Context, msg *apiv1.GetHeatmapReq
 		}
 		key := leafKey{assetID: hld.AssetID}
 		if grouped {
-			key.accountID = hld.AccountID
+			key.groupID, err = h.groupID(ctx, msg.GroupBy, hld, accountPortfolios)
+			if err != nil {
+				return nil, err
+			}
 		}
 		holdingValue := hld.Amount.Shift(-decI32(hld.Decimals)).Mul(ap.unit)
 		values[key] = values[key].Add(holdingValue)
@@ -137,8 +166,8 @@ func (h *Handler) portfolioHeatmap(ctx context.Context, msg *apiv1.GetHeatmapReq
 		ap := assets[key.assetID]
 		id, parent := key.assetID, ""
 		if grouped {
-			id = key.accountID + ":" + key.assetID
-			parent = key.accountID
+			id = key.groupID + ":" + key.assetID
+			parent = key.groupID
 		}
 		price := ap.unit.InexactFloat64()
 		nodes = append(nodes, &apiv1.HeatmapNode{
@@ -154,7 +183,7 @@ func (h *Handler) portfolioHeatmap(ctx context.Context, msg *apiv1.GetHeatmapReq
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].Size > nodes[j].Size })
 
 	if grouped {
-		groups, err := h.accountGroupNodes(ctx, nodes)
+		groups, err := h.groupNodes(ctx, msg.GroupBy, nodes)
 		if err != nil {
 			return nil, err
 		}
@@ -168,42 +197,68 @@ func (h *Handler) portfolioHeatmap(ctx context.Context, msg *apiv1.GetHeatmapReq
 	}), nil
 }
 
-// accountGroupNodes builds one parent node per account referenced by leaves.
+// groupID resolves which group a holding belongs to for the given axis.
+// For portfolio grouping a holding without its own portfolio inherits the
+// account's; accounts outside any portfolio land in the "unassigned" group.
+func (h *Handler) groupID(ctx context.Context, groupBy apiv1.HeatmapGroupBy, hld *entity.Holding, accountPortfolios map[string]string) (string, error) {
+	if groupBy == apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_ACCOUNT {
+		return hld.AccountID, nil
+	}
+
+	// HEATMAP_GROUP_BY_PORTFOLIO
+	if hld.PortfolioID != "" {
+		return hld.PortfolioID, nil
+	}
+	if pid, ok := accountPortfolios[hld.AccountID]; ok {
+		return pid, nil
+	}
+	pid := ""
+	acc, err := h.store.GetAccount(ctx, hld.AccountID)
+	switch {
+	case err == nil:
+		pid = acc.PortfolioID
+	case errors.Is(err, store.ErrNotFound):
+		// Keep the holding under "unassigned"; it outlived its account record.
+	default:
+		return "", toConnectError(err)
+	}
+	if pid == "" {
+		pid = unassignedGroupID
+	}
+	accountPortfolios[hld.AccountID] = pid
+	return pid, nil
+}
+
+// groupNodes builds one parent node per group referenced by leaves.
 // Group size is the sum of child sizes; group color is the size-weighted
 // average of child colors.
-func (h *Handler) accountGroupNodes(ctx context.Context, leaves []*apiv1.HeatmapNode) ([]*apiv1.HeatmapNode, error) {
+func (h *Handler) groupNodes(ctx context.Context, groupBy apiv1.HeatmapGroupBy, leaves []*apiv1.HeatmapNode) ([]*apiv1.HeatmapNode, error) {
 	type agg struct {
 		size, weightedColor float64
 	}
-	byAccount := map[string]*agg{}
+	byGroup := map[string]*agg{}
 	for _, n := range leaves {
-		a := byAccount[n.ParentId]
+		a := byGroup[n.ParentId]
 		if a == nil {
 			a = &agg{}
-			byAccount[n.ParentId] = a
+			byGroup[n.ParentId] = a
 		}
 		a.size += n.Size
 		a.weightedColor += n.Size * n.ColorValue
 	}
 
-	groups := make([]*apiv1.HeatmapNode, 0, len(byAccount))
-	for accountID, a := range byAccount {
-		label := accountID
-		acc, err := h.store.GetAccount(ctx, accountID)
-		switch {
-		case err == nil:
-			label = acc.Name
-		case errors.Is(err, store.ErrNotFound):
-			// Keep the ID as label; the holding outlived its account record.
-		default:
-			return nil, toConnectError(err)
+	groups := make([]*apiv1.HeatmapNode, 0, len(byGroup))
+	for groupID, a := range byGroup {
+		label, err := h.groupLabel(ctx, groupBy, groupID)
+		if err != nil {
+			return nil, err
 		}
 		color := 0.0
 		if a.size != 0 {
 			color = a.weightedColor / a.size
 		}
 		groups = append(groups, &apiv1.HeatmapNode{
-			Id:         accountID,
+			Id:         groupID,
 			Label:      label,
 			Size:       a.size,
 			ColorValue: color,
@@ -211,6 +266,40 @@ func (h *Handler) accountGroupNodes(ctx context.Context, leaves []*apiv1.Heatmap
 	}
 	sort.Slice(groups, func(i, j int) bool { return groups[i].Size > groups[j].Size })
 	return groups, nil
+}
+
+// groupLabel resolves a human label for a group node; a group whose entity
+// record is gone keeps its ID as the label.
+func (h *Handler) groupLabel(ctx context.Context, groupBy apiv1.HeatmapGroupBy, groupID string) (string, error) {
+	if groupBy == apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_PORTFOLIO && groupID == unassignedGroupID {
+		return "Unassigned", nil
+	}
+
+	var name string
+	var err error
+	switch groupBy {
+	case apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_ACCOUNT:
+		var acc *entity.Account
+		if acc, err = h.store.GetAccount(ctx, groupID); err == nil {
+			name = acc.Name
+		}
+	case apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_PORTFOLIO:
+		var p *entity.Portfolio
+		if p, err = h.store.GetPortfolio(ctx, groupID); err == nil {
+			name = p.Name
+		}
+	default:
+		return groupID, nil
+	}
+
+	switch {
+	case err == nil:
+		return name, nil
+	case errors.Is(err, store.ErrNotFound):
+		return groupID, nil
+	default:
+		return "", toConnectError(err)
+	}
 }
 
 func windowDuration(w apiv1.HeatmapWindow) time.Duration {

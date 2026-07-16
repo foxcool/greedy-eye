@@ -44,7 +44,10 @@ func (f *fakeStore) GetAccount(_ context.Context, id string) (*entity.Account, e
 func (f *fakeStore) ListHoldings(_ context.Context, opts portfolio.ListHoldingsOpts) ([]*entity.Holding, string, error) {
 	var out []*entity.Holding
 	for _, h := range f.holdings {
-		if h.PortfolioID != opts.PortfolioID {
+		if opts.PortfolioID != "" && h.PortfolioID != opts.PortfolioID {
+			continue
+		}
+		if opts.UserID != "" && !f.ownedBy(h, opts.UserID) {
 			continue
 		}
 		if opts.HideExcluded && h.Excluded {
@@ -53,6 +56,17 @@ func (f *fakeStore) ListHoldings(_ context.Context, opts portfolio.ListHoldingsO
 		out = append(out, h)
 	}
 	return out, "", nil
+}
+
+// ownedBy mirrors the real store's user scoping: by the owning portfolio,
+// falling back to the account owner for holdings outside any portfolio.
+func (f *fakeStore) ownedBy(h *entity.Holding, userID string) bool {
+	if h.PortfolioID != "" {
+		p, ok := f.portfolios[h.PortfolioID]
+		return ok && p.UserID == userID
+	}
+	a, ok := f.accounts[h.AccountID]
+	return ok && a.UserID == userID
 }
 
 // fakeMD serves assets and prices from maps keyed by "assetID|baseAssetID";
@@ -289,8 +303,8 @@ func TestGetHeatmap_Validation(t *testing.T) {
 		{"scope required", func(m *apiv1.GetHeatmapRequest) {
 			m.Scope = apiv1.HeatmapScope_HEATMAP_SCOPE_UNSPECIFIED
 		}, connect.CodeInvalidArgument},
-		{"balance scope not implemented", func(m *apiv1.GetHeatmapRequest) {
-			m.Scope = apiv1.HeatmapScope_HEATMAP_SCOPE_BALANCE
+		{"basket scope not implemented", func(m *apiv1.GetHeatmapRequest) {
+			m.Scope = apiv1.HeatmapScope_HEATMAP_SCOPE_BASKET
 		}, connect.CodeUnimplemented},
 		{"scope_id required", func(m *apiv1.GetHeatmapRequest) {
 			m.ScopeId = ""
@@ -315,6 +329,125 @@ func TestGetHeatmap_Validation(t *testing.T) {
 			assert.Equal(t, tt.code, connect.CodeOf(err))
 		})
 	}
+}
+
+// balanceFixture extends fixture with a second portfolio (extra 1 ETH on a1)
+// and a portfolio-less account a3 holding 0.1 BTC (→ "unassigned" group).
+func balanceFixture() (*fakeStore, *fakeMD) {
+	st, md := fixture()
+	st.portfolios["p2"] = &entity.Portfolio{ID: "p2", UserID: "u1", Name: "trading"}
+	st.accounts["a3"] = &entity.Account{ID: "a3", UserID: "u1", Name: "cold"}
+	st.holdings = append(st.holdings,
+		&entity.Holding{ID: "h3", AssetID: "eth", AccountID: "a1", PortfolioID: "p2", Amount: dec("1000000000000000000"), Decimals: 18},
+		&entity.Holding{ID: "h4", AssetID: "btc", AccountID: "a3", Amount: dec("10000000"), Decimals: 8},
+	)
+	return st, md
+}
+
+func balanceRequest(mut ...func(*apiv1.GetHeatmapRequest)) *connect.Request[apiv1.GetHeatmapRequest] {
+	msg := &apiv1.GetHeatmapRequest{Scope: apiv1.HeatmapScope_HEATMAP_SCOPE_BALANCE}
+	for _, m := range mut {
+		m(msg)
+	}
+	return connect.NewRequest(msg)
+}
+
+func TestGetHeatmap_BalanceFlat(t *testing.T) {
+	st, md := balanceFixture()
+	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+
+	resp, err := h.GetHeatmap(userCtx("u1"), balanceRequest())
+	require.NoError(t, err)
+
+	// Flat balance aggregates per asset across portfolios and accounts:
+	// BTC 0.5 + 0.1 = 0.6 → 24000; ETH 2 + 1 = 3 → 6000.
+	require.Len(t, resp.Msg.Nodes, 2)
+	assert.Equal(t, "btc", resp.Msg.Nodes[0].Id)
+	assert.InDelta(t, 24000, resp.Msg.Nodes[0].Size, 1e-9)
+	assert.Equal(t, "eth", resp.Msg.Nodes[1].Id)
+	assert.InDelta(t, 6000, resp.Msg.Nodes[1].Size, 1e-9)
+}
+
+func TestGetHeatmap_BalanceGroupByPortfolio(t *testing.T) {
+	st, md := balanceFixture()
+	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+
+	resp, err := h.GetHeatmap(userCtx("u1"), balanceRequest(func(m *apiv1.GetHeatmapRequest) {
+		m.GroupBy = apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_PORTFOLIO
+	}))
+	require.NoError(t, err)
+
+	// Groups sorted by size desc: p1 (20000+4000), unassigned (4000), p2 (2000).
+	// 3 groups + 4 leaves.
+	require.Len(t, resp.Msg.Nodes, 7)
+
+	g1, g2, g3 := resp.Msg.Nodes[0], resp.Msg.Nodes[1], resp.Msg.Nodes[2]
+	assert.Equal(t, "p1", g1.Id)
+	assert.Equal(t, "main", g1.Label)
+	assert.InDelta(t, 24000, g1.Size, 1e-9)
+	assert.Equal(t, "unassigned", g2.Id)
+	assert.Equal(t, "Unassigned", g2.Label)
+	assert.InDelta(t, 4000, g2.Size, 1e-9)
+	assert.Equal(t, "p2", g3.Id)
+	assert.Equal(t, "trading", g3.Label)
+	assert.InDelta(t, 2000, g3.Size, 1e-9)
+
+	leaf := resp.Msg.Nodes[3]
+	assert.Equal(t, "p1:btc", leaf.Id)
+	assert.Equal(t, "p1", leaf.ParentId)
+}
+
+func TestGetHeatmap_BalanceGroupByAccount(t *testing.T) {
+	st, md := balanceFixture()
+	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+
+	resp, err := h.GetHeatmap(userCtx("u1"), balanceRequest(func(m *apiv1.GetHeatmapRequest) {
+		m.GroupBy = apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_ACCOUNT
+	}))
+	require.NoError(t, err)
+
+	// a1 holds 3 ETH total (two portfolios merge within the account leaf).
+	require.Len(t, resp.Msg.Nodes, 6) // 3 groups + 3 leaves
+	assert.Equal(t, "a2", resp.Msg.Nodes[0].Id) // 20000
+	assert.Equal(t, "a1", resp.Msg.Nodes[1].Id) // 6000
+	assert.Equal(t, "a3", resp.Msg.Nodes[2].Id) // 4000
+}
+
+func TestGetHeatmap_BalanceScopesToCaller(t *testing.T) {
+	st, md := balanceFixture()
+	st.portfolios["px"] = &entity.Portfolio{ID: "px", UserID: "other", Name: "foreign"}
+	st.holdings = append(st.holdings,
+		&entity.Holding{ID: "hx", AssetID: "btc", AccountID: "ax", PortfolioID: "px", Amount: dec("100000000"), Decimals: 8},
+	)
+	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+
+	resp, err := h.GetHeatmap(userCtx("u1"), balanceRequest())
+	require.NoError(t, err)
+
+	// Foreign holding (1 BTC = 40000) must not leak into u1's balance.
+	assert.InDelta(t, 24000, resp.Msg.Nodes[0].Size, 1e-9)
+}
+
+func TestGetHeatmap_BalanceValidation(t *testing.T) {
+	st, md := balanceFixture()
+	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+
+	_, err := h.GetHeatmap(userCtx("u1"), balanceRequest(func(m *apiv1.GetHeatmapRequest) {
+		m.ScopeId = "p1"
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+
+	_, err = h.GetHeatmap(context.Background(), balanceRequest())
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+
+	// Portfolio grouping is balance-only.
+	_, err = h.GetHeatmap(userCtx("u1"), heatmapRequest(func(m *apiv1.GetHeatmapRequest) {
+		m.GroupBy = apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_PORTFOLIO
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 }
 
 func TestGetHeatmap_NoMarketDataClient(t *testing.T) {
