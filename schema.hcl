@@ -142,6 +142,18 @@ table "assets" {
     type = character_varying
     null = false
   }
+  // Listing market of the instrument (crypto, nasdaq, moex), not the price source.
+  // Crypto is a single global market; the default backfills existing rows.
+  column "market" {
+    type    = character_varying
+    null    = false
+    default = "crypto"
+  }
+  // Quote currency/base where applicable (e.g. USD for a NASDAQ listing).
+  column "quote" {
+    type = character_varying
+    null = true
+  }
   column "tags" {
     type = jsonb
     null = false
@@ -153,6 +165,10 @@ table "assets" {
 
   index "asset_symbol" {
     columns = [column.symbol]
+  }
+
+  index "asset_symbol_market_type" {
+    columns = [column.symbol, column.market, column.type]
     unique  = true
   }
 

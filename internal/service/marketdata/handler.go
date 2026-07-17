@@ -489,33 +489,37 @@ func toConnectError(err error) error {
 // Conversion helpers
 
 func assetFromProto(p *apiv1.Asset) *entity.Asset {
-	var symbol string
-	if p.Symbol != nil {
-		symbol = *p.Symbol
-	}
 	return &entity.Asset{
 		ID:     p.Id,
 		Name:   p.Name,
-		Symbol: symbol,
+		Symbol: p.GetSymbol(),
 		Type:   entity.AssetType(p.Type),
+		Market: p.GetMarket(),
+		Quote:  p.GetQuote(),
 		Tags:   p.Tags,
 	}
 }
 
 func assetToProto(e *entity.Asset) *apiv1.Asset {
-	var symbol *string
-	if e.Symbol != "" {
-		symbol = &e.Symbol
-	}
 	return &apiv1.Asset{
 		Id:        e.ID,
 		Name:      e.Name,
-		Symbol:    symbol,
+		Symbol:    optionalString(e.Symbol),
 		Type:      apiv1.AssetType(e.Type),
+		Market:    optionalString(e.Market),
+		Quote:     optionalString(e.Quote),
 		Tags:      e.Tags,
 		CreatedAt: timestamppb.New(e.CreatedAt),
 		UpdatedAt: timestamppb.New(e.UpdatedAt),
 	}
+}
+
+// optionalString maps "" to an absent proto optional field.
+func optionalString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // parseDecimal parses a raw integer decimal string. Empty is treated as unset (zero);

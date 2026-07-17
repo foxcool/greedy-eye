@@ -626,6 +626,33 @@ Cron / API Client → AutomationService/ExecuteRule
   per-field encryption (needs a secret-field classification, mixed-plaintext states);
   single static key without HKDF (swappable ciphertexts, shared nonce space)
 
+### ADR-006: Composite asset identity (symbol, market, type)
+- **Status**: accepted
+- **Context**: `assets` had `UNIQUE(symbol)`, which physically blocks multi-market coverage:
+  AAPL on NASDAQ vs an AAPL token, SBER on MOEX, same ticker with different semantics per venue.
+  Manual/broker import and non-crypto assets are blocked on this.
+- **Decision**: Identity is the composite `UNIQUE(symbol, market, type)`. `market` is the
+  listing market/venue — `crypto` is a single global market for all crypto assets — **not** the
+  price source: mapping to provider-native identifiers (CoinGecko coin id, T-Invest FIGI) lives
+  in the provider adapters (hardcoded map for major coins, `contract:` tags for tokens); when a
+  source with a dynamic instrument universe lands (broker import), that mapping becomes a
+  dedicated `asset_external_refs(asset_id, source, ref)` table — one asset has refs in many
+  sources, so it is not an asset column. `quote` holds
+  the quote currency where applicable. On create, `market` defaults by type
+  (cryptocurrency → `crypto`, forex → `forex`) and is required for exchange-listed types.
+  Symbol-only lookups (`GetAssetBySymbol`) return the unique match or fail with
+  InvalidArgument when the symbol exists on several markets — no silent picking.
+- **Consequences**:
+  - ➕ Multi-market catalog possible (stocks, bonds, funds) without symbol collisions
+  - ➕ One asset row per crypto asset regardless of price provider (no BTC duplication)
+  - ➕ Existing rows backfilled via column default `'crypto'`; no data migration needed
+  - ➖ Symbol-only lookups become ambiguous once a ticker exists on two markets; callers
+    must then resolve by ID or market
+- **Rejected**: market = price source (duplicates every asset per provider, fragments
+  holdings); an `external_ref` column on `assets` (one asset maps to many provider IDs —
+  1:N belongs in a mapping table, and a 1:1 column would die on the second source);
+  prefixing symbol with venue in one field (loses clean symbol for search/display)
+
 ---
 
 ## 10. Quality Requirements

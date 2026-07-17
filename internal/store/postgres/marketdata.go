@@ -31,6 +31,52 @@ func NewMarketDataStore(pool *pgxpool.Pool) *MarketDataStore {
 	return &MarketDataStore{pool: pool}
 }
 
+// assetColumns is the canonical column list scanned by scanAsset.
+const assetColumns = "id, symbol, name, type, market, quote, tags, created_at, updated_at"
+
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+// scanAsset scans one assetColumns row. Callers map pgx.ErrNoRows themselves.
+func scanAsset(row rowScanner) (*entity.Asset, error) {
+	var asset entity.Asset
+	var typeStr string
+	var quote *string
+	var tagsJSON []byte
+
+	if err := row.Scan(
+		&asset.ID,
+		&asset.Symbol,
+		&asset.Name,
+		&typeStr,
+		&asset.Market,
+		&quote,
+		&tagsJSON,
+		&asset.CreatedAt,
+		&asset.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+
+	asset.Type = stringToAssetType(typeStr)
+	if quote != nil {
+		asset.Quote = *quote
+	}
+	if err := json.Unmarshal(tagsJSON, &asset.Tags); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal tags: %w", err)
+	}
+	return &asset, nil
+}
+
+// nullIfEmpty maps "" to SQL NULL so unique constraints ignore absent values.
+func nullIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 // CreateAsset creates a new asset in the database.
 func (s *MarketDataStore) CreateAsset(ctx context.Context, asset *entity.Asset) (*entity.Asset, error) {
 	if asset == nil {
@@ -44,6 +90,13 @@ func (s *MarketDataStore) CreateAsset(ctx context.Context, asset *entity.Asset) 
 	}
 
 	asset.Symbol = entity.NormalizeSymbol(asset.Symbol)
+	asset.Market = entity.NormalizeMarket(asset.Market)
+	if asset.Market == "" {
+		asset.Market = entity.DefaultMarket(asset.Type)
+	}
+	if asset.Market == "" {
+		return nil, fmt.Errorf("%w: asset market is required for type %s", store.ErrInvalidArgument, assetTypeToString(asset.Type))
+	}
 
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -57,8 +110,8 @@ func (s *MarketDataStore) CreateAsset(ctx context.Context, asset *entity.Asset) 
 	}
 
 	query := `
-		INSERT INTO assets (id, symbol, name, type, tags, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+		INSERT INTO assets (id, symbol, name, type, market, quote, tags, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
 		RETURNING created_at, updated_at`
 
 	err = s.pool.QueryRow(ctx, query,
@@ -66,6 +119,8 @@ func (s *MarketDataStore) CreateAsset(ctx context.Context, asset *entity.Asset) 
 		asset.Symbol,
 		asset.Name,
 		assetTypeToString(asset.Type),
+		asset.Market,
+		nullIfEmpty(asset.Quote),
 		tagsJSON,
 	).Scan(&asset.CreatedAt, &asset.UpdatedAt)
 	if err != nil {
@@ -88,23 +143,11 @@ func (s *MarketDataStore) GetAsset(ctx context.Context, id string) (*entity.Asse
 	}
 
 	query := `
-		SELECT id, symbol, name, type, tags, created_at, updated_at
+		SELECT ` + assetColumns + `
 		FROM assets
 		WHERE id = $1`
 
-	var asset entity.Asset
-	var typeStr string
-	var tagsJSON []byte
-
-	err := s.pool.QueryRow(ctx, query, id).Scan(
-		&asset.ID,
-		&asset.Symbol,
-		&asset.Name,
-		&typeStr,
-		&tagsJSON,
-		&asset.CreatedAt,
-		&asset.UpdatedAt,
-	)
+	asset, err := scanAsset(s.pool.QueryRow(ctx, query, id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("%w: asset with ID %s", store.ErrNotFound, id)
@@ -112,12 +155,7 @@ func (s *MarketDataStore) GetAsset(ctx context.Context, id string) (*entity.Asse
 		return nil, fmt.Errorf("failed to get asset: %w", err)
 	}
 
-	asset.Type = stringToAssetType(typeStr)
-	if err := json.Unmarshal(tagsJSON, &asset.Tags); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal tags: %w", err)
-	}
-
-	return &asset, nil
+	return asset, nil
 }
 
 // GetOrCreateAssetBySymbol returns an existing asset by symbol or creates a new one.
@@ -148,44 +186,49 @@ func (s *MarketDataStore) GetOrCreateAssetBySymbol(ctx context.Context, symbol, 
 }
 
 // GetAssetBySymbol returns an asset by its symbol. The symbol is normalized
-// (trim + uppercase) so lookups are case-insensitive.
+// (trim + uppercase) so lookups are case-insensitive. Identity is composite
+// (symbol, market, type): a symbol-only lookup succeeds only while the symbol
+// is unambiguous; with matches on several markets it fails explicitly rather
+// than silently picking one.
 func (s *MarketDataStore) GetAssetBySymbol(ctx context.Context, symbol string) (*entity.Asset, error) {
 	symbol = entity.NormalizeSymbol(symbol)
 	if symbol == "" {
 		return nil, fmt.Errorf("%w: symbol is required", store.ErrInvalidArgument)
 	}
 
+	// LIMIT 2: one row past the unique match is enough to detect ambiguity.
 	query := `
-		SELECT id, symbol, name, type, tags, created_at, updated_at
+		SELECT ` + assetColumns + `
 		FROM assets
-		WHERE symbol = $1`
+		WHERE symbol = $1
+		LIMIT 2`
 
-	var asset entity.Asset
-	var typeStr string
-	var tagsJSON []byte
-
-	err := s.pool.QueryRow(ctx, query, symbol).Scan(
-		&asset.ID,
-		&asset.Symbol,
-		&asset.Name,
-		&typeStr,
-		&tagsJSON,
-		&asset.CreatedAt,
-		&asset.UpdatedAt,
-	)
+	rows, err := s.pool.Query(ctx, query, symbol)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("%w: asset with symbol %s", store.ErrNotFound, symbol)
+		return nil, fmt.Errorf("failed to get asset by symbol: %w", err)
+	}
+	defer rows.Close()
+
+	var assets []*entity.Asset
+	for rows.Next() {
+		asset, err := scanAsset(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan asset: %w", err)
 		}
+		assets = append(assets, asset)
+	}
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to get asset by symbol: %w", err)
 	}
 
-	asset.Type = stringToAssetType(typeStr)
-	if err := json.Unmarshal(tagsJSON, &asset.Tags); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal tags: %w", err)
+	switch len(assets) {
+	case 0:
+		return nil, fmt.Errorf("%w: asset with symbol %s", store.ErrNotFound, symbol)
+	case 1:
+		return assets[0], nil
+	default:
+		return nil, fmt.Errorf("%w: symbol %s is ambiguous across markets, look up by ID or specify market", store.ErrInvalidArgument, symbol)
 	}
-
-	return &asset, nil
 }
 
 // UpdateAsset updates an asset with the specified fields.
@@ -215,6 +258,18 @@ func (s *MarketDataStore) UpdateAsset(ctx context.Context, asset *entity.Asset, 
 			setClauses = append(setClauses, fmt.Sprintf("type = $%d", argIdx))
 			args = append(args, assetTypeToString(asset.Type))
 			argIdx++
+		case "market":
+			market := entity.NormalizeMarket(asset.Market)
+			if market == "" {
+				return nil, fmt.Errorf("%w: market cannot be empty", store.ErrInvalidArgument)
+			}
+			setClauses = append(setClauses, fmt.Sprintf("market = $%d", argIdx))
+			args = append(args, market)
+			argIdx++
+		case "quote":
+			setClauses = append(setClauses, fmt.Sprintf("quote = $%d", argIdx))
+			args = append(args, nullIfEmpty(asset.Quote))
+			argIdx++
 		case "tags":
 			tagsJSON, err := json.Marshal(asset.Tags)
 			if err != nil {
@@ -230,35 +285,21 @@ func (s *MarketDataStore) UpdateAsset(ctx context.Context, asset *entity.Asset, 
 		UPDATE assets
 		SET %s
 		WHERE id = $1
-		RETURNING id, symbol, name, type, tags, created_at, updated_at`,
+		RETURNING `+assetColumns,
 		strings.Join(setClauses, ", "))
 
-	var result entity.Asset
-	var typeStr string
-	var tagsJSON []byte
-
-	err := s.pool.QueryRow(ctx, query, args...).Scan(
-		&result.ID,
-		&result.Symbol,
-		&result.Name,
-		&typeStr,
-		&tagsJSON,
-		&result.CreatedAt,
-		&result.UpdatedAt,
-	)
+	result, err := scanAsset(s.pool.QueryRow(ctx, query, args...))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("%w: asset with ID %s", store.ErrNotFound, asset.ID)
 		}
+		if isConstraintError(err) {
+			return nil, fmt.Errorf("%w: %v", store.ErrConstraint, err)
+		}
 		return nil, fmt.Errorf("failed to update asset: %w", err)
 	}
 
-	result.Type = stringToAssetType(typeStr)
-	if err := json.Unmarshal(tagsJSON, &result.Tags); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal tags: %w", err)
-	}
-
-	return &result, nil
+	return result, nil
 }
 
 // DeleteAsset deletes an asset by ID.
@@ -321,7 +362,7 @@ func (s *MarketDataStore) ListAssets(ctx context.Context, opts marketdata.ListAs
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, symbol, name, type, tags, created_at, updated_at
+		SELECT `+assetColumns+`
 		FROM assets
 		%s
 		ORDER BY id
@@ -337,28 +378,11 @@ func (s *MarketDataStore) ListAssets(ctx context.Context, opts marketdata.ListAs
 
 	assets := make([]*entity.Asset, 0, limit)
 	for rows.Next() {
-		var asset entity.Asset
-		var typeStr string
-		var tagsJSON []byte
-
-		if err := rows.Scan(
-			&asset.ID,
-			&asset.Symbol,
-			&asset.Name,
-			&typeStr,
-			&tagsJSON,
-			&asset.CreatedAt,
-			&asset.UpdatedAt,
-		); err != nil {
+		asset, err := scanAsset(rows)
+		if err != nil {
 			return nil, "", fmt.Errorf("failed to scan asset: %w", err)
 		}
-
-		asset.Type = stringToAssetType(typeStr)
-		if err := json.Unmarshal(tagsJSON, &asset.Tags); err != nil {
-			return nil, "", fmt.Errorf("failed to unmarshal tags: %w", err)
-		}
-
-		assets = append(assets, &asset)
+		assets = append(assets, asset)
 	}
 
 	if err := rows.Err(); err != nil {
