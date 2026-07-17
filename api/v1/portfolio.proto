@@ -7,6 +7,7 @@ import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/field_mask.proto";
 import "google/api/annotations.proto";
+import "v1/marketdata.proto";
 
 option go_package = "github.com/foxcool/greedy-eye/api/v1;apiv1";
 
@@ -203,6 +204,23 @@ service PortfolioService {
     };
   }
 
+  // --- Batch import (manual accounts) ---
+  // Simulation-first: call with dry_run=true to get the plan without writes,
+  // confirm, then repeat with dry_run=false to commit under one import_id.
+  rpc ImportPositions(ImportPositionsRequest) returns (ImportPositionsResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/accounts/{account_id}/import/positions"
+      body: "*"
+    };
+  }
+
+  rpc ImportTransactions(ImportTransactionsRequest) returns (ImportTransactionsResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/accounts/{account_id}/import/transactions"
+      body: "*"
+    };
+  }
+
   rpc ListHoldings(ListHoldingsRequest) returns (ListHoldingsResponse) {
     option (google.api.http) = {
       get: "/api/v1/holdings"
@@ -359,6 +377,112 @@ message UpdateHoldingRequest {
 
 message DeleteHoldingRequest {
   string id = 1;
+}
+
+// =============================================================================
+// IMPORT MESSAGES
+// =============================================================================
+
+enum ImportAction {
+  IMPORT_ACTION_UNSPECIFIED = 0;
+  IMPORT_ACTION_CREATE = 1;
+  IMPORT_ACTION_UPDATE = 2;
+  // Duplicate or no change — nothing written.
+  IMPORT_ACTION_SKIP = 3;
+}
+
+message ImportPositionItem {
+  // Symbol resolved via composite asset identity; required unless asset_id set.
+  string symbol = 1;
+  // Explicit asset reference; skips symbol resolution.
+  optional string asset_id = 2;
+  // Position size as a decimal string in asset units (e.g. "0.5").
+  string amount = 3;
+  // Listing market for resolution/creation; defaults by asset type.
+  optional string market = 4;
+  // Used when the asset has to be created; defaults to ASSET_TYPE_CRYPTOCURRENCY.
+  AssetType asset_type = 5;
+  // Asset name when created; defaults to the symbol.
+  optional string name = 6;
+  // Storage scale for the holding amount; defaults to 8.
+  optional uint32 decimals = 7;
+}
+
+message ImportPositionsRequest {
+  // Target account; must be of type manual.
+  string account_id = 1;
+  repeated ImportPositionItem positions = 2;
+  // When true, returns the plan without writing anything.
+  bool dry_run = 3;
+  // Batch id (UUID) linking all rows of one import; generated when empty.
+  optional string import_id = 4;
+}
+
+message ImportPositionResult {
+  string symbol = 1;
+  // Empty in a dry run when the asset does not exist yet.
+  string asset_id = 2;
+  ImportAction action = 3;
+  // Raw scaled amount stored (or planned), see Holding.amount.
+  string amount = 4;
+  uint32 decimals = 5;
+  // Previous raw amount for IMPORT_ACTION_UPDATE.
+  optional string previous_amount = 6;
+  // The asset was (or would be) created as part of the import.
+  bool asset_created = 7;
+  // Per-item failure; the rest of the batch still proceeds.
+  optional string error = 8;
+}
+
+message ImportPositionsResponse {
+  string import_id = 1;
+  bool dry_run = 2;
+  repeated ImportPositionResult items = 3;
+  int32 created = 4;
+  int32 updated = 5;
+  int32 skipped = 6;
+  int32 failed = 7;
+  int32 assets_created = 8;
+}
+
+message ImportTransactionItem {
+  TransactionType type = 1;
+  // Defaults to TRANSACTION_STATUS_COMPLETED for imported history.
+  TransactionStatus status = 2;
+  // Asset reference: either explicit id or symbol of an existing asset.
+  // Import never creates assets from transactions.
+  optional string asset_id = 3;
+  optional string symbol = 4;
+  // Free-form details (amount, price, date, direction, fee, ...).
+  map<string, string> data = 5;
+  // Stable id from the source export; primary dedup key.
+  optional string external_id = 6;
+}
+
+message ImportTransactionsRequest {
+  // Target account; must be of type manual.
+  string account_id = 1;
+  repeated ImportTransactionItem transactions = 2;
+  bool dry_run = 3;
+  optional string import_id = 4;
+}
+
+message ImportTransactionResult {
+  // Index into the request batch.
+  int32 index = 1;
+  ImportAction action = 2;
+  // Set when committed.
+  optional string transaction_id = 3;
+  optional string error = 4;
+}
+
+message ImportTransactionsResponse {
+  string import_id = 1;
+  bool dry_run = 2;
+  repeated ImportTransactionResult items = 3;
+  int32 created = 4;
+  int32 skipped = 5;
+  int32 failed = 6;
 }
 
 message ListHoldingsRequest {

@@ -55,6 +55,9 @@ const (
 	// MarketDataServiceFindSimilarAssetsProcedure is the fully-qualified name of the
 	// MarketDataService's FindSimilarAssets RPC.
 	MarketDataServiceFindSimilarAssetsProcedure = "/eye.v1.MarketDataService/FindSimilarAssets"
+	// MarketDataServiceFindOrCreateAssetProcedure is the fully-qualified name of the
+	// MarketDataService's FindOrCreateAsset RPC.
+	MarketDataServiceFindOrCreateAssetProcedure = "/eye.v1.MarketDataService/FindOrCreateAsset"
 	// MarketDataServiceCreatePriceProcedure is the fully-qualified name of the MarketDataService's
 	// CreatePrice RPC.
 	MarketDataServiceCreatePriceProcedure = "/eye.v1.MarketDataService/CreatePrice"
@@ -92,6 +95,9 @@ type MarketDataServiceClient interface {
 	// --- Asset business logic ---
 	EnrichAssetData(context.Context, *connect.Request[v1.EnrichAssetDataRequest]) (*connect.Response[v1.Asset], error)
 	FindSimilarAssets(context.Context, *connect.Request[v1.FindSimilarAssetsRequest]) (*connect.Response[v1.ListAssetsResponse], error)
+	// Find-first asset resolution by composite identity (symbol, market, type);
+	// creates the asset only when nothing matches and dry_run is false.
+	FindOrCreateAsset(context.Context, *connect.Request[v1.FindOrCreateAssetRequest]) (*connect.Response[v1.FindOrCreateAssetResponse], error)
 	// --- Price CRUD ---
 	CreatePrice(context.Context, *connect.Request[v1.CreatePriceRequest]) (*connect.Response[v1.Price], error)
 	CreatePrices(context.Context, *connect.Request[v1.CreatePricesRequest]) (*connect.Response[v1.CreatePricesResponse], error)
@@ -157,6 +163,12 @@ func NewMarketDataServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(marketDataServiceMethods.ByName("FindSimilarAssets")),
 			connect.WithClientOptions(opts...),
 		),
+		findOrCreateAsset: connect.NewClient[v1.FindOrCreateAssetRequest, v1.FindOrCreateAssetResponse](
+			httpClient,
+			baseURL+MarketDataServiceFindOrCreateAssetProcedure,
+			connect.WithSchema(marketDataServiceMethods.ByName("FindOrCreateAsset")),
+			connect.WithClientOptions(opts...),
+		),
 		createPrice: connect.NewClient[v1.CreatePriceRequest, v1.Price](
 			httpClient,
 			baseURL+MarketDataServiceCreatePriceProcedure,
@@ -217,6 +229,7 @@ type marketDataServiceClient struct {
 	listAssets           *connect.Client[v1.ListAssetsRequest, v1.ListAssetsResponse]
 	enrichAssetData      *connect.Client[v1.EnrichAssetDataRequest, v1.Asset]
 	findSimilarAssets    *connect.Client[v1.FindSimilarAssetsRequest, v1.ListAssetsResponse]
+	findOrCreateAsset    *connect.Client[v1.FindOrCreateAssetRequest, v1.FindOrCreateAssetResponse]
 	createPrice          *connect.Client[v1.CreatePriceRequest, v1.Price]
 	createPrices         *connect.Client[v1.CreatePricesRequest, v1.CreatePricesResponse]
 	getLatestPrice       *connect.Client[v1.GetLatestPriceRequest, v1.Price]
@@ -260,6 +273,11 @@ func (c *marketDataServiceClient) EnrichAssetData(ctx context.Context, req *conn
 // FindSimilarAssets calls eye.v1.MarketDataService.FindSimilarAssets.
 func (c *marketDataServiceClient) FindSimilarAssets(ctx context.Context, req *connect.Request[v1.FindSimilarAssetsRequest]) (*connect.Response[v1.ListAssetsResponse], error) {
 	return c.findSimilarAssets.CallUnary(ctx, req)
+}
+
+// FindOrCreateAsset calls eye.v1.MarketDataService.FindOrCreateAsset.
+func (c *marketDataServiceClient) FindOrCreateAsset(ctx context.Context, req *connect.Request[v1.FindOrCreateAssetRequest]) (*connect.Response[v1.FindOrCreateAssetResponse], error) {
+	return c.findOrCreateAsset.CallUnary(ctx, req)
 }
 
 // CreatePrice calls eye.v1.MarketDataService.CreatePrice.
@@ -313,6 +331,9 @@ type MarketDataServiceHandler interface {
 	// --- Asset business logic ---
 	EnrichAssetData(context.Context, *connect.Request[v1.EnrichAssetDataRequest]) (*connect.Response[v1.Asset], error)
 	FindSimilarAssets(context.Context, *connect.Request[v1.FindSimilarAssetsRequest]) (*connect.Response[v1.ListAssetsResponse], error)
+	// Find-first asset resolution by composite identity (symbol, market, type);
+	// creates the asset only when nothing matches and dry_run is false.
+	FindOrCreateAsset(context.Context, *connect.Request[v1.FindOrCreateAssetRequest]) (*connect.Response[v1.FindOrCreateAssetResponse], error)
 	// --- Price CRUD ---
 	CreatePrice(context.Context, *connect.Request[v1.CreatePriceRequest]) (*connect.Response[v1.Price], error)
 	CreatePrices(context.Context, *connect.Request[v1.CreatePricesRequest]) (*connect.Response[v1.CreatePricesResponse], error)
@@ -372,6 +393,12 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 		MarketDataServiceFindSimilarAssetsProcedure,
 		svc.FindSimilarAssets,
 		connect.WithSchema(marketDataServiceMethods.ByName("FindSimilarAssets")),
+		connect.WithHandlerOptions(opts...),
+	)
+	marketDataServiceFindOrCreateAssetHandler := connect.NewUnaryHandler(
+		MarketDataServiceFindOrCreateAssetProcedure,
+		svc.FindOrCreateAsset,
+		connect.WithSchema(marketDataServiceMethods.ByName("FindOrCreateAsset")),
 		connect.WithHandlerOptions(opts...),
 	)
 	marketDataServiceCreatePriceHandler := connect.NewUnaryHandler(
@@ -438,6 +465,8 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 			marketDataServiceEnrichAssetDataHandler.ServeHTTP(w, r)
 		case MarketDataServiceFindSimilarAssetsProcedure:
 			marketDataServiceFindSimilarAssetsHandler.ServeHTTP(w, r)
+		case MarketDataServiceFindOrCreateAssetProcedure:
+			marketDataServiceFindOrCreateAssetHandler.ServeHTTP(w, r)
 		case MarketDataServiceCreatePriceProcedure:
 			marketDataServiceCreatePriceHandler.ServeHTTP(w, r)
 		case MarketDataServiceCreatePricesProcedure:
@@ -489,6 +518,10 @@ func (UnimplementedMarketDataServiceHandler) EnrichAssetData(context.Context, *c
 
 func (UnimplementedMarketDataServiceHandler) FindSimilarAssets(context.Context, *connect.Request[v1.FindSimilarAssetsRequest]) (*connect.Response[v1.ListAssetsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.FindSimilarAssets is not implemented"))
+}
+
+func (UnimplementedMarketDataServiceHandler) FindOrCreateAsset(context.Context, *connect.Request[v1.FindOrCreateAssetRequest]) (*connect.Response[v1.FindOrCreateAssetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.FindOrCreateAsset is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) CreatePrice(context.Context, *connect.Request[v1.CreatePriceRequest]) (*connect.Response[v1.Price], error) {

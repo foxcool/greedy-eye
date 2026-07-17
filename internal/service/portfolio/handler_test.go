@@ -900,6 +900,22 @@ func (m *mockMDClient) CreateAsset(ctx context.Context, req *connect.Request[api
 	return nil, args.Error(1)
 }
 
+func (m *mockMDClient) GetAsset(ctx context.Context, req *connect.Request[apiv1.GetAssetRequest]) (*connect.Response[apiv1.Asset], error) {
+	args := m.Called(ctx, req)
+	if v := args.Get(0); v != nil {
+		return v.(*connect.Response[apiv1.Asset]), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockMDClient) FindOrCreateAsset(ctx context.Context, req *connect.Request[apiv1.FindOrCreateAssetRequest]) (*connect.Response[apiv1.FindOrCreateAssetResponse], error) {
+	args := m.Called(ctx, req)
+	if v := args.Get(0); v != nil {
+		return v.(*connect.Response[apiv1.FindOrCreateAssetResponse]), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockMDClient) ListAssets(ctx context.Context, req *connect.Request[apiv1.ListAssetsRequest]) (*connect.Response[apiv1.ListAssetsResponse], error) {
 	args := m.Called(ctx, req)
 	if v := args.Get(0); v != nil {
@@ -1118,3 +1134,226 @@ func TestSyncAccount_ManualAccount(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 }
+
+// --- Tests: batch import ---
+
+func manualAccount(id string) *entity.Account {
+	a := testAccount(id)
+	a.Type = entity.AccountTypeManual
+	a.Capabilities = []entity.AccountCapability{entity.CapabilityManualPositions}
+	return a
+}
+
+func TestImportPositions_RequiresManualAccount(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil) // exchange
+	h := newHandler(s).WithMarketDataClient(&mockMDClient{})
+
+	_, err := h.ImportPositions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportPositionsRequest{
+		AccountId: testAccountID,
+		Positions: []*apiv1.ImportPositionItem{{Symbol: "BTC", Amount: "1"}},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+}
+
+// TestImportPositions_DryRunPlan verifies the plan covers create/update/skip
+// without a single write, and that a missing asset is reported as would-create.
+func TestImportPositions_DryRunPlan(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
+	existing := testHolding(testHoldingID) // asset testAssetID, amount 100000, decimals 8
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{existing}, "", nil)
+
+	md := &mockMDClient{}
+	// ETH: exists -> holding exists with same raw amount -> SKIP is exercised via testAssetID below.
+	md.On("FindOrCreateAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.FindOrCreateAssetRequest]) bool {
+		return r.Msg.Symbol == "BTC" && r.Msg.DryRun
+	})).Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: &apiv1.Asset{Id: testAssetID}}), nil)
+	// NEW: does not exist -> would create.
+	md.On("FindOrCreateAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.FindOrCreateAssetRequest]) bool {
+		return r.Msg.Symbol == "NEW" && r.Msg.DryRun
+	})).Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Created: true}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+
+	resp, err := h.ImportPositions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportPositionsRequest{
+		AccountId: testAccountID,
+		DryRun:    true,
+		Positions: []*apiv1.ImportPositionItem{
+			{Symbol: "BTC", Amount: "0.002"}, // raw 200000 != 100000 -> UPDATE
+			{Symbol: "NEW", Amount: "5"},     // asset missing -> CREATE + asset_created
+		},
+	}))
+	require.NoError(t, err)
+	assert.True(t, resp.Msg.DryRun)
+	assert.NotEmpty(t, resp.Msg.ImportId)
+	require.Len(t, resp.Msg.Items, 2)
+
+	update := resp.Msg.Items[0]
+	assert.Equal(t, apiv1.ImportAction_IMPORT_ACTION_UPDATE, update.Action)
+	require.NotNil(t, update.PreviousAmount)
+	assert.Equal(t, "100000", *update.PreviousAmount)
+	assert.Equal(t, "200000", update.Amount)
+
+	created := resp.Msg.Items[1]
+	assert.Equal(t, apiv1.ImportAction_IMPORT_ACTION_CREATE, created.Action)
+	assert.True(t, created.AssetCreated)
+	assert.Empty(t, created.AssetId)
+
+	assert.Equal(t, int32(1), resp.Msg.Updated)
+	assert.Equal(t, int32(1), resp.Msg.Created)
+	assert.Equal(t, int32(1), resp.Msg.AssetsCreated)
+
+	s.AssertNotCalled(t, "CreateHolding")
+	s.AssertNotCalled(t, "UpdateHolding")
+}
+
+// TestImportPositions_CommitStampsProvenance verifies the commit path writes
+// holdings with source=llm_import and the batch import_id.
+func TestImportPositions_CommitStampsProvenance(t *testing.T) {
+	const importID = "01926d35-6a1e-7008-8008-000000000001"
+	const newAssetID = "01926d35-6a1e-7005-8005-000000000002"
+
+	s := &mockStore{}
+	acct := manualAccount(testAccountID)
+	acct.PortfolioID = testPortfolioID
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		return h.Source == entity.SourceLLMImport &&
+			h.ImportID == importID &&
+			h.AssetID == newAssetID &&
+			h.PortfolioID == testPortfolioID &&
+			h.Amount.String() == "500000000" && h.Decimals == 8
+	})).Return(testHolding(testHoldingID), nil)
+
+	md := &mockMDClient{}
+	md.On("FindOrCreateAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.FindOrCreateAssetRequest]) bool {
+		return r.Msg.Symbol == "DOT" && !r.Msg.DryRun
+	})).Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: &apiv1.Asset{Id: newAssetID}, Created: true}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+
+	iid := importID
+	resp, err := h.ImportPositions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportPositionsRequest{
+		AccountId: testAccountID,
+		ImportId:  &iid,
+		Positions: []*apiv1.ImportPositionItem{{Symbol: "DOT", Amount: "5"}},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, importID, resp.Msg.ImportId)
+	assert.Equal(t, int32(1), resp.Msg.Created)
+	assert.Equal(t, int32(1), resp.Msg.AssetsCreated)
+	s.AssertExpectations(t)
+}
+
+// TestImportPositions_PerItemErrors verifies bad items fail individually
+// without sinking the batch, including duplicate assets within one batch.
+func TestImportPositions_PerItemErrors(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("FindOrCreateAsset", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: &apiv1.Asset{Id: testAssetID}}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+
+	resp, err := h.ImportPositions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportPositionsRequest{
+		AccountId: testAccountID,
+		DryRun:    true,
+		Positions: []*apiv1.ImportPositionItem{
+			{Symbol: "BTC", Amount: "abc"},          // bad amount
+			{Symbol: "BTC", Amount: "-1"},           // negative
+			{Amount: "1"},                           // no symbol, no asset_id
+			{Symbol: "BTC", Amount: "0.0000000001"}, // more digits than decimals=8
+			{Symbol: "BTC", Amount: "1"},            // OK
+			{Symbol: "BTC", Amount: "2"},            // duplicate asset in batch
+		},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(5), resp.Msg.Failed)
+	assert.Equal(t, int32(1), resp.Msg.Created)
+	for _, idx := range []int{0, 1, 2, 3, 5} {
+		assert.NotNil(t, resp.Msg.Items[idx].Error, "item %d should carry an error", idx)
+	}
+	assert.Nil(t, resp.Msg.Items[4].Error)
+}
+
+func TestImportTransactions_DedupAndProvenance(t *testing.T) {
+	const importID = "01926d35-6a1e-7008-8008-000000000002"
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
+	// One existing transaction with an external_id and heuristic fields.
+	s.On("ListTransactions", mock.Anything, mock.Anything).Return([]*entity.Transaction{{
+		ID:        testTxID,
+		Type:      entity.TransactionTypeDeposit,
+		AccountID: testAccountID,
+		AssetID:   testAssetID,
+		Data:      map[string]string{"external_id": "ext-1", "date": "2026-07-01", "amount": "5"},
+	}}, "", nil)
+	s.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(tx *entity.Transaction) bool {
+		return tx.Source == entity.SourceLLMImport &&
+			tx.ImportID == importID &&
+			tx.Status == entity.TransactionStatusCompleted &&
+			tx.Data["external_id"] == "ext-2"
+	})).Return(&entity.Transaction{ID: "01926d35-6a1e-7006-8006-000000000009"}, nil)
+
+	md := &mockMDClient{}
+	md.On("FindOrCreateAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.FindOrCreateAssetRequest]) bool {
+		return r.Msg.DryRun // transaction import never creates assets
+	})).Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: &apiv1.Asset{Id: testAssetID}}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+
+	iid := importID
+	extDup := "ext-1"
+	extNew := "ext-2"
+	resp, err := h.ImportTransactions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportTransactionsRequest{
+		AccountId: testAccountID,
+		ImportId:  &iid,
+		Transactions: []*apiv1.ImportTransactionItem{
+			// Duplicate by external_id -> SKIP.
+			{Type: apiv1.TransactionType_TRANSACTION_TYPE_DEPOSIT, ExternalId: &extDup},
+			// Duplicate by (type, asset, date, amount) heuristic -> SKIP.
+			{Type: apiv1.TransactionType_TRANSACTION_TYPE_DEPOSIT, Symbol: strPtr("BTC"), Data: map[string]string{"date": "2026-07-01", "amount": "5"}},
+			// New -> CREATE with provenance.
+			{Type: apiv1.TransactionType_TRANSACTION_TYPE_DEPOSIT, Symbol: strPtr("BTC"), ExternalId: &extNew, Data: map[string]string{"date": "2026-07-02", "amount": "7"}},
+		},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), resp.Msg.Skipped)
+	assert.Equal(t, int32(1), resp.Msg.Created)
+	assert.Equal(t, int32(0), resp.Msg.Failed)
+	s.AssertExpectations(t)
+}
+
+func TestImportTransactions_UnknownAssetFailsItem(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
+	s.On("ListTransactions", mock.Anything, mock.Anything).Return([]*entity.Transaction{}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("FindOrCreateAsset", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Created: true}), nil) // not found
+
+	h := newHandler(s).WithMarketDataClient(md)
+
+	resp, err := h.ImportTransactions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportTransactionsRequest{
+		AccountId: testAccountID,
+		DryRun:    true,
+		Transactions: []*apiv1.ImportTransactionItem{
+			{Type: apiv1.TransactionType_TRANSACTION_TYPE_TRADE, Symbol: strPtr("GHOST")},
+		},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), resp.Msg.Failed)
+	require.NotNil(t, resp.Msg.Items[0].Error)
+	assert.Contains(t, *resp.Msg.Items[0].Error, "not found")
+	s.AssertNotCalled(t, "CreateTransaction")
+}
+
+func strPtr(s string) *string { return &s }

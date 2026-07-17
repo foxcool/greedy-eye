@@ -375,6 +375,68 @@ func (h *Handler) FindSimilarAssets(ctx context.Context, req *connect.Request[ap
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("FindSimilarAssets not implemented"))
 }
 
+// FindOrCreateAsset resolves an asset by its composite identity (symbol,
+// market, type), creating it only when nothing matches and dry_run is false.
+// Find-first keeps batch imports from polluting the catalog with duplicates.
+func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[apiv1.FindOrCreateAssetRequest]) (*connect.Response[apiv1.FindOrCreateAssetResponse], error) {
+	symbol := entity.NormalizeSymbol(req.Msg.Symbol)
+	if symbol == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("symbol is required"))
+	}
+
+	typ := entity.AssetType(req.Msg.Type)
+	if typ == entity.AssetTypeUnspecified {
+		typ = entity.AssetTypeCryptocurrency
+	}
+
+	market := ""
+	if req.Msg.Market != nil {
+		market = entity.NormalizeMarket(*req.Msg.Market)
+	}
+	if market == "" {
+		market = entity.DefaultMarket(typ)
+	}
+	if market == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("market is required for this asset type"))
+	}
+
+	found, err := h.store.FindAssetByIdentity(ctx, symbol, market, typ)
+	if err == nil {
+		return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: assetToProto(found)}), nil
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return nil, toConnectError(err)
+	}
+
+	if req.Msg.DryRun {
+		// Would create: report the plan without an asset payload.
+		return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Created: true}), nil
+	}
+
+	name := symbol
+	if req.Msg.Name != nil && strings.TrimSpace(*req.Msg.Name) != "" {
+		name = strings.TrimSpace(*req.Msg.Name)
+	}
+	created, err := h.store.CreateAsset(ctx, &entity.Asset{
+		Symbol: symbol,
+		Name:   name,
+		Type:   typ,
+		Market: market,
+		Tags:   []string{},
+	})
+	if err != nil {
+		if errors.Is(err, store.ErrConstraint) {
+			// Concurrent insert won the race — read back the existing row.
+			if existing, ferr := h.store.FindAssetByIdentity(ctx, symbol, market, typ); ferr == nil {
+				return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: assetToProto(existing)}), nil
+			}
+		}
+		return nil, toConnectError(err)
+	}
+
+	return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: assetToProto(created), Created: true}), nil
+}
+
 // FetchExternalPrices fetches prices from configured providers and stores them.
 // If source_ids is specified in the request, only those providers are called.
 func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[apiv1.FetchExternalPricesRequest]) (*connect.Response[apiv1.FetchExternalPricesResponse], error) {

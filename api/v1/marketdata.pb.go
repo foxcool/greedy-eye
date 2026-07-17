@@ -747,6 +747,141 @@ func (x *FindSimilarAssetsRequest) GetLimit() int32 {
 	return 0
 }
 
+type FindOrCreateAssetRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Symbol string                 `protobuf:"bytes,1,opt,name=symbol,proto3" json:"symbol,omitempty"`
+	// Listing market; defaults by type (cryptocurrency -> "crypto", forex ->
+	// "forex"), required for other types when the asset has to be created.
+	Market *string `protobuf:"bytes,2,opt,name=market,proto3,oneof" json:"market,omitempty"`
+	// Defaults to ASSET_TYPE_CRYPTOCURRENCY.
+	Type AssetType `protobuf:"varint,3,opt,name=type,proto3,enum=eye.v1.AssetType" json:"type,omitempty"`
+	// Asset name when created; defaults to the symbol.
+	Name *string `protobuf:"bytes,4,opt,name=name,proto3,oneof" json:"name,omitempty"`
+	// When true, never creates: reports what would happen instead.
+	DryRun        bool `protobuf:"varint,5,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FindOrCreateAssetRequest) Reset() {
+	*x = FindOrCreateAssetRequest{}
+	mi := &file_v1_marketdata_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FindOrCreateAssetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FindOrCreateAssetRequest) ProtoMessage() {}
+
+func (x *FindOrCreateAssetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_marketdata_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FindOrCreateAssetRequest.ProtoReflect.Descriptor instead.
+func (*FindOrCreateAssetRequest) Descriptor() ([]byte, []int) {
+	return file_v1_marketdata_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *FindOrCreateAssetRequest) GetSymbol() string {
+	if x != nil {
+		return x.Symbol
+	}
+	return ""
+}
+
+func (x *FindOrCreateAssetRequest) GetMarket() string {
+	if x != nil && x.Market != nil {
+		return *x.Market
+	}
+	return ""
+}
+
+func (x *FindOrCreateAssetRequest) GetType() AssetType {
+	if x != nil {
+		return x.Type
+	}
+	return AssetType_ASSET_TYPE_UNSPECIFIED
+}
+
+func (x *FindOrCreateAssetRequest) GetName() string {
+	if x != nil && x.Name != nil {
+		return *x.Name
+	}
+	return ""
+}
+
+func (x *FindOrCreateAssetRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
+type FindOrCreateAssetResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Unset in a dry run that would create the asset.
+	Asset *Asset `protobuf:"bytes,1,opt,name=asset,proto3" json:"asset,omitempty"`
+	// True when the asset was created (or would be, in a dry run).
+	Created       bool `protobuf:"varint,2,opt,name=created,proto3" json:"created,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FindOrCreateAssetResponse) Reset() {
+	*x = FindOrCreateAssetResponse{}
+	mi := &file_v1_marketdata_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FindOrCreateAssetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FindOrCreateAssetResponse) ProtoMessage() {}
+
+func (x *FindOrCreateAssetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_marketdata_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FindOrCreateAssetResponse.ProtoReflect.Descriptor instead.
+func (*FindOrCreateAssetResponse) Descriptor() ([]byte, []int) {
+	return file_v1_marketdata_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *FindOrCreateAssetResponse) GetAsset() *Asset {
+	if x != nil {
+		return x.Asset
+	}
+	return nil
+}
+
+func (x *FindOrCreateAssetResponse) GetCreated() bool {
+	if x != nil {
+		return x.Created
+	}
+	return false
+}
+
 type CreatePriceRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Price         *Price                 `protobuf:"bytes,1,opt,name=price,proto3" json:"price,omitempty"`
@@ -756,7 +891,7 @@ type CreatePriceRequest struct {
 
 func (x *CreatePriceRequest) Reset() {
 	*x = CreatePriceRequest{}
-	mi := &file_v1_marketdata_proto_msgTypes[10]
+	mi := &file_v1_marketdata_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -768,7 +903,7 @@ func (x *CreatePriceRequest) String() string {
 func (*CreatePriceRequest) ProtoMessage() {}
 
 func (x *CreatePriceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_marketdata_proto_msgTypes[10]
+	mi := &file_v1_marketdata_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -781,7 +916,7 @@ func (x *CreatePriceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreatePriceRequest.ProtoReflect.Descriptor instead.
 func (*CreatePriceRequest) Descriptor() ([]byte, []int) {
-	return file_v1_marketdata_proto_rawDescGZIP(), []int{10}
+	return file_v1_marketdata_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *CreatePriceRequest) GetPrice() *Price {
@@ -800,7 +935,7 @@ type CreatePricesRequest struct {
 
 func (x *CreatePricesRequest) Reset() {
 	*x = CreatePricesRequest{}
-	mi := &file_v1_marketdata_proto_msgTypes[11]
+	mi := &file_v1_marketdata_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -812,7 +947,7 @@ func (x *CreatePricesRequest) String() string {
 func (*CreatePricesRequest) ProtoMessage() {}
 
 func (x *CreatePricesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_marketdata_proto_msgTypes[11]
+	mi := &file_v1_marketdata_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -825,7 +960,7 @@ func (x *CreatePricesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreatePricesRequest.ProtoReflect.Descriptor instead.
 func (*CreatePricesRequest) Descriptor() ([]byte, []int) {
-	return file_v1_marketdata_proto_rawDescGZIP(), []int{11}
+	return file_v1_marketdata_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *CreatePricesRequest) GetPrices() []*Price {
@@ -844,7 +979,7 @@ type CreatePricesResponse struct {
 
 func (x *CreatePricesResponse) Reset() {
 	*x = CreatePricesResponse{}
-	mi := &file_v1_marketdata_proto_msgTypes[12]
+	mi := &file_v1_marketdata_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -856,7 +991,7 @@ func (x *CreatePricesResponse) String() string {
 func (*CreatePricesResponse) ProtoMessage() {}
 
 func (x *CreatePricesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_marketdata_proto_msgTypes[12]
+	mi := &file_v1_marketdata_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -869,7 +1004,7 @@ func (x *CreatePricesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreatePricesResponse.ProtoReflect.Descriptor instead.
 func (*CreatePricesResponse) Descriptor() ([]byte, []int) {
-	return file_v1_marketdata_proto_rawDescGZIP(), []int{12}
+	return file_v1_marketdata_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *CreatePricesResponse) GetCreatedCount() int32 {
@@ -890,7 +1025,7 @@ type GetLatestPriceRequest struct {
 
 func (x *GetLatestPriceRequest) Reset() {
 	*x = GetLatestPriceRequest{}
-	mi := &file_v1_marketdata_proto_msgTypes[13]
+	mi := &file_v1_marketdata_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -902,7 +1037,7 @@ func (x *GetLatestPriceRequest) String() string {
 func (*GetLatestPriceRequest) ProtoMessage() {}
 
 func (x *GetLatestPriceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_marketdata_proto_msgTypes[13]
+	mi := &file_v1_marketdata_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -915,7 +1050,7 @@ func (x *GetLatestPriceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetLatestPriceRequest.ProtoReflect.Descriptor instead.
 func (*GetLatestPriceRequest) Descriptor() ([]byte, []int) {
-	return file_v1_marketdata_proto_rawDescGZIP(), []int{13}
+	return file_v1_marketdata_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *GetLatestPriceRequest) GetAssetId() string {
@@ -954,7 +1089,7 @@ type ListPriceHistoryRequest struct {
 
 func (x *ListPriceHistoryRequest) Reset() {
 	*x = ListPriceHistoryRequest{}
-	mi := &file_v1_marketdata_proto_msgTypes[14]
+	mi := &file_v1_marketdata_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -966,7 +1101,7 @@ func (x *ListPriceHistoryRequest) String() string {
 func (*ListPriceHistoryRequest) ProtoMessage() {}
 
 func (x *ListPriceHistoryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_marketdata_proto_msgTypes[14]
+	mi := &file_v1_marketdata_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -979,7 +1114,7 @@ func (x *ListPriceHistoryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPriceHistoryRequest.ProtoReflect.Descriptor instead.
 func (*ListPriceHistoryRequest) Descriptor() ([]byte, []int) {
-	return file_v1_marketdata_proto_rawDescGZIP(), []int{14}
+	return file_v1_marketdata_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ListPriceHistoryRequest) GetAssetId() string {
@@ -1041,7 +1176,7 @@ type ListPriceHistoryResponse struct {
 
 func (x *ListPriceHistoryResponse) Reset() {
 	*x = ListPriceHistoryResponse{}
-	mi := &file_v1_marketdata_proto_msgTypes[15]
+	mi := &file_v1_marketdata_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1053,7 +1188,7 @@ func (x *ListPriceHistoryResponse) String() string {
 func (*ListPriceHistoryResponse) ProtoMessage() {}
 
 func (x *ListPriceHistoryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_marketdata_proto_msgTypes[15]
+	mi := &file_v1_marketdata_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1066,7 +1201,7 @@ func (x *ListPriceHistoryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPriceHistoryResponse.ProtoReflect.Descriptor instead.
 func (*ListPriceHistoryResponse) Descriptor() ([]byte, []int) {
-	return file_v1_marketdata_proto_rawDescGZIP(), []int{15}
+	return file_v1_marketdata_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ListPriceHistoryResponse) GetPrices() []*Price {
@@ -1099,7 +1234,7 @@ type ListPricesByIntervalRequest struct {
 
 func (x *ListPricesByIntervalRequest) Reset() {
 	*x = ListPricesByIntervalRequest{}
-	mi := &file_v1_marketdata_proto_msgTypes[16]
+	mi := &file_v1_marketdata_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1111,7 +1246,7 @@ func (x *ListPricesByIntervalRequest) String() string {
 func (*ListPricesByIntervalRequest) ProtoMessage() {}
 
 func (x *ListPricesByIntervalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_marketdata_proto_msgTypes[16]
+	mi := &file_v1_marketdata_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1124,7 +1259,7 @@ func (x *ListPricesByIntervalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPricesByIntervalRequest.ProtoReflect.Descriptor instead.
 func (*ListPricesByIntervalRequest) Descriptor() ([]byte, []int) {
-	return file_v1_marketdata_proto_rawDescGZIP(), []int{16}
+	return file_v1_marketdata_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ListPricesByIntervalRequest) GetAssetId() string {
@@ -1192,7 +1327,7 @@ type DeletePriceRequest struct {
 
 func (x *DeletePriceRequest) Reset() {
 	*x = DeletePriceRequest{}
-	mi := &file_v1_marketdata_proto_msgTypes[17]
+	mi := &file_v1_marketdata_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1204,7 +1339,7 @@ func (x *DeletePriceRequest) String() string {
 func (*DeletePriceRequest) ProtoMessage() {}
 
 func (x *DeletePriceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_marketdata_proto_msgTypes[17]
+	mi := &file_v1_marketdata_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1217,7 +1352,7 @@ func (x *DeletePriceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeletePriceRequest.ProtoReflect.Descriptor instead.
 func (*DeletePriceRequest) Descriptor() ([]byte, []int) {
-	return file_v1_marketdata_proto_rawDescGZIP(), []int{17}
+	return file_v1_marketdata_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *DeletePriceRequest) GetId() string {
@@ -1240,7 +1375,7 @@ type DeletePricesRequest struct {
 
 func (x *DeletePricesRequest) Reset() {
 	*x = DeletePricesRequest{}
-	mi := &file_v1_marketdata_proto_msgTypes[18]
+	mi := &file_v1_marketdata_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1252,7 +1387,7 @@ func (x *DeletePricesRequest) String() string {
 func (*DeletePricesRequest) ProtoMessage() {}
 
 func (x *DeletePricesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_marketdata_proto_msgTypes[18]
+	mi := &file_v1_marketdata_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1265,7 +1400,7 @@ func (x *DeletePricesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeletePricesRequest.ProtoReflect.Descriptor instead.
 func (*DeletePricesRequest) Descriptor() ([]byte, []int) {
-	return file_v1_marketdata_proto_rawDescGZIP(), []int{18}
+	return file_v1_marketdata_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *DeletePricesRequest) GetAssetId() string {
@@ -1313,7 +1448,7 @@ type FetchExternalPricesRequest struct {
 
 func (x *FetchExternalPricesRequest) Reset() {
 	*x = FetchExternalPricesRequest{}
-	mi := &file_v1_marketdata_proto_msgTypes[19]
+	mi := &file_v1_marketdata_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1325,7 +1460,7 @@ func (x *FetchExternalPricesRequest) String() string {
 func (*FetchExternalPricesRequest) ProtoMessage() {}
 
 func (x *FetchExternalPricesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_marketdata_proto_msgTypes[19]
+	mi := &file_v1_marketdata_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1338,7 +1473,7 @@ func (x *FetchExternalPricesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchExternalPricesRequest.ProtoReflect.Descriptor instead.
 func (*FetchExternalPricesRequest) Descriptor() ([]byte, []int) {
-	return file_v1_marketdata_proto_rawDescGZIP(), []int{19}
+	return file_v1_marketdata_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *FetchExternalPricesRequest) GetSourceIds() []string {
@@ -1366,7 +1501,7 @@ type FetchExternalPricesResponse struct {
 
 func (x *FetchExternalPricesResponse) Reset() {
 	*x = FetchExternalPricesResponse{}
-	mi := &file_v1_marketdata_proto_msgTypes[20]
+	mi := &file_v1_marketdata_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1378,7 +1513,7 @@ func (x *FetchExternalPricesResponse) String() string {
 func (*FetchExternalPricesResponse) ProtoMessage() {}
 
 func (x *FetchExternalPricesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_marketdata_proto_msgTypes[20]
+	mi := &file_v1_marketdata_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1391,7 +1526,7 @@ func (x *FetchExternalPricesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchExternalPricesResponse.ProtoReflect.Descriptor instead.
 func (*FetchExternalPricesResponse) Descriptor() ([]byte, []int) {
-	return file_v1_marketdata_proto_rawDescGZIP(), []int{20}
+	return file_v1_marketdata_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *FetchExternalPricesResponse) GetPricesFetched() int32 {
@@ -1481,7 +1616,18 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\asources\x18\x02 \x03(\tR\asources\"K\n" +
 	"\x18FindSimilarAssetsRequest\x12\x19\n" +
 	"\basset_id\x18\x01 \x01(\tR\aassetId\x12\x14\n" +
-	"\x05limit\x18\x02 \x01(\x05R\x05limit\"9\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\"\xbc\x01\n" +
+	"\x18FindOrCreateAssetRequest\x12\x16\n" +
+	"\x06symbol\x18\x01 \x01(\tR\x06symbol\x12\x1b\n" +
+	"\x06market\x18\x02 \x01(\tH\x00R\x06market\x88\x01\x01\x12%\n" +
+	"\x04type\x18\x03 \x01(\x0e2\x11.eye.v1.AssetTypeR\x04type\x12\x17\n" +
+	"\x04name\x18\x04 \x01(\tH\x01R\x04name\x88\x01\x01\x12\x17\n" +
+	"\adry_run\x18\x05 \x01(\bR\x06dryRunB\t\n" +
+	"\a_marketB\a\n" +
+	"\x05_name\"Z\n" +
+	"\x19FindOrCreateAssetResponse\x12#\n" +
+	"\x05asset\x18\x01 \x01(\v2\r.eye.v1.AssetR\x05asset\x12\x18\n" +
+	"\acreated\x18\x02 \x01(\bR\acreated\"9\n" +
 	"\x12CreatePriceRequest\x12#\n" +
 	"\x05price\x18\x01 \x01(\v2\r.eye.v1.PriceR\x05price\"<\n" +
 	"\x13CreatePricesRequest\x12%\n" +
@@ -1559,7 +1705,7 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\x0fASSET_TYPE_BOND\x10\x03\x12\x18\n" +
 	"\x14ASSET_TYPE_COMMODITY\x10\x04\x12\x14\n" +
 	"\x10ASSET_TYPE_FOREX\x10\x05\x12\x13\n" +
-	"\x0fASSET_TYPE_FUND\x10\x062\x86\r\n" +
+	"\x0fASSET_TYPE_FUND\x10\x062\x8b\x0e\n" +
 	"\x11MarketDataService\x12W\n" +
 	"\vCreateAsset\x12\x1a.eye.v1.CreateAssetRequest\x1a\r.eye.v1.Asset\"\x1d\x82\xd3\xe4\x93\x02\x17:\x05asset\"\x0e/api/v1/assets\x12O\n" +
 	"\bGetAsset\x12\x17.eye.v1.GetAssetRequest\x1a\r.eye.v1.Asset\"\x1b\x82\xd3\xe4\x93\x02\x15\x12\x13/api/v1/assets/{id}\x12b\n" +
@@ -1568,7 +1714,8 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\n" +
 	"ListAssets\x12\x19.eye.v1.ListAssetsRequest\x1a\x1a.eye.v1.ListAssetsResponse\"\x16\x82\xd3\xe4\x93\x02\x10\x12\x0e/api/v1/assets\x12m\n" +
 	"\x0fEnrichAssetData\x12\x1e.eye.v1.EnrichAssetDataRequest\x1a\r.eye.v1.Asset\"+\x82\xd3\xe4\x93\x02%:\x01*\" /api/v1/assets/{asset_id}/enrich\x12|\n" +
-	"\x11FindSimilarAssets\x12 .eye.v1.FindSimilarAssetsRequest\x1a\x1a.eye.v1.ListAssetsResponse\")\x82\xd3\xe4\x93\x02#\x12!/api/v1/assets/{asset_id}/similar\x12W\n" +
+	"\x11FindSimilarAssets\x12 .eye.v1.FindSimilarAssetsRequest\x1a\x1a.eye.v1.ListAssetsResponse\")\x82\xd3\xe4\x93\x02#\x12!/api/v1/assets/{asset_id}/similar\x12\x82\x01\n" +
+	"\x11FindOrCreateAsset\x12 .eye.v1.FindOrCreateAssetRequest\x1a!.eye.v1.FindOrCreateAssetResponse\"(\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/api/v1/assets/find-or-create\x12W\n" +
 	"\vCreatePrice\x12\x1a.eye.v1.CreatePriceRequest\x1a\r.eye.v1.Price\"\x1d\x82\xd3\xe4\x93\x02\x17:\x05price\"\x0e/api/v1/prices\x12n\n" +
 	"\fCreatePrices\x12\x1b.eye.v1.CreatePricesRequest\x1a\x1c.eye.v1.CreatePricesResponse\"#\x82\xd3\xe4\x93\x02\x1d:\x06prices\"\x13/api/v1/prices/bulk\x12x\n" +
 	"\x0eGetLatestPrice\x12\x1d.eye.v1.GetLatestPriceRequest\x1a\r.eye.v1.Price\"8\x82\xd3\xe4\x93\x022\x120/api/v1/prices/{asset_id}/{base_asset_id}/latest\x12\x90\x01\n" +
@@ -1593,7 +1740,7 @@ func file_v1_marketdata_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_marketdata_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_v1_marketdata_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_v1_marketdata_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_v1_marketdata_proto_goTypes = []any{
 	(AssetType)(0),                      // 0: eye.v1.AssetType
 	(*Asset)(nil),                       // 1: eye.v1.Asset
@@ -1606,74 +1753,80 @@ var file_v1_marketdata_proto_goTypes = []any{
 	(*ListAssetsResponse)(nil),          // 8: eye.v1.ListAssetsResponse
 	(*EnrichAssetDataRequest)(nil),      // 9: eye.v1.EnrichAssetDataRequest
 	(*FindSimilarAssetsRequest)(nil),    // 10: eye.v1.FindSimilarAssetsRequest
-	(*CreatePriceRequest)(nil),          // 11: eye.v1.CreatePriceRequest
-	(*CreatePricesRequest)(nil),         // 12: eye.v1.CreatePricesRequest
-	(*CreatePricesResponse)(nil),        // 13: eye.v1.CreatePricesResponse
-	(*GetLatestPriceRequest)(nil),       // 14: eye.v1.GetLatestPriceRequest
-	(*ListPriceHistoryRequest)(nil),     // 15: eye.v1.ListPriceHistoryRequest
-	(*ListPriceHistoryResponse)(nil),    // 16: eye.v1.ListPriceHistoryResponse
-	(*ListPricesByIntervalRequest)(nil), // 17: eye.v1.ListPricesByIntervalRequest
-	(*DeletePriceRequest)(nil),          // 18: eye.v1.DeletePriceRequest
-	(*DeletePricesRequest)(nil),         // 19: eye.v1.DeletePricesRequest
-	(*FetchExternalPricesRequest)(nil),  // 20: eye.v1.FetchExternalPricesRequest
-	(*FetchExternalPricesResponse)(nil), // 21: eye.v1.FetchExternalPricesResponse
-	(*timestamppb.Timestamp)(nil),       // 22: google.protobuf.Timestamp
-	(*fieldmaskpb.FieldMask)(nil),       // 23: google.protobuf.FieldMask
-	(*emptypb.Empty)(nil),               // 24: google.protobuf.Empty
+	(*FindOrCreateAssetRequest)(nil),    // 11: eye.v1.FindOrCreateAssetRequest
+	(*FindOrCreateAssetResponse)(nil),   // 12: eye.v1.FindOrCreateAssetResponse
+	(*CreatePriceRequest)(nil),          // 13: eye.v1.CreatePriceRequest
+	(*CreatePricesRequest)(nil),         // 14: eye.v1.CreatePricesRequest
+	(*CreatePricesResponse)(nil),        // 15: eye.v1.CreatePricesResponse
+	(*GetLatestPriceRequest)(nil),       // 16: eye.v1.GetLatestPriceRequest
+	(*ListPriceHistoryRequest)(nil),     // 17: eye.v1.ListPriceHistoryRequest
+	(*ListPriceHistoryResponse)(nil),    // 18: eye.v1.ListPriceHistoryResponse
+	(*ListPricesByIntervalRequest)(nil), // 19: eye.v1.ListPricesByIntervalRequest
+	(*DeletePriceRequest)(nil),          // 20: eye.v1.DeletePriceRequest
+	(*DeletePricesRequest)(nil),         // 21: eye.v1.DeletePricesRequest
+	(*FetchExternalPricesRequest)(nil),  // 22: eye.v1.FetchExternalPricesRequest
+	(*FetchExternalPricesResponse)(nil), // 23: eye.v1.FetchExternalPricesResponse
+	(*timestamppb.Timestamp)(nil),       // 24: google.protobuf.Timestamp
+	(*fieldmaskpb.FieldMask)(nil),       // 25: google.protobuf.FieldMask
+	(*emptypb.Empty)(nil),               // 26: google.protobuf.Empty
 }
 var file_v1_marketdata_proto_depIdxs = []int32{
 	0,  // 0: eye.v1.Asset.type:type_name -> eye.v1.AssetType
-	22, // 1: eye.v1.Asset.created_at:type_name -> google.protobuf.Timestamp
-	22, // 2: eye.v1.Asset.updated_at:type_name -> google.protobuf.Timestamp
-	22, // 3: eye.v1.Price.timestamp:type_name -> google.protobuf.Timestamp
+	24, // 1: eye.v1.Asset.created_at:type_name -> google.protobuf.Timestamp
+	24, // 2: eye.v1.Asset.updated_at:type_name -> google.protobuf.Timestamp
+	24, // 3: eye.v1.Price.timestamp:type_name -> google.protobuf.Timestamp
 	1,  // 4: eye.v1.CreateAssetRequest.asset:type_name -> eye.v1.Asset
 	1,  // 5: eye.v1.UpdateAssetRequest.asset:type_name -> eye.v1.Asset
-	23, // 6: eye.v1.UpdateAssetRequest.update_mask:type_name -> google.protobuf.FieldMask
+	25, // 6: eye.v1.UpdateAssetRequest.update_mask:type_name -> google.protobuf.FieldMask
 	1,  // 7: eye.v1.ListAssetsResponse.assets:type_name -> eye.v1.Asset
-	2,  // 8: eye.v1.CreatePriceRequest.price:type_name -> eye.v1.Price
-	2,  // 9: eye.v1.CreatePricesRequest.prices:type_name -> eye.v1.Price
-	22, // 10: eye.v1.ListPriceHistoryRequest.from:type_name -> google.protobuf.Timestamp
-	22, // 11: eye.v1.ListPriceHistoryRequest.to:type_name -> google.protobuf.Timestamp
-	2,  // 12: eye.v1.ListPriceHistoryResponse.prices:type_name -> eye.v1.Price
-	22, // 13: eye.v1.ListPricesByIntervalRequest.from:type_name -> google.protobuf.Timestamp
-	22, // 14: eye.v1.ListPricesByIntervalRequest.to:type_name -> google.protobuf.Timestamp
-	22, // 15: eye.v1.DeletePricesRequest.from:type_name -> google.protobuf.Timestamp
-	22, // 16: eye.v1.DeletePricesRequest.to:type_name -> google.protobuf.Timestamp
-	3,  // 17: eye.v1.MarketDataService.CreateAsset:input_type -> eye.v1.CreateAssetRequest
-	4,  // 18: eye.v1.MarketDataService.GetAsset:input_type -> eye.v1.GetAssetRequest
-	5,  // 19: eye.v1.MarketDataService.UpdateAsset:input_type -> eye.v1.UpdateAssetRequest
-	6,  // 20: eye.v1.MarketDataService.DeleteAsset:input_type -> eye.v1.DeleteAssetRequest
-	7,  // 21: eye.v1.MarketDataService.ListAssets:input_type -> eye.v1.ListAssetsRequest
-	9,  // 22: eye.v1.MarketDataService.EnrichAssetData:input_type -> eye.v1.EnrichAssetDataRequest
-	10, // 23: eye.v1.MarketDataService.FindSimilarAssets:input_type -> eye.v1.FindSimilarAssetsRequest
-	11, // 24: eye.v1.MarketDataService.CreatePrice:input_type -> eye.v1.CreatePriceRequest
-	12, // 25: eye.v1.MarketDataService.CreatePrices:input_type -> eye.v1.CreatePricesRequest
-	14, // 26: eye.v1.MarketDataService.GetLatestPrice:input_type -> eye.v1.GetLatestPriceRequest
-	15, // 27: eye.v1.MarketDataService.ListPriceHistory:input_type -> eye.v1.ListPriceHistoryRequest
-	17, // 28: eye.v1.MarketDataService.ListPricesByInterval:input_type -> eye.v1.ListPricesByIntervalRequest
-	18, // 29: eye.v1.MarketDataService.DeletePrice:input_type -> eye.v1.DeletePriceRequest
-	19, // 30: eye.v1.MarketDataService.DeletePrices:input_type -> eye.v1.DeletePricesRequest
-	20, // 31: eye.v1.MarketDataService.FetchExternalPrices:input_type -> eye.v1.FetchExternalPricesRequest
-	1,  // 32: eye.v1.MarketDataService.CreateAsset:output_type -> eye.v1.Asset
-	1,  // 33: eye.v1.MarketDataService.GetAsset:output_type -> eye.v1.Asset
-	1,  // 34: eye.v1.MarketDataService.UpdateAsset:output_type -> eye.v1.Asset
-	24, // 35: eye.v1.MarketDataService.DeleteAsset:output_type -> google.protobuf.Empty
-	8,  // 36: eye.v1.MarketDataService.ListAssets:output_type -> eye.v1.ListAssetsResponse
-	1,  // 37: eye.v1.MarketDataService.EnrichAssetData:output_type -> eye.v1.Asset
-	8,  // 38: eye.v1.MarketDataService.FindSimilarAssets:output_type -> eye.v1.ListAssetsResponse
-	2,  // 39: eye.v1.MarketDataService.CreatePrice:output_type -> eye.v1.Price
-	13, // 40: eye.v1.MarketDataService.CreatePrices:output_type -> eye.v1.CreatePricesResponse
-	2,  // 41: eye.v1.MarketDataService.GetLatestPrice:output_type -> eye.v1.Price
-	16, // 42: eye.v1.MarketDataService.ListPriceHistory:output_type -> eye.v1.ListPriceHistoryResponse
-	16, // 43: eye.v1.MarketDataService.ListPricesByInterval:output_type -> eye.v1.ListPriceHistoryResponse
-	24, // 44: eye.v1.MarketDataService.DeletePrice:output_type -> google.protobuf.Empty
-	24, // 45: eye.v1.MarketDataService.DeletePrices:output_type -> google.protobuf.Empty
-	21, // 46: eye.v1.MarketDataService.FetchExternalPrices:output_type -> eye.v1.FetchExternalPricesResponse
-	32, // [32:47] is the sub-list for method output_type
-	17, // [17:32] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	0,  // 8: eye.v1.FindOrCreateAssetRequest.type:type_name -> eye.v1.AssetType
+	1,  // 9: eye.v1.FindOrCreateAssetResponse.asset:type_name -> eye.v1.Asset
+	2,  // 10: eye.v1.CreatePriceRequest.price:type_name -> eye.v1.Price
+	2,  // 11: eye.v1.CreatePricesRequest.prices:type_name -> eye.v1.Price
+	24, // 12: eye.v1.ListPriceHistoryRequest.from:type_name -> google.protobuf.Timestamp
+	24, // 13: eye.v1.ListPriceHistoryRequest.to:type_name -> google.protobuf.Timestamp
+	2,  // 14: eye.v1.ListPriceHistoryResponse.prices:type_name -> eye.v1.Price
+	24, // 15: eye.v1.ListPricesByIntervalRequest.from:type_name -> google.protobuf.Timestamp
+	24, // 16: eye.v1.ListPricesByIntervalRequest.to:type_name -> google.protobuf.Timestamp
+	24, // 17: eye.v1.DeletePricesRequest.from:type_name -> google.protobuf.Timestamp
+	24, // 18: eye.v1.DeletePricesRequest.to:type_name -> google.protobuf.Timestamp
+	3,  // 19: eye.v1.MarketDataService.CreateAsset:input_type -> eye.v1.CreateAssetRequest
+	4,  // 20: eye.v1.MarketDataService.GetAsset:input_type -> eye.v1.GetAssetRequest
+	5,  // 21: eye.v1.MarketDataService.UpdateAsset:input_type -> eye.v1.UpdateAssetRequest
+	6,  // 22: eye.v1.MarketDataService.DeleteAsset:input_type -> eye.v1.DeleteAssetRequest
+	7,  // 23: eye.v1.MarketDataService.ListAssets:input_type -> eye.v1.ListAssetsRequest
+	9,  // 24: eye.v1.MarketDataService.EnrichAssetData:input_type -> eye.v1.EnrichAssetDataRequest
+	10, // 25: eye.v1.MarketDataService.FindSimilarAssets:input_type -> eye.v1.FindSimilarAssetsRequest
+	11, // 26: eye.v1.MarketDataService.FindOrCreateAsset:input_type -> eye.v1.FindOrCreateAssetRequest
+	13, // 27: eye.v1.MarketDataService.CreatePrice:input_type -> eye.v1.CreatePriceRequest
+	14, // 28: eye.v1.MarketDataService.CreatePrices:input_type -> eye.v1.CreatePricesRequest
+	16, // 29: eye.v1.MarketDataService.GetLatestPrice:input_type -> eye.v1.GetLatestPriceRequest
+	17, // 30: eye.v1.MarketDataService.ListPriceHistory:input_type -> eye.v1.ListPriceHistoryRequest
+	19, // 31: eye.v1.MarketDataService.ListPricesByInterval:input_type -> eye.v1.ListPricesByIntervalRequest
+	20, // 32: eye.v1.MarketDataService.DeletePrice:input_type -> eye.v1.DeletePriceRequest
+	21, // 33: eye.v1.MarketDataService.DeletePrices:input_type -> eye.v1.DeletePricesRequest
+	22, // 34: eye.v1.MarketDataService.FetchExternalPrices:input_type -> eye.v1.FetchExternalPricesRequest
+	1,  // 35: eye.v1.MarketDataService.CreateAsset:output_type -> eye.v1.Asset
+	1,  // 36: eye.v1.MarketDataService.GetAsset:output_type -> eye.v1.Asset
+	1,  // 37: eye.v1.MarketDataService.UpdateAsset:output_type -> eye.v1.Asset
+	26, // 38: eye.v1.MarketDataService.DeleteAsset:output_type -> google.protobuf.Empty
+	8,  // 39: eye.v1.MarketDataService.ListAssets:output_type -> eye.v1.ListAssetsResponse
+	1,  // 40: eye.v1.MarketDataService.EnrichAssetData:output_type -> eye.v1.Asset
+	8,  // 41: eye.v1.MarketDataService.FindSimilarAssets:output_type -> eye.v1.ListAssetsResponse
+	12, // 42: eye.v1.MarketDataService.FindOrCreateAsset:output_type -> eye.v1.FindOrCreateAssetResponse
+	2,  // 43: eye.v1.MarketDataService.CreatePrice:output_type -> eye.v1.Price
+	15, // 44: eye.v1.MarketDataService.CreatePrices:output_type -> eye.v1.CreatePricesResponse
+	2,  // 45: eye.v1.MarketDataService.GetLatestPrice:output_type -> eye.v1.Price
+	18, // 46: eye.v1.MarketDataService.ListPriceHistory:output_type -> eye.v1.ListPriceHistoryResponse
+	18, // 47: eye.v1.MarketDataService.ListPricesByInterval:output_type -> eye.v1.ListPriceHistoryResponse
+	26, // 48: eye.v1.MarketDataService.DeletePrice:output_type -> google.protobuf.Empty
+	26, // 49: eye.v1.MarketDataService.DeletePrices:output_type -> google.protobuf.Empty
+	23, // 50: eye.v1.MarketDataService.FetchExternalPrices:output_type -> eye.v1.FetchExternalPricesResponse
+	35, // [35:51] is the sub-list for method output_type
+	19, // [19:35] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_v1_marketdata_proto_init() }
@@ -1684,17 +1837,18 @@ func file_v1_marketdata_proto_init() {
 	file_v1_marketdata_proto_msgTypes[0].OneofWrappers = []any{}
 	file_v1_marketdata_proto_msgTypes[1].OneofWrappers = []any{}
 	file_v1_marketdata_proto_msgTypes[6].OneofWrappers = []any{}
-	file_v1_marketdata_proto_msgTypes[13].OneofWrappers = []any{}
-	file_v1_marketdata_proto_msgTypes[14].OneofWrappers = []any{}
+	file_v1_marketdata_proto_msgTypes[10].OneofWrappers = []any{}
+	file_v1_marketdata_proto_msgTypes[15].OneofWrappers = []any{}
 	file_v1_marketdata_proto_msgTypes[16].OneofWrappers = []any{}
 	file_v1_marketdata_proto_msgTypes[18].OneofWrappers = []any{}
+	file_v1_marketdata_proto_msgTypes[20].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_marketdata_proto_rawDesc), len(file_v1_marketdata_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   21,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

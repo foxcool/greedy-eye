@@ -13,6 +13,8 @@ import (
 // No adapters required — both implement these methods with identical signatures.
 type MarketDataClient interface {
 	CreateAsset(context.Context, *connect.Request[apiv1.CreateAssetRequest]) (*connect.Response[apiv1.Asset], error)
+	GetAsset(context.Context, *connect.Request[apiv1.GetAssetRequest]) (*connect.Response[apiv1.Asset], error)
+	FindOrCreateAsset(context.Context, *connect.Request[apiv1.FindOrCreateAssetRequest]) (*connect.Response[apiv1.FindOrCreateAssetResponse], error)
 	ListAssets(context.Context, *connect.Request[apiv1.ListAssetsRequest]) (*connect.Response[apiv1.ListAssetsResponse], error)
 	GetLatestPrice(context.Context, *connect.Request[apiv1.GetLatestPriceRequest]) (*connect.Response[apiv1.Price], error)
 	ListPriceHistory(context.Context, *connect.Request[apiv1.ListPriceHistoryRequest]) (*connect.Response[apiv1.ListPriceHistoryResponse], error)

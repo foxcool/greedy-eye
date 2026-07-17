@@ -231,6 +231,38 @@ func (s *MarketDataStore) GetAssetBySymbol(ctx context.Context, symbol string) (
 	}
 }
 
+// FindAssetByIdentity looks up an asset by its exact composite identity
+// (symbol, market, type). Inputs are normalized the same way CreateAsset
+// normalizes them, so a find-then-create sequence targets the same row.
+func (s *MarketDataStore) FindAssetByIdentity(ctx context.Context, symbol, market string, typ entity.AssetType) (*entity.Asset, error) {
+	symbol = entity.NormalizeSymbol(symbol)
+	market = entity.NormalizeMarket(market)
+	if symbol == "" {
+		return nil, fmt.Errorf("%w: symbol is required", store.ErrInvalidArgument)
+	}
+	if market == "" {
+		return nil, fmt.Errorf("%w: market is required", store.ErrInvalidArgument)
+	}
+	if typ == entity.AssetTypeUnspecified {
+		return nil, fmt.Errorf("%w: asset type is required", store.ErrInvalidArgument)
+	}
+
+	query := `
+		SELECT ` + assetColumns + `
+		FROM assets
+		WHERE symbol = $1 AND market = $2 AND type = $3`
+
+	asset, err := scanAsset(s.pool.QueryRow(ctx, query, symbol, market, assetTypeToString(typ)))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: asset %s on market %s", store.ErrNotFound, symbol, market)
+		}
+		return nil, fmt.Errorf("failed to find asset by identity: %w", err)
+	}
+
+	return asset, nil
+}
+
 // UpdateAsset updates an asset with the specified fields.
 func (s *MarketDataStore) UpdateAsset(ctx context.Context, asset *entity.Asset, fields []string) (*entity.Asset, error) {
 	if asset == nil || asset.ID == "" {
