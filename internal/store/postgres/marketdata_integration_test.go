@@ -550,3 +550,26 @@ func TestDeletePrices(t *testing.T) {
 		assert.ErrorIs(t, err, store.ErrNotFound)
 	})
 }
+
+func TestFindAssetByIdentity(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	created, err := s.CreateAsset(ctx, &entity.Asset{
+		Symbol: "identbtc",
+		Name:   "Identity BTC",
+		Type:   entity.AssetTypeCryptocurrency,
+	})
+	require.NoError(t, err)
+
+	got, err := s.FindAssetByIdentity(ctx, " identbtc ", "CRYPTO", entity.AssetTypeCryptocurrency)
+	require.NoError(t, err)
+	assert.Equal(t, created.ID, got.ID)
+
+	_, err = s.FindAssetByIdentity(ctx, "IDENTBTC", "nasdaq", entity.AssetTypeCryptocurrency)
+	require.ErrorIs(t, err, store.ErrNotFound)
+
+	_, err = s.FindAssetByIdentity(ctx, "IDENTBTC", "crypto", entity.AssetTypeUnspecified)
+	require.ErrorIs(t, err, store.ErrInvalidArgument)
+}

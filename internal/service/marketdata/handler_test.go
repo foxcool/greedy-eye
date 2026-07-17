@@ -48,6 +48,14 @@ func (m *mockStore) GetAssetBySymbol(ctx context.Context, symbol string) (*entit
 	return nil, args.Error(1)
 }
 
+func (m *mockStore) FindAssetByIdentity(ctx context.Context, symbol, market string, typ entity.AssetType) (*entity.Asset, error) {
+	args := m.Called(ctx, symbol, market, typ)
+	if v := args.Get(0); v != nil {
+		return v.(*entity.Asset), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockStore) GetOrCreateAssetBySymbol(ctx context.Context, symbol, nameIfNew string, typeIfNew entity.AssetType) (*entity.Asset, error) {
 	args := m.Called(ctx, symbol, nameIfNew, typeIfNew)
 	if v := args.Get(0); v != nil {
@@ -401,4 +409,89 @@ func TestStubs_ReturnUnimplemented(t *testing.T) {
 
 	_, err = h.FetchExternalPrices(ctx, connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	assert.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
+}
+
+// --- Tests: FindOrCreateAsset ---
+
+func TestFindOrCreateAsset_FindsExisting(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetByIdentity", mock.Anything, "BTC", "crypto", entity.AssetTypeCryptocurrency).
+		Return(testAsset("id-1"), nil)
+	h := newHandler(s)
+
+	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol: "btc", // normalized before lookup; type/market default to crypto
+	}))
+	require.NoError(t, err)
+	assert.False(t, resp.Msg.Created)
+	require.NotNil(t, resp.Msg.Asset)
+	assert.Equal(t, "id-1", resp.Msg.Asset.Id)
+	s.AssertNotCalled(t, "CreateAsset")
+}
+
+func TestFindOrCreateAsset_DryRunWouldCreate(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetByIdentity", mock.Anything, "NEW", "crypto", entity.AssetTypeCryptocurrency).
+		Return(nil, store.ErrNotFound)
+	h := newHandler(s)
+
+	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol: "NEW",
+		DryRun: true,
+	}))
+	require.NoError(t, err)
+	assert.True(t, resp.Msg.Created)
+	assert.Nil(t, resp.Msg.Asset)
+	s.AssertNotCalled(t, "CreateAsset")
+}
+
+func TestFindOrCreateAsset_Creates(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetByIdentity", mock.Anything, "NEW", "crypto", entity.AssetTypeCryptocurrency).
+		Return(nil, store.ErrNotFound)
+	s.On("CreateAsset", mock.Anything, mock.MatchedBy(func(a *entity.Asset) bool {
+		return a.Symbol == "NEW" && a.Name == "New Token" && a.Market == "crypto" && a.Type == entity.AssetTypeCryptocurrency
+	})).Return(testAsset("id-2"), nil)
+	h := newHandler(s)
+
+	name := "New Token"
+	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol: "NEW",
+		Name:   &name,
+	}))
+	require.NoError(t, err)
+	assert.True(t, resp.Msg.Created)
+	require.NotNil(t, resp.Msg.Asset)
+	s.AssertExpectations(t)
+}
+
+// TestFindOrCreateAsset_LosesCreationRace verifies a concurrent insert is
+// resolved by reading back the winner instead of surfacing the constraint.
+func TestFindOrCreateAsset_LosesCreationRace(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetByIdentity", mock.Anything, "BTC", "crypto", entity.AssetTypeCryptocurrency).
+		Return(nil, store.ErrNotFound).Once()
+	s.On("CreateAsset", mock.Anything, mock.Anything).Return(nil, store.ErrConstraint)
+	s.On("FindAssetByIdentity", mock.Anything, "BTC", "crypto", entity.AssetTypeCryptocurrency).
+		Return(testAsset("id-1"), nil).Once()
+	h := newHandler(s)
+
+	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol: "BTC",
+	}))
+	require.NoError(t, err)
+	assert.False(t, resp.Msg.Created)
+	require.NotNil(t, resp.Msg.Asset)
+	assert.Equal(t, "id-1", resp.Msg.Asset.Id)
+}
+
+func TestFindOrCreateAsset_StockRequiresMarket(t *testing.T) {
+	h := newHandler(&mockStore{})
+
+	_, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol: "AAPL",
+		Type:   apiv1.AssetType_ASSET_TYPE_STOCK,
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 }

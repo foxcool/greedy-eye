@@ -67,6 +67,12 @@ const (
 	// PortfolioServiceDeleteHoldingProcedure is the fully-qualified name of the PortfolioService's
 	// DeleteHolding RPC.
 	PortfolioServiceDeleteHoldingProcedure = "/eye.v1.PortfolioService/DeleteHolding"
+	// PortfolioServiceImportPositionsProcedure is the fully-qualified name of the PortfolioService's
+	// ImportPositions RPC.
+	PortfolioServiceImportPositionsProcedure = "/eye.v1.PortfolioService/ImportPositions"
+	// PortfolioServiceImportTransactionsProcedure is the fully-qualified name of the PortfolioService's
+	// ImportTransactions RPC.
+	PortfolioServiceImportTransactionsProcedure = "/eye.v1.PortfolioService/ImportTransactions"
 	// PortfolioServiceListHoldingsProcedure is the fully-qualified name of the PortfolioService's
 	// ListHoldings RPC.
 	PortfolioServiceListHoldingsProcedure = "/eye.v1.PortfolioService/ListHoldings"
@@ -118,6 +124,11 @@ type PortfolioServiceClient interface {
 	GetHolding(context.Context, *connect.Request[v1.GetHoldingRequest]) (*connect.Response[v1.Holding], error)
 	UpdateHolding(context.Context, *connect.Request[v1.UpdateHoldingRequest]) (*connect.Response[v1.Holding], error)
 	DeleteHolding(context.Context, *connect.Request[v1.DeleteHoldingRequest]) (*connect.Response[emptypb.Empty], error)
+	// --- Batch import (manual accounts) ---
+	// Simulation-first: call with dry_run=true to get the plan without writes,
+	// confirm, then repeat with dry_run=false to commit under one import_id.
+	ImportPositions(context.Context, *connect.Request[v1.ImportPositionsRequest]) (*connect.Response[v1.ImportPositionsResponse], error)
+	ImportTransactions(context.Context, *connect.Request[v1.ImportTransactionsRequest]) (*connect.Response[v1.ImportTransactionsResponse], error)
 	ListHoldings(context.Context, *connect.Request[v1.ListHoldingsRequest]) (*connect.Response[v1.ListHoldingsResponse], error)
 	// --- Account CRUD ---
 	CreateAccount(context.Context, *connect.Request[v1.CreateAccountRequest]) (*connect.Response[v1.Account], error)
@@ -211,6 +222,18 @@ func NewPortfolioServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(portfolioServiceMethods.ByName("DeleteHolding")),
 			connect.WithClientOptions(opts...),
 		),
+		importPositions: connect.NewClient[v1.ImportPositionsRequest, v1.ImportPositionsResponse](
+			httpClient,
+			baseURL+PortfolioServiceImportPositionsProcedure,
+			connect.WithSchema(portfolioServiceMethods.ByName("ImportPositions")),
+			connect.WithClientOptions(opts...),
+		),
+		importTransactions: connect.NewClient[v1.ImportTransactionsRequest, v1.ImportTransactionsResponse](
+			httpClient,
+			baseURL+PortfolioServiceImportTransactionsProcedure,
+			connect.WithSchema(portfolioServiceMethods.ByName("ImportTransactions")),
+			connect.WithClientOptions(opts...),
+		),
 		listHoldings: connect.NewClient[v1.ListHoldingsRequest, v1.ListHoldingsResponse](
 			httpClient,
 			baseURL+PortfolioServiceListHoldingsProcedure,
@@ -293,6 +316,8 @@ type portfolioServiceClient struct {
 	getHolding              *connect.Client[v1.GetHoldingRequest, v1.Holding]
 	updateHolding           *connect.Client[v1.UpdateHoldingRequest, v1.Holding]
 	deleteHolding           *connect.Client[v1.DeleteHoldingRequest, emptypb.Empty]
+	importPositions         *connect.Client[v1.ImportPositionsRequest, v1.ImportPositionsResponse]
+	importTransactions      *connect.Client[v1.ImportTransactionsRequest, v1.ImportTransactionsResponse]
 	listHoldings            *connect.Client[v1.ListHoldingsRequest, v1.ListHoldingsResponse]
 	createAccount           *connect.Client[v1.CreateAccountRequest, v1.Account]
 	getAccount              *connect.Client[v1.GetAccountRequest, v1.Account]
@@ -359,6 +384,16 @@ func (c *portfolioServiceClient) UpdateHolding(ctx context.Context, req *connect
 // DeleteHolding calls eye.v1.PortfolioService.DeleteHolding.
 func (c *portfolioServiceClient) DeleteHolding(ctx context.Context, req *connect.Request[v1.DeleteHoldingRequest]) (*connect.Response[emptypb.Empty], error) {
 	return c.deleteHolding.CallUnary(ctx, req)
+}
+
+// ImportPositions calls eye.v1.PortfolioService.ImportPositions.
+func (c *portfolioServiceClient) ImportPositions(ctx context.Context, req *connect.Request[v1.ImportPositionsRequest]) (*connect.Response[v1.ImportPositionsResponse], error) {
+	return c.importPositions.CallUnary(ctx, req)
+}
+
+// ImportTransactions calls eye.v1.PortfolioService.ImportTransactions.
+func (c *portfolioServiceClient) ImportTransactions(ctx context.Context, req *connect.Request[v1.ImportTransactionsRequest]) (*connect.Response[v1.ImportTransactionsResponse], error) {
+	return c.importTransactions.CallUnary(ctx, req)
 }
 
 // ListHoldings calls eye.v1.PortfolioService.ListHoldings.
@@ -432,6 +467,11 @@ type PortfolioServiceHandler interface {
 	GetHolding(context.Context, *connect.Request[v1.GetHoldingRequest]) (*connect.Response[v1.Holding], error)
 	UpdateHolding(context.Context, *connect.Request[v1.UpdateHoldingRequest]) (*connect.Response[v1.Holding], error)
 	DeleteHolding(context.Context, *connect.Request[v1.DeleteHoldingRequest]) (*connect.Response[emptypb.Empty], error)
+	// --- Batch import (manual accounts) ---
+	// Simulation-first: call with dry_run=true to get the plan without writes,
+	// confirm, then repeat with dry_run=false to commit under one import_id.
+	ImportPositions(context.Context, *connect.Request[v1.ImportPositionsRequest]) (*connect.Response[v1.ImportPositionsResponse], error)
+	ImportTransactions(context.Context, *connect.Request[v1.ImportTransactionsRequest]) (*connect.Response[v1.ImportTransactionsResponse], error)
 	ListHoldings(context.Context, *connect.Request[v1.ListHoldingsRequest]) (*connect.Response[v1.ListHoldingsResponse], error)
 	// --- Account CRUD ---
 	CreateAccount(context.Context, *connect.Request[v1.CreateAccountRequest]) (*connect.Response[v1.Account], error)
@@ -519,6 +559,18 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 		PortfolioServiceDeleteHoldingProcedure,
 		svc.DeleteHolding,
 		connect.WithSchema(portfolioServiceMethods.ByName("DeleteHolding")),
+		connect.WithHandlerOptions(opts...),
+	)
+	portfolioServiceImportPositionsHandler := connect.NewUnaryHandler(
+		PortfolioServiceImportPositionsProcedure,
+		svc.ImportPositions,
+		connect.WithSchema(portfolioServiceMethods.ByName("ImportPositions")),
+		connect.WithHandlerOptions(opts...),
+	)
+	portfolioServiceImportTransactionsHandler := connect.NewUnaryHandler(
+		PortfolioServiceImportTransactionsProcedure,
+		svc.ImportTransactions,
+		connect.WithSchema(portfolioServiceMethods.ByName("ImportTransactions")),
 		connect.WithHandlerOptions(opts...),
 	)
 	portfolioServiceListHoldingsHandler := connect.NewUnaryHandler(
@@ -611,6 +663,10 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 			portfolioServiceUpdateHoldingHandler.ServeHTTP(w, r)
 		case PortfolioServiceDeleteHoldingProcedure:
 			portfolioServiceDeleteHoldingHandler.ServeHTTP(w, r)
+		case PortfolioServiceImportPositionsProcedure:
+			portfolioServiceImportPositionsHandler.ServeHTTP(w, r)
+		case PortfolioServiceImportTransactionsProcedure:
+			portfolioServiceImportTransactionsHandler.ServeHTTP(w, r)
 		case PortfolioServiceListHoldingsProcedure:
 			portfolioServiceListHoldingsHandler.ServeHTTP(w, r)
 		case PortfolioServiceCreateAccountProcedure:
@@ -684,6 +740,14 @@ func (UnimplementedPortfolioServiceHandler) UpdateHolding(context.Context, *conn
 
 func (UnimplementedPortfolioServiceHandler) DeleteHolding(context.Context, *connect.Request[v1.DeleteHoldingRequest]) (*connect.Response[emptypb.Empty], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.DeleteHolding is not implemented"))
+}
+
+func (UnimplementedPortfolioServiceHandler) ImportPositions(context.Context, *connect.Request[v1.ImportPositionsRequest]) (*connect.Response[v1.ImportPositionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.ImportPositions is not implemented"))
+}
+
+func (UnimplementedPortfolioServiceHandler) ImportTransactions(context.Context, *connect.Request[v1.ImportTransactionsRequest]) (*connect.Response[v1.ImportTransactionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.ImportTransactions is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) ListHoldings(context.Context, *connect.Request[v1.ListHoldingsRequest]) (*connect.Response[v1.ListHoldingsResponse], error) {

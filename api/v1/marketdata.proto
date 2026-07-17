@@ -117,6 +117,15 @@ service MarketDataService {
     };
   }
 
+  // Find-first asset resolution by composite identity (symbol, market, type);
+  // creates the asset only when nothing matches and dry_run is false.
+  rpc FindOrCreateAsset(FindOrCreateAssetRequest) returns (FindOrCreateAssetResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/assets/find-or-create"
+      body: "*"
+    };
+  }
+
   // --- Price CRUD ---
   rpc CreatePrice(CreatePriceRequest) returns (Price) {
     option (google.api.http) = {
@@ -211,6 +220,26 @@ message EnrichAssetDataRequest {
 message FindSimilarAssetsRequest {
   string asset_id = 1;
   int32 limit = 2;
+}
+
+message FindOrCreateAssetRequest {
+  string symbol = 1;
+  // Listing market; defaults by type (cryptocurrency -> "crypto", forex ->
+  // "forex"), required for other types when the asset has to be created.
+  optional string market = 2;
+  // Defaults to ASSET_TYPE_CRYPTOCURRENCY.
+  AssetType type = 3;
+  // Asset name when created; defaults to the symbol.
+  optional string name = 4;
+  // When true, never creates: reports what would happen instead.
+  bool dry_run = 5;
+}
+
+message FindOrCreateAssetResponse {
+  // Unset in a dry run that would create the asset.
+  Asset asset = 1;
+  // True when the asset was created (or would be, in a dry run).
+  bool created = 2;
 }
 
 // =============================================================================
