@@ -87,15 +87,23 @@ func (AssetType) EnumDescriptor() ([]byte, []int) {
 }
 
 // Asset represents financial instrument (crypto, stock, etc.).
+// Asset identity is the composite (symbol, market, type): the same ticker may
+// exist on different markets (AAPL on nasdaq vs an AAPL token on crypto).
 type Asset struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Type          AssetType              `protobuf:"varint,3,opt,name=type,proto3,enum=eye.v1.AssetType" json:"type,omitempty"`
-	Symbol        *string                `protobuf:"bytes,4,opt,name=symbol,proto3,oneof" json:"symbol,omitempty"`
-	Tags          []string               `protobuf:"bytes,5,rep,name=tags,proto3" json:"tags,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Id        string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name      string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Type      AssetType              `protobuf:"varint,3,opt,name=type,proto3,enum=eye.v1.AssetType" json:"type,omitempty"`
+	Symbol    *string                `protobuf:"bytes,4,opt,name=symbol,proto3,oneof" json:"symbol,omitempty"`
+	Tags      []string               `protobuf:"bytes,5,rep,name=tags,proto3" json:"tags,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// Listing market/venue ("crypto" is the single global crypto market,
+	// "nasdaq", "moex"), not the price source. Defaults by type on create:
+	// cryptocurrency -> "crypto", forex -> "forex"; required otherwise.
+	Market *string `protobuf:"bytes,8,opt,name=market,proto3,oneof" json:"market,omitempty"`
+	// Quote currency/base where applicable.
+	Quote         *string `protobuf:"bytes,9,opt,name=quote,proto3,oneof" json:"quote,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -177,6 +185,20 @@ func (x *Asset) GetUpdatedAt() *timestamppb.Timestamp {
 		return x.UpdatedAt
 	}
 	return nil
+}
+
+func (x *Asset) GetMarket() string {
+	if x != nil && x.Market != nil {
+		return *x.Market
+	}
+	return ""
+}
+
+func (x *Asset) GetQuote() string {
+	if x != nil && x.Quote != nil {
+		return *x.Quote
+	}
+	return ""
 }
 
 // Price represents the price action of an Asset against a base Asset
@@ -1397,7 +1419,7 @@ var File_v1_marketdata_proto protoreflect.FileDescriptor
 
 const file_v1_marketdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13v1/marketdata.proto\x12\x06eye.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/api/annotations.proto\"\x84\x02\n" +
+	"\x13v1/marketdata.proto\x12\x06eye.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/api/annotations.proto\"\xd1\x02\n" +
 	"\x05Asset\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12%\n" +
@@ -1407,8 +1429,12 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAtB\t\n" +
-	"\a_symbol\"\xa9\x03\n" +
+	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x1b\n" +
+	"\x06market\x18\b \x01(\tH\x01R\x06market\x88\x01\x01\x12\x19\n" +
+	"\x05quote\x18\t \x01(\tH\x02R\x05quote\x88\x01\x01B\t\n" +
+	"\a_symbolB\t\n" +
+	"\a_marketB\b\n" +
+	"\x06_quote\"\xa9\x03\n" +
 	"\x05Price\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tsource_id\x18\x02 \x01(\tR\bsourceId\x12\x19\n" +

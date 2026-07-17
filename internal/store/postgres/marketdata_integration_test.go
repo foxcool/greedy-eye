@@ -119,6 +119,101 @@ func TestCreateAsset(t *testing.T) {
 	})
 }
 
+func TestAssetIdentity(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	t.Run("crypto market defaults to crypto", func(t *testing.T) {
+		created, err := s.CreateAsset(ctx, &entity.Asset{
+			Symbol: "IDDEFAULT",
+			Name:   "Identity Default",
+			Type:   entity.AssetTypeCryptocurrency,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, entity.MarketCrypto, created.Market)
+	})
+
+	t.Run("market is normalized", func(t *testing.T) {
+		created, err := s.CreateAsset(ctx, &entity.Asset{
+			Symbol: "IDNORM",
+			Name:   "Identity Normalized",
+			Type:   entity.AssetTypeStock,
+			Market: " NASDAQ ",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "nasdaq", created.Market)
+	})
+
+	t.Run("stock without market is rejected", func(t *testing.T) {
+		_, err := s.CreateAsset(ctx, &entity.Asset{
+			Symbol: "IDNOMARKET",
+			Name:   "Identity No Market",
+			Type:   entity.AssetTypeStock,
+		})
+		assert.ErrorIs(t, err, store.ErrInvalidArgument)
+	})
+
+	t.Run("duplicate (symbol, market, type) is rejected", func(t *testing.T) {
+		asset := &entity.Asset{
+			Symbol: "IDDUP",
+			Name:   "Identity Dup",
+			Type:   entity.AssetTypeCryptocurrency,
+		}
+		_, err := s.CreateAsset(ctx, asset)
+		require.NoError(t, err)
+		_, err = s.CreateAsset(ctx, &entity.Asset{
+			Symbol: "IDDUP",
+			Name:   "Identity Dup Again",
+			Type:   entity.AssetTypeCryptocurrency,
+		})
+		assert.ErrorIs(t, err, store.ErrConstraint)
+	})
+
+	t.Run("same symbol on another market coexists and makes symbol lookup ambiguous", func(t *testing.T) {
+		_, err := s.CreateAsset(ctx, &entity.Asset{
+			Symbol: "IDAAPL",
+			Name:   "Identity Apple Token",
+			Type:   entity.AssetTypeCryptocurrency,
+		})
+		require.NoError(t, err)
+
+		// Unique symbol resolves.
+		found, err := s.GetAssetBySymbol(ctx, "idaapl")
+		require.NoError(t, err)
+		assert.Equal(t, entity.MarketCrypto, found.Market)
+
+		_, err = s.CreateAsset(ctx, &entity.Asset{
+			Symbol: "IDAAPL",
+			Name:   "Identity Apple Stock",
+			Type:   entity.AssetTypeStock,
+			Market: "nasdaq",
+			Quote:  "USD",
+		})
+		require.NoError(t, err)
+
+		// Ambiguous symbol fails explicitly instead of silently picking one.
+		_, err = s.GetAssetBySymbol(ctx, "IDAAPL")
+		assert.ErrorIs(t, err, store.ErrInvalidArgument)
+	})
+
+	t.Run("update market and quote", func(t *testing.T) {
+		created, err := s.CreateAsset(ctx, &entity.Asset{
+			Symbol: "IDUPD",
+			Name:   "Identity Update",
+			Type:   entity.AssetTypeCryptocurrency,
+		})
+		require.NoError(t, err)
+
+		created.Market = "MOEX"
+		created.Quote = "RUB"
+		updated, err := s.UpdateAsset(ctx, created, []string{"market", "quote"})
+		require.NoError(t, err)
+		assert.Equal(t, "moex", updated.Market)
+		assert.Equal(t, "RUB", updated.Quote)
+	})
+}
+
 func TestGetAsset(t *testing.T) {
 	pool := getTestPool(t)
 	s := NewMarketDataStore(pool)

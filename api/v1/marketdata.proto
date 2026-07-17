@@ -24,6 +24,8 @@ enum AssetType {
 }
 
 // Asset represents financial instrument (crypto, stock, etc.).
+// Asset identity is the composite (symbol, market, type): the same ticker may
+// exist on different markets (AAPL on nasdaq vs an AAPL token on crypto).
 message Asset {
   string id = 1;
   string name = 2;
@@ -32,6 +34,12 @@ message Asset {
   repeated string tags = 5;
   google.protobuf.Timestamp created_at = 6;
   google.protobuf.Timestamp updated_at = 7;
+  // Listing market/venue ("crypto" is the single global crypto market,
+  // "nasdaq", "moex"), not the price source. Defaults by type on create:
+  // cryptocurrency -> "crypto", forex -> "forex"; required otherwise.
+  optional string market = 8;
+  // Quote currency/base where applicable.
+  optional string quote = 9;
 }
 
 // Price represents the price action of an Asset against a base Asset
