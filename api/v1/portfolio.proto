@@ -22,6 +22,16 @@ enum AccountType {
   ACCOUNT_TYPE_BROKER = 4;
   // Pure data-provider API key (Moralis, Etherscan, ...); no holdings of its own.
   ACCOUNT_TYPE_SERVICE = 5;
+  // No connector or credentials; positions are entered by hand or imported.
+  ACCOUNT_TYPE_MANUAL = 6;
+}
+
+// ProvenanceSource records how a holding or transaction entered the system.
+enum ProvenanceSource {
+  PROVENANCE_SOURCE_UNSPECIFIED = 0;
+  PROVENANCE_SOURCE_SYNC = 1;       // Created by an automatic account sync
+  PROVENANCE_SOURCE_MANUAL = 2;     // Entered by hand via CRUD API
+  PROVENANCE_SOURCE_LLM_IMPORT = 3; // Created by a batch import (LLM-parsed export)
 }
 
 enum TransactionType {
@@ -67,6 +77,10 @@ message Holding {
   google.protobuf.Timestamp updated_at = 8;
   // If true, explicitly excluded from all portfolio calculations (e.g. spam/scam tokens).
   bool excluded = 9;
+  // Output only. Creation provenance, stamped by the server; values sent by clients are ignored.
+  ProvenanceSource source = 10;
+  // Output only. Batch id linking rows created by one import; stamped by the server.
+  optional string import_id = 11;
 }
 
 // Account represents a user's connection to an external financial entity.
@@ -102,6 +116,10 @@ message Transaction {
   TransactionStatus status = 5;
   string account_id = 6;
   map<string, string> data = 7;
+  // Output only. Creation provenance, stamped by the server; values sent by clients are ignored.
+  ProvenanceSource source = 8;
+  // Output only. Batch id linking rows created by one import; stamped by the server.
+  optional string import_id = 9;
 }
 
 // =============================================================================
@@ -176,6 +194,12 @@ service PortfolioService {
     option (google.api.http) = {
       put: "/api/v1/holdings/{holding.id}"
       body: "holding"
+    };
+  }
+
+  rpc DeleteHolding(DeleteHoldingRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/api/v1/holdings/{id}"
     };
   }
 
@@ -331,6 +355,10 @@ message GetHoldingRequest {
 message UpdateHoldingRequest {
   Holding holding = 1;
   google.protobuf.FieldMask update_mask = 2;
+}
+
+message DeleteHoldingRequest {
+  string id = 1;
 }
 
 message ListHoldingsRequest {

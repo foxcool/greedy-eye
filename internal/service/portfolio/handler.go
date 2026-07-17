@@ -494,6 +494,11 @@ func (h *Handler) CreateHolding(ctx context.Context, req *connect.Request[apiv1.
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	if holding.Amount.IsNegative() {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("amount must not be negative"))
+	}
+	// Provenance is server-stamped: everything created through this RPC is manual.
+	holding.Source = entity.SourceManual
 	// The target account (and portfolio, when set) must belong to the caller.
 	if _, err := h.ownedAccount(ctx, holding.AccountID); err != nil {
 		return nil, err
@@ -548,6 +553,22 @@ func (h *Handler) UpdateHolding(ctx context.Context, req *connect.Request[apiv1.
 	}
 
 	return connect.NewResponse(holdingToProto(updated)), nil
+}
+
+func (h *Handler) DeleteHolding(ctx context.Context, req *connect.Request[apiv1.DeleteHoldingRequest]) (*connect.Response[emptypb.Empty], error) {
+	if req.Msg.Id == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("holding ID is required"))
+	}
+
+	if _, err := h.ownedHolding(ctx, req.Msg.Id); err != nil {
+		return nil, err
+	}
+
+	if err := h.store.DeleteHolding(ctx, req.Msg.Id); err != nil {
+		return nil, toConnectError(err)
+	}
+
+	return connect.NewResponse(&emptypb.Empty{}), nil
 }
 
 func (h *Handler) ListHoldings(ctx context.Context, req *connect.Request[apiv1.ListHoldingsRequest]) (*connect.Response[apiv1.ListHoldingsResponse], error) {
@@ -781,6 +802,10 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 		balances, syncErrors, err = h.syncWalletBalances(ctx, account)
 	case entity.AccountTypeExchange:
 		balances, syncErrors, err = h.syncExchangeBalances(ctx, account)
+	case entity.AccountTypeManual:
+		// FailedPrecondition (not InvalidArgument): the account exists and is fine,
+		// this kind is just never syncable — positions are entered manually.
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("manual account has nothing to sync: positions are entered manually"))
 	default:
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("only wallet and exchange accounts can be synced"))
 	}
@@ -1014,6 +1039,7 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 				PortfolioID: defaultPortfolioID,
 				Amount:      amount,
 				Decimals:    decimals,
+				Source:      entity.SourceSync,
 			})
 			if err != nil {
 				syncErrors = append(syncErrors, fmt.Sprintf("create holding %s: %v", symbol, err))
@@ -1034,6 +1060,8 @@ func (h *Handler) CreateTransaction(ctx context.Context, req *connect.Request[ap
 	}
 
 	tx := transactionFromProto(req.Msg.Transaction)
+	// Provenance is server-stamped: everything created through this RPC is manual.
+	tx.Source = entity.SourceManual
 	// The target account must belong to the caller.
 	if _, err := h.ownedAccount(ctx, tx.AccountID); err != nil {
 		return nil, err
@@ -1191,6 +1219,8 @@ func holdingFromProto(h *apiv1.Holding) (*entity.Holding, error) {
 			return nil, fmt.Errorf("invalid amount %q: %w", h.Amount, err)
 		}
 	}
+	// Provenance fields (source, import_id) are deliberately not mapped:
+	// they are output-only and stamped by the server.
 	result := &entity.Holding{
 		ID:        h.Id,
 		Amount:    amount,
@@ -1213,13 +1243,30 @@ func holdingToProto(h *entity.Holding) *apiv1.Holding {
 		AssetId:   h.AssetID,
 		AccountId: h.AccountID,
 		Excluded:  h.Excluded,
+		Source:    provenanceToProto(h.Source),
 		CreatedAt: timestamppb.New(h.CreatedAt),
 		UpdatedAt: timestamppb.New(h.UpdatedAt),
 	}
 	if h.PortfolioID != "" {
 		result.PortfolioId = &h.PortfolioID
 	}
+	if h.ImportID != "" {
+		result.ImportId = &h.ImportID
+	}
 	return result
+}
+
+func provenanceToProto(s entity.ProvenanceSource) apiv1.ProvenanceSource {
+	switch s {
+	case entity.SourceSync:
+		return apiv1.ProvenanceSource_PROVENANCE_SOURCE_SYNC
+	case entity.SourceManual:
+		return apiv1.ProvenanceSource_PROVENANCE_SOURCE_MANUAL
+	case entity.SourceLLMImport:
+		return apiv1.ProvenanceSource_PROVENANCE_SOURCE_LLM_IMPORT
+	default:
+		return apiv1.ProvenanceSource_PROVENANCE_SOURCE_UNSPECIFIED
+	}
 }
 
 func accountFromProto(a *apiv1.Account) *entity.Account {
@@ -1337,6 +1384,8 @@ func maskSecrets(data map[string]string) map[string]string {
 }
 
 func transactionFromProto(t *apiv1.Transaction) *entity.Transaction {
+	// Provenance fields (source, import_id) are deliberately not mapped:
+	// they are output-only and stamped by the server.
 	return &entity.Transaction{
 		ID:        t.Id,
 		Type:      entity.TransactionType(t.Type),
@@ -1366,13 +1415,18 @@ func splitChains(raw string) []string {
 }
 
 func transactionToProto(t *entity.Transaction) *apiv1.Transaction {
-	return &apiv1.Transaction{
+	result := &apiv1.Transaction{
 		Id:        t.ID,
 		Type:      apiv1.TransactionType(t.Type),
 		Status:    apiv1.TransactionStatus(t.Status),
 		AccountId: t.AccountID,
 		Data:      t.Data,
+		Source:    provenanceToProto(t.Source),
 		CreatedAt: timestamppb.New(t.CreatedAt),
 		UpdatedAt: timestamppb.New(t.UpdatedAt),
 	}
+	if t.ImportID != "" {
+		result.ImportId = &t.ImportID
+	}
+	return result
 }

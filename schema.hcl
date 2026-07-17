@@ -263,9 +263,24 @@ table "holdings" {
     null    = false
     default = false
   }
+  column "source" {
+    # Creation provenance: sync | manual | llm_import. Default backfills pre-provenance rows as sync.
+    type    = character_varying
+    null    = false
+    default = "sync"
+  }
+  column "import_id" {
+    type = uuid
+    null = true
+  }
 
   primary_key {
     columns = [column.id]
+  }
+
+  index "holding_import_id" {
+    columns = [column.import_id]
+    where   = "import_id IS NOT NULL"
   }
 
   foreign_key "holdings_accounts_holdings" {
@@ -406,9 +421,24 @@ table "transactions" {
     type = uuid
     null = true
   }
+  column "source" {
+    # Creation provenance: sync | manual | llm_import. Default backfills pre-provenance rows as sync.
+    type    = character_varying
+    null    = false
+    default = "sync"
+  }
+  column "import_id" {
+    type = uuid
+    null = true
+  }
 
   primary_key {
     columns = [column.id]
+  }
+
+  index "transaction_import_id" {
+    columns = [column.import_id]
+    where   = "import_id IS NOT NULL"
   }
 
   foreign_key "transactions_accounts_transactions" {

@@ -64,6 +64,9 @@ const (
 	// PortfolioServiceUpdateHoldingProcedure is the fully-qualified name of the PortfolioService's
 	// UpdateHolding RPC.
 	PortfolioServiceUpdateHoldingProcedure = "/eye.v1.PortfolioService/UpdateHolding"
+	// PortfolioServiceDeleteHoldingProcedure is the fully-qualified name of the PortfolioService's
+	// DeleteHolding RPC.
+	PortfolioServiceDeleteHoldingProcedure = "/eye.v1.PortfolioService/DeleteHolding"
 	// PortfolioServiceListHoldingsProcedure is the fully-qualified name of the PortfolioService's
 	// ListHoldings RPC.
 	PortfolioServiceListHoldingsProcedure = "/eye.v1.PortfolioService/ListHoldings"
@@ -114,6 +117,7 @@ type PortfolioServiceClient interface {
 	CreateHolding(context.Context, *connect.Request[v1.CreateHoldingRequest]) (*connect.Response[v1.Holding], error)
 	GetHolding(context.Context, *connect.Request[v1.GetHoldingRequest]) (*connect.Response[v1.Holding], error)
 	UpdateHolding(context.Context, *connect.Request[v1.UpdateHoldingRequest]) (*connect.Response[v1.Holding], error)
+	DeleteHolding(context.Context, *connect.Request[v1.DeleteHoldingRequest]) (*connect.Response[emptypb.Empty], error)
 	ListHoldings(context.Context, *connect.Request[v1.ListHoldingsRequest]) (*connect.Response[v1.ListHoldingsResponse], error)
 	// --- Account CRUD ---
 	CreateAccount(context.Context, *connect.Request[v1.CreateAccountRequest]) (*connect.Response[v1.Account], error)
@@ -201,6 +205,12 @@ func NewPortfolioServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(portfolioServiceMethods.ByName("UpdateHolding")),
 			connect.WithClientOptions(opts...),
 		),
+		deleteHolding: connect.NewClient[v1.DeleteHoldingRequest, emptypb.Empty](
+			httpClient,
+			baseURL+PortfolioServiceDeleteHoldingProcedure,
+			connect.WithSchema(portfolioServiceMethods.ByName("DeleteHolding")),
+			connect.WithClientOptions(opts...),
+		),
 		listHoldings: connect.NewClient[v1.ListHoldingsRequest, v1.ListHoldingsResponse](
 			httpClient,
 			baseURL+PortfolioServiceListHoldingsProcedure,
@@ -282,6 +292,7 @@ type portfolioServiceClient struct {
 	createHolding           *connect.Client[v1.CreateHoldingRequest, v1.Holding]
 	getHolding              *connect.Client[v1.GetHoldingRequest, v1.Holding]
 	updateHolding           *connect.Client[v1.UpdateHoldingRequest, v1.Holding]
+	deleteHolding           *connect.Client[v1.DeleteHoldingRequest, emptypb.Empty]
 	listHoldings            *connect.Client[v1.ListHoldingsRequest, v1.ListHoldingsResponse]
 	createAccount           *connect.Client[v1.CreateAccountRequest, v1.Account]
 	getAccount              *connect.Client[v1.GetAccountRequest, v1.Account]
@@ -343,6 +354,11 @@ func (c *portfolioServiceClient) GetHolding(ctx context.Context, req *connect.Re
 // UpdateHolding calls eye.v1.PortfolioService.UpdateHolding.
 func (c *portfolioServiceClient) UpdateHolding(ctx context.Context, req *connect.Request[v1.UpdateHoldingRequest]) (*connect.Response[v1.Holding], error) {
 	return c.updateHolding.CallUnary(ctx, req)
+}
+
+// DeleteHolding calls eye.v1.PortfolioService.DeleteHolding.
+func (c *portfolioServiceClient) DeleteHolding(ctx context.Context, req *connect.Request[v1.DeleteHoldingRequest]) (*connect.Response[emptypb.Empty], error) {
+	return c.deleteHolding.CallUnary(ctx, req)
 }
 
 // ListHoldings calls eye.v1.PortfolioService.ListHoldings.
@@ -415,6 +431,7 @@ type PortfolioServiceHandler interface {
 	CreateHolding(context.Context, *connect.Request[v1.CreateHoldingRequest]) (*connect.Response[v1.Holding], error)
 	GetHolding(context.Context, *connect.Request[v1.GetHoldingRequest]) (*connect.Response[v1.Holding], error)
 	UpdateHolding(context.Context, *connect.Request[v1.UpdateHoldingRequest]) (*connect.Response[v1.Holding], error)
+	DeleteHolding(context.Context, *connect.Request[v1.DeleteHoldingRequest]) (*connect.Response[emptypb.Empty], error)
 	ListHoldings(context.Context, *connect.Request[v1.ListHoldingsRequest]) (*connect.Response[v1.ListHoldingsResponse], error)
 	// --- Account CRUD ---
 	CreateAccount(context.Context, *connect.Request[v1.CreateAccountRequest]) (*connect.Response[v1.Account], error)
@@ -496,6 +513,12 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 		PortfolioServiceUpdateHoldingProcedure,
 		svc.UpdateHolding,
 		connect.WithSchema(portfolioServiceMethods.ByName("UpdateHolding")),
+		connect.WithHandlerOptions(opts...),
+	)
+	portfolioServiceDeleteHoldingHandler := connect.NewUnaryHandler(
+		PortfolioServiceDeleteHoldingProcedure,
+		svc.DeleteHolding,
+		connect.WithSchema(portfolioServiceMethods.ByName("DeleteHolding")),
 		connect.WithHandlerOptions(opts...),
 	)
 	portfolioServiceListHoldingsHandler := connect.NewUnaryHandler(
@@ -586,6 +609,8 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 			portfolioServiceGetHoldingHandler.ServeHTTP(w, r)
 		case PortfolioServiceUpdateHoldingProcedure:
 			portfolioServiceUpdateHoldingHandler.ServeHTTP(w, r)
+		case PortfolioServiceDeleteHoldingProcedure:
+			portfolioServiceDeleteHoldingHandler.ServeHTTP(w, r)
 		case PortfolioServiceListHoldingsProcedure:
 			portfolioServiceListHoldingsHandler.ServeHTTP(w, r)
 		case PortfolioServiceCreateAccountProcedure:
@@ -655,6 +680,10 @@ func (UnimplementedPortfolioServiceHandler) GetHolding(context.Context, *connect
 
 func (UnimplementedPortfolioServiceHandler) UpdateHolding(context.Context, *connect.Request[v1.UpdateHoldingRequest]) (*connect.Response[v1.Holding], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.UpdateHolding is not implemented"))
+}
+
+func (UnimplementedPortfolioServiceHandler) DeleteHolding(context.Context, *connect.Request[v1.DeleteHoldingRequest]) (*connect.Response[emptypb.Empty], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.DeleteHolding is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) ListHoldings(context.Context, *connect.Request[v1.ListHoldingsRequest]) (*connect.Response[v1.ListHoldingsResponse], error) {

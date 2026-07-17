@@ -287,3 +287,140 @@ func TestAccountDataEncryptedUnreadableWithoutKey(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no master key")
 }
+
+func TestHoldingProvenanceRoundtrip(t *testing.T) {
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	s := NewPortfolioStore(pool)
+	assets := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	user := createTestUser(t, users)
+
+	account, err := s.CreateAccount(ctx, &entity.Account{
+		UserID:       user.ID,
+		Name:         "manual stash",
+		Type:         entity.AccountTypeManual,
+		Capabilities: []entity.AccountCapability{entity.CapabilityManualPositions},
+	})
+	require.NoError(t, err)
+
+	asset, err := assets.CreateAsset(ctx, &entity.Asset{
+		Symbol: "PROVBTC",
+		Name:   "Provenance BTC",
+		Type:   entity.AssetTypeCryptocurrency,
+	})
+	require.NoError(t, err)
+
+	t.Run("each source persists and reads back", func(t *testing.T) {
+		for _, source := range []entity.ProvenanceSource{entity.SourceSync, entity.SourceManual, entity.SourceLLMImport} {
+			created, err := s.CreateHolding(ctx, &entity.Holding{
+				AssetID:   asset.ID,
+				AccountID: account.ID,
+				Decimals:  8,
+				Source:    source,
+			})
+			require.NoError(t, err, "source %s", source)
+
+			got, err := s.GetHolding(ctx, created.ID)
+			require.NoError(t, err)
+			assert.Equal(t, source, got.Source)
+			assert.Empty(t, got.ImportID)
+		}
+	})
+
+	t.Run("empty source rejected", func(t *testing.T) {
+		_, err := s.CreateHolding(ctx, &entity.Holding{
+			AssetID:   asset.ID,
+			AccountID: account.ID,
+			Decimals:  8,
+		})
+		require.ErrorIs(t, err, store.ErrInvalidArgument)
+	})
+
+	t.Run("unknown source rejected", func(t *testing.T) {
+		_, err := s.CreateHolding(ctx, &entity.Holding{
+			AssetID:   asset.ID,
+			AccountID: account.ID,
+			Decimals:  8,
+			Source:    "spoofed",
+		})
+		require.ErrorIs(t, err, store.ErrInvalidArgument)
+	})
+
+	t.Run("import_id round-trip and list scan", func(t *testing.T) {
+		importID := uuid.Must(uuid.NewV7()).String()
+		created, err := s.CreateHolding(ctx, &entity.Holding{
+			AssetID:   asset.ID,
+			AccountID: account.ID,
+			Decimals:  8,
+			Source:    entity.SourceLLMImport,
+			ImportID:  importID,
+		})
+		require.NoError(t, err)
+
+		got, err := s.GetHolding(ctx, created.ID)
+		require.NoError(t, err)
+		assert.Equal(t, importID, got.ImportID)
+
+		listed, _, err := s.ListHoldings(ctx, portfolio.ListHoldingsOpts{AccountID: account.ID, PageSize: 100})
+		require.NoError(t, err)
+		var found *entity.Holding
+		for _, h := range listed {
+			if h.ID == created.ID {
+				found = h
+			}
+		}
+		require.NotNil(t, found, "imported holding missing from list")
+		assert.Equal(t, entity.SourceLLMImport, found.Source)
+		assert.Equal(t, importID, found.ImportID)
+	})
+
+	t.Run("delete holding", func(t *testing.T) {
+		created, err := s.CreateHolding(ctx, &entity.Holding{
+			AssetID:   asset.ID,
+			AccountID: account.ID,
+			Decimals:  8,
+			Source:    entity.SourceManual,
+		})
+		require.NoError(t, err)
+
+		require.NoError(t, s.DeleteHolding(ctx, created.ID))
+		_, err = s.GetHolding(ctx, created.ID)
+		require.ErrorIs(t, err, store.ErrNotFound)
+	})
+}
+
+func TestTransactionProvenanceRoundtrip(t *testing.T) {
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	s := NewPortfolioStore(pool)
+	ctx := context.Background()
+
+	user := createTestUser(t, users)
+
+	account, err := s.CreateAccount(ctx, &entity.Account{
+		UserID: user.ID,
+		Name:   "manual tx stash",
+		Type:   entity.AccountTypeManual,
+	})
+	require.NoError(t, err)
+
+	created, err := s.CreateTransaction(ctx, &entity.Transaction{
+		AccountID: account.ID,
+		Type:      entity.TransactionTypeDeposit,
+		Source:    entity.SourceManual,
+	})
+	require.NoError(t, err)
+
+	got, err := s.GetTransaction(ctx, created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, entity.SourceManual, got.Source)
+	assert.Empty(t, got.ImportID)
+
+	_, err = s.CreateTransaction(ctx, &entity.Transaction{
+		AccountID: account.ID,
+		Type:      entity.TransactionTypeDeposit,
+	})
+	require.ErrorIs(t, err, store.ErrInvalidArgument)
+}

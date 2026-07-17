@@ -764,6 +764,9 @@ func (s *PortfolioStore) CreateHolding(ctx context.Context, h *entity.Holding) (
 	if h.AccountID == "" {
 		return nil, fmt.Errorf("%w: account_id is required", store.ErrInvalidArgument)
 	}
+	if !h.Source.Valid() {
+		return nil, fmt.Errorf("%w: unknown provenance source %q", store.ErrInvalidArgument, h.Source)
+	}
 
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -775,10 +778,14 @@ func (s *PortfolioStore) CreateHolding(ctx context.Context, h *entity.Holding) (
 	if h.PortfolioID != "" {
 		portfolioID = &h.PortfolioID
 	}
+	var importID *string
+	if h.ImportID != "" {
+		importID = &h.ImportID
+	}
 
 	query := `
-		INSERT INTO holdings (id, amount, decimals, asset_id, account_id, portfolio_id, excluded, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+		INSERT INTO holdings (id, amount, decimals, asset_id, account_id, portfolio_id, excluded, source, import_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
 		RETURNING created_at, updated_at`
 
 	err = s.pool.QueryRow(ctx, query,
@@ -789,6 +796,8 @@ func (s *PortfolioStore) CreateHolding(ctx context.Context, h *entity.Holding) (
 		h.AccountID,
 		portfolioID,
 		h.Excluded,
+		string(h.Source),
+		importID,
 	).Scan(&h.CreatedAt, &h.UpdatedAt)
 	if err != nil {
 		if isConstraintError(err) {
@@ -809,12 +818,12 @@ func (s *PortfolioStore) GetHolding(ctx context.Context, id string) (*entity.Hol
 	}
 
 	query := `
-		SELECT id, amount, decimals, asset_id, account_id, portfolio_id, excluded, created_at, updated_at
+		SELECT id, amount, decimals, asset_id, account_id, portfolio_id, excluded, source, import_id, created_at, updated_at
 		FROM holdings
 		WHERE id = $1`
 
 	var h entity.Holding
-	var portfolioID *string
+	var portfolioID, importID *string
 
 	err := s.pool.QueryRow(ctx, query, id).Scan(
 		&h.ID,
@@ -824,6 +833,8 @@ func (s *PortfolioStore) GetHolding(ctx context.Context, id string) (*entity.Hol
 		&h.AccountID,
 		&portfolioID,
 		&h.Excluded,
+		&h.Source,
+		&importID,
 		&h.CreatedAt,
 		&h.UpdatedAt,
 	)
@@ -836,6 +847,9 @@ func (s *PortfolioStore) GetHolding(ctx context.Context, id string) (*entity.Hol
 
 	if portfolioID != nil {
 		h.PortfolioID = *portfolioID
+	}
+	if importID != nil {
+		h.ImportID = *importID
 	}
 
 	return &h, nil
@@ -975,7 +989,7 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 	}
 
 	query := fmt.Sprintf(`
-		SELECT h.id, h.amount, h.decimals, h.asset_id, h.account_id, h.portfolio_id, h.excluded, h.created_at, h.updated_at
+		SELECT h.id, h.amount, h.decimals, h.asset_id, h.account_id, h.portfolio_id, h.excluded, h.source, h.import_id, h.created_at, h.updated_at
 		FROM holdings h
 		LEFT JOIN accounts a ON a.id = h.account_id
 		LEFT JOIN portfolios p ON p.id = COALESCE(h.portfolio_id, a.portfolio_id)
@@ -994,7 +1008,7 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 	holdings := make([]*entity.Holding, 0, limit)
 	for rows.Next() {
 		var h entity.Holding
-		var portfolioID *string
+		var portfolioID, importID *string
 
 		if err := rows.Scan(
 			&h.ID,
@@ -1004,6 +1018,8 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 			&h.AccountID,
 			&portfolioID,
 			&h.Excluded,
+			&h.Source,
+			&importID,
 			&h.CreatedAt,
 			&h.UpdatedAt,
 		); err != nil {
@@ -1012,6 +1028,9 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 
 		if portfolioID != nil {
 			h.PortfolioID = *portfolioID
+		}
+		if importID != nil {
+			h.ImportID = *importID
 		}
 
 		holdings = append(holdings, &h)
@@ -1039,6 +1058,9 @@ func (s *PortfolioStore) CreateTransaction(ctx context.Context, t *entity.Transa
 	if t.Type == entity.TransactionTypeUnspecified {
 		return nil, fmt.Errorf("%w: transaction type is required", store.ErrInvalidArgument)
 	}
+	if !t.Source.Valid() {
+		return nil, fmt.Errorf("%w: unknown provenance source %q", store.ErrInvalidArgument, t.Source)
+	}
 
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -1054,6 +1076,10 @@ func (s *PortfolioStore) CreateTransaction(ctx context.Context, t *entity.Transa
 	if t.AssetID != "" {
 		assetID = &t.AssetID
 	}
+	var importID *string
+	if t.ImportID != "" {
+		importID = &t.ImportID
+	}
 
 	dataJSON, err := json.Marshal(t.Data)
 	if err != nil {
@@ -1061,8 +1087,8 @@ func (s *PortfolioStore) CreateTransaction(ctx context.Context, t *entity.Transa
 	}
 
 	query := `
-		INSERT INTO transactions (id, type, status, account_id, asset_transactions, data, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+		INSERT INTO transactions (id, type, status, account_id, asset_transactions, data, source, import_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
 		RETURNING created_at, updated_at`
 
 	err = s.pool.QueryRow(ctx, query,
@@ -1072,6 +1098,8 @@ func (s *PortfolioStore) CreateTransaction(ctx context.Context, t *entity.Transa
 		t.AccountID,
 		assetID,
 		dataJSON,
+		string(t.Source),
+		importID,
 	).Scan(&t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		if isConstraintError(err) {
@@ -1092,13 +1120,13 @@ func (s *PortfolioStore) GetTransaction(ctx context.Context, id string) (*entity
 	}
 
 	query := `
-		SELECT id, type, status, account_id, asset_transactions, data, created_at, updated_at
+		SELECT id, type, status, account_id, asset_transactions, data, source, import_id, created_at, updated_at
 		FROM transactions
 		WHERE id = $1`
 
 	var t entity.Transaction
 	var typeStr, statusStr string
-	var assetID *string
+	var assetID, importID *string
 	var dataJSON []byte
 
 	err := s.pool.QueryRow(ctx, query, id).Scan(
@@ -1108,6 +1136,8 @@ func (s *PortfolioStore) GetTransaction(ctx context.Context, id string) (*entity
 		&t.AccountID,
 		&assetID,
 		&dataJSON,
+		&t.Source,
+		&importID,
 		&t.CreatedAt,
 		&t.UpdatedAt,
 	)
@@ -1122,6 +1152,9 @@ func (s *PortfolioStore) GetTransaction(ctx context.Context, id string) (*entity
 	t.Status = stringToTransactionStatus(statusStr)
 	if assetID != nil {
 		t.AssetID = *assetID
+	}
+	if importID != nil {
+		t.ImportID = *importID
 	}
 	if err := json.Unmarshal(dataJSON, &t.Data); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal data: %w", err)
@@ -1233,7 +1266,7 @@ func (s *PortfolioStore) ListTransactions(ctx context.Context, opts portfolio.Li
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, type, status, account_id, asset_transactions, data, created_at, updated_at
+		SELECT id, type, status, account_id, asset_transactions, data, source, import_id, created_at, updated_at
 		FROM transactions
 		%s
 		ORDER BY id
@@ -1251,7 +1284,7 @@ func (s *PortfolioStore) ListTransactions(ctx context.Context, opts portfolio.Li
 	for rows.Next() {
 		var t entity.Transaction
 		var typeStr, statusStr string
-		var assetID *string
+		var assetID, importID *string
 		var dataJSON []byte
 
 		if err := rows.Scan(
@@ -1261,6 +1294,8 @@ func (s *PortfolioStore) ListTransactions(ctx context.Context, opts portfolio.Li
 			&t.AccountID,
 			&assetID,
 			&dataJSON,
+			&t.Source,
+			&importID,
 			&t.CreatedAt,
 			&t.UpdatedAt,
 		); err != nil {
@@ -1271,6 +1306,9 @@ func (s *PortfolioStore) ListTransactions(ctx context.Context, opts portfolio.Li
 		t.Status = stringToTransactionStatus(statusStr)
 		if assetID != nil {
 			t.AssetID = *assetID
+		}
+		if importID != nil {
+			t.ImportID = *importID
 		}
 		if err := json.Unmarshal(dataJSON, &t.Data); err != nil {
 			return nil, "", fmt.Errorf("failed to unmarshal data: %w", err)

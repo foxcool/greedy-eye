@@ -658,6 +658,97 @@ func TestCreateHolding_OK(t *testing.T) {
 	assert.Equal(t, testHoldingID, resp.Msg.Id)
 }
 
+// TestCreateHolding_StampsManualSource verifies provenance is server-stamped:
+// client-sent source/import_id are ignored and the RPC always records "manual".
+func TestCreateHolding_StampsManualSource(t *testing.T) {
+	spoofedImportID := "01926d35-6a1e-7007-8007-000000000001"
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		return h.Source == entity.SourceManual && h.ImportID == ""
+	})).Return(testHolding(testHoldingID), nil)
+	h := newHandler(s)
+
+	_, err := h.CreateHolding(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreateHoldingRequest{
+		Holding: &apiv1.Holding{
+			AssetId:   testAssetID,
+			AccountId: testAccountID,
+			Amount:    "100000",
+			Decimals:  8,
+			Source:    apiv1.ProvenanceSource_PROVENANCE_SOURCE_SYNC,
+			ImportId:  &spoofedImportID,
+		},
+	}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+}
+
+func TestCreateHolding_NegativeAmount(t *testing.T) {
+	h := newHandler(&mockStore{})
+
+	_, err := h.CreateHolding(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreateHoldingRequest{
+		Holding: &apiv1.Holding{AssetId: testAssetID, AccountId: testAccountID, Amount: "-1", Decimals: 8},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
+// TestUpdateHolding_SourceNotUpdatable verifies an explicit update_mask entry for
+// source is passed through to the store, which has no case for it — the field list
+// reaching the store must still carry only what the mask says, and the store switch
+// ignores unknown fields, so source stays untouched.
+func TestUpdateHolding_SourceMaskIgnored(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetHolding", mock.Anything, testHoldingID).Return(testHolding(testHoldingID), nil)
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	stored := testHolding(testHoldingID)
+	stored.Source = entity.SourceSync
+	s.On("UpdateHolding", mock.Anything, mock.Anything, []string{"source"}).Return(stored, nil)
+	h := newHandler(s)
+
+	resp, err := h.UpdateHolding(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdateHoldingRequest{
+		Holding:    &apiv1.Holding{Id: testHoldingID, Amount: "1"},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"source"}},
+	}))
+	require.NoError(t, err)
+	// The stored source survives; the response reflects it, not anything client-sent.
+	assert.Equal(t, apiv1.ProvenanceSource_PROVENANCE_SOURCE_SYNC, resp.Msg.Source)
+}
+
+func TestDeleteHolding_MissingID(t *testing.T) {
+	h := newHandler(&mockStore{})
+	_, err := h.DeleteHolding(context.Background(), connect.NewRequest(&apiv1.DeleteHoldingRequest{}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
+func TestDeleteHolding_OK(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetHolding", mock.Anything, testHoldingID).Return(testHolding(testHoldingID), nil)
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	s.On("DeleteHolding", mock.Anything, testHoldingID).Return(nil)
+	h := newHandler(s)
+
+	_, err := h.DeleteHolding(ctxWithUser(testUserID), connect.NewRequest(&apiv1.DeleteHoldingRequest{Id: testHoldingID}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+}
+
+// TestDeleteHolding_ForeignOwner verifies a holding owned by another user reports
+// NotFound (not PermissionDenied) and the delete never reaches the store.
+func TestDeleteHolding_ForeignOwner(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetHolding", mock.Anything, testHoldingID).Return(testHolding(testHoldingID), nil)
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	h := newHandler(s)
+
+	_, err := h.DeleteHolding(ctxWithUser(testUserID2), connect.NewRequest(&apiv1.DeleteHoldingRequest{Id: testHoldingID}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	s.AssertNotCalled(t, "DeleteHolding")
+}
+
 func TestListHoldings_WithFilters(t *testing.T) {
 	s := &mockStore{}
 	portfolioID := testPortfolioID
@@ -708,6 +799,26 @@ func TestCreateTransaction_OK(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, testTxID, resp.Msg.Id)
+}
+
+// TestCreateTransaction_StampsManualSource verifies provenance is server-stamped
+// on transactions the same way as on holdings.
+func TestCreateTransaction_StampsManualSource(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	s.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(tx *entity.Transaction) bool {
+		return tx.Source == entity.SourceManual && tx.ImportID == ""
+	})).Return(&entity.Transaction{ID: testTxID, AccountID: testAccountID}, nil)
+	h := newHandler(s)
+
+	_, err := h.CreateTransaction(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreateTransactionRequest{
+		Transaction: &apiv1.Transaction{
+			AccountId: testAccountID,
+			Source:    apiv1.ProvenanceSource_PROVENANCE_SOURCE_SYNC,
+		},
+	}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
 }
 
 // TestCalculatePortfolioValue_CrossRate verifies a holding priced only in its own
@@ -939,7 +1050,7 @@ func TestSyncAccount_Exchange(t *testing.T) {
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
 	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
-		return h.Amount.String() == "60000000" && h.Decimals == 8
+		return h.Amount.String() == "60000000" && h.Decimals == 8 && h.Source == entity.SourceSync
 	})).Return(&entity.Holding{ID: testHoldingID}, nil)
 
 	syncer := &mockExchangeSyncer{}
@@ -990,4 +1101,20 @@ func TestSyncAccount_UnsupportedType(t *testing.T) {
 	_, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: testAccountID}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
+// TestSyncAccount_ManualAccount verifies a manual account reports FailedPrecondition
+// ("nothing to sync") — a distinct code from the generic unsupported-type error.
+func TestSyncAccount_ManualAccount(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeManual
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+
+	h := newHandler(s).WithMarketDataClient(&mockMDClient{})
+
+	_, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: testAccountID}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 }
