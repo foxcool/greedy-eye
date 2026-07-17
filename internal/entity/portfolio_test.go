@@ -81,6 +81,38 @@ func TestAccountValidateCapabilities(t *testing.T) {
 			wantErr: `capability "trading" cannot be system-scoped`,
 		},
 		{
+			name: "manual account with manual_positions",
+			account: Account{
+				Type:         AccountTypeManual,
+				Capabilities: []AccountCapability{CapabilityManualPositions},
+			},
+		},
+		{
+			name: "manual account cannot sync",
+			account: Account{
+				Type:         AccountTypeManual,
+				Capabilities: []AccountCapability{CapabilityPortfolioSync},
+			},
+			wantErr: `capability "portfolio_sync" is not allowed for account type "manual"`,
+		},
+		{
+			name: "manual_positions is never system-scoped",
+			account: Account{
+				Type:         AccountTypeManual,
+				Capabilities: []AccountCapability{CapabilityManualPositions},
+				SystemScopes: []AccountCapability{CapabilityManualPositions},
+			},
+			wantErr: `capability "manual_positions" cannot be system-scoped`,
+		},
+		{
+			name: "wallet cannot hold manual_positions",
+			account: Account{
+				Type:         AccountTypeWallet,
+				Capabilities: []AccountCapability{CapabilityManualPositions},
+			},
+			wantErr: `capability "manual_positions" is not allowed for account type "wallet"`,
+		},
+		{
 			name: "unspecified type allows nothing",
 			account: Account{
 				Type:         AccountTypeUnspecified,

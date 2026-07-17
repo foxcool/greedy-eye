@@ -30,6 +30,7 @@ const (
 	AccountTypeBank
 	AccountTypeBroker
 	AccountTypeService // Pure data-provider API key (Moralis, Etherscan, ...); no holdings of its own
+	AccountTypeManual  // No connector or credentials; positions are entered by hand or imported
 )
 
 // String returns the canonical lowercase name of the account type.
@@ -45,6 +46,8 @@ func (t AccountType) String() string {
 		return "broker"
 	case AccountTypeService:
 		return "service"
+	case AccountTypeManual:
+		return "manual"
 	default:
 		return "unspecified"
 	}
@@ -54,10 +57,11 @@ func (t AccountType) String() string {
 type AccountCapability string
 
 const (
-	CapabilityPortfolioSync AccountCapability = "portfolio_sync"
-	CapabilityTrading       AccountCapability = "trading"
-	CapabilityMarketData    AccountCapability = "market_data"
-	CapabilityOnchainLookup AccountCapability = "onchain_lookup"
+	CapabilityPortfolioSync   AccountCapability = "portfolio_sync"
+	CapabilityTrading         AccountCapability = "trading"
+	CapabilityMarketData      AccountCapability = "market_data"
+	CapabilityOnchainLookup   AccountCapability = "onchain_lookup"
+	CapabilityManualPositions AccountCapability = "manual_positions"
 )
 
 // allowedCapabilities maps each account type to the capabilities its
@@ -68,6 +72,7 @@ var allowedCapabilities = map[AccountType][]AccountCapability{
 	AccountTypeBank:     {CapabilityPortfolioSync},
 	AccountTypeBroker:   {CapabilityPortfolioSync, CapabilityTrading, CapabilityMarketData},
 	AccountTypeService:  {CapabilityMarketData, CapabilityOnchainLookup},
+	AccountTypeManual:   {CapabilityManualPositions},
 }
 
 // systemScopeableCapabilities are user-agnostic: results don't belong to the
@@ -114,6 +119,26 @@ func (a *Account) ValidateCapabilities() error {
 	return nil
 }
 
+// ProvenanceSource records how a holding or transaction entered the system.
+// It is stamped by the server at creation time and never changed afterwards.
+type ProvenanceSource string
+
+const (
+	SourceSync      ProvenanceSource = "sync"       // Created by an automatic account sync
+	SourceManual    ProvenanceSource = "manual"     // Entered by hand via CRUD API
+	SourceLLMImport ProvenanceSource = "llm_import" // Created by a batch import (LLM-parsed export)
+)
+
+// Valid reports whether s is one of the known provenance sources.
+func (s ProvenanceSource) Valid() bool {
+	switch s {
+	case SourceSync, SourceManual, SourceLLMImport:
+		return true
+	default:
+		return false
+	}
+}
+
 // Holding represents a specific quantity of an Asset held within an Account.
 type Holding struct {
 	ID          string
@@ -121,8 +146,10 @@ type Holding struct {
 	Decimals    uint32
 	AssetID     string
 	AccountID   string
-	PortfolioID string // Optional; empty = inherit from account's portfolio_id
-	Excluded    bool   // If true, holding is explicitly excluded from all portfolio calculations
+	PortfolioID string           // Optional; empty = inherit from account's portfolio_id
+	Excluded    bool             // If true, holding is explicitly excluded from all portfolio calculations
+	Source      ProvenanceSource // Creation provenance; immutable after create
+	ImportID    string           // Optional batch id linking rows created by one import
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -159,6 +186,8 @@ type Transaction struct {
 	AccountID string
 	AssetID   string // Optional, for linking to specific asset
 	Data      map[string]string
+	Source    ProvenanceSource // Creation provenance; immutable after create
+	ImportID  string           // Optional batch id linking rows created by one import
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
