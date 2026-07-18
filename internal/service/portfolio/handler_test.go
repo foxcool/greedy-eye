@@ -1357,3 +1357,112 @@ func TestImportTransactions_UnknownAssetFailsItem(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// --- Tests: full-snapshot reconcile ---
+
+// TestImportPositions_FullSnapshotPlan verifies reconcile mode: holdings absent
+// from the batch are planned as DELETE, excluded holdings are never touched,
+// and a dry run performs no writes.
+func TestImportPositions_FullSnapshotPlan(t *testing.T) {
+	const absentAssetID = "01926d35-6a1e-7005-8005-00000000000a"
+	const excludedAssetID = "01926d35-6a1e-7005-8005-00000000000b"
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
+
+	kept := testHolding(testHoldingID) // asset testAssetID, present in the batch
+	absent := testHolding(testHoldingID2)
+	absent.AssetID = absentAssetID
+	excluded := testHolding("01926d35-6a1e-7004-8004-000000000003")
+	excluded.AssetID = excludedAssetID
+	excluded.Excluded = true
+	s.On("ListHoldings", mock.Anything, mock.Anything).
+		Return([]*entity.Holding{kept, absent, excluded}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("FindOrCreateAsset", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: &apiv1.Asset{Id: testAssetID}}), nil)
+	sym := "GONE"
+	md.On("GetAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetAssetRequest]) bool {
+		return r.Msg.Id == absentAssetID
+	})).Return(connect.NewResponse(&apiv1.Asset{Id: absentAssetID, Symbol: &sym}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+
+	resp, err := h.ImportPositions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportPositionsRequest{
+		AccountId:    testAccountID,
+		DryRun:       true,
+		FullSnapshot: true,
+		Positions:    []*apiv1.ImportPositionItem{{Symbol: "BTC", Amount: "0.001"}}, // matches kept exactly
+	}))
+	require.NoError(t, err)
+	assert.False(t, resp.Msg.DeletionsSuppressed)
+	assert.Equal(t, int32(1), resp.Msg.Skipped)
+	assert.Equal(t, int32(1), resp.Msg.Deleted)
+	require.Len(t, resp.Msg.Items, 2)
+
+	del := resp.Msg.Items[1]
+	assert.Equal(t, apiv1.ImportAction_IMPORT_ACTION_DELETE, del.Action)
+	assert.Equal(t, absentAssetID, del.AssetId)
+	assert.Equal(t, "GONE", del.Symbol)
+	require.NotNil(t, del.PreviousAmount)
+	assert.Equal(t, "100000", *del.PreviousAmount)
+
+	s.AssertNotCalled(t, "DeleteHolding")
+}
+
+func TestImportPositions_FullSnapshotCommitDeletes(t *testing.T) {
+	const absentAssetID = "01926d35-6a1e-7005-8005-00000000000a"
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
+	absent := testHolding(testHoldingID2)
+	absent.AssetID = absentAssetID
+	s.On("ListHoldings", mock.Anything, mock.Anything).
+		Return([]*entity.Holding{testHolding(testHoldingID), absent}, "", nil)
+	s.On("DeleteHolding", mock.Anything, testHoldingID2).Return(nil)
+
+	md := &mockMDClient{}
+	md.On("FindOrCreateAsset", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: &apiv1.Asset{Id: testAssetID}}), nil)
+	md.On("GetAsset", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.Asset{Id: absentAssetID}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+
+	resp, err := h.ImportPositions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportPositionsRequest{
+		AccountId:    testAccountID,
+		FullSnapshot: true,
+		Positions:    []*apiv1.ImportPositionItem{{Symbol: "BTC", Amount: "0.001"}},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), resp.Msg.Deleted)
+	s.AssertExpectations(t)
+}
+
+// TestImportPositions_FullSnapshotSuppressedOnFailure verifies the safety
+// guard: any failed batch item suppresses deletions entirely — a partially
+// parsed export must not close positions it merely failed to mention.
+func TestImportPositions_FullSnapshotSuppressedOnFailure(t *testing.T) {
+	const absentAssetID = "01926d35-6a1e-7005-8005-00000000000a"
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
+	absent := testHolding(testHoldingID2)
+	absent.AssetID = absentAssetID
+	s.On("ListHoldings", mock.Anything, mock.Anything).
+		Return([]*entity.Holding{absent}, "", nil)
+
+	h := newHandler(s).WithMarketDataClient(&mockMDClient{})
+
+	resp, err := h.ImportPositions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportPositionsRequest{
+		AccountId:    testAccountID,
+		FullSnapshot: true, // commit mode — deletions would be real
+		Positions:    []*apiv1.ImportPositionItem{{Symbol: "BTC", Amount: "not-a-number"}},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), resp.Msg.Failed)
+	assert.True(t, resp.Msg.DeletionsSuppressed)
+	assert.Equal(t, int32(0), resp.Msg.Deleted)
+	s.AssertNotCalled(t, "DeleteHolding")
+}

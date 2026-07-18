@@ -389,6 +389,8 @@ enum ImportAction {
   IMPORT_ACTION_UPDATE = 2;
   // Duplicate or no change — nothing written.
   IMPORT_ACTION_SKIP = 3;
+  // Holding absent from a full-snapshot batch — closed on commit.
+  IMPORT_ACTION_DELETE = 4;
 }
 
 message ImportPositionItem {
@@ -416,6 +418,12 @@ message ImportPositionsRequest {
   bool dry_run = 3;
   // Batch id (UUID) linking all rows of one import; generated when empty.
   optional string import_id = 4;
+  // Reconcile mode: the batch is the complete position list for the account.
+  // Holdings absent from it are planned as IMPORT_ACTION_DELETE and closed on
+  // commit. Excluded holdings are never touched. Safety: when any batch item
+  // fails, deletions are suppressed — a partially parsed export is not a
+  // trustworthy snapshot.
+  bool full_snapshot = 5;
 }
 
 message ImportPositionResult {
@@ -443,6 +451,11 @@ message ImportPositionsResponse {
   int32 skipped = 6;
   int32 failed = 7;
   int32 assets_created = 8;
+  // Holdings closed by a full-snapshot reconcile.
+  int32 deleted = 9;
+  // full_snapshot was requested but deletions were suppressed because some
+  // batch items failed.
+  bool deletions_suppressed = 10;
 }
 
 message ImportTransactionItem {
