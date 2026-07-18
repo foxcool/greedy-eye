@@ -182,6 +182,7 @@ func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, 
 	if c.apiKey == "" {
 		batchSize = 1
 		if len(valid) > keylessMaxContractLookups {
+			// #nosec G404 -- rotation of which public addresses get priced, not a security decision
 			rand.Shuffle(len(valid), func(i, j int) { valid[i], valid[j] = valid[j], valid[i] })
 			valid = valid[:keylessMaxContractLookups]
 		}
