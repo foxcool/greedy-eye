@@ -1352,6 +1352,8 @@ func stringToAccountType(s string) entity.AccountType {
 		return entity.AccountTypeBroker
 	case "service":
 		return entity.AccountTypeService
+	case "manual":
+		return entity.AccountTypeManual
 	default:
 		return entity.AccountTypeUnspecified
 	}
