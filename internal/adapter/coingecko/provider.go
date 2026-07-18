@@ -91,6 +91,18 @@ var nativeCoinID = map[string]string{
 	"trx":    "tron",
 	"xlm":    "stellar",
 	"amb":    "amber",
+	"ton":    "the-open-network",
+	"tston":  "tonstakers",
+	"xmr":    "monero",
+	"xtz":    "tezos",
+	"dash":   "dash",
+	"glmr":   "moonbeam",
+	"astr":   "astar",
+	"ksm":    "kusama",
+	"tao":    "bittensor",
+	"hdx":    "hydradx",
+	"velo":   "velo",
+	"fil":    "filecoin",
 }
 
 // Provider adapts *Client to marketdata.PriceProvider.
@@ -131,10 +143,13 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 	var nativeAssets []*entity.Asset   // native coins looked up by symbol
 
 	for _, a := range assets {
-		if addr := contractTag(a.Tags); addr != "" {
-			contractAssets = append(contractAssets, contractAsset{id: a.ID, address: addr})
-		} else if _, ok := nativeCoinID[strings.ToLower(a.Symbol)]; ok {
+		// The curated symbol map wins over a contract tag: contract addresses
+		// synced from L2 chains (e.g. OP on Optimism) are not listed under the
+		// Ethereum platform, while the map targets the canonical coin ID.
+		if _, ok := nativeCoinID[strings.ToLower(a.Symbol)]; ok {
 			nativeAssets = append(nativeAssets, a)
+		} else if addr := contractTag(a.Tags); addr != "" {
+			contractAssets = append(contractAssets, contractAsset{id: a.ID, address: addr})
 		}
 		// else: unknown, skip — no reliable CoinGecko mapping
 	}
@@ -168,14 +183,16 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 
 	// --- Path 2: native / well-known coins by CoinGecko ID ---
 	if len(nativeAssets) > 0 {
-		coinToAsset := make(map[string]string, len(nativeAssets))
+		// Several catalog assets may share one coin ID (e.g. duplicate USDT
+		// rows) — fan the fetched price out to all of them.
+		coinToAssets := make(map[string][]string, len(nativeAssets))
 		coinIDs := make([]string, 0, len(nativeAssets))
 		for _, a := range nativeAssets {
 			cgID := nativeCoinID[strings.ToLower(a.Symbol)]
-			if _, dup := coinToAsset[cgID]; !dup {
-				coinToAsset[cgID] = a.ID
+			if _, dup := coinToAssets[cgID]; !dup {
 				coinIDs = append(coinIDs, cgID)
 			}
+			coinToAssets[cgID] = append(coinToAssets[cgID], a.ID)
 		}
 
 		raw, err := p.client.GetMultiplePrices(ctx, coinIDs, cgQuoteCurrency)
@@ -183,11 +200,9 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 			return result, fmt.Errorf("coingecko native lookup: %w", err)
 		}
 		for cgID, pd := range raw {
-			assetID, ok := coinToAsset[cgID]
-			if !ok {
-				continue
+			for _, assetID := range coinToAssets[cgID] {
+				result = append(result, storedPrice(assetID, pd, now))
 			}
-			result = append(result, storedPrice(assetID, pd, now))
 		}
 	}
 
