@@ -3,8 +3,11 @@ package coingecko
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -47,7 +50,12 @@ type HistoricalPrice struct {
 // NewClient creates a new CoinGecko price data client
 func NewClient(cfg Config) *Client {
 	baseURL := "https://api.coingecko.com/api/v3"
-	rateLimit := 50 * time.Millisecond // Free tier: 10-30 calls/minute
+	// Spacing between consecutive requests inside one batched operation.
+	// The keyless public API allows roughly 30 calls/minute per IP.
+	rateLimit := 1200 * time.Millisecond
+	if cfg.APIKey != "" {
+		rateLimit = 100 * time.Millisecond // Demo/paid tiers: 30-500 calls/minute
+	}
 
 	if cfg.Pro {
 		baseURL = "https://pro-api.coingecko.com/api/v3"
@@ -131,23 +139,68 @@ func (c *Client) GetMultiplePrices(ctx context.Context, assetIDs []string, curre
 	return result, nil
 }
 
+// evmAddressRe matches a canonical EVM contract address. Catalog tags may
+// carry garbage from scam tokens (unicode tricks, truncated strings); anything
+// not matching would poison the whole token_price batch with a 400.
+var evmAddressRe = regexp.MustCompile(`^0x[0-9a-fA-F]{40}$`)
+
+// keylessMaxContractLookups caps per-address token_price requests in one
+// call on the keyless tier, where each address costs a full request.
+const keylessMaxContractLookups = 15
+
 // GetTokenPricesByContract retrieves prices for ERC-20 tokens by their contract addresses.
 // platform is the CoinGecko platform ID, e.g. "ethereum", "base", "polygon-pos".
+//
+// Malformed addresses are skipped up front, and a failed batch does not abort
+// the rest: the returned map holds every price that was fetched, and the error
+// (if any) aggregates per-batch failures. Callers should use both.
 func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, addresses []string, currency string) (map[string]*PriceData, error) {
-	if len(addresses) == 0 {
+	seen := make(map[string]struct{}, len(addresses))
+	valid := make([]string, 0, len(addresses))
+	for _, addr := range addresses {
+		if !evmAddressRe.MatchString(addr) {
+			continue
+		}
+		key := strings.ToLower(addr)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		valid = append(valid, addr)
+	}
+	if len(valid) == 0 {
 		return map[string]*PriceData{}, nil
 	}
 
-	// CoinGecko supports batching up to 30 addresses per request on free tier.
-	const batchSize = 30
-	result := make(map[string]*PriceData, len(addresses))
-
-	for i := 0; i < len(addresses); i += batchSize {
-		end := i + batchSize
-		if end > len(addresses) {
-			end = len(addresses)
+	// With an API key (demo/pro) token_price accepts comma-separated batches;
+	// the keyless public API rejects any request with more than one address
+	// with a 400, so each address must go in its own request. To stay inside
+	// the keyless per-minute budget (and not starve other endpoints), only a
+	// random subset is attempted per call — repeated fetches rotate through
+	// the full set.
+	batchSize := 30
+	if c.apiKey == "" {
+		batchSize = 1
+		if len(valid) > keylessMaxContractLookups {
+			// #nosec G404 -- rotation of which public addresses get priced, not a security decision
+			rand.Shuffle(len(valid), func(i, j int) { valid[i], valid[j] = valid[j], valid[i] })
+			valid = valid[:keylessMaxContractLookups]
 		}
-		batch := addresses[i:end]
+	}
+	result := make(map[string]*PriceData, len(valid))
+	var errs []error
+
+	for i := 0; i < len(valid); i += batchSize {
+		if i > 0 {
+			// Space consecutive requests to stay under the tier rate limit.
+			select {
+			case <-ctx.Done():
+				return result, errors.Join(append(errs, ctx.Err())...)
+			case <-time.After(c.rateLimit):
+			}
+		}
+		end := min(i+batchSize, len(valid))
+		batch := valid[i:end]
 
 		url := fmt.Sprintf(
 			"%s/simple/token_price/%s?contract_addresses=%s&vs_currencies=%s&include_24hr_high=true&include_24hr_low=true",
@@ -159,7 +212,7 @@ func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, 
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
-			return nil, fmt.Errorf("create request: %w", err)
+			return result, fmt.Errorf("create request: %w", err)
 		}
 		if c.apiKey != "" {
 			req.Header.Set("x-cg-demo-api-key", c.apiKey)
@@ -167,19 +220,22 @@ func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, 
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("do request: %w", err)
+			errs = append(errs, fmt.Errorf("token_price batch %d-%d: %w", i, end, err))
+			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
 			_ = resp.Body.Close()
-			return nil, fmt.Errorf("unexpected status %d from CoinGecko token_price", resp.StatusCode)
+			errs = append(errs, fmt.Errorf("token_price batch %d-%d: unexpected status %d from CoinGecko", i, end, resp.StatusCode))
+			continue
 		}
 
 		// Response: { "0x...": { "usd": 1.23, "usd_24h_high": 1.30, "usd_24h_low": 1.10 }, ... }
 		var raw map[string]map[string]float64
 		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 			_ = resp.Body.Close()
-			return nil, fmt.Errorf("decode response: %w", err)
+			errs = append(errs, fmt.Errorf("token_price batch %d-%d: decode response: %w", i, end, err))
+			continue
 		}
 		_ = resp.Body.Close()
 
@@ -198,7 +254,7 @@ func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, 
 		}
 	}
 
-	return result, nil
+	return result, errors.Join(errs...)
 }
 
 // GetCurrentPrice retrieves current price for an asset.

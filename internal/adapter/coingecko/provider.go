@@ -103,6 +103,22 @@ var nativeCoinID = map[string]string{
 	"hdx":    "hydradx",
 	"velo":   "velo",
 	"fil":    "filecoin",
+	"ens":    "ethereum-name-service",
+	"gtc":    "gitcoin",
+	// Aave receipt tokens redeem 1:1 for the underlying; stkAAVE has no own
+	// CoinGecko listing, so it is priced as AAVE.
+	"stkaave":  "aave",
+	"ausdc":    "aave-usdc",
+	"adai":     "aave-dai",
+	"alink":    "aave-link",
+	"amkr":     "aave-mkr",
+	"auni":     "aave-uni",
+	"ayfi":     "aave-yfi",
+	"aethusdc": "aave-v3-usdc",
+	"aethdai":  "aave-v3-dai",
+	"aethweth": "aave-v3-weth",
+	"aoptdai":  "aave-v3-dai",
+	"aweth":    "aave-v3-weth",
 }
 
 // Provider adapts *Client to marketdata.PriceProvider.
@@ -157,31 +173,10 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 	now := time.Now()
 	var result []entity.StoredPrice
 
-	// --- Path 1: ERC-20 by contract address ---
-	if len(contractAssets) > 0 {
-		addrs := make([]string, len(contractAssets))
-		addrToID := make(map[string]string, len(contractAssets))
-		for i, ca := range contractAssets {
-			addrs[i] = ca.address
-			addrToID[strings.ToLower(ca.address)] = ca.id
-		}
-
-		pricesByAddr, err := p.client.GetTokenPricesByContract(ctx, cgPlatformEVM, addrs, cgQuoteCurrency)
-		if err != nil {
-			// Non-fatal: native coin lookup may still succeed.
-			p.log.Warn("coingecko contract lookup failed", "error", err)
-		} else {
-			for addr, pd := range pricesByAddr {
-				assetID, ok := addrToID[strings.ToLower(addr)]
-				if !ok {
-					continue
-				}
-				result = append(result, storedPrice(assetID, pd, now))
-			}
-		}
-	}
-
-	// --- Path 2: native / well-known coins by CoinGecko ID ---
+	// --- Path 1: native / well-known coins by CoinGecko ID ---
+	// Runs first: it is a single request covering the curated (most valuable)
+	// assets, and must not be starved of rate budget by the per-contract
+	// lookups below, which can burn many requests on the keyless tier.
 	if len(nativeAssets) > 0 {
 		// Several catalog assets may share one coin ID (e.g. duplicate USDT
 		// rows) — fan the fetched price out to all of them.
@@ -203,6 +198,30 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 			for _, assetID := range coinToAssets[cgID] {
 				result = append(result, storedPrice(assetID, pd, now))
 			}
+		}
+	}
+
+	// --- Path 2: ERC-20 by contract address ---
+	if len(contractAssets) > 0 {
+		addrs := make([]string, len(contractAssets))
+		addrToID := make(map[string]string, len(contractAssets))
+		for i, ca := range contractAssets {
+			addrs[i] = ca.address
+			addrToID[strings.ToLower(ca.address)] = ca.id
+		}
+
+		pricesByAddr, err := p.client.GetTokenPricesByContract(ctx, cgPlatformEVM, addrs, cgQuoteCurrency)
+		if err != nil {
+			// Non-fatal: the map may still hold prices from succeeded batches,
+			// and the native lookup above has already been collected.
+			p.log.Warn("coingecko contract lookup partially failed", "error", err)
+		}
+		for addr, pd := range pricesByAddr {
+			assetID, ok := addrToID[strings.ToLower(addr)]
+			if !ok {
+				continue
+			}
+			result = append(result, storedPrice(assetID, pd, now))
 		}
 	}
 
