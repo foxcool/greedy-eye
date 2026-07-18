@@ -266,6 +266,8 @@ const (
 	ImportAction_IMPORT_ACTION_UPDATE      ImportAction = 2
 	// Duplicate or no change — nothing written.
 	ImportAction_IMPORT_ACTION_SKIP ImportAction = 3
+	// Holding absent from a full-snapshot batch — closed on commit.
+	ImportAction_IMPORT_ACTION_DELETE ImportAction = 4
 )
 
 // Enum value maps for ImportAction.
@@ -275,12 +277,14 @@ var (
 		1: "IMPORT_ACTION_CREATE",
 		2: "IMPORT_ACTION_UPDATE",
 		3: "IMPORT_ACTION_SKIP",
+		4: "IMPORT_ACTION_DELETE",
 	}
 	ImportAction_value = map[string]int32{
 		"IMPORT_ACTION_UNSPECIFIED": 0,
 		"IMPORT_ACTION_CREATE":      1,
 		"IMPORT_ACTION_UPDATE":      2,
 		"IMPORT_ACTION_SKIP":        3,
+		"IMPORT_ACTION_DELETE":      4,
 	}
 )
 
@@ -1641,7 +1645,13 @@ type ImportPositionsRequest struct {
 	// When true, returns the plan without writing anything.
 	DryRun bool `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	// Batch id (UUID) linking all rows of one import; generated when empty.
-	ImportId      *string `protobuf:"bytes,4,opt,name=import_id,json=importId,proto3,oneof" json:"import_id,omitempty"`
+	ImportId *string `protobuf:"bytes,4,opt,name=import_id,json=importId,proto3,oneof" json:"import_id,omitempty"`
+	// Reconcile mode: the batch is the complete position list for the account.
+	// Holdings absent from it are planned as IMPORT_ACTION_DELETE and closed on
+	// commit. Excluded holdings are never touched. Safety: when any batch item
+	// fails, deletions are suppressed — a partially parsed export is not a
+	// trustworthy snapshot.
+	FullSnapshot  bool `protobuf:"varint,5,opt,name=full_snapshot,json=fullSnapshot,proto3" json:"full_snapshot,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1702,6 +1712,13 @@ func (x *ImportPositionsRequest) GetImportId() string {
 		return *x.ImportId
 	}
 	return ""
+}
+
+func (x *ImportPositionsRequest) GetFullSnapshot() bool {
+	if x != nil {
+		return x.FullSnapshot
+	}
+	return false
 }
 
 type ImportPositionResult struct {
@@ -1819,8 +1836,13 @@ type ImportPositionsResponse struct {
 	Skipped       int32                   `protobuf:"varint,6,opt,name=skipped,proto3" json:"skipped,omitempty"`
 	Failed        int32                   `protobuf:"varint,7,opt,name=failed,proto3" json:"failed,omitempty"`
 	AssetsCreated int32                   `protobuf:"varint,8,opt,name=assets_created,json=assetsCreated,proto3" json:"assets_created,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Holdings closed by a full-snapshot reconcile.
+	Deleted int32 `protobuf:"varint,9,opt,name=deleted,proto3" json:"deleted,omitempty"`
+	// full_snapshot was requested but deletions were suppressed because some
+	// batch items failed.
+	DeletionsSuppressed bool `protobuf:"varint,10,opt,name=deletions_suppressed,json=deletionsSuppressed,proto3" json:"deletions_suppressed,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ImportPositionsResponse) Reset() {
@@ -1907,6 +1929,20 @@ func (x *ImportPositionsResponse) GetAssetsCreated() int32 {
 		return x.AssetsCreated
 	}
 	return 0
+}
+
+func (x *ImportPositionsResponse) GetDeleted() int32 {
+	if x != nil {
+		return x.Deleted
+	}
+	return 0
+}
+
+func (x *ImportPositionsResponse) GetDeletionsSuppressed() bool {
+	if x != nil {
+		return x.DeletionsSuppressed
+	}
+	return false
 }
 
 type ImportTransactionItem struct {
@@ -3194,13 +3230,14 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\t_asset_idB\t\n" +
 	"\a_marketB\a\n" +
 	"\x05_nameB\v\n" +
-	"\t_decimals\"\xba\x01\n" +
+	"\t_decimals\"\xdf\x01\n" +
 	"\x16ImportPositionsRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x128\n" +
 	"\tpositions\x18\x02 \x03(\v2\x1a.eye.v1.ImportPositionItemR\tpositions\x12\x17\n" +
 	"\adry_run\x18\x03 \x01(\bR\x06dryRun\x12 \n" +
-	"\timport_id\x18\x04 \x01(\tH\x00R\bimportId\x88\x01\x01B\f\n" +
+	"\timport_id\x18\x04 \x01(\tH\x00R\bimportId\x88\x01\x01\x12#\n" +
+	"\rfull_snapshot\x18\x05 \x01(\bR\ffullSnapshotB\f\n" +
 	"\n" +
 	"_import_id\"\xb7\x02\n" +
 	"\x14ImportPositionResult\x12\x16\n" +
@@ -3213,7 +3250,7 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\rasset_created\x18\a \x01(\bR\fassetCreated\x12\x19\n" +
 	"\x05error\x18\b \x01(\tH\x01R\x05error\x88\x01\x01B\x12\n" +
 	"\x10_previous_amountB\b\n" +
-	"\x06_error\"\x90\x02\n" +
+	"\x06_error\"\xdd\x02\n" +
 	"\x17ImportPositionsResponse\x12\x1b\n" +
 	"\timport_id\x18\x01 \x01(\tR\bimportId\x12\x17\n" +
 	"\adry_run\x18\x02 \x01(\bR\x06dryRun\x122\n" +
@@ -3222,7 +3259,10 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\aupdated\x18\x05 \x01(\x05R\aupdated\x12\x18\n" +
 	"\askipped\x18\x06 \x01(\x05R\askipped\x12\x16\n" +
 	"\x06failed\x18\a \x01(\x05R\x06failed\x12%\n" +
-	"\x0eassets_created\x18\b \x01(\x05R\rassetsCreated\"\xf8\x02\n" +
+	"\x0eassets_created\x18\b \x01(\x05R\rassetsCreated\x12\x18\n" +
+	"\adeleted\x18\t \x01(\x05R\adeleted\x121\n" +
+	"\x14deletions_suppressed\x18\n" +
+	" \x01(\bR\x13deletionsSuppressed\"\xf8\x02\n" +
 	"\x15ImportTransactionItem\x12+\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x17.eye.v1.TransactionTypeR\x04type\x121\n" +
 	"\x06status\x18\x02 \x01(\x0e2\x19.eye.v1.TransactionStatusR\x06status\x12\x1e\n" +
@@ -3365,12 +3405,13 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x1dTRANSACTION_STATUS_PROCESSING\x10\x02\x12 \n" +
 	"\x1cTRANSACTION_STATUS_COMPLETED\x10\x03\x12\x1d\n" +
 	"\x19TRANSACTION_STATUS_FAILED\x10\x04\x12 \n" +
-	"\x1cTRANSACTION_STATUS_CANCELLED\x10\x05*y\n" +
+	"\x1cTRANSACTION_STATUS_CANCELLED\x10\x05*\x93\x01\n" +
 	"\fImportAction\x12\x1d\n" +
 	"\x19IMPORT_ACTION_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14IMPORT_ACTION_CREATE\x10\x01\x12\x18\n" +
 	"\x14IMPORT_ACTION_UPDATE\x10\x02\x12\x16\n" +
-	"\x12IMPORT_ACTION_SKIP\x10\x032\xe7\x15\n" +
+	"\x12IMPORT_ACTION_SKIP\x10\x03\x12\x18\n" +
+	"\x14IMPORT_ACTION_DELETE\x10\x042\xe7\x15\n" +
 	"\x10PortfolioService\x12k\n" +
 	"\x0fCreatePortfolio\x12\x1e.eye.v1.CreatePortfolioRequest\x1a\x11.eye.v1.Portfolio\"%\x82\xd3\xe4\x93\x02\x1f:\tportfolio\"\x12/api/v1/portfolios\x12_\n" +
 	"\fGetPortfolio\x12\x1b.eye.v1.GetPortfolioRequest\x1a\x11.eye.v1.Portfolio\"\x1f\x82\xd3\xe4\x93\x02\x19\x12\x17/api/v1/portfolios/{id}\x12z\n" +

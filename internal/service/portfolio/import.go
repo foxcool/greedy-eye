@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -104,7 +105,71 @@ func (h *Handler) ImportPositions(ctx context.Context, req *connect.Request[apiv
 		}
 	}
 
+	if req.Msg.FullSnapshot {
+		// A batch with failures is not a trustworthy snapshot: a position that
+		// merely failed to parse must not be closed as "absent".
+		if resp.Failed > 0 {
+			resp.DeletionsSuppressed = true
+		} else {
+			h.reconcileAbsentHoldings(ctx, req.Msg.DryRun, resp, holdingByAsset, seenAssets)
+		}
+	}
+
 	return connect.NewResponse(resp), nil
+}
+
+// reconcileAbsentHoldings plans (and on commit performs) closing of account
+// holdings that a full-snapshot batch did not mention. Excluded holdings are
+// deliberate user curation and are never touched.
+func (h *Handler) reconcileAbsentHoldings(
+	ctx context.Context,
+	dryRun bool,
+	resp *apiv1.ImportPositionsResponse,
+	holdingByAsset map[string]*entity.Holding,
+	seenAssets map[string]bool,
+) {
+	// Stable order: map iteration would shuffle the plan between calls.
+	assetIDs := make([]string, 0, len(holdingByAsset))
+	for assetID := range holdingByAsset {
+		if !seenAssets[assetID] && !holdingByAsset[assetID].Excluded {
+			assetIDs = append(assetIDs, assetID)
+		}
+	}
+	slices.Sort(assetIDs)
+
+	for _, assetID := range assetIDs {
+		hld := holdingByAsset[assetID]
+		prev := hld.Amount.String()
+		result := &apiv1.ImportPositionResult{
+			AssetId:        assetID,
+			Action:         apiv1.ImportAction_IMPORT_ACTION_DELETE,
+			Amount:         "0",
+			Decimals:       hld.Decimals,
+			PreviousAmount: &prev,
+			Symbol:         h.assetSymbol(ctx, assetID),
+		}
+		if !dryRun {
+			if err := h.store.DeleteHolding(ctx, hld.ID); err != nil {
+				msg := fmt.Sprintf("delete holding: %v", err)
+				result.Error = &msg
+				resp.Items = append(resp.Items, result)
+				resp.Failed++
+				continue
+			}
+		}
+		resp.Items = append(resp.Items, result)
+		resp.Deleted++
+	}
+}
+
+// assetSymbol resolves an asset id to its symbol for plan readability;
+// best-effort, empty on lookup failure.
+func (h *Handler) assetSymbol(ctx context.Context, assetID string) string {
+	resp, err := h.mdClient.GetAsset(ctx, connect.NewRequest(&apiv1.GetAssetRequest{Id: assetID}))
+	if err != nil {
+		return ""
+	}
+	return resp.Msg.GetSymbol()
 }
 
 // importOnePosition validates, resolves and (unless dry-run) applies a single
