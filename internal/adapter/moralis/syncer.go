@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
@@ -25,6 +26,15 @@ var nativeToken = map[string]struct{ symbol, name string }{
 }
 
 const nativeDecimals = 18
+
+// evmAddress matches a 20-byte hex address, the only form Moralis accepts.
+var evmAddress = regexp.MustCompile(`^0x[0-9a-fA-F]{40}$`)
+
+// HandlesAddress reports whether an address belongs to an EVM chain, routing
+// accounts that name no chain (auto-discovery) to this adapter.
+func HandlesAddress(address string) bool {
+	return evmAddress.MatchString(address)
+}
 
 // SupportedChains returns the chain identifiers this adapter can sync. The
 // syncer registry uses it to route an account to the right provider, so it
