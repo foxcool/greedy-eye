@@ -3,6 +3,7 @@ package portfolio
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"slices"
@@ -359,6 +360,43 @@ func TestDeleteAccount_OK(t *testing.T) {
 
 	_, err := h.DeleteAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.DeleteAccountRequest{Id: testAccountID}))
 	require.NoError(t, err)
+}
+
+// TestDeleteAccount_StillHoldsPositions: holdings reference the account, so the
+// database refuses the delete. The message has to name what blocks it —
+// "existing dependencies" leaves the user with a button that appears dead.
+func TestDeleteAccount_StillHoldsPositions(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	s.On("DeleteAccount", mock.Anything, testAccountID).
+		Return(fmt.Errorf("%w: cannot delete account due to existing dependencies", store.ErrConstraint))
+	s.On("ListHoldings", mock.Anything, mock.Anything).
+		Return([]*entity.Holding{{ID: testHoldingID}, {ID: "h2"}}, "", nil)
+
+	_, err := newHandler(s).DeleteAccount(ctxWithUser(testUserID),
+		connect.NewRequest(&apiv1.DeleteAccountRequest{Id: testAccountID}))
+
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	assert.Contains(t, err.Error(), "2 position(s)")
+}
+
+// TestDeleteAccount_BlockedByTransactions: with no holdings left, the blocker
+// is transaction history, and the message must say so rather than claim
+// positions that are not there.
+func TestDeleteAccount_BlockedByTransactions(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	s.On("DeleteAccount", mock.Anything, testAccountID).
+		Return(fmt.Errorf("%w: cannot delete account due to existing dependencies", store.ErrConstraint))
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+
+	_, err := newHandler(s).DeleteAccount(ctxWithUser(testUserID),
+		connect.NewRequest(&apiv1.DeleteAccountRequest{Id: testAccountID}))
+
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	assert.Contains(t, err.Error(), "transactions")
 }
 
 func TestIsSecretKey(t *testing.T) {

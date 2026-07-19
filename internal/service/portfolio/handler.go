@@ -728,10 +728,43 @@ func (h *Handler) DeleteAccount(ctx context.Context, req *connect.Request[apiv1.
 	}
 
 	if err := h.store.DeleteAccount(ctx, req.Msg.Id); err != nil {
+		// Holdings and transactions reference the account, so deleting one that
+		// still owns rows is refused by the database. "Existing dependencies"
+		// does not tell the caller what to clear, so name the positions.
+		if errors.Is(err, store.ErrConstraint) {
+			if n, countErr := h.countHoldings(ctx, req.Msg.Id); countErr == nil && n > 0 {
+				return nil, connect.NewError(connect.CodeFailedPrecondition,
+					fmt.Errorf("account still holds %d position(s); delete them before deleting the account", n))
+			}
+			return nil, connect.NewError(connect.CodeFailedPrecondition,
+				errors.New("account still has transactions; they must be removed before deleting the account"))
+		}
 		return nil, toConnectError(err)
 	}
 
 	return connect.NewResponse(&emptypb.Empty{}), nil
+}
+
+// countHoldings reports how many holdings the account still owns, for error
+// messages only — a best-effort count, never a gate on the delete itself.
+func (h *Handler) countHoldings(ctx context.Context, accountID string) (int, error) {
+	var total int
+	pageToken := ""
+	for {
+		holdings, next, err := h.store.ListHoldings(ctx, ListHoldingsOpts{
+			AccountID: accountID,
+			PageSize:  100,
+			PageToken: pageToken,
+		})
+		if err != nil {
+			return 0, err
+		}
+		total += len(holdings)
+		if next == "" {
+			return total, nil
+		}
+		pageToken = next
+	}
 }
 
 func (h *Handler) ListAccounts(ctx context.Context, req *connect.Request[apiv1.ListAccountsRequest]) (*connect.Response[apiv1.ListAccountsResponse], error) {
