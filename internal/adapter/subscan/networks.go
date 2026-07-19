@@ -9,9 +9,12 @@ type network struct {
 	// host is the Subscan subdomain (https://<host>.api.subscan.io).
 	host string
 
-	symbol   string
-	name     string
-	decimals int
+	symbol string
+	name   string
+
+	// decimals is int32 to match decimal.Decimal.Shift, the only place it is
+	// used for arithmetic; entity.WalletBalance widens it back to int.
+	decimals int32
 }
 
 // networks maps the chain identifier stored on an account to its parameters.

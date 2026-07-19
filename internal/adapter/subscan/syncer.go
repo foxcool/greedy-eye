@@ -57,13 +57,13 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 
 		// Subscan reports whole token units; holdings are stored as raw
 		// integers scaled by the chain's decimals.
-		raw := total.Shift(int32(net.decimals)).BigInt().String()
+		raw := total.Shift(net.decimals).BigInt().String()
 
 		balances = append(balances, entity.WalletBalance{
 			Symbol:   net.symbol,
 			Name:     net.name,
 			Amount:   raw,
-			Decimals: net.decimals,
+			Decimals: int(net.decimals),
 		})
 	}
 
