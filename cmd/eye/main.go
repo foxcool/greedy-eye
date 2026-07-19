@@ -133,11 +133,17 @@ func run() error {
 	}
 	credResolver := credentials.NewResolver(credentials.Config{
 		Source: portfolioStore,
-		WalletSyncers: map[string]credentials.WalletSyncerFactory{
-			moralisadapter.ProviderName: func(a *entity.Account) (entity.WalletSyncer, error) {
-				return moralisadapter.NewWalletSyncer(
-					moralisadapter.NewClient(moralisadapter.Config{APIKey: a.Data["api_key"]}),
-				), nil
+		// Wallet providers are routed by chain: every non-EVM ecosystem
+		// registers its own adapter here alongside Moralis (personal-feb).
+		WalletSyncers: map[string]credentials.WalletProvider{
+			moralisadapter.ProviderName: {
+				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
+					return moralisadapter.NewWalletSyncer(
+						moralisadapter.NewClient(moralisadapter.Config{APIKey: a.Data["api_key"]}),
+					), nil
+				},
+				Chains:         moralisadapter.SupportedChains(),
+				HandlesAddress: moralisadapter.HandlesAddress,
 			},
 		},
 		ExchangeSyncers: map[string]credentials.ExchangeSyncerFactory{
@@ -162,9 +168,14 @@ func run() error {
 				})), nil
 			},
 		},
-		EnvWalletSyncer:   walletSyncer,
-		EnvPriceProviders: envPriceProviders,
-		Log:               log,
+		// The env syncer is Moralis too (deprecated path, g27), so it carries
+		// the same chain coverage — without it a Substrate account would fall
+		// back onto an EVM-only syncer.
+		EnvWalletSyncer:            walletSyncer,
+		EnvWalletSyncerChains:      moralisadapter.SupportedChains(),
+		EnvWalletSyncerAddressFunc: moralisadapter.HandlesAddress,
+		EnvPriceProviders:          envPriceProviders,
+		Log:                        log,
 	})
 
 	// Register Connect handlers

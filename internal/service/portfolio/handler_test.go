@@ -1105,6 +1105,88 @@ func TestSyncAccount_ExchangeNoAdapter(t *testing.T) {
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 }
 
+// mockWalletSource resolves a wallet syncer per requested chains, standing in
+// for the credentials resolver's chain routing.
+type mockWalletSource struct {
+	syncer entity.WalletSyncer
+	err    error
+
+	gotChains []string // chains the handler asked for
+}
+
+func (m *mockWalletSource) WalletSyncerFor(_ context.Context, _, _ string, chains []string) (entity.WalletSyncer, error) {
+	m.gotChains = chains
+	return m.syncer, m.err
+}
+
+// TestSyncAccount_NonEVMChainWithoutAdapter is the guard that makes non-EVM
+// accounts safe to create before their adapter exists: an unroutable chain must
+// fail loudly instead of falling through to the EVM syncer, which would report
+// an empty wallet and silently zero out the position.
+func TestSyncAccount_NonEVMChainWithoutAdapter(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "1FRMM8...", "chain": "polkadot"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+
+	evmSyncer := &mockWalletSyncer{} // wired statically, must never be called
+	source := &mockWalletSource{syncer: nil}
+	h := newHandler(s).WithMarketDataClient(&mockMDClient{}).
+		WithWalletSyncer(evmSyncer).
+		WithWalletSyncerSource(source)
+
+	_, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: testAccountID}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
+	assert.Contains(t, err.Error(), "polkadot", "error must name the chain that could not be routed")
+	assert.Equal(t, []string{"polkadot"}, source.gotChains)
+	evmSyncer.AssertNotCalled(t, "SyncWallet", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestSyncAccount_ChainsPassedToSource pins the routing input: the account's
+// chain config reaches the resolver verbatim, and "auto" means auto-discovery
+// (nil chains), not a chain literally named "auto".
+func TestSyncAccount_ChainsPassedToSource(t *testing.T) {
+	tests := []struct {
+		name       string
+		chainData  string
+		wantChains []string
+	}{
+		{"explicit chain list", "eth,base", []string{"eth", "base"}},
+		{"auto means discovery", "auto", nil},
+		{"empty means discovery", "", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			acct := testAccount(testAccountID)
+			acct.Type = entity.AccountTypeWallet
+			acct.Data = map[string]string{"address": "0xabc", "chain": tt.chainData}
+
+			s := &mockStore{}
+			s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+			s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+
+			syncer := &mockWalletSyncer{}
+			syncer.On("SyncWallet", mock.Anything, "0xabc", tt.wantChains).
+				Return([]entity.WalletBalance{}, nil)
+
+			md := &mockMDClient{}
+			md.On("ListAssets", mock.Anything, mock.Anything).
+				Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
+
+			source := &mockWalletSource{syncer: syncer}
+			h := newHandler(s).WithMarketDataClient(md).WithWalletSyncerSource(source)
+
+			_, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: testAccountID}))
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantChains, source.gotChains)
+			syncer.AssertExpectations(t)
+		})
+	}
+}
+
 func TestSyncAccount_UnsupportedType(t *testing.T) {
 	acct := testAccount(testAccountID)
 	acct.Type = entity.AccountTypeBank

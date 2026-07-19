@@ -10,6 +10,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestHandlesAddress guards auto-discovery routing: accounts created before
+// chain routing existed carry only an address, so this predicate is the only
+// thing that keeps them reaching the EVM syncer.
+func TestHandlesAddress(t *testing.T) {
+	tests := []struct {
+		address string
+		want    bool
+	}{
+		{"0x75304308839f839a553b60b5671bb2f043420167", true},
+		{"0x93123E0394Ca6323611C910957553876A9629571", true}, // mixed-case checksum form
+		{"5DsvsaNbaA4JPXPRJHA2wWDMv4oJaWKQDbrUKEeELRfrto7Q", false},
+		{"EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N", false},
+		{"0x7530", false}, // too short
+		{"", false},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, HandlesAddress(tt.address), tt.address)
+	}
+}
+
 func TestWalletSyncer_TokenBalances_FiltersSpam(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

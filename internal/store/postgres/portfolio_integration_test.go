@@ -114,6 +114,50 @@ func TestUpdateAccountValidatesMergedCapabilities(t *testing.T) {
 	assert.Empty(t, updated.SystemScopes)
 }
 
+// TestConvertManualAccountToWallet pins the conversion path every non-EVM
+// adapter needs (personal-feb): accounts entered by hand during the manual
+// import become live-synced wallets once their chain has an adapter.
+//
+// Type and capabilities must move in one update — a wallet may not keep
+// manual_positions, so splitting the change across two calls leaves the
+// account in a state the merged validation rejects.
+func TestConvertManualAccountToWallet(t *testing.T) {
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	s := NewPortfolioStore(pool)
+	ctx := context.Background()
+
+	user := createTestUser(t, users)
+
+	manual, err := s.CreateAccount(ctx, &entity.Account{
+		UserID:       user.ID,
+		Name:         "dot-controller",
+		Type:         entity.AccountTypeManual,
+		Capabilities: []entity.AccountCapability{entity.CapabilityManualPositions},
+	})
+	require.NoError(t, err)
+
+	// Flipping the type alone strands manual_positions on a wallet.
+	_, err = s.UpdateAccount(ctx, &entity.Account{
+		ID:   manual.ID,
+		Type: entity.AccountTypeWallet,
+	}, []string{"type"})
+	require.ErrorIs(t, err, store.ErrInvalidArgument)
+
+	converted, err := s.UpdateAccount(ctx, &entity.Account{
+		ID:           manual.ID,
+		Type:         entity.AccountTypeWallet,
+		Capabilities: []entity.AccountCapability{entity.CapabilityPortfolioSync},
+		Data:         map[string]string{"address": "15oF4u...", "chain": "polkadot"},
+	}, []string{"type", "capabilities", "data"})
+	require.NoError(t, err)
+
+	assert.Equal(t, entity.AccountTypeWallet, converted.Type)
+	assert.ElementsMatch(t, []entity.AccountCapability{entity.CapabilityPortfolioSync}, converted.Capabilities)
+	assert.Equal(t, "polkadot", converted.Data["chain"], "chain drives syncer routing")
+	assert.Equal(t, "15oF4u...", converted.Data["address"])
+}
+
 func TestListSystemAccountsByCapability(t *testing.T) {
 	pool := getTestPool(t)
 	users := NewUserStore(pool)
