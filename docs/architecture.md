@@ -376,8 +376,12 @@ covering *every* requested chain.
 - No provider covers the chains → sync fails with `Unimplemented` naming the chain. This is
   deliberate: falling through to an EVM syncer for a Substrate address would report an empty
   wallet and silently zero the position instead of erroring.
-- `Chains: nil` marks a catch-all provider, the only kind that can serve auto-discovery
-  (account chain empty or `auto`) — a chain-scoped provider cannot enumerate an address's activity.
+- **Auto-discovery** (account names no chain, or `auto`) is routed by `HandlesAddress`: each
+  provider claims an address shape (EVM hex, SS58, …) and then sweeps its own chains, keeping
+  the ones holding a balance. A provider claiming no shape stays out of discovery rather than
+  being tried blindly. `Chains: nil` still marks a catch-all for any named chain.
+- Discovery costs one request per chain swept, so it trades API budget for not having to
+  configure chains. Chains named explicitly skip the sweep.
 - Adding an ecosystem: implement `entity.WalletSyncer` in `internal/adapter/<name>/`, expose a
   `SupportedChains()`, register it in `cmd/eye/main.go`. Test pattern: golden fixtures of provider
   responses driven through an `httptest` server (see `internal/adapter/moralis`, `internal/adapter/subscan`).
@@ -385,8 +389,10 @@ covering *every* requested chain.
   Locks — staking bonds, governance, vesting — restrict the free balance rather than sitting
   beside it, so adding `bonded` would double-count the largest holding on a staking-heavy
   account. Subscan reports whole token units; the adapter scales them to raw integers by the
-  chain's decimals. Substrate has no auto-discovery: SS58 encodes a different address per
-  network, so chains are always named explicitly.
+  chain's decimals. SS58 re-encodes one public key per network (generic `5…`, Polkadot `1…`,
+  Kusama `C…`), so a single account covers the ecosystem: discovery sweeps every Substrate
+  network the adapter knows. Moonbeam is the exception — EVM H160 addresses, so it must be
+  named explicitly.
 - Accounts entered by hand during a manual import become live wallets by updating `type`,
   `capabilities` and `data` in **one** call — a wallet may not keep `manual_positions`, so a
   split update is rejected by the merged capability validation.

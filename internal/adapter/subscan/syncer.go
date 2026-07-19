@@ -20,17 +20,21 @@ func NewWalletSyncer(c *Client) *WalletSyncerAdapter {
 
 // SyncWallet returns the native balance of the address on each requested chain.
 //
-// Unlike the EVM syncer this one cannot auto-discover: Substrate addresses are
-// SS58-encoded per network, so the same key yields a different address on every
-// chain and there is nothing to enumerate. Callers must name the chains — the
-// syncer registry guarantees this by never routing an empty chain list here.
+// With no chains named it sweeps every network this adapter knows and keeps
+// the ones holding a balance — the same approach the EVM syncer takes with its
+// candidate list. That works because SS58 is just a re-encoding of one public
+// key: Subscan resolves any network's form of an address, so a single account
+// covers the whole ecosystem at the cost of one request per network.
+//
+// Moonbeam is unreachable this way — its addresses are EVM H160, not SS58 —
+// so it has to be named explicitly.
 //
 // Per-chain failures are joined into the returned error while the balances
 // gathered so far are still returned, so one unreachable network does not lose
 // the others.
 func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, chains []string) ([]entity.WalletBalance, error) {
 	if len(chains) == 0 {
-		return nil, errors.New("subscan: chains must be named explicitly (no auto-discovery on Substrate)")
+		chains = SupportedChains()
 	}
 
 	var (

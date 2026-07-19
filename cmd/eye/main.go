@@ -152,7 +152,8 @@ func run() error {
 						subscanadapter.NewClient(subscanadapter.Config{APIKey: a.Data["api_key"]}),
 					), nil
 				},
-				Chains: subscanadapter.SupportedChains(),
+				Chains:         subscanadapter.SupportedChains(),
+				HandlesAddress: subscanadapter.HandlesAddress,
 			},
 		},
 		ExchangeSyncers: map[string]credentials.ExchangeSyncerFactory{
