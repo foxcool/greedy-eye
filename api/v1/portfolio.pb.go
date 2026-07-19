@@ -2526,8 +2526,16 @@ func (x *UpdateAccountRequest) GetUpdateMask() *fieldmaskpb.FieldMask {
 }
 
 type DeleteAccountRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Delete the account's holdings along with it. Off by default: for a manual
+	// account the holdings ARE the data — nothing re-creates them — so removing
+	// them has to be asked for explicitly.
+	//
+	// Transaction history is never deleted this way. If the account has
+	// transactions the request is refused regardless of this flag: positions are
+	// a snapshot, transactions are the record of what happened.
+	Cascade       bool `protobuf:"varint,2,opt,name=cascade,proto3" json:"cascade,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2567,6 +2575,13 @@ func (x *DeleteAccountRequest) GetId() string {
 		return x.Id
 	}
 	return ""
+}
+
+func (x *DeleteAccountRequest) GetCascade() bool {
+	if x != nil {
+		return x.Cascade
+	}
+	return false
 }
 
 type ListAccountsRequest struct {
@@ -3323,9 +3338,10 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x14UpdateAccountRequest\x12)\n" +
 	"\aaccount\x18\x01 \x01(\v2\x0f.eye.v1.AccountR\aaccount\x12;\n" +
 	"\vupdate_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
-	"updateMask\"&\n" +
+	"updateMask\"@\n" +
 	"\x14DeleteAccountRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xd9\x01\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
+	"\acascade\x18\x02 \x01(\bR\acascade\"\xd9\x01\n" +
 	"\x13ListAccountsRequest\x12\x1c\n" +
 	"\auser_id\x18\x01 \x01(\tH\x00R\x06userId\x88\x01\x01\x12,\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x13.eye.v1.AccountTypeH\x01R\x04type\x88\x01\x01\x12 \n" +

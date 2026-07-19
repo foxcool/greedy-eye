@@ -530,6 +530,15 @@ message UpdateAccountRequest {
 
 message DeleteAccountRequest {
   string id = 1;
+
+  // Delete the account's holdings along with it. Off by default: for a manual
+  // account the holdings ARE the data — nothing re-creates them — so removing
+  // them has to be asked for explicitly.
+  //
+  // Transaction history is never deleted this way. If the account has
+  // transactions the request is refused regardless of this flag: positions are
+  // a snapshot, transactions are the record of what happened.
+  bool cascade = 2;
 }
 
 message ListAccountsRequest {

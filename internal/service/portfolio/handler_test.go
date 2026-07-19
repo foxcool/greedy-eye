@@ -92,6 +92,10 @@ func (m *mockStore) DeleteAccount(ctx context.Context, id string) error {
 	return m.Called(ctx, id).Error(0)
 }
 
+func (m *mockStore) DeleteAccountWithHoldings(ctx context.Context, id string) error {
+	return m.Called(ctx, id).Error(0)
+}
+
 func (m *mockStore) ListAccounts(ctx context.Context, opts ListAccountsOpts) ([]*entity.Account, string, error) {
 	args := m.Called(ctx, opts)
 	if v := args.Get(0); v != nil {
@@ -397,6 +401,39 @@ func TestDeleteAccount_BlockedByTransactions(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	assert.Contains(t, err.Error(), "transactions")
+}
+
+// TestDeleteAccount_Cascade: with cascade the holdings go with the account, in
+// one store call so the two cannot come apart.
+func TestDeleteAccount_Cascade(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	s.On("DeleteAccountWithHoldings", mock.Anything, testAccountID).Return(nil)
+
+	_, err := newHandler(s).DeleteAccount(ctxWithUser(testUserID),
+		connect.NewRequest(&apiv1.DeleteAccountRequest{Id: testAccountID, Cascade: true}))
+
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+	s.AssertNotCalled(t, "DeleteAccount", mock.Anything, mock.Anything)
+}
+
+// TestDeleteAccount_CascadeStillRefusesTransactions: cascade covers positions,
+// never history. Once the holdings are gone a remaining constraint failure can
+// only be transactions, and the message must say so instead of blaming
+// positions that no longer exist.
+func TestDeleteAccount_CascadeStillRefusesTransactions(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	s.On("DeleteAccountWithHoldings", mock.Anything, testAccountID).
+		Return(fmt.Errorf("%w: cannot delete account due to existing dependencies", store.ErrConstraint))
+
+	_, err := newHandler(s).DeleteAccount(ctxWithUser(testUserID),
+		connect.NewRequest(&apiv1.DeleteAccountRequest{Id: testAccountID, Cascade: true}))
+
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	assert.Contains(t, err.Error(), "transaction history")
 }
 
 func TestIsSecretKey(t *testing.T) {

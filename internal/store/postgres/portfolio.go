@@ -621,6 +621,49 @@ func (s *PortfolioStore) DeleteAccount(ctx context.Context, id string) error {
 	return nil
 }
 
+// DeleteAccountWithHoldings removes the account together with its holdings, in
+// one transaction — a half-deleted account whose positions outlived it would
+// leave orphaned value in every total.
+//
+// Transactions are deliberately not touched: they are the record of what
+// happened, not a snapshot that can be rebuilt. An account still carrying them
+// hits the foreign key and the whole thing rolls back, which is the intended
+// answer rather than a bug.
+func (s *PortfolioStore) DeleteAccountWithHoldings(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("%w: account ID is required", store.ErrInvalidArgument)
+	}
+	if !isValidUUID(id) {
+		return fmt.Errorf("%w: invalid account ID format", store.ErrInvalidArgument)
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // no-op once committed
+
+	if _, err := tx.Exec(ctx, "DELETE FROM holdings WHERE account_id = $1", id); err != nil {
+		return fmt.Errorf("delete holdings: %w", err)
+	}
+
+	result, err := tx.Exec(ctx, "DELETE FROM accounts WHERE id = $1", id)
+	if err != nil {
+		if isConstraintError(err) {
+			return fmt.Errorf("%w: cannot delete account due to existing dependencies", store.ErrConstraint)
+		}
+		return fmt.Errorf("failed to delete account: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("%w: account with ID %s", store.ErrNotFound, id)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
 func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAccountsOpts) ([]*entity.Account, string, error) {
 	limit := opts.PageSize
 	if limit <= 0 {

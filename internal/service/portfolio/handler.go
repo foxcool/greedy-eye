@@ -727,11 +727,22 @@ func (h *Handler) DeleteAccount(ctx context.Context, req *connect.Request[apiv1.
 		return nil, err
 	}
 
-	if err := h.store.DeleteAccount(ctx, req.Msg.Id); err != nil {
+	del := h.store.DeleteAccount
+	if req.Msg.Cascade {
+		del = h.store.DeleteAccountWithHoldings
+	}
+
+	if err := del(ctx, req.Msg.Id); err != nil {
 		// Holdings and transactions reference the account, so deleting one that
 		// still owns rows is refused by the database. "Existing dependencies"
 		// does not tell the caller what to clear, so name the positions.
 		if errors.Is(err, store.ErrConstraint) {
+			// With cascade the holdings are already gone, so whatever remains
+			// is transaction history — which this path never removes.
+			if req.Msg.Cascade {
+				return nil, connect.NewError(connect.CodeFailedPrecondition,
+					errors.New("account has transaction history, which is never deleted automatically; remove the transactions first"))
+			}
 			if n, countErr := h.countHoldings(ctx, req.Msg.Id); countErr == nil && n > 0 {
 				return nil, connect.NewError(connect.CodeFailedPrecondition,
 					fmt.Errorf("account still holds %d position(s); delete them before deleting the account", n))
