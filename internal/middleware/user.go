@@ -25,7 +25,8 @@ func UserFromContext(ctx context.Context) (*entity.User, bool) {
 	return u, ok
 }
 
-// ContextWithUser injects a user into the context. Intended for use in tests.
+// ContextWithUser injects a user into the context. Intended for tests and
+// trusted in-process callers (e.g. the background scheduler).
 func ContextWithUser(ctx context.Context, user *entity.User) context.Context {
 	return context.WithValue(ctx, userContextKey, user)
 }

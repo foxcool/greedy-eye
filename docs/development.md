@@ -284,6 +284,10 @@ EYE_BINANCE_APISECRET=your_secret
 EYE_TELEGRAM_TOKEN=your_token
 EYE_TELEGRAM_CHATIDS="-1001234567890,987654321"
 
+# Background scheduler (periodic rules + price fetch)
+EYE_SCHEDULER_ENABLED=true              # default true; enable on ONE instance only
+EYE_SCHEDULER_PRICEFETCHCRON="*/15 * * * *"  # empty = price job off
+
 # Observability
 EYE_SENTRY_DSN=your_dsn
 ```
