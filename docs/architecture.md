@@ -558,6 +558,14 @@ Cron / API Client → AutomationService/ExecuteRule
 - **Money Precision**: Decimal amounts stored as `amount / 10^precision`
 - **External APIs**: Encrypted API keys with rotation support
 
+**Background Scheduler (`internal/scheduler`):**
+- Single cron scheduler (robfig/cron/v3) inside the `eye` binary, gated by `scheduler.enabled`
+- Consumers: periodic automation rules (`RuleSchedule.CronExpression` + `Timezone`) and external price fetching (`scheduler.priceFetchCron`, default every 15 min)
+- Active rule schedules are fully reloaded every minute — rule CRUD needs no hooks, mutations take effect within a minute
+- Missed fires during downtime are **skipped, never caught up**: executing a stale trade plan is worse than skipping it
+- Rule jobs call `ExecuteRule` in-process on behalf of the rule owner, so executions are recorded identically to the RPC path
+- Single-instance only: on multi-instance deployments enable the scheduler on exactly one node via config; `pg_try_advisory_lock`-based leader election is a future option if needed
+
 ---
 
 ## 9. Architecture Decisions

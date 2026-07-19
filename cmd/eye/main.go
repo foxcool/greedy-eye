@@ -19,6 +19,7 @@ import (
 	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
+	"github.com/foxcool/greedy-eye/internal/scheduler"
 	"github.com/foxcool/greedy-eye/internal/service/analytics"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
 	"github.com/foxcool/greedy-eye/internal/service/credentials"
@@ -176,6 +177,8 @@ func run() error {
 		WithProvider(coingecko.ProviderName, envPriceProviders[coingecko.ProviderName]).
 		WithProvider(binanceadapter.ProviderName, envPriceProviders[binanceadapter.ProviderName]).
 		WithProviderSource(credResolver)
+	automationStore := postgres.NewAutomationStore(pool)
+	automationHandler := automation.NewHandler(automationStore, log)
 	for _, svc := range config.Services {
 		switch svc.Type {
 		case ServiceConfigTypeMarketData:
@@ -190,9 +193,7 @@ func run() error {
 			path, handler := apiv1connect.NewPortfolioServiceHandler(pHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypeAutomation:
-			path, handler := apiv1connect.NewAutomationServiceHandler(
-				automation.NewHandler(postgres.NewAutomationStore(pool), log), interceptor,
-			)
+			path, handler := apiv1connect.NewAutomationServiceHandler(automationHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypeAnalytics:
 			aHandler := analytics.NewHandler(portfolioStore, log).
@@ -204,6 +205,20 @@ func run() error {
 			continue
 		}
 		log.Info("registered service", slog.String("type", svc.Type))
+	}
+
+	// Start background scheduler (periodic rules + price fetch)
+	var sched *scheduler.Scheduler
+	if config.Scheduler.Enabled {
+		sched, err = scheduler.New(scheduler.Config{PriceFetchCron: config.Scheduler.PriceFetchCron},
+			automationStore, automationHandler, mdHandler, log)
+		if err != nil {
+			return fmt.Errorf("init scheduler: %w", err)
+		}
+		if err := sched.Start(); err != nil {
+			return fmt.Errorf("start scheduler: %w", err)
+		}
+		log.Info("scheduler started", slog.String("price_fetch_cron", config.Scheduler.PriceFetchCron))
 	}
 
 	// Create server with h2c (HTTP/2 cleartext) support for Connect
@@ -236,6 +251,12 @@ func run() error {
 	// Graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	// Stop the scheduler first so no new in-process calls start while
+	// the HTTP server drains.
+	if sched != nil {
+		sched.Stop(ctx)
+	}
 
 	if err := server.Shutdown(ctx); err != nil {
 		log.Error("HTTP server shutdown error", slog.Any("error", err))

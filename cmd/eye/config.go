@@ -48,6 +48,14 @@ type Config struct {
 		// encryption at rest (ADR-005). Empty = plaintext mode.
 		MasterKey string `koanf:"masterKey"`
 	} `koanf:"security"`
+	Scheduler struct {
+		Enabled bool `koanf:"enabled"`
+		// PriceFetchCron is the cron spec for periodic external price
+		// fetching. Empty disables the price job.
+		// Key is lowercase on purpose: env vars produce lowercase koanf
+		// keys, and a camelCase default key would shadow the env override.
+		PriceFetchCron string `koanf:"pricefetchcron"`
+	} `koanf:"scheduler"`
 }
 
 // ServiceConfig is a config for a service
@@ -70,8 +78,10 @@ func getConfig() (*Config, error) {
 	// Default values
 
 	defaults := map[string]any{
-		"sentry.tracesSampleRate": 1.0,
-		"server.port":             8080,
+		"sentry.tracesSampleRate":  1.0,
+		"server.port":              8080,
+		"scheduler.enabled":        true,
+		"scheduler.pricefetchcron": "*/15 * * * *",
 		"services": []any{
 			map[string]any{"type": ServiceConfigTypeMarketData},
 			map[string]any{"type": ServiceConfigTypePortfolio},
