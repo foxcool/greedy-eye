@@ -66,11 +66,11 @@ func TestWalletSyncerForPrefersUserAccount(t *testing.T) {
 			user:   map[string][]*entity.Account{"u1": {account("own", "moralis", now)}},
 			system: []*entity.Account{account("shared", "moralis", now)},
 		},
-		WalletSyncers:   map[string]WalletSyncerFactory{"moralis": syncerFactory(&builds)},
+		WalletSyncers:   map[string]WalletProvider{"moralis": {Factory: syncerFactory(&builds)}},
 		EnvWalletSyncer: &fakeSyncer{name: "env"},
 	})
 
-	s, err := r.WalletSyncerFor(context.Background(), "u1")
+	s, err := r.WalletSyncerFor(context.Background(), "u1", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "own", s.(*fakeSyncer).name)
 }
@@ -81,21 +81,21 @@ func TestWalletSyncerForFallsBackToSystemThenEnv(t *testing.T) {
 	env := &fakeSyncer{name: "env"}
 	r := NewResolver(Config{
 		Source:          &fakeSource{system: []*entity.Account{account("shared", "moralis", now)}},
-		WalletSyncers:   map[string]WalletSyncerFactory{"moralis": syncerFactory(&builds)},
+		WalletSyncers:   map[string]WalletProvider{"moralis": {Factory: syncerFactory(&builds)}},
 		EnvWalletSyncer: env,
 	})
 
-	s, err := r.WalletSyncerFor(context.Background(), "u1")
+	s, err := r.WalletSyncerFor(context.Background(), "u1", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "shared", s.(*fakeSyncer).name)
 
 	// No candidates at all → env fallback.
 	r = NewResolver(Config{
 		Source:          &fakeSource{},
-		WalletSyncers:   map[string]WalletSyncerFactory{"moralis": syncerFactory(&builds)},
+		WalletSyncers:   map[string]WalletProvider{"moralis": {Factory: syncerFactory(&builds)}},
 		EnvWalletSyncer: env,
 	})
-	s, err = r.WalletSyncerFor(context.Background(), "u1")
+	s, err = r.WalletSyncerFor(context.Background(), "u1", nil)
 	require.NoError(t, err)
 	assert.Same(t, env, s)
 }
@@ -110,14 +110,109 @@ func TestWalletSyncerForSkipsUnknownProviderSlug(t *testing.T) {
 				account("etherscan-key", "etherscan", now), // no factory registered
 			}},
 		},
-		WalletSyncers:   map[string]WalletSyncerFactory{"moralis": syncerFactory(&builds)},
+		WalletSyncers:   map[string]WalletProvider{"moralis": {Factory: syncerFactory(&builds)}},
 		EnvWalletSyncer: env,
 	})
 
-	s, err := r.WalletSyncerFor(context.Background(), "u1")
+	s, err := r.WalletSyncerFor(context.Background(), "u1", nil)
 	require.NoError(t, err)
 	assert.Same(t, env, s)
 	assert.Zero(t, builds)
+}
+
+// TestWalletSyncerForRoutesByChain is the core of non-EVM support: each
+// provider serves its own ecosystem, and an account must reach exactly the
+// syncer that covers its chains — never a foreign one, which would report an
+// empty wallet instead of failing.
+func TestWalletSyncerForRoutesByChain(t *testing.T) {
+	now := time.Now()
+	var evmBuilds, dotBuilds int
+	source := &fakeSource{user: map[string][]*entity.Account{"u1": {
+		account("moralis-key", "moralis", now),
+		account("subscan-key", "subscan", now),
+	}}}
+	cfg := Config{
+		Source: source,
+		WalletSyncers: map[string]WalletProvider{
+			"moralis": {Factory: syncerFactory(&evmBuilds), Chains: []string{"eth", "base", "polygon"}},
+			"subscan": {Factory: syncerFactory(&dotBuilds), Chains: []string{"polkadot", "kusama"}},
+		},
+	}
+
+	tests := []struct {
+		name   string
+		chains []string
+		want   string // resolved account ID, "" when nothing must match
+	}{
+		{"single evm chain", []string{"eth"}, "moralis-key"},
+		{"several evm chains", []string{"eth", "polygon"}, "moralis-key"},
+		{"substrate chain", []string{"polkadot"}, "subscan-key"},
+		{"substrate multi-network", []string{"polkadot", "kusama"}, "subscan-key"},
+		{"unknown chain resolves nothing", []string{"ton"}, ""},
+		// A provider must cover every requested chain: partial coverage would
+		// silently drop the balances of the chain it cannot reach.
+		{"chains split across providers", []string{"eth", "polkadot"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, err := NewResolver(cfg).WalletSyncerFor(context.Background(), "u1", tt.chains)
+			require.NoError(t, err)
+			if tt.want == "" {
+				assert.Nil(t, s)
+				return
+			}
+			require.NotNil(t, s)
+			assert.Equal(t, tt.want, s.(*fakeSyncer).name)
+		})
+	}
+}
+
+// TestWalletSyncerForCatchAllAndAutoDiscovery pins the two edges of chain
+// routing: a provider declaring no chains serves anything, and auto-discovery
+// (no chains requested) is the one case a chain-scoped provider cannot serve —
+// it has no way to enumerate an address's activity.
+func TestWalletSyncerForCatchAllAndAutoDiscovery(t *testing.T) {
+	now := time.Now()
+	var builds int
+
+	scoped := Config{
+		Source:        &fakeSource{user: map[string][]*entity.Account{"u1": {account("subscan-key", "subscan", now)}}},
+		WalletSyncers: map[string]WalletProvider{"subscan": {Factory: syncerFactory(&builds), Chains: []string{"polkadot"}}},
+	}
+	s, err := NewResolver(scoped).WalletSyncerFor(context.Background(), "u1", nil)
+	require.NoError(t, err)
+	assert.Nil(t, s, "chain-scoped provider must not serve auto-discovery")
+
+	catchAll := scoped
+	catchAll.WalletSyncers = map[string]WalletProvider{"subscan": {Factory: syncerFactory(&builds)}}
+	s, err = NewResolver(catchAll).WalletSyncerFor(context.Background(), "u1", []string{"anything"})
+	require.NoError(t, err)
+	assert.Equal(t, "subscan-key", s.(*fakeSyncer).name, "provider without declared chains serves any chain")
+}
+
+// TestWalletSyncerForEnvFallbackRespectsChains guards the deprecated env path
+// (g27): it is Moralis, so a Substrate account must not land on it.
+func TestWalletSyncerForEnvFallbackRespectsChains(t *testing.T) {
+	env := &fakeSyncer{name: "env"}
+	cfg := Config{
+		Source:                &fakeSource{},
+		EnvWalletSyncer:       env,
+		EnvWalletSyncerChains: []string{"eth", "base"},
+	}
+
+	s, err := NewResolver(cfg).WalletSyncerFor(context.Background(), "u1", []string{"eth"})
+	require.NoError(t, err)
+	assert.Same(t, env, s)
+
+	s, err = NewResolver(cfg).WalletSyncerFor(context.Background(), "u1", []string{"polkadot"})
+	require.NoError(t, err)
+	assert.Nil(t, s, "EVM-only env syncer must not serve a Substrate account")
+
+	// An env syncer without declared chains keeps the pre-routing behaviour.
+	cfg.EnvWalletSyncerChains = nil
+	s, err = NewResolver(cfg).WalletSyncerFor(context.Background(), "u1", []string{"polkadot"})
+	require.NoError(t, err)
+	assert.Same(t, env, s)
 }
 
 func TestClientCacheInvalidatesOnUpdatedAt(t *testing.T) {
@@ -126,17 +221,17 @@ func TestClientCacheInvalidatesOnUpdatedAt(t *testing.T) {
 	var builds int
 	r := NewResolver(Config{
 		Source:        &fakeSource{user: map[string][]*entity.Account{"u1": {acc}}},
-		WalletSyncers: map[string]WalletSyncerFactory{"moralis": syncerFactory(&builds)},
+		WalletSyncers: map[string]WalletProvider{"moralis": {Factory: syncerFactory(&builds)}},
 	})
 
-	_, err := r.WalletSyncerFor(context.Background(), "u1")
+	_, err := r.WalletSyncerFor(context.Background(), "u1", nil)
 	require.NoError(t, err)
-	_, err = r.WalletSyncerFor(context.Background(), "u1")
+	_, err = r.WalletSyncerFor(context.Background(), "u1", nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, builds, "second resolve must hit the cache")
 
 	acc.UpdatedAt = now.Add(time.Minute) // credentials rotated
-	_, err = r.WalletSyncerFor(context.Background(), "u1")
+	_, err = r.WalletSyncerFor(context.Background(), "u1", nil)
 	require.NoError(t, err)
 	assert.Equal(t, 2, builds, "updated account must rebuild the client")
 }
@@ -173,7 +268,7 @@ func TestPriceProvidersForOverlayOrder(t *testing.T) {
 func TestResolverPropagatesSourceErrors(t *testing.T) {
 	r := NewResolver(Config{Source: &fakeSource{err: errors.New("db down")}})
 
-	_, err := r.WalletSyncerFor(context.Background(), "u1")
+	_, err := r.WalletSyncerFor(context.Background(), "u1", nil)
 	assert.ErrorContains(t, err, "db down")
 	_, err = r.PriceProvidersFor(context.Background(), "u1")
 	assert.ErrorContains(t, err, "db down")
@@ -197,7 +292,7 @@ func TestEnvFallbackWarnsOncePerProvider(t *testing.T) {
 	})
 
 	for range 3 {
-		_, err := r.WalletSyncerFor(context.Background(), "u1")
+		_, err := r.WalletSyncerFor(context.Background(), "u1", nil)
 		require.NoError(t, err)
 		_, err = r.PriceProvidersFor(context.Background(), "u1")
 		require.NoError(t, err)

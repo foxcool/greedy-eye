@@ -28,9 +28,10 @@ import (
 const defaultQuoteAsset = "USD"
 
 // WalletSyncerSource resolves a wallet syncer from stored account credentials
-// for a given user (see internal/service/credentials).
+// for a given user, able to sync the requested chains (see
+// internal/service/credentials). An empty chains list means auto-discovery.
 type WalletSyncerSource interface {
-	WalletSyncerFor(ctx context.Context, userID string) (entity.WalletSyncer, error)
+	WalletSyncerFor(ctx context.Context, userID string, chains []string) (entity.WalletSyncer, error)
 }
 
 // ExchangeSyncerSource builds an exchange syncer from a specific account's own
@@ -838,22 +839,6 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 // returns its balances normalized to syncedBalance. A partial failure surfaces
 // as a sync error string, not a hard error.
 func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Account) ([]syncedBalance, []string, error) {
-	// Resolve the syncer from stored credentials of the account owner;
-	// the env-configured syncer is the resolver's own fallback.
-	walletSyncer := h.walletSyncer
-	if h.syncerSource != nil {
-		resolved, err := h.syncerSource.WalletSyncerFor(ctx, account.UserID)
-		if err != nil {
-			return nil, nil, toConnectError(err)
-		}
-		if resolved != nil {
-			walletSyncer = resolved
-		}
-	}
-	if walletSyncer == nil {
-		return nil, nil, connect.NewError(connect.CodeUnimplemented, errors.New("wallet sync not configured"))
-	}
-
 	address, ok := account.Data["address"]
 	if !ok || address == "" {
 		return nil, nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account.data.address is required for wallet sync"))
@@ -865,6 +850,28 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 	var chains []string
 	if chainRaw := strings.TrimSpace(account.Data["chain"]); chainRaw != "" && chainRaw != "auto" {
 		chains = splitChains(chainRaw)
+	}
+
+	// Resolve the syncer routed by the account's chains: each provider covers
+	// one ecosystem, so a Substrate account must not land on an EVM syncer.
+	// A wired source is the sole authority — it knows every provider's chains
+	// and carries the env-configured syncer as its own fallback. The statically
+	// wired syncer only serves setups without a source (tests, minimal configs)
+	// and is assumed EVM-only.
+	walletSyncer := h.walletSyncer
+	if h.syncerSource != nil {
+		resolved, err := h.syncerSource.WalletSyncerFor(ctx, account.UserID, chains)
+		if err != nil {
+			return nil, nil, toConnectError(err)
+		}
+		walletSyncer = resolved
+	}
+	if walletSyncer == nil {
+		if len(chains) > 0 {
+			return nil, nil, connect.NewError(connect.CodeUnimplemented,
+				fmt.Errorf("no wallet syncer configured for chain(s) %s", strings.Join(chains, ",")))
+		}
+		return nil, nil, connect.NewError(connect.CodeUnimplemented, errors.New("wallet sync not configured"))
 	}
 
 	// The syncer owns all provider mechanics (discovery, fan-out, native vs token).

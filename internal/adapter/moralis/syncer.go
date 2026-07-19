@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
 )
@@ -24,6 +25,20 @@ var nativeToken = map[string]struct{ symbol, name string }{
 }
 
 const nativeDecimals = 18
+
+// SupportedChains returns the chain identifiers this adapter can sync. The
+// syncer registry uses it to route an account to the right provider, so it
+// must list every chain nativeToken knows — including the ones the chains
+// endpoint refuses to probe (scroll/zksync/fantom): balance lookups work for
+// them, only auto-discovery does not.
+func SupportedChains() []string {
+	chains := make([]string, 0, len(nativeToken))
+	for chain := range nativeToken {
+		chains = append(chains, chain)
+	}
+	slices.Sort(chains) // map iteration order is random; keep the result stable
+	return chains
+}
 
 // WalletSyncerAdapter adapts *Client to entity.WalletSyncer.
 type WalletSyncerAdapter struct {

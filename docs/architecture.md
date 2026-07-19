@@ -366,6 +366,24 @@ per-account clients from stored credentials, falling back to env-configured clie
   `entity.WalletSyncer`
 - **Messenger Adapters** (`internal/adapter/telegram/`): Telegram (notifications)
 
+**Wallet syncer routing (chain-keyed registry)**:
+
+One `WalletSyncer` per ecosystem, selected by the account's `data.chain`. Each provider is
+registered as a `credentials.WalletProvider{Factory, Chains}`; the resolver picks the provider
+covering *every* requested chain.
+
+- No provider covers the chains → sync fails with `Unimplemented` naming the chain. This is
+  deliberate: falling through to an EVM syncer for a Substrate address would report an empty
+  wallet and silently zero the position instead of erroring.
+- `Chains: nil` marks a catch-all provider, the only kind that can serve auto-discovery
+  (account chain empty or `auto`) — a chain-scoped provider cannot enumerate an address's activity.
+- Adding an ecosystem: implement `entity.WalletSyncer` in `internal/adapter/<name>/`, expose a
+  `SupportedChains()`, register it in `cmd/eye/main.go`. Test pattern: golden fixtures of provider
+  responses driven through an `httptest` server (see `internal/adapter/moralis`).
+- Accounts entered by hand during a manual import become live wallets by updating `type`,
+  `capabilities` and `data` in **one** call — a wallet may not keep `manual_positions`, so a
+  split update is rejected by the merged capability validation.
+
 **Account credential model**:
 - Provider credentials live in `accounts.data` (encrypted at rest, ADR-005), keyed by a `provider`
   slug (`moralis`, `coingecko`, `binance`). Secret-looking keys are write-only over the API

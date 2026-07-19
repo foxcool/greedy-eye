@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -30,6 +31,36 @@ type AccountSource interface {
 // WalletSyncerFactory builds a wallet syncer from account credentials.
 type WalletSyncerFactory func(a *entity.Account) (entity.WalletSyncer, error)
 
+// WalletProvider couples a syncer factory with the chains that provider covers.
+// Routing by chain is what lets EVM (Moralis) and non-EVM ecosystems coexist:
+// an account naming chain "polkadot" must never reach an EVM-only syncer.
+type WalletProvider struct {
+	Factory WalletSyncerFactory
+
+	// Chains this provider can sync. An empty list marks a catch-all provider
+	// usable for any chain — including auto-discovery, where the account names
+	// no chain at all.
+	Chains []string
+}
+
+// covers reports whether the provider can sync every requested chain. No
+// requested chains means auto-discovery, which only a catch-all can serve:
+// a chain-scoped provider has no way to enumerate an address's activity.
+func (p WalletProvider) covers(chains []string) bool {
+	if len(p.Chains) == 0 {
+		return true
+	}
+	if len(chains) == 0 {
+		return false
+	}
+	for _, want := range chains {
+		if !slices.Contains(p.Chains, want) {
+			return false
+		}
+	}
+	return true
+}
+
 // ExchangeSyncerFactory builds an exchange syncer from account credentials.
 type ExchangeSyncerFactory func(a *entity.Account) (entity.ExchangeSyncer, error)
 
@@ -38,11 +69,17 @@ type PriceProviderFactory func(a *entity.Account) (marketdata.PriceProvider, err
 
 // Config wires a Resolver: per-provider factories plus env-configured fallbacks.
 type Config struct {
-	Source            AccountSource
-	WalletSyncers     map[string]WalletSyncerFactory      // keyed by provider slug
-	ExchangeSyncers   map[string]ExchangeSyncerFactory    // keyed by provider slug
-	PriceProviders    map[string]PriceProviderFactory     // keyed by provider slug
-	EnvWalletSyncer   entity.WalletSyncer                 // may be nil
+	Source          AccountSource
+	WalletSyncers   map[string]WalletProvider        // keyed by provider slug
+	ExchangeSyncers map[string]ExchangeSyncerFactory // keyed by provider slug
+	PriceProviders  map[string]PriceProviderFactory  // keyed by provider slug
+
+	// EnvWalletSyncer is the deprecated env-configured fallback (g27). Its
+	// chains are declared separately because, unlike account-based providers,
+	// it carries no provider slug to look them up by; empty means catch-all.
+	EnvWalletSyncer       entity.WalletSyncer // may be nil
+	EnvWalletSyncerChains []string
+
 	EnvPriceProviders map[string]marketdata.PriceProvider // may be empty
 	Log               *slog.Logger
 }
@@ -122,29 +159,37 @@ func (r *Resolver) clientFor(kind string, a *entity.Account, build func() (any, 
 }
 
 // WalletSyncerFor resolves a wallet syncer for the user (onchain_lookup
-// capability). Returns the env-configured syncer (possibly nil) when no
-// account-based credentials match.
-func (r *Resolver) WalletSyncerFor(ctx context.Context, userID string) (entity.WalletSyncer, error) {
+// capability) able to sync every chain in chains. An empty chains list means
+// auto-discovery and only matches a catch-all provider. Returns the
+// env-configured syncer (possibly nil) when no account-based credentials match.
+func (r *Resolver) WalletSyncerFor(ctx context.Context, userID string, chains []string) (entity.WalletSyncer, error) {
 	candidates, err := r.accountsFor(ctx, userID, entity.CapabilityOnchainLookup)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, a := range candidates {
-		factory, ok := r.cfg.WalletSyncers[a.Data[DataProviderKey]]
-		if !ok {
+		provider, ok := r.cfg.WalletSyncers[a.Data[DataProviderKey]]
+		if !ok || !provider.covers(chains) {
 			continue
 		}
-		client, err := r.clientFor("wallet_syncer", a, func() (any, error) { return factory(a) })
+		client, err := r.clientFor("wallet_syncer", a, func() (any, error) { return provider.Factory(a) })
 		if err != nil {
 			return nil, fmt.Errorf("build wallet syncer from account %s: %w", a.ID, err)
 		}
 		return client.(entity.WalletSyncer), nil
 	}
 
-	if r.cfg.EnvWalletSyncer != nil {
-		r.warnEnvFallback("wallet_syncer")
+	if r.cfg.EnvWalletSyncer == nil {
+		return nil, nil
 	}
+	// The env syncer is subject to the same chain routing: falling back to an
+	// EVM-only syncer for a Substrate account would report an empty wallet
+	// rather than an error, which is worse than having no syncer at all.
+	if !(WalletProvider{Chains: r.cfg.EnvWalletSyncerChains}).covers(chains) {
+		return nil, nil
+	}
+	r.warnEnvFallback("wallet_syncer")
 	return r.cfg.EnvWalletSyncer, nil
 }
 
