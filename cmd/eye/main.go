@@ -162,7 +162,8 @@ func run() error {
 						tonapiadapter.NewClient(tonapiadapter.Config{APIKey: a.Data["api_key"]}),
 					), nil
 				},
-				Chains: tonapiadapter.SupportedChains(),
+				Chains:         tonapiadapter.SupportedChains(),
+				HandlesAddress: tonapiadapter.HandlesAddress,
 			},
 		},
 		ExchangeSyncers: map[string]credentials.ExchangeSyncerFactory{

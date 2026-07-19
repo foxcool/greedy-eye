@@ -109,6 +109,26 @@ func TestSyncWallet_EmptyAccount(t *testing.T) {
 	assert.Empty(t, balances)
 }
 
+// TestHandlesAddress routes auto-discovery. TON's user-facing form is
+// base64url, which admits characters SS58 forbids — that is what keeps the
+// two ecosystems from claiming each other's accounts.
+func TestHandlesAddress(t *testing.T) {
+	tests := []struct {
+		address string
+		want    bool
+	}{
+		{"EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N", true},                   // bounceable
+		{"UQAoM6ZQhF_1uK7zhbzs9uAcYcnJT10QMKrsFI04l3jL0iQb", true},                   // non-bounceable, has _
+		{"0:83dfd552e63729b472fcbcc8c45ebcc6691702558b68ec7527e1ba403a0f31a8", true}, // raw
+		{"5DsvsaNbaA4JPXPRJHA2wWDMv4oJaWKQDbrUKEeELRfrto7Q", false},                  // SS58
+		{"0x75304308839f839a553b60b5671bb2f043420167", false},                        // EVM
+		{"", false},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, HandlesAddress(tt.address), tt.address)
+	}
+}
+
 func TestSyncWallet_RejectsForeignChain(t *testing.T) {
 	syncer := newTestSyncer(t, `{"balance":1}`, `{"balances":[]}`)
 

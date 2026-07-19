@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
 )
@@ -11,6 +12,18 @@ import (
 // SupportedChains returns the chains this adapter serves, for registration in
 // the chain-keyed syncer registry.
 func SupportedChains() []string { return []string{Chain} }
+
+// tonAddress matches the user-facing TON form: base64url of a 36-byte tag,
+// workchain, account id and checksum, which always renders as 48 characters
+// starting with E or U (bounce/non-bounce flags). The raw "0:<hex>" form is
+// accepted too since tonapi returns it.
+var tonAddress = regexp.MustCompile(`^([EU][QF][A-Za-z0-9_-]{46}|-?\d:[0-9a-fA-F]{64})$`)
+
+// HandlesAddress reports whether an address is a TON one, routing accounts
+// that name no chain to this adapter.
+func HandlesAddress(address string) bool {
+	return tonAddress.MatchString(address)
+}
 
 // WalletSyncerAdapter adapts *Client to entity.WalletSyncer.
 type WalletSyncerAdapter struct {
