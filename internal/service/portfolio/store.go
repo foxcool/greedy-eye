@@ -35,6 +35,9 @@ type Store interface {
 	GetAccount(ctx context.Context, id string) (*entity.Account, error)
 	UpdateAccount(ctx context.Context, a *entity.Account, fields []string) (*entity.Account, error)
 	DeleteAccount(ctx context.Context, id string) error
+	// DeleteAccountWithHoldings removes the account and its holdings
+	// atomically. Transaction history is never removed this way.
+	DeleteAccountWithHoldings(ctx context.Context, id string) error
 	ListAccounts(ctx context.Context, opts ListAccountsOpts) ([]*entity.Account, string, error)
 
 	// Holdings
