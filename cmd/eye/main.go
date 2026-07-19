@@ -144,7 +144,8 @@ func run() error {
 						moralisadapter.NewClient(moralisadapter.Config{APIKey: a.Data["api_key"]}),
 					), nil
 				},
-				Chains: moralisadapter.SupportedChains(),
+				Chains:         moralisadapter.SupportedChains(),
+				HandlesAddress: moralisadapter.HandlesAddress,
 			},
 			subscanadapter.ProviderName: {
 				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
@@ -152,7 +153,8 @@ func run() error {
 						subscanadapter.NewClient(subscanadapter.Config{APIKey: a.Data["api_key"]}),
 					), nil
 				},
-				Chains: subscanadapter.SupportedChains(),
+				Chains:         subscanadapter.SupportedChains(),
+				HandlesAddress: subscanadapter.HandlesAddress,
 			},
 			tonapiadapter.ProviderName: {
 				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
@@ -188,10 +190,11 @@ func run() error {
 		// The env syncer is Moralis too (deprecated path, g27), so it carries
 		// the same chain coverage — without it a Substrate account would fall
 		// back onto an EVM-only syncer.
-		EnvWalletSyncer:       walletSyncer,
-		EnvWalletSyncerChains: moralisadapter.SupportedChains(),
-		EnvPriceProviders:     envPriceProviders,
-		Log:                   log,
+		EnvWalletSyncer:            walletSyncer,
+		EnvWalletSyncerChains:      moralisadapter.SupportedChains(),
+		EnvWalletSyncerAddressFunc: moralisadapter.HandlesAddress,
+		EnvPriceProviders:          envPriceProviders,
+		Log:                        log,
 	})
 
 	// Register Connect handlers

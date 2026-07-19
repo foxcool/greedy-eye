@@ -140,15 +140,50 @@ func TestSyncWallet_EmptyAndUnknown(t *testing.T) {
 	assert.Contains(t, err.Error(), "ethereum")
 }
 
-// TestSyncWallet_RejectsAutoDiscovery: SS58 encodes a different address per
-// network, so there is nothing to discover from a key alone. The registry
-// never routes an empty chain list here; this pins the guard anyway.
-func TestSyncWallet_RejectsAutoDiscovery(t *testing.T) {
-	syncer := newTestSyncer(t, respondJSON(`{"code":0,"data":{"account":{}}}`))
+// TestSyncWallet_AutoDiscoverySweepsNetworks: with no chains named the adapter
+// probes every network it knows and keeps only the ones holding a balance, so
+// one account covers the whole ecosystem. SS58 is a re-encoding of a single
+// public key, which is what makes sweeping meaningful.
+func TestSyncWallet_AutoDiscoverySweepsNetworks(t *testing.T) {
+	var probed int
+	syncer := newTestSyncer(t, func(w http.ResponseWriter, _ *http.Request) {
+		probed++
+		w.Header().Set("Content-Type", "application/json")
+		// Only the second network probed holds anything.
+		if probed == 2 {
+			_, _ = w.Write([]byte(`{"code":0,"data":{"account":{"balance":"3","reserved":"0"}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"code":0,"data":{"account":{}}}`))
+	})
 
-	_, err := syncer.SyncWallet(context.Background(), "addr", nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "auto-discovery")
+	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, len(SupportedChains()), probed, "every known network must be probed")
+	require.Len(t, balances, 1, "networks without a balance yield no position")
+}
+
+// TestHandlesAddress routes auto-discovery. The same key is a different string
+// on every network, so the prefix cannot be pinned — only the SS58 shape.
+func TestHandlesAddress(t *testing.T) {
+	tests := []struct {
+		address string
+		want    bool
+	}{
+		{"5DsvsaNbaA4JPXPRJHA2wWDMv4oJaWKQDbrUKEeELRfrto7Q", true}, // generic
+		{"12pE1udfRwKmq4PwFvD35f3WmgnxGosYJ6axUXdatWhP5TUm", true}, // polkadot
+		{"EPYXtiUCX5E9BCs4yy5qTaN4f5YPB8afyhDhtvBpDtMdvwF", true},  // kusama
+		{"7KQnJQk4eGRZfktAKTdXsRoHVFoUjMYLBMVEEb9Z4PA6oiNJ", true}, // hydration
+		// Moonbeam lives in this adapter but uses EVM addresses, so it can only
+		// be reached by naming the chain.
+		{"0x75304308839f839a553b60b5671bb2f043420167", false},
+		{"EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N", false}, // TON: has 0/I/O
+		{"", false},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, HandlesAddress(tt.address), tt.address)
+	}
 }
 
 func TestSupportedChainsIsStable(t *testing.T) {

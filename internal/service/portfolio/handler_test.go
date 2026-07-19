@@ -1114,7 +1114,7 @@ type mockWalletSource struct {
 	gotChains []string // chains the handler asked for
 }
 
-func (m *mockWalletSource) WalletSyncerFor(_ context.Context, _ string, chains []string) (entity.WalletSyncer, error) {
+func (m *mockWalletSource) WalletSyncerFor(_ context.Context, _, _ string, chains []string) (entity.WalletSyncer, error) {
 	m.gotChains = chains
 	return m.syncer, m.err
 }

@@ -1,6 +1,9 @@
 package subscan
 
-import "slices"
+import (
+	"regexp"
+	"slices"
+)
 
 // network describes one Substrate chain served by Subscan. Each chain has its
 // own API host, native token and decimal precision — none of it is derivable
@@ -41,4 +44,20 @@ func SupportedChains() []string {
 	}
 	slices.Sort(chains) // map iteration order is random; keep the result stable
 	return chains
+}
+
+// ss58Address matches the SS58 form every Substrate chain shares: base58 over
+// a one-byte network prefix, a 32-byte public key and a checksum, which lands
+// at 47-48 characters. The same key yields a different string per network
+// (generic "5…", Polkadot "1…", Kusama "C…"), so the prefix is not pinned.
+//
+// Moonbeam is the exception: it is in this adapter's chain list but addresses
+// there are EVM H160, so it cannot be reached by auto-discovery and needs its
+// chain named explicitly.
+var ss58Address = regexp.MustCompile(`^[1-9A-HJ-NP-Za-km-z]{46,48}$`)
+
+// HandlesAddress reports whether an address is SS58, routing accounts that
+// name no chain to this adapter.
+func HandlesAddress(address string) bool {
+	return ss58Address.MatchString(address)
 }
