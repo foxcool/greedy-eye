@@ -362,9 +362,10 @@ per-account clients from stored credentials, falling back to env-configured clie
   prices), Binance (`ticker/price`; batch fails on invalid symbols — tracked separately)
 - **Exchange sync** (`internal/adapter/binance/`): Binance spot balances via the SIGNED
   `GET /api/v3/account` (HMAC-SHA256) → `entity.ExchangeSyncer`
-- **Blockchain Adapters**: Moralis EVM multi-chain wallet balances
-  (`internal/adapter/moralis/`) and Subscan Substrate balances — Polkadot, Kusama, Hydration,
-  Astar, Moonbeam (`internal/adapter/subscan/`) — both → `entity.WalletSyncer`
+- **Blockchain Adapters** (all → `entity.WalletSyncer`): Moralis EVM multi-chain balances
+  (`internal/adapter/moralis/`), Subscan Substrate balances — Polkadot, Kusama, Hydration,
+  Astar, Moonbeam (`internal/adapter/subscan/`), tonapi TON + jettons
+  (`internal/adapter/tonapi/`)
 - **Messenger Adapters** (`internal/adapter/telegram/`): Telegram (notifications)
 
 **Wallet syncer routing (chain-keyed registry)**:
