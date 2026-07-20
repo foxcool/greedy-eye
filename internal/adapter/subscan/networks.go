@@ -32,12 +32,21 @@ type network struct {
 // Moonbeam is here rather than with the EVM chains on purpose: it is
 // EVM-compatible but Moralis's chains endpoint does not serve it, so Subscan
 // is the only route to its balances.
+// The Asset Hubs are where the ecosystem's non-native assets live (USDT is
+// asset id 1984, USDC 1337): a relay chain carries only its own token and has
+// no pallet-assets, so nothing else can sit there. Their native balance is the
+// same DOT or KSM as the relay's and merges into one position by symbol, which
+// is correct — it is the same asset, held on another chain.
+//
+// Reading the assets themselves needs a different endpoint and is not done yet.
 var networks = map[string]network{
-	"polkadot":  {host: "polkadot", symbol: "DOT", name: "Polkadot", decimals: 10},
-	"kusama":    {host: "kusama", symbol: "KSM", name: "Kusama", decimals: 12},
-	"hydration": {host: "hydration", symbol: "HDX", name: "Hydration", decimals: 12},
-	"astar":     {host: "astar", symbol: "ASTR", name: "Astar", decimals: 18},
-	"moonbeam":  {host: "moonbeam", symbol: "GLMR", name: "Moonbeam", decimals: 18},
+	"polkadot":          {host: "polkadot", symbol: "DOT", name: "Polkadot", decimals: 10},
+	"kusama":            {host: "kusama", symbol: "KSM", name: "Kusama", decimals: 12},
+	"assethub-polkadot": {host: "assethub-polkadot", symbol: "DOT", name: "Polkadot Asset Hub", decimals: 10},
+	"assethub-kusama":   {host: "assethub-kusama", symbol: "KSM", name: "Kusama Asset Hub", decimals: 12},
+	"hydration":         {host: "hydration", symbol: "HDX", name: "Hydration", decimals: 12},
+	"astar":             {host: "astar", symbol: "ASTR", name: "Astar", decimals: 18},
+	"moonbeam":          {host: "moonbeam", symbol: "GLMR", name: "Moonbeam", decimals: 18},
 }
 
 // SupportedChains returns the chains this adapter can sync, for registration

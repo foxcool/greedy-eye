@@ -69,6 +69,8 @@ func TestSyncWallet_PerChainDecimals(t *testing.T) {
 	}{
 		{"polkadot", "DOT", "12500000000"},          // 10 decimals
 		{"kusama", "KSM", "1250000000000"},          // 12
+		{"assethub-polkadot", "DOT", "12500000000"}, // 10, same token as the relay
+		{"assethub-kusama", "KSM", "1250000000000"}, // 12
 		{"hydration", "HDX", "1250000000000"},       // 12
 		{"astar", "ASTR", "1250000000000000000"},    // 18
 		{"moonbeam", "GLMR", "1250000000000000000"}, // 18
@@ -212,6 +214,9 @@ func TestHandlesAddress_RejectsForeignBase58(t *testing.T) {
 
 func TestSupportedChainsIsStable(t *testing.T) {
 	assert.Equal(t,
-		[]string{"astar", "hydration", "kusama", "moonbeam", "polkadot"},
+		[]string{
+			"assethub-kusama", "assethub-polkadot", "astar",
+			"hydration", "kusama", "moonbeam", "polkadot",
+		},
 		SupportedChains())
 }
