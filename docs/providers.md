@@ -120,6 +120,39 @@ recognized:
 - **Bitcoin accounts using `addresses`** are fine on shape, but naming
   `bitcoin` costs nothing and documents intent.
 
+## Request budget
+
+Every adapter client goes through a shared token bucket keyed by provider and
+API key, so all clients built from one credential — the resolver makes a new
+one per account, per sync — draw on a single budget. Without this, a sweep over
+three accounts on one key sends three times the rate the provider meters, which
+is how the Subscan plan limit was tripped in the first place.
+
+Defaults live in `internal/adapter/ratelimit` (`defaultLimits`), deliberately
+under each provider's published ceiling, with a separate, tighter entry for the
+keyless tier where one exists. They are not repeated here: a table in two
+places drifts.
+
+To change one without a rebuild — a paid plan, or an enforcement notice:
+
+```yaml
+ratelimit:
+  subscan:
+    rps: 1.8   # fractional values are meaningful: 0.5 is one request per 2s
+    burst: 1   # keep at 1 for per-second meters; bursts are what trip them
+```
+
+An override replaces both tiers of that provider. Providers not named keep
+their defaults, and a provider with no default at all gets 1 rps.
+
+When a provider answers `429`, `418` or Blockchair's `430`, its bucket freezes
+for the `Retry-After` it asked for (one minute if it did not say, capped at
+fifteen) and traffic resumes on its own. The response still reaches the
+adapter, so sync errors keep carrying the provider's own message.
+
+The budget is in-process. A second backend instance keeps its own, and the
+provider sees the sum.
+
 ## Checking that a connection works
 
 Sync the account. A provider that resolved returns balances or an empty list; a

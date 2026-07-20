@@ -310,3 +310,34 @@ func TestSupportedChainsIsStable(t *testing.T) {
 		},
 		SupportedChains())
 }
+
+// countingTransport records how many requests actually left the client.
+type countingTransport struct {
+	base  http.RoundTripper
+	calls int
+}
+
+func (t *countingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	t.calls++
+	return t.base.RoundTrip(req)
+}
+
+// TestConfigTransportIsUsed guards the wiring that the shared rate budget
+// depends on: the budget is an http.RoundTripper handed in through Config, so
+// a client that quietly ignores it would sweep at full speed and trip the plan
+// limit again (personal-o06).
+func TestConfigTransportIsUsed(t *testing.T) {
+	srv := httptest.NewServer(respondJSON(`{
+		"code": 0, "message": "Success",
+		"data": {"native": [{"symbol": "HDX", "decimals": 12, "balance": "1000000000000"}]}
+	}`))
+	t.Cleanup(srv.Close)
+
+	tr := &countingTransport{base: http.DefaultTransport}
+	client := NewClient(Config{APIKey: "test-key", Transport: tr})
+	client.baseURLOverride = srv.URL
+
+	_, err := NewWalletSyncer(client).SyncWallet(context.Background(), "5Dsvsa", []string{"hydration"})
+	require.NoError(t, err)
+	assert.Positive(t, tr.calls, "Config.Transport must reach the HTTP client")
+}

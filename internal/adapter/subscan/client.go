@@ -19,6 +19,11 @@ const ProviderName = "subscan"
 // Config holds Subscan client configuration.
 type Config struct {
 	APIKey string
+
+	// Transport, when set, replaces the client's HTTP transport. The shared
+	// provider rate budget (internal/adapter/ratelimit) is injected here:
+	// clients are built per account and must not each pace themselves.
+	Transport http.RoundTripper
 }
 
 // Client talks to the per-network Subscan REST API.
@@ -35,7 +40,7 @@ type Client struct {
 func NewClient(cfg Config) *Client {
 	return &Client{
 		apiKey:     cfg.APIKey,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: 30 * time.Second, Transport: cfg.Transport},
 	}
 }
 

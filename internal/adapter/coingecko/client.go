@@ -16,7 +16,6 @@ import (
 type Client struct {
 	apiKey     string
 	baseURL    string
-	rateLimit  time.Duration
 	httpClient *http.Client
 }
 
@@ -24,6 +23,11 @@ type Client struct {
 type Config struct {
 	APIKey string
 	Pro    bool // Use Pro API endpoint
+
+	// Transport, when set, replaces the client's HTTP transport. The shared
+	// provider rate budget (internal/adapter/ratelimit) is injected here:
+	// clients are built per account and must not each pace themselves.
+	Transport http.RoundTripper
 }
 
 // PriceData represents price information for an asset
@@ -50,23 +54,18 @@ type HistoricalPrice struct {
 // NewClient creates a new CoinGecko price data client
 func NewClient(cfg Config) *Client {
 	baseURL := "https://api.coingecko.com/api/v3"
-	// Spacing between consecutive requests inside one batched operation.
-	// The keyless public API allows roughly 30 calls/minute per IP.
-	rateLimit := 1200 * time.Millisecond
-	if cfg.APIKey != "" {
-		rateLimit = 100 * time.Millisecond // Demo/paid tiers: 30-500 calls/minute
-	}
-
 	if cfg.Pro {
 		baseURL = "https://pro-api.coingecko.com/api/v3"
-		rateLimit = 10 * time.Millisecond // Pro tier: higher rate limits
 	}
 
+	// Request spacing is not this client's business any more: it used to
+	// pace itself, which paced one instance while the resolver built others
+	// against the same key. The budget now lives in the transport
+	// (internal/adapter/ratelimit), shared per credential.
 	return &Client{
 		apiKey:     cfg.APIKey,
 		baseURL:    baseURL,
-		rateLimit:  rateLimit,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: 30 * time.Second, Transport: cfg.Transport},
 	}
 }
 
@@ -191,13 +190,10 @@ func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, 
 	var errs []error
 
 	for i := 0; i < len(valid); i += batchSize {
-		if i > 0 {
-			// Space consecutive requests to stay under the tier rate limit.
-			select {
-			case <-ctx.Done():
-				return result, errors.Join(append(errs, ctx.Err())...)
-			case <-time.After(c.rateLimit):
-			}
+		// Batches are paced by the shared provider budget in the transport;
+		// this loop only has to notice when the caller gave up.
+		if err := ctx.Err(); err != nil {
+			return result, errors.Join(append(errs, err)...)
 		}
 		end := min(i+batchSize, len(valid))
 		batch := valid[i:end]

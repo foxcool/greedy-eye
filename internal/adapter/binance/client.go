@@ -37,6 +37,11 @@ type Config struct {
 	APIKey    string
 	APISecret string
 	Sandbox   bool
+
+	// Transport, when set, replaces the client's HTTP transport. The shared
+	// provider rate budget (internal/adapter/ratelimit) is injected here:
+	// clients are built per account and must not each pace themselves.
+	Transport http.RoundTripper
 }
 
 // Balance represents account balance for an asset
@@ -86,7 +91,7 @@ func NewClient(cfg Config) *Client {
 		apiSecret:  cfg.APISecret,
 		baseURL:    baseURL,
 		sandbox:    cfg.Sandbox,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		httpClient: &http.Client{Timeout: 10 * time.Second, Transport: cfg.Transport},
 	}
 }
 

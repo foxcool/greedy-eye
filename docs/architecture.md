@@ -372,6 +372,15 @@ per-account clients from stored credentials, falling back to env-configured clie
   Astar, Moonbeam (`internal/adapter/subscan/`), tonapi TON + jettons
   (`internal/adapter/tonapi/`)
 - **Messenger Adapters** (`internal/adapter/telegram/`): Telegram (notifications)
+- **Rate budget** (`internal/adapter/ratelimit/`): a process-wide registry of token buckets keyed by
+  provider + digest of the API key, injected into every adapter client as an `http.RoundTripper`.
+  Because clients are per-account and short-lived, a limiter inside a client paces one account and
+  is blind to the rest — a sweep over three accounts on one key would triple the observed rate.
+  `429`/`418`/`430` freeze the bucket for `Retry-After` (default 1 min, capped at 15) while the
+  response still reaches the adapter, which owns the error handling. Limits per provider live in
+  `defaultLimits`; `ratelimit.<provider>.rps`/`.burst` in config overrides them. In-process only:
+  like the scheduler, this assumes a single backend instance — a second instance gets its own
+  budget and their sum reaches the provider.
 
 **Wallet syncer routing (chain-keyed registry)**:
 
