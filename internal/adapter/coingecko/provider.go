@@ -86,6 +86,8 @@ var nativeCoinID = map[string]string{
 	"pepe":   "pepe",
 	"doge":   "dogecoin",
 	"atom":   "cosmos",
+	"akt":    "akash-network",
+	"osmo":   "osmosis",
 	"dot":    "polkadot",
 	"ada":    "cardano",
 	"trx":    "tron",

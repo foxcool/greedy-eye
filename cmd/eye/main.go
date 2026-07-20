@@ -16,6 +16,7 @@ import (
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	binanceadapter "github.com/foxcool/greedy-eye/internal/adapter/binance"
 	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
+	cosmosadapter "github.com/foxcool/greedy-eye/internal/adapter/cosmos"
 	esploraadapter "github.com/foxcool/greedy-eye/internal/adapter/esplora"
 	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
 	solanaadapter "github.com/foxcool/greedy-eye/internal/adapter/solana"
@@ -187,6 +188,15 @@ func run() error {
 				},
 				Chains:         esploraadapter.SupportedChains(),
 				HandlesAddress: esploraadapter.HandlesAddress,
+			},
+			cosmosadapter.ProviderName: {
+				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
+					return cosmosadapter.NewWalletSyncer(
+						cosmosadapter.NewClient(cosmosadapter.Config{BaseURL: a.Data["base_url"]}),
+					), nil
+				},
+				Chains:         cosmosadapter.SupportedChains(),
+				HandlesAddress: cosmosadapter.HandlesAddress,
 			},
 		},
 		ExchangeSyncers: map[string]credentials.ExchangeSyncerFactory{
