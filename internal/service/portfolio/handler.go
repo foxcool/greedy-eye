@@ -884,10 +884,21 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 // returns its balances normalized to syncedBalance. A partial failure surfaces
 // as a sync error string, not a hard error.
 func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Account) ([]syncedBalance, []string, error) {
-	address, ok := account.Data["address"]
-	if !ok || address == "" {
-		return nil, nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account.data.address is required for wallet sync"))
+	// An account normally holds one address, but UTXO chains spread a wallet
+	// over many, so "addresses" accepts a list. Every address on an account
+	// belongs to the same ecosystem: the syncer is resolved once, from the
+	// first, and reused for the rest.
+	addresses := splitAddresses(account.Data["addresses"])
+	if len(addresses) == 0 {
+		if single := strings.TrimSpace(account.Data["address"]); single != "" {
+			addresses = []string{single}
+		}
 	}
+	if len(addresses) == 0 {
+		return nil, nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("account.data.address or account.data.addresses is required for wallet sync"))
+	}
+	address := addresses[0]
 
 	// Resolve which chains to sync from the account config.
 	// Empty or "auto" → let the syncer auto-discover (pass nil).
@@ -921,10 +932,24 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 
 	// The syncer owns all provider mechanics (discovery, fan-out, native vs token).
 	// Partial failures arrive as a joined error alongside the balances gathered so far.
-	var syncErrors []string
-	balances, err := walletSyncer.SyncWallet(ctx, address, chains)
-	if err != nil {
-		syncErrors = append(syncErrors, err.Error())
+	// Balances from several addresses are concatenated here and merged by symbol
+	// downstream, so a wallet split across addresses reports one holding per asset.
+	var (
+		syncErrors []string
+		balances   []entity.WalletBalance
+	)
+	for _, addr := range addresses {
+		got, err := walletSyncer.SyncWallet(ctx, addr, chains)
+		if err != nil {
+			// Name the address: with several in play, an unqualified provider
+			// error says nothing about which part of the wallet went missing.
+			if len(addresses) > 1 {
+				syncErrors = append(syncErrors, fmt.Sprintf("%s: %s", addr, err.Error()))
+			} else {
+				syncErrors = append(syncErrors, err.Error())
+			}
+		}
+		balances = append(balances, got...)
 	}
 
 	result := make([]syncedBalance, 0, len(balances))
@@ -1390,10 +1415,11 @@ const maskPrefix = "••••"
 // nonSecretDataKeys are accounts.data keys that look secret-ish by name but
 // are safe to return as is.
 var nonSecretDataKeys = map[string]bool{
-	"provider": true,
-	"address":  true,
-	"chain":    true,
-	"pro":      true,
+	"provider":  true,
+	"address":   true,
+	"addresses": true,
+	"chain":     true,
+	"pro":       true,
 }
 
 // isSecretKey classifies accounts.data keys by name: anything containing
@@ -1457,6 +1483,20 @@ func splitChains(raw string) []string {
 	if len(parts) == 0 {
 		return []string{"eth"}
 	}
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
+// splitAddresses reads the comma- or space-separated address list an account
+// may carry instead of a single address. Unlike splitChains there is no default:
+// an absent list means the account uses the single-address form.
+func splitAddresses(raw string) []string {
+	parts := strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' })
 	result := make([]string, 0, len(parts))
 	for _, p := range parts {
 		if p = strings.TrimSpace(p); p != "" {
