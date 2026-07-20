@@ -63,7 +63,12 @@ These sync wallet balances. Every one of them needs an account, key or not.
 |---|---|---|
 | `provider` | all | The slug from the table above. Nothing resolves without it |
 | `api_key` | moralis, subscan, tonapi, helius, blockchair | Write-only; responses return it masked as `••••` plus the last four characters. Echoing the mask back preserves the stored value |
-| `base_url` | esplora, cosmos, tzkt, blockchair | Overrides the default endpoint — a self-hosted node, or Blockstream instead of mempool.space. Leave empty for the default |
+Endpoints are not configurable per account. `accounts.data` is user-supplied,
+and a client whose base URL came from it would make the server issue requests
+to whatever address its caller named — cloud metadata, loopback, anything
+inside the trust boundary — with the response leaking back through sync error
+strings. Pointing an adapter at a self-hosted instance belongs in operator
+config, not in user data.
 
 ## Market data providers (`service` or `exchange` + `market_data`)
 

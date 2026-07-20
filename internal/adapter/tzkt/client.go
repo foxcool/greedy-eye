@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -89,8 +90,11 @@ func (c *Client) GetAccount(ctx context.Context, address string) (Account, error
 		UnstakedBalance json.Number `json:"unstakedBalance"`
 	}
 
-	url := c.baseURL + "/v1/accounts/" + address
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	// The address is user-supplied, so it is escaped rather than concatenated:
+	// unescaped it could carry traversal or query characters and steer the
+	// request somewhere else on the host.
+	endpoint := c.baseURL + "/v1/accounts/" + url.PathEscape(address)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return Account{}, fmt.Errorf("create request: %w", err)
 	}

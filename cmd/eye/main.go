@@ -180,30 +180,37 @@ func run() error {
 				HandlesAddress: solanaadapter.HandlesAddress,
 			},
 			// Esplora needs no credentials; the account exists only so the
-			// registry has something to route to. base_url picks the instance
-			// (mempool.space by default, Blockstream serves the same API).
+			// registry has something to route to.
+			//
+			// The endpoint is not configurable per account on purpose.
+			// accounts.data is user-supplied, and a client whose base URL comes
+			// from it would make the server issue requests to any address its
+			// caller names — cloud metadata, loopback, anything inside the
+			// trust boundary — with the response surfacing through sync errors.
+			// If a self-hosted instance is ever needed it belongs in operator
+			// config, not in user data.
 			esploraadapter.ProviderName: {
-				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
+				Factory: func(_ *entity.Account) (entity.WalletSyncer, error) {
 					return esploraadapter.NewWalletSyncer(
-						esploraadapter.NewClient(esploraadapter.Config{BaseURL: a.Data["base_url"]}),
+						esploraadapter.NewClient(esploraadapter.Config{}),
 					), nil
 				},
 				Chains:         esploraadapter.SupportedChains(),
 				HandlesAddress: esploraadapter.HandlesAddress,
 			},
 			cosmosadapter.ProviderName: {
-				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
+				Factory: func(_ *entity.Account) (entity.WalletSyncer, error) {
 					return cosmosadapter.NewWalletSyncer(
-						cosmosadapter.NewClient(cosmosadapter.Config{BaseURL: a.Data["base_url"]}),
+						cosmosadapter.NewClient(cosmosadapter.Config{}),
 					), nil
 				},
 				Chains:         cosmosadapter.SupportedChains(),
 				HandlesAddress: cosmosadapter.HandlesAddress,
 			},
 			tzktadapter.ProviderName: {
-				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
+				Factory: func(_ *entity.Account) (entity.WalletSyncer, error) {
 					return tzktadapter.NewWalletSyncer(
-						tzktadapter.NewClient(tzktadapter.Config{BaseURL: a.Data["base_url"]}),
+						tzktadapter.NewClient(tzktadapter.Config{}),
 					), nil
 				},
 				Chains:         tzktadapter.SupportedChains(),
@@ -213,8 +220,7 @@ func run() error {
 				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
 					return blockchairadapter.NewWalletSyncer(
 						blockchairadapter.NewClient(blockchairadapter.Config{
-							APIKey:  a.Data["api_key"],
-							BaseURL: a.Data["base_url"],
+							APIKey: a.Data["api_key"],
 						}),
 					), nil
 				},

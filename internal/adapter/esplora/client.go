@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -68,8 +69,11 @@ func (c *Client) GetBalance(ctx context.Context, address string) (int64, error) 
 		} `json:"chain_stats"`
 	}
 
-	url := c.baseURL + "/address/" + address
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	// The address is user-supplied, so it is escaped rather than concatenated:
+	// unescaped it could carry traversal or query characters and steer the
+	// request somewhere else on the host.
+	endpoint := c.baseURL + "/address/" + url.PathEscape(address)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return 0, fmt.Errorf("create request: %w", err)
 	}
