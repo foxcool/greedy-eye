@@ -38,6 +38,11 @@ different audiences:
 - Glossary of domain terms
 - Target audience: All stakeholders
 
+**Related documents**
+- [providers.md](providers.md) — which external providers can be connected, what
+  each needs, and what the account fields mean
+- [development.md](development.md) — local setup and workflow
+
 ---
 
 ## 1. Introduction and Goals

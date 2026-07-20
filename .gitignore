@@ -4,7 +4,10 @@
 *.dll
 *.so
 *.dylib
-eye
+# The compiled binary, at each place a build puts it. Anchored on purpose:
+# a bare "eye" also matches the cmd/eye directory and hides its sources.
+/eye
+/bin/eye
 cmd/eye/eye
 
 

@@ -69,6 +69,8 @@ func TestSyncWallet_PerChainDecimals(t *testing.T) {
 	}{
 		{"polkadot", "DOT", "12500000000"},          // 10 decimals
 		{"kusama", "KSM", "1250000000000"},          // 12
+		{"assethub-polkadot", "DOT", "12500000000"}, // 10, same token as the relay
+		{"assethub-kusama", "KSM", "1250000000000"}, // 12
 		{"hydration", "HDX", "1250000000000"},       // 12
 		{"astar", "ASTR", "1250000000000000000"},    // 18
 		{"moonbeam", "GLMR", "1250000000000000000"}, // 18
@@ -160,12 +162,33 @@ func TestSyncWallet_AutoDiscoverySweepsNetworks(t *testing.T) {
 	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, len(SupportedChains()), probed, "every known network must be probed")
+	assert.Equal(t, len(sweepChains()), probed, "every sweepable network must be probed")
 	require.Len(t, balances, 1, "networks without a balance yield no position")
 }
 
+// TestAutoDiscoverySkipsEVMChains: Moonbeam is served by this adapter but
+// identifies accounts by EVM H160, so an SS58 address can never resolve there.
+// Sweeping it spent a request to collect a "Record Not Found" that surfaced as
+// a sync error on every single run of every Substrate account.
+func TestAutoDiscoverySkipsEVMChains(t *testing.T) {
+	assert.NotContains(t, sweepChains(), "moonbeam")
+	assert.Contains(t, SupportedChains(), "moonbeam",
+		"naming the chain explicitly must still work")
+
+	var probed []string
+	syncer := newTestSyncer(t, func(w http.ResponseWriter, r *http.Request) {
+		probed = append(probed, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":0,"data":{"account":{}}}`))
+	})
+
+	_, err := syncer.SyncWallet(context.Background(), "5Dsvsa", nil)
+	require.NoError(t, err, "the sweep must not report an error for a plain empty account")
+	assert.Len(t, probed, len(sweepChains()))
+}
+
 // TestHandlesAddress routes auto-discovery. The same key is a different string
-// on every network, so the prefix cannot be pinned — only the SS58 shape.
+// on every network, so the prefix cannot be pinned — the checksum decides.
 func TestHandlesAddress(t *testing.T) {
 	tests := []struct {
 		address string
@@ -186,8 +209,35 @@ func TestHandlesAddress(t *testing.T) {
 	}
 }
 
+// TestHandlesAddress_RejectsForeignBase58 is the routing guard for the
+// ecosystems that share this alphabet. Length alone cannot separate them —
+// a Solana pubkey is 43-44 characters against SS58's 46-48 — and a wrong
+// answer here is silent: the foreign chain reports an unknown account and the
+// position drops to zero instead of erroring.
+func TestHandlesAddress_RejectsForeignBase58(t *testing.T) {
+	tests := []struct {
+		name    string
+		address string
+	}{
+		{"solana pubkey", "CvC1oRhFemouyXTBSJp6NBdEUN1CqQEYRNFcUh46Cqv8"},
+		{"bitcoin legacy", "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"},
+		{"dash", "XyAKZDSC5FnmJnBt2ZBhQ2G9dRrVpvBQhq"},
+		// Right shape, one character changed: exactly what a typo or a
+		// truncated copy-paste looks like.
+		{"corrupted checksum", "5DsvsaNbaA4JPXPRJHA2wWDMv4oJaWKQDbrUKEeELRfrto7R"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.False(t, HandlesAddress(tt.address))
+		})
+	}
+}
+
 func TestSupportedChainsIsStable(t *testing.T) {
 	assert.Equal(t,
-		[]string{"astar", "hydration", "kusama", "moonbeam", "polkadot"},
+		[]string{
+			"assethub-kusama", "assethub-polkadot", "astar",
+			"hydration", "kusama", "moonbeam", "polkadot",
+		},
 		SupportedChains())
 }

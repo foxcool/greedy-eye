@@ -26,15 +26,16 @@ func NewWalletSyncer(c *Client) *WalletSyncerAdapter {
 // key: Subscan resolves any network's form of an address, so a single account
 // covers the whole ecosystem at the cost of one request per network.
 //
-// Moonbeam is unreachable this way — its addresses are EVM H160, not SS58 —
-// so it has to be named explicitly.
+// Moonbeam is skipped by the sweep — its addresses are EVM H160, not SS58, so
+// probing it could only ever return "not found" — and has to be named
+// explicitly instead.
 //
 // Per-chain failures are joined into the returned error while the balances
 // gathered so far are still returned, so one unreachable network does not lose
 // the others.
 func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, chains []string) ([]entity.WalletBalance, error) {
 	if len(chains) == 0 {
-		chains = SupportedChains()
+		chains = sweepChains()
 	}
 
 	var (

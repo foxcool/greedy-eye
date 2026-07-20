@@ -15,10 +15,15 @@ import (
 	"connectrpc.com/connect"
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	binanceadapter "github.com/foxcool/greedy-eye/internal/adapter/binance"
+	blockchairadapter "github.com/foxcool/greedy-eye/internal/adapter/blockchair"
 	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
+	cosmosadapter "github.com/foxcool/greedy-eye/internal/adapter/cosmos"
+	esploraadapter "github.com/foxcool/greedy-eye/internal/adapter/esplora"
 	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
+	solanaadapter "github.com/foxcool/greedy-eye/internal/adapter/solana"
 	subscanadapter "github.com/foxcool/greedy-eye/internal/adapter/subscan"
 	tonapiadapter "github.com/foxcool/greedy-eye/internal/adapter/tonapi"
+	tzktadapter "github.com/foxcool/greedy-eye/internal/adapter/tzkt"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/scheduler"
@@ -164,6 +169,63 @@ func run() error {
 				},
 				Chains:         tonapiadapter.SupportedChains(),
 				HandlesAddress: tonapiadapter.HandlesAddress,
+			},
+			solanaadapter.ProviderName: {
+				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
+					return solanaadapter.NewWalletSyncer(
+						solanaadapter.NewClient(solanaadapter.Config{APIKey: a.Data["api_key"]}),
+					), nil
+				},
+				Chains:         solanaadapter.SupportedChains(),
+				HandlesAddress: solanaadapter.HandlesAddress,
+			},
+			// Esplora needs no credentials; the account exists only so the
+			// registry has something to route to.
+			//
+			// The endpoint is not configurable per account on purpose.
+			// accounts.data is user-supplied, and a client whose base URL comes
+			// from it would make the server issue requests to any address its
+			// caller names — cloud metadata, loopback, anything inside the
+			// trust boundary — with the response surfacing through sync errors.
+			// If a self-hosted instance is ever needed it belongs in operator
+			// config, not in user data.
+			esploraadapter.ProviderName: {
+				Factory: func(_ *entity.Account) (entity.WalletSyncer, error) {
+					return esploraadapter.NewWalletSyncer(
+						esploraadapter.NewClient(esploraadapter.Config{}),
+					), nil
+				},
+				Chains:         esploraadapter.SupportedChains(),
+				HandlesAddress: esploraadapter.HandlesAddress,
+			},
+			cosmosadapter.ProviderName: {
+				Factory: func(_ *entity.Account) (entity.WalletSyncer, error) {
+					return cosmosadapter.NewWalletSyncer(
+						cosmosadapter.NewClient(cosmosadapter.Config{}),
+					), nil
+				},
+				Chains:         cosmosadapter.SupportedChains(),
+				HandlesAddress: cosmosadapter.HandlesAddress,
+			},
+			tzktadapter.ProviderName: {
+				Factory: func(_ *entity.Account) (entity.WalletSyncer, error) {
+					return tzktadapter.NewWalletSyncer(
+						tzktadapter.NewClient(tzktadapter.Config{}),
+					), nil
+				},
+				Chains:         tzktadapter.SupportedChains(),
+				HandlesAddress: tzktadapter.HandlesAddress,
+			},
+			blockchairadapter.ProviderName: {
+				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
+					return blockchairadapter.NewWalletSyncer(
+						blockchairadapter.NewClient(blockchairadapter.Config{
+							APIKey: a.Data["api_key"],
+						}),
+					), nil
+				},
+				Chains:         blockchairadapter.SupportedChains(),
+				HandlesAddress: blockchairadapter.HandlesAddress,
 			},
 		},
 		ExchangeSyncers: map[string]credentials.ExchangeSyncerFactory{

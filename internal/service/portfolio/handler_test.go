@@ -1109,6 +1109,114 @@ func TestSyncAccount_MergeMixedDecimals(t *testing.T) {
 	s.AssertExpectations(t)
 }
 
+// TestSyncAccount_MultipleAddresses covers the UTXO shape: one wallet spread
+// over several addresses must report one holding per asset, not one per address.
+func TestSyncAccount_MultipleAddresses(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"addresses": "bc1aaa, bc1bbb", "chain": "bitcoin"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	// 0.5 BTC + 1.5 BTC across the two addresses = 2.0 BTC in one holding.
+	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		return h.Amount.String() == "200000000" && h.Decimals == 8
+	})).Return(&entity.Holding{ID: testHoldingID}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "bc1aaa", []string{"bitcoin"}).Return([]entity.WalletBalance{
+		{Symbol: "BTC", Name: "Bitcoin", Amount: "50000000", Decimals: 8},
+	}, nil)
+	ws.On("SyncWallet", mock.Anything, "bc1bbb", []string{"bitcoin"}).Return([]entity.WalletBalance{
+		{Symbol: "BTC", Name: "Bitcoin", Amount: "150000000", Decimals: 8},
+	}, nil)
+
+	md := &mockMDClient{}
+	md.On("ListAssets", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
+	md.On("CreateAsset", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.Errors)
+	assert.Equal(t, int32(1), resp.Msg.HoldingsUpserted)
+	ws.AssertExpectations(t)
+	s.AssertExpectations(t)
+}
+
+// TestSyncAccount_MultipleAddressesPartialFailure: one unreachable address must
+// not discard the rest of the wallet, and the error has to say which address
+// failed — otherwise a silently shrunk balance looks like a real outflow.
+func TestSyncAccount_MultipleAddressesPartialFailure(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"addresses": "bc1good bc1bad", "chain": "bitcoin"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).
+		Return(&entity.Holding{ID: testHoldingID}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "bc1good", []string{"bitcoin"}).Return([]entity.WalletBalance{
+		{Symbol: "BTC", Name: "Bitcoin", Amount: "50000000", Decimals: 8},
+	}, nil)
+	ws.On("SyncWallet", mock.Anything, "bc1bad", []string{"bitcoin"}).
+		Return([]entity.WalletBalance{}, errors.New("esplora status 503"))
+
+	md := &mockMDClient{}
+	md.On("ListAssets", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
+	md.On("CreateAsset", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Errors, 1)
+	assert.Contains(t, resp.Msg.Errors[0], "bc1bad")
+	assert.Equal(t, int32(1), resp.Msg.HoldingsUpserted, "the reachable address still syncs")
+}
+
+// TestSyncAccount_AddressRequired: both forms absent is a config error, not an
+// empty wallet. An account whose addresses field parses to nothing must not be
+// treated as a valid single-address account either.
+func TestSyncAccount_AddressRequired(t *testing.T) {
+	for _, data := range []map[string]string{
+		{"chain": "bitcoin"},
+		{"addresses": " , ", "chain": "bitcoin"},
+	} {
+		acct := testAccount(testAccountID)
+		acct.Type = entity.AccountTypeWallet
+		acct.Data = data
+
+		s := &mockStore{}
+		s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+
+		h := newHandler(s).WithMarketDataClient(&mockMDClient{}).WithWalletSyncer(&mockWalletSyncer{})
+
+		_, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+			AccountId: testAccountID,
+		}))
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	}
+}
+
 // --- Exchange sync ---
 
 type mockExchangeSyncer struct {
