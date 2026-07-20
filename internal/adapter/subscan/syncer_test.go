@@ -162,8 +162,29 @@ func TestSyncWallet_AutoDiscoverySweepsNetworks(t *testing.T) {
 	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, len(SupportedChains()), probed, "every known network must be probed")
+	assert.Equal(t, len(sweepChains()), probed, "every sweepable network must be probed")
 	require.Len(t, balances, 1, "networks without a balance yield no position")
+}
+
+// TestAutoDiscoverySkipsEVMChains: Moonbeam is served by this adapter but
+// identifies accounts by EVM H160, so an SS58 address can never resolve there.
+// Sweeping it spent a request to collect a "Record Not Found" that surfaced as
+// a sync error on every single run of every Substrate account.
+func TestAutoDiscoverySkipsEVMChains(t *testing.T) {
+	assert.NotContains(t, sweepChains(), "moonbeam")
+	assert.Contains(t, SupportedChains(), "moonbeam",
+		"naming the chain explicitly must still work")
+
+	var probed []string
+	syncer := newTestSyncer(t, func(w http.ResponseWriter, r *http.Request) {
+		probed = append(probed, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":0,"data":{"account":{}}}`))
+	})
+
+	_, err := syncer.SyncWallet(context.Background(), "5Dsvsa", nil)
+	require.NoError(t, err, "the sweep must not report an error for a plain empty account")
+	assert.Len(t, probed, len(sweepChains()))
 }
 
 // TestHandlesAddress routes auto-discovery. The same key is a different string

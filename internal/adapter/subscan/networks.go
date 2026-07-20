@@ -23,6 +23,11 @@ type network struct {
 	// decimals is int32 to match decimal.Decimal.Shift, the only place it is
 	// used for arithmetic; entity.WalletBalance widens it back to int.
 	decimals int32
+
+	// evmAddresses marks a chain that identifies accounts by EVM H160 rather
+	// than SS58. Such a chain cannot be reached by sweeping an SS58 address and
+	// has to be named explicitly.
+	evmAddresses bool
 }
 
 // networks maps the chain identifier stored on an account to its parameters.
@@ -46,7 +51,23 @@ var networks = map[string]network{
 	"assethub-kusama":   {host: "assethub-kusama", symbol: "KSM", name: "Kusama Asset Hub", decimals: 12},
 	"hydration":         {host: "hydration", symbol: "HDX", name: "Hydration", decimals: 12},
 	"astar":             {host: "astar", symbol: "ASTR", name: "Astar", decimals: 18},
-	"moonbeam":          {host: "moonbeam", symbol: "GLMR", name: "Moonbeam", decimals: 18},
+	"moonbeam":          {host: "moonbeam", symbol: "GLMR", name: "Moonbeam", decimals: 18, evmAddresses: true},
+}
+
+// sweepChains returns the chains worth probing for an address whose account
+// names none. Chains addressed by EVM H160 are left out: an SS58 address can
+// never resolve there, so probing them spends a request to collect a
+// "Record Not Found" that surfaces to the user as a sync error on every run.
+func sweepChains() []string {
+	chains := make([]string, 0, len(networks))
+	for chain, net := range networks {
+		if net.evmAddresses {
+			continue
+		}
+		chains = append(chains, chain)
+	}
+	slices.Sort(chains)
+	return chains
 }
 
 // SupportedChains returns the chains this adapter can sync, for registration
