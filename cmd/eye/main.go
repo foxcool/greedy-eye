@@ -16,6 +16,7 @@ import (
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	binanceadapter "github.com/foxcool/greedy-eye/internal/adapter/binance"
 	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
+	esploraadapter "github.com/foxcool/greedy-eye/internal/adapter/esplora"
 	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
 	solanaadapter "github.com/foxcool/greedy-eye/internal/adapter/solana"
 	subscanadapter "github.com/foxcool/greedy-eye/internal/adapter/subscan"
@@ -174,6 +175,18 @@ func run() error {
 				},
 				Chains:         solanaadapter.SupportedChains(),
 				HandlesAddress: solanaadapter.HandlesAddress,
+			},
+			// Esplora needs no credentials; the account exists only so the
+			// registry has something to route to. base_url picks the instance
+			// (mempool.space by default, Blockstream serves the same API).
+			esploraadapter.ProviderName: {
+				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
+					return esploraadapter.NewWalletSyncer(
+						esploraadapter.NewClient(esploraadapter.Config{BaseURL: a.Data["base_url"]}),
+					), nil
+				},
+				Chains:         esploraadapter.SupportedChains(),
+				HandlesAddress: esploraadapter.HandlesAddress,
 			},
 		},
 		ExchangeSyncers: map[string]credentials.ExchangeSyncerFactory{
