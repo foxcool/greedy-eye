@@ -3,6 +3,7 @@ package subscan
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -30,63 +31,131 @@ func respondJSON(body string) http.HandlerFunc {
 	}
 }
 
-// TestSyncWallet_StakedBalanceNotDoubleCounted is the correctness guard for
-// this adapter. Substrate locks (bonded, unbonding, governance) restrict the
-// free balance rather than sitting beside it, so a staking-heavy account —
-// the Hydration controller being the motivating case — must report free +
-// reserved, not free + reserved + bonded.
-func TestSyncWallet_StakedBalanceNotDoubleCounted(t *testing.T) {
-	// 100 free, of which 90 is bonded and 5 unbonding, plus 2 reserved.
+// TestSyncWallet_HydrationControllerAnchor is the regression anchor for the
+// whole adapter: the live Hydration controller, captured 2026-07-20, holding
+// 34644.639967302550 HDX of which 34015.697423172136 is bonded. That figure
+// was verified against the manual baseline before any of this existed, so any
+// change that moves it has broken something.
+//
+// It also pins the balance model: bonded is a subset of balance, and USDT in
+// the builtin array is not the native token and must be ignored here.
+func TestSyncWallet_HydrationControllerAnchor(t *testing.T) {
 	syncer := newTestSyncer(t, respondJSON(`{
 		"code": 0, "message": "Success",
-		"data": {"account": {
-			"address": "15oF4u",
-			"balance": "100.5",
-			"reserved": "2",
-			"bonded": "90",
-			"unbonding": "5",
-			"lock": "90"
-		}}
+		"data": {
+			"native": [{
+				"symbol": "HDX", "unique_id": "HDX", "decimals": 12,
+				"balance": "34644639967302550",
+				"lock": "34015697423172136",
+				"reserved": "0",
+				"bonded": "34015697423172136",
+				"unbonding": "0",
+				"price": "0.00585337"
+			}],
+			"builtin": [{
+				"symbol": "USDT", "decimals": 6, "balance": "156501335"
+			}]
+		}
 	}`))
 
-	balances, err := syncer.SyncWallet(context.Background(), "15oF4u", []string{"polkadot"})
+	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", []string{"hydration"})
+	require.NoError(t, err)
+	require.Len(t, balances, 1, "only the native token is read; builtin assets are personal-feb.10")
+
+	assert.Equal(t, "HDX", balances[0].Symbol)
+	assert.Equal(t, 12, balances[0].Decimals)
+	assert.Equal(t, "34644639967302550", balances[0].Amount)
+}
+
+// TestSyncWallet_ReservedIsInsideBalance is the guard for the bug that made
+// this endpoint switch necessary (personal-feb.12).
+//
+// The fixture is the live Kusama Asset Hub controller: balance 6.016092032275
+// KSM, of which a staking hold of 5.621867712891 is reserved. The old code
+// read /api/v2/scan/search, where `balance` arrives as whole tokens and
+// `reserved` as planck, and added the two — producing 5.62 trillion KSM
+// against a supply of 15 million. Both halves of that mistake are covered
+// here: the units are uniform, and reserved is never added.
+func TestSyncWallet_ReservedIsInsideBalance(t *testing.T) {
+	syncer := newTestSyncer(t, respondJSON(`{
+		"code": 0, "message": "Success",
+		"data": {"native": [{
+			"symbol": "KSM", "unique_id": "KSM", "decimals": 12,
+			"balance": "6016092032275",
+			"lock": "5621867712891",
+			"reserved": "5621867712891",
+			"bonded": "5621867712891",
+			"unbonding": "0"
+		}]}
+	}`))
+
+	balances, err := syncer.SyncWallet(context.Background(), "EEg3jY", []string{"assethub-kusama"})
 	require.NoError(t, err)
 	require.Len(t, balances, 1)
 
-	assert.Equal(t, "DOT", balances[0].Symbol)
-	assert.Equal(t, 10, balances[0].Decimals)
-	// (100.5 + 2) * 10^10 — bonded and unbonding are already inside free.
-	assert.Equal(t, "1025000000000", balances[0].Amount)
+	assert.Equal(t, "6016092032275", balances[0].Amount,
+		"balance already contains the staking hold; adding reserved double-counts it")
+	assert.Equal(t, 12, balances[0].Decimals)
 }
 
-// TestSyncWallet_PerChainDecimals pins the scaling per network: the same
-// decimal string means a different raw integer on each chain.
-func TestSyncWallet_PerChainDecimals(t *testing.T) {
+// TestSyncWallet_DecimalsComeFromResponse pins the rule that replaced the
+// per-network decimals table: the response states its own precision, and the
+// adapter reports it verbatim. A chain whose token changed precision, or a
+// network the table has wrong, can no longer produce a rescaled holding.
+func TestSyncWallet_DecimalsComeFromResponse(t *testing.T) {
 	tests := []struct {
-		chain      string
-		wantSymbol string
-		wantAmount string
+		chain    string
+		symbol   string
+		decimals int
 	}{
-		{"polkadot", "DOT", "12500000000"},          // 10 decimals
-		{"kusama", "KSM", "1250000000000"},          // 12
-		{"assethub-polkadot", "DOT", "12500000000"}, // 10, same token as the relay
-		{"assethub-kusama", "KSM", "1250000000000"}, // 12
-		{"hydration", "HDX", "1250000000000"},       // 12
-		{"astar", "ASTR", "1250000000000000000"},    // 18
-		{"moonbeam", "GLMR", "1250000000000000000"}, // 18
+		{"polkadot", "DOT", 10},
+		{"kusama", "KSM", 12},
+		{"assethub-polkadot", "DOT", 10},
+		{"assethub-kusama", "KSM", 12},
+		{"hydration", "HDX", 12},
+		{"astar", "ASTR", 18},
+		{"moonbeam", "GLMR", 18},
 	}
 	for _, tt := range tests {
 		t.Run(tt.chain, func(t *testing.T) {
-			syncer := newTestSyncer(t, respondJSON(
-				`{"code":0,"data":{"account":{"balance":"1.25","reserved":"0"}}}`))
+			syncer := newTestSyncer(t, respondJSON(fmt.Sprintf(
+				`{"code":0,"data":{"native":[{"symbol":%q,"decimals":%d,"balance":"1250000000000"}]}}`,
+				tt.symbol, tt.decimals)))
 
 			balances, err := syncer.SyncWallet(context.Background(), "addr", []string{tt.chain})
 			require.NoError(t, err)
 			require.Len(t, balances, 1)
-			assert.Equal(t, tt.wantSymbol, balances[0].Symbol)
-			assert.Equal(t, tt.wantAmount, balances[0].Amount)
+			assert.Equal(t, tt.symbol, balances[0].Symbol)
+			assert.Equal(t, tt.decimals, balances[0].Decimals)
+			assert.Equal(t, "1250000000000", balances[0].Amount,
+				"a raw planck figure is stored as it arrived, never shifted")
 		})
 	}
+}
+
+// TestSyncWallet_RefusesBalanceWithoutDecimals: a native entry carrying no
+// precision cannot be read at all. Falling back to the per-network table would
+// restore the guess this endpoint exists to remove, so the sync fails loudly
+// instead of storing a number scaled by assumption.
+func TestSyncWallet_RefusesBalanceWithoutDecimals(t *testing.T) {
+	syncer := newTestSyncer(t, respondJSON(
+		`{"code":0,"data":{"native":[{"symbol":"DOT","balance":"1250000000000"}]}}`))
+
+	_, err := syncer.SyncWallet(context.Background(), "addr", []string{"polkadot"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "decimals")
+}
+
+// TestSyncWallet_RefusesUnparsableBalance: an unreadable balance must not
+// degrade to zero. That would report a funded account as empty — the silent
+// failure this package has already been bitten by twice.
+func TestSyncWallet_RefusesUnparsableBalance(t *testing.T) {
+	syncer := newTestSyncer(t, respondJSON(
+		`{"code":0,"data":{"native":[{"symbol":"DOT","decimals":10,"balance":"1.2e+bogus"}]}}`))
+
+	_, err := syncer.SyncWallet(context.Background(), "addr", []string{"polkadot"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unparsable balance")
 }
 
 // TestSyncWallet_PartialFailureKeepsBalances covers the WalletSyncer contract:
@@ -100,12 +169,12 @@ func TestSyncWallet_PartialFailureKeepsBalances(t *testing.T) {
 
 		// The stub serves every network on one host, so branch on the address
 		// to simulate one chain being down.
-		if req["key"] == "broken" {
+		if req["address"] == "broken" {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"code":0,"data":{"account":{"balance":"7","reserved":"0"}}}`))
+		_, _ = w.Write([]byte(`{"code":0,"data":{"native":[{"symbol":"DOT","decimals":10,"balance":"7000000000"}]}}`))
 	})
 
 	balances, err := syncer.SyncWallet(context.Background(), "addr", []string{"polkadot", "kusama"})
@@ -131,7 +200,7 @@ func TestSyncWallet_SubscanErrorEnvelope(t *testing.T) {
 // chain never saw yields no position rather than a zero one, and a chain this
 // adapter does not serve is reported instead of silently skipped.
 func TestSyncWallet_EmptyAndUnknown(t *testing.T) {
-	syncer := newTestSyncer(t, respondJSON(`{"code":0,"data":{"account":{}}}`))
+	syncer := newTestSyncer(t, respondJSON(`{"code":0,"data":{"native":null}}`))
 
 	balances, err := syncer.SyncWallet(context.Background(), "addr", []string{"polkadot"})
 	require.NoError(t, err)
@@ -153,10 +222,10 @@ func TestSyncWallet_AutoDiscoverySweepsNetworks(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		// Only the second network probed holds anything.
 		if probed == 2 {
-			_, _ = w.Write([]byte(`{"code":0,"data":{"account":{"balance":"3","reserved":"0"}}}`))
+			_, _ = w.Write([]byte(`{"code":0,"data":{"native":[{"symbol":"DOT","decimals":10,"balance":"3000000000"}]}}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"code":0,"data":{"account":{}}}`))
+		_, _ = w.Write([]byte(`{"code":0,"data":{"native":null}}`))
 	})
 
 	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", nil)
@@ -179,7 +248,7 @@ func TestAutoDiscoverySkipsEVMChains(t *testing.T) {
 	syncer := newTestSyncer(t, func(w http.ResponseWriter, r *http.Request) {
 		probed = append(probed, r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"code":0,"data":{"account":{}}}`))
+		_, _ = w.Write([]byte(`{"code":0,"data":{"native":null}}`))
 	})
 
 	_, err := syncer.SyncWallet(context.Background(), "5Dsvsa", nil)

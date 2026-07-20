@@ -42,3 +42,6 @@ features.json
 # Claude-specific files (not part of repo)
 CLAUDE.md
 .claude
+
+# Local beads working database
+embeddeddolt/

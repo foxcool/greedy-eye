@@ -60,15 +60,14 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 			continue // nothing held here; not an error
 		}
 
-		// Subscan reports whole token units; holdings are stored as raw
-		// integers scaled by the chain's decimals.
-		raw := total.Shift(net.decimals).BigInt().String()
-
+		// Already raw planck at the precision the API stated — no shift, and
+		// no table lookup. The chain's decimals are a display detail here;
+		// the response is the authority on how to read its own number.
 		balances = append(balances, entity.WalletBalance{
-			Symbol:   net.symbol,
+			Symbol:   account.Symbol,
 			Name:     net.name,
-			Amount:   raw,
-			Decimals: int(net.decimals),
+			Amount:   total.BigInt().String(),
+			Decimals: int(account.Decimals),
 		})
 	}
 

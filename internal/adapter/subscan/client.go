@@ -39,65 +39,89 @@ func NewClient(cfg Config) *Client {
 	}
 }
 
-// Account holds the balance components Subscan reports for an address, in
-// whole token units (not planck).
+// Account holds the native balance Subscan reports for an address on one
+// chain, as a raw integer in the chain's smallest unit (planck) together with
+// the precision needed to read it.
 //
-// Substrate's balance model matters here: an account's total is Free +
-// Reserved. Locks (staking bonds, democracy, elections) are *restrictions on
-// the free balance*, not separate pots — Bonded tokens are still counted in
-// Free. Adding them to the total would double-count the largest position on a
-// staking-heavy account, so they are kept for reporting only.
+// Balance is the account's ENTIRE holding on the chain. Reserved and Bonded
+// are subsets of it, not additions: on Hydration the controller reports
+// balance 34644.639967302550 HDX of which 34015.697423172136 is bonded, and on
+// Kusama Asset Hub balance 6.016092032275 KSM is exactly transferable
+// 0.394224319384 plus a staking hold of 5.621867712891. Adding any of them to
+// Balance double-counts the largest position on a staking-heavy account.
+//
+// This replaced a Free + Reserved model read from /api/v2/scan/search, which
+// was wrong twice over — see GetAccount for why that endpoint is unusable.
 type Account struct {
-	Free     decimal.Decimal
-	Reserved decimal.Decimal
+	// Balance is raw, scaled by Decimals. It is never a whole-token figure.
+	Balance decimal.Decimal
+	// Decimals comes from the response, not from a table: it is the only
+	// honest source for how to read Balance.
+	Decimals int32
+	// Symbol is the chain's native token as the API names it.
+	Symbol string
 
-	// Bonded is staked (a subset of Free). Reported for observability, never
-	// added to the total.
-	Bonded decimal.Decimal
-	// Unbonding is mid-unbond (also within Free).
+	// Reserved, Bonded and Unbonding are subsets of Balance, kept for
+	// observability and never added to it.
+	Reserved  decimal.Decimal
+	Bonded    decimal.Decimal
 	Unbonding decimal.Decimal
-	// Locked is the largest active lock on Free (governance, vesting, staking).
-	Locked decimal.Decimal
 }
 
-// Total is the account's full holding: free plus reserved. See the type doc
-// for why locks and bonds are excluded.
+// Total is the account's full holding. It is Balance alone — see the type doc.
 func (a Account) Total() decimal.Decimal {
-	return a.Free.Add(a.Reserved)
+	return a.Balance
 }
 
-// searchResponse is the /api/v2/scan/search envelope. Subscan signals errors
-// through code != 0 with HTTP 200, so the body must always be inspected.
-type searchResponse struct {
+// tokensResponse is the /api/scan/account/tokens envelope. Subscan signals
+// errors through code != 0 with HTTP 200, so the body must always be inspected.
+//
+// Only the native token is read here. The builtin/assets/erc20 arrays that
+// this endpoint also returns carry the ecosystem's non-native holdings (USDT
+// on Hydration, DED and MYTH on Polkadot Asset Hub) and are the subject of
+// personal-feb.10 — the fixtures in this package deliberately keep them so the
+// parser's indifference to them is covered by tests.
+type tokensResponse struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Data    struct {
-		Account struct {
-			Address   string `json:"address"`
+		// Native is null for an address the chain has never seen, which is
+		// not an error: it maps to a zero balance.
+		Native []struct {
+			Symbol    string `json:"symbol"`
+			Decimals  int32  `json:"decimals"`
 			Balance   string `json:"balance"`
 			Reserved  string `json:"reserved"`
 			Bonded    string `json:"bonded"`
 			Unbonding string `json:"unbonding"`
-			Lock      string `json:"lock"`
-		} `json:"account"`
+		} `json:"native"`
 	} `json:"data"`
 }
 
-// GetAccount fetches the balance breakdown of an address on one network.
-// An address unknown to the chain is not an error: Subscan answers with an
-// empty account, which maps to a zero balance.
+// GetAccount fetches the native balance of an address on one network.
+// An address unknown to the chain is not an error: Subscan answers with a null
+// native array, which maps to a zero balance.
+//
+// This reads /api/scan/account/tokens rather than /api/v2/scan/search, which
+// cannot be parsed safely at all. That endpoint mixes units inside a single
+// object — on Kusama Asset Hub `balance` and `lock` come as whole tokens
+// ("6.016092032275") while `reserved`, `bonded` and `transferable_balance`
+// come as planck ("5621867712891") — and it carries no decimals field to tell
+// them apart. Reading it produced a holding of 5.62 trillion KSM against a
+// total supply of 15 million. The tokens endpoint reports every field as raw
+// planck and states its own precision.
 func (c *Client) GetAccount(ctx context.Context, chain, address string) (Account, error) {
 	net, ok := networks[chain]
 	if !ok {
 		return Account{}, fmt.Errorf("unsupported chain %q", chain)
 	}
 
-	url := fmt.Sprintf("https://%s.api.subscan.io/api/v2/scan/search", net.host)
+	url := fmt.Sprintf("https://%s.api.subscan.io/api/scan/account/tokens", net.host)
 	if c.baseURLOverride != "" {
-		url = c.baseURLOverride + "/api/v2/scan/search"
+		url = c.baseURLOverride + "/api/scan/account/tokens"
 	}
 
-	body, err := json.Marshal(map[string]string{"key": address})
+	body, err := json.Marshal(map[string]string{"address": address})
 	if err != nil {
 		return Account{}, fmt.Errorf("encode request: %w", err)
 	}
@@ -122,7 +146,7 @@ func (c *Client) GetAccount(ctx context.Context, chain, address string) (Account
 		return Account{}, fmt.Errorf("subscan API status %d for %s", resp.StatusCode, chain)
 	}
 
-	var parsed searchResponse
+	var parsed tokensResponse
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
 		return Account{}, fmt.Errorf("decode response: %w", err)
 	}
@@ -130,24 +154,64 @@ func (c *Client) GetAccount(ctx context.Context, chain, address string) (Account
 		return Account{}, fmt.Errorf("subscan error for %s: code %d: %s", chain, parsed.Code, parsed.Message)
 	}
 
-	acc := parsed.Data.Account
+	// A null or empty native array is an address the chain has never seen.
+	// Reported with the chain's own precision so the caller cannot mistake a
+	// zero for a decimals-less amount.
+	if len(parsed.Data.Native) == 0 {
+		return Account{Symbol: net.symbol, Decimals: net.decimals}, nil
+	}
+
+	native := parsed.Data.Native[0]
+
+	// Decimals must come from the response. Falling back to the table would
+	// reintroduce exactly the guess this endpoint exists to remove, so a
+	// missing precision is an error rather than a silently wrong scale.
+	if native.Decimals <= 0 {
+		return Account{}, fmt.Errorf("subscan %s: native balance without decimals", chain)
+	}
+
+	balance, err := parseAmount(chain, "balance", native.Balance)
+	if err != nil {
+		return Account{}, err
+	}
+
+	symbol := native.Symbol
+	if symbol == "" {
+		symbol = net.symbol
+	}
+
 	return Account{
-		Free:      parseAmount(acc.Balance),
-		Reserved:  parseAmount(acc.Reserved),
-		Bonded:    parseAmount(acc.Bonded),
-		Unbonding: parseAmount(acc.Unbonding),
-		Locked:    parseAmount(acc.Lock),
+		Balance:  balance,
+		Decimals: native.Decimals,
+		Symbol:   symbol,
+		// Subsets of Balance; a malformed one must not fail an otherwise
+		// valid sync, so these degrade to zero.
+		Reserved:  optionalAmount(native.Reserved),
+		Bonded:    optionalAmount(native.Bonded),
+		Unbonding: optionalAmount(native.Unbonding),
 	}, nil
 }
 
-// parseAmount reads a Subscan decimal string. Absent and unparsable fields
-// both mean "nothing here": Subscan omits components an account does not use
-// (a non-staking account has no bonded field at all), and a malformed number
-// must not fail the whole sync of an otherwise valid account.
-func parseAmount(s string) decimal.Decimal {
+// parseAmount reads a raw planck integer that the holding depends on. An empty
+// field means zero — Subscan omits components an account does not use — but
+// a non-empty field that will not parse is fatal: returning zero there would
+// report an account as empty when it is not, which is the failure mode that
+// cannot be noticed downstream.
+func parseAmount(chain, field, s string) (decimal.Decimal, error) {
 	if s == "" {
-		return decimal.Zero
+		return decimal.Zero, nil
 	}
+	d, err := decimal.NewFromString(s)
+	if err != nil {
+		return decimal.Zero, fmt.Errorf("subscan %s: unparsable %s %q", chain, field, s)
+	}
+	return d, nil
+}
+
+// optionalAmount reads a field kept only for observability. These never reach
+// the holding, so a malformed one degrades to zero rather than failing a sync
+// whose balance parsed fine.
+func optionalAmount(s string) decimal.Decimal {
 	d, err := decimal.NewFromString(s)
 	if err != nil {
 		return decimal.Zero
