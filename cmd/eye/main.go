@@ -17,6 +17,7 @@ import (
 	binanceadapter "github.com/foxcool/greedy-eye/internal/adapter/binance"
 	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
 	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
+	solanaadapter "github.com/foxcool/greedy-eye/internal/adapter/solana"
 	subscanadapter "github.com/foxcool/greedy-eye/internal/adapter/subscan"
 	tonapiadapter "github.com/foxcool/greedy-eye/internal/adapter/tonapi"
 	"github.com/foxcool/greedy-eye/internal/entity"
@@ -164,6 +165,15 @@ func run() error {
 				},
 				Chains:         tonapiadapter.SupportedChains(),
 				HandlesAddress: tonapiadapter.HandlesAddress,
+			},
+			solanaadapter.ProviderName: {
+				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
+					return solanaadapter.NewWalletSyncer(
+						solanaadapter.NewClient(solanaadapter.Config{APIKey: a.Data["api_key"]}),
+					), nil
+				},
+				Chains:         solanaadapter.SupportedChains(),
+				HandlesAddress: solanaadapter.HandlesAddress,
 			},
 		},
 		ExchangeSyncers: map[string]credentials.ExchangeSyncerFactory{
