@@ -165,7 +165,7 @@ func TestSyncWallet_AutoDiscoverySweepsNetworks(t *testing.T) {
 }
 
 // TestHandlesAddress routes auto-discovery. The same key is a different string
-// on every network, so the prefix cannot be pinned — only the SS58 shape.
+// on every network, so the prefix cannot be pinned — the checksum decides.
 func TestHandlesAddress(t *testing.T) {
 	tests := []struct {
 		address string
@@ -183,6 +183,30 @@ func TestHandlesAddress(t *testing.T) {
 	}
 	for _, tt := range tests {
 		assert.Equal(t, tt.want, HandlesAddress(tt.address), tt.address)
+	}
+}
+
+// TestHandlesAddress_RejectsForeignBase58 is the routing guard for the
+// ecosystems that share this alphabet. Length alone cannot separate them —
+// a Solana pubkey is 43-44 characters against SS58's 46-48 — and a wrong
+// answer here is silent: the foreign chain reports an unknown account and the
+// position drops to zero instead of erroring.
+func TestHandlesAddress_RejectsForeignBase58(t *testing.T) {
+	tests := []struct {
+		name    string
+		address string
+	}{
+		{"solana pubkey", "CvC1oRhFemouyXTBSJp6NBdEUN1CqQEYRNFcUh46Cqv8"},
+		{"bitcoin legacy", "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"},
+		{"dash", "XyAKZDSC5FnmJnBt2ZBhQ2G9dRrVpvBQhq"},
+		// Right shape, one character changed: exactly what a typo or a
+		// truncated copy-paste looks like.
+		{"corrupted checksum", "5DsvsaNbaA4JPXPRJHA2wWDMv4oJaWKQDbrUKEeELRfrto7R"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.False(t, HandlesAddress(tt.address))
+		})
 	}
 }
 

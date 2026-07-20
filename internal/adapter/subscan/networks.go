@@ -1,8 +1,13 @@
 package subscan
 
 import (
+	"bytes"
 	"regexp"
 	"slices"
+
+	"golang.org/x/crypto/blake2b"
+
+	"github.com/foxcool/greedy-eye/internal/adapter/internal/base58"
 )
 
 // network describes one Substrate chain served by Subscan. Each chain has its
@@ -46,18 +51,58 @@ func SupportedChains() []string {
 	return chains
 }
 
-// ss58Address matches the SS58 form every Substrate chain shares: base58 over
-// a one-byte network prefix, a 32-byte public key and a checksum, which lands
-// at 47-48 characters. The same key yields a different string per network
-// (generic "5…", Polkadot "1…", Kusama "C…"), so the prefix is not pinned.
+// ss58Shape is a cheap pre-filter for the SS58 form every Substrate chain
+// shares: base58 over a network prefix, a 32-byte public key and a checksum,
+// which lands at 46-48 characters. The same key yields a different string per
+// network (generic "5…", Polkadot "1…", Kusama "C…"), so the prefix is not
+// pinned. The checksum below is the actual authority.
 //
 // Moonbeam is the exception: it is in this adapter's chain list but addresses
 // there are EVM H160, so it cannot be reached by auto-discovery and needs its
 // chain named explicitly.
-var ss58Address = regexp.MustCompile(`^[1-9A-HJ-NP-Za-km-z]{46,48}$`)
+var ss58Shape = regexp.MustCompile(`^[1-9A-HJ-NP-Za-km-z]{46,48}$`)
+
+// ss58Prefix is the domain separator Substrate hashes before the payload.
+var ss58Prefix = []byte("SS58PRE")
 
 // HandlesAddress reports whether an address is SS58, routing accounts that
 // name no chain to this adapter.
+//
+// The shape alone is not enough to decide. A Solana pubkey is base58 over the
+// same alphabet and lands at 43-44 characters — only two short of the SS58
+// range — and both formats are otherwise indistinguishable by length. Routing
+// a Solana address here would not fail loudly: Subscan would answer "no such
+// account" and the position would silently drop to zero. So the address is
+// decoded and its checksum verified, which no foreign format can satisfy by
+// accident.
 func HandlesAddress(address string) bool {
-	return ss58Address.MatchString(address)
+	if !ss58Shape.MatchString(address) {
+		return false
+	}
+
+	decoded, err := base58.Decode(address)
+	if err != nil {
+		return false
+	}
+
+	// 1-byte prefix (network ids below 64) or 2-byte prefix, plus a 32-byte
+	// public key and a 2-byte checksum.
+	var prefixLen int
+	switch len(decoded) {
+	case 35:
+		prefixLen = 1
+	case 36:
+		prefixLen = 2
+	default:
+		return false
+	}
+	if prefixLen == 1 && decoded[0] >= 64 {
+		return false // ids from 64 up must use the two-byte form
+	}
+
+	body := decoded[:prefixLen+32]
+	want := decoded[prefixLen+32:]
+
+	hash := blake2b.Sum512(append(append([]byte{}, ss58Prefix...), body...))
+	return bytes.Equal(hash[:2], want)
 }
