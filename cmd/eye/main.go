@@ -22,6 +22,7 @@ import (
 	solanaadapter "github.com/foxcool/greedy-eye/internal/adapter/solana"
 	subscanadapter "github.com/foxcool/greedy-eye/internal/adapter/subscan"
 	tonapiadapter "github.com/foxcool/greedy-eye/internal/adapter/tonapi"
+	tzktadapter "github.com/foxcool/greedy-eye/internal/adapter/tzkt"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/scheduler"
@@ -197,6 +198,15 @@ func run() error {
 				},
 				Chains:         cosmosadapter.SupportedChains(),
 				HandlesAddress: cosmosadapter.HandlesAddress,
+			},
+			tzktadapter.ProviderName: {
+				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
+					return tzktadapter.NewWalletSyncer(
+						tzktadapter.NewClient(tzktadapter.Config{BaseURL: a.Data["base_url"]}),
+					), nil
+				},
+				Chains:         tzktadapter.SupportedChains(),
+				HandlesAddress: tzktadapter.HandlesAddress,
 			},
 		},
 		ExchangeSyncers: map[string]credentials.ExchangeSyncerFactory{
