@@ -15,6 +15,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	binanceadapter "github.com/foxcool/greedy-eye/internal/adapter/binance"
+	blockchairadapter "github.com/foxcool/greedy-eye/internal/adapter/blockchair"
 	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
 	cosmosadapter "github.com/foxcool/greedy-eye/internal/adapter/cosmos"
 	esploraadapter "github.com/foxcool/greedy-eye/internal/adapter/esplora"
@@ -207,6 +208,18 @@ func run() error {
 				},
 				Chains:         tzktadapter.SupportedChains(),
 				HandlesAddress: tzktadapter.HandlesAddress,
+			},
+			blockchairadapter.ProviderName: {
+				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
+					return blockchairadapter.NewWalletSyncer(
+						blockchairadapter.NewClient(blockchairadapter.Config{
+							APIKey:  a.Data["api_key"],
+							BaseURL: a.Data["base_url"],
+						}),
+					), nil
+				},
+				Chains:         blockchairadapter.SupportedChains(),
+				HandlesAddress: blockchairadapter.HandlesAddress,
 			},
 		},
 		ExchangeSyncers: map[string]credentials.ExchangeSyncerFactory{
