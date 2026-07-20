@@ -20,6 +20,7 @@ import (
 	cosmosadapter "github.com/foxcool/greedy-eye/internal/adapter/cosmos"
 	esploraadapter "github.com/foxcool/greedy-eye/internal/adapter/esplora"
 	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
+	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
 	solanaadapter "github.com/foxcool/greedy-eye/internal/adapter/solana"
 	subscanadapter "github.com/foxcool/greedy-eye/internal/adapter/subscan"
 	tonapiadapter "github.com/foxcool/greedy-eye/internal/adapter/tonapi"
@@ -98,13 +99,27 @@ func run() error {
 
 	mdStore := postgres.NewMarketDataStore(pool)
 
+	// One request budget per provider credential, shared by every client built
+	// from it. Clients are short-lived — the credentials resolver makes a new
+	// one per account, per sync — so the budget cannot live inside them: a
+	// sweep over three accounts would otherwise triple the rate the provider
+	// sees, which is exactly how the Subscan plan limit was tripped.
+	rateLimits := ratelimit.NewRegistry(rateLimitOverrides(config))
+
 	// Initialize price providers.
-	cgClient := coingecko.NewClient(coingecko.Config{APIKey: config.CoinGecko.APIKey, Pro: config.CoinGecko.Pro})
+	cgClient := coingecko.NewClient(coingecko.Config{
+		APIKey:    config.CoinGecko.APIKey,
+		Pro:       config.CoinGecko.Pro,
+		Transport: rateLimits.Transport(coingecko.ProviderName, config.CoinGecko.APIKey, nil),
+	})
 
 	// Initialize optional Moralis wallet syncer
 	var walletSyncer entity.WalletSyncer
 	if apiKey := config.Moralis.APIKey; apiKey != "" {
-		moralisClient := moralisadapter.NewClient(moralisadapter.Config{APIKey: apiKey})
+		moralisClient := moralisadapter.NewClient(moralisadapter.Config{
+			APIKey:    apiKey,
+			Transport: rateLimits.Transport(moralisadapter.ProviderName, apiKey, nil),
+		})
 		walletSyncer = moralisadapter.NewWalletSyncer(moralisClient)
 	}
 
@@ -135,6 +150,8 @@ func run() error {
 				APIKey:    config.Binance.APIKey,
 				APISecret: config.Binance.APISecret,
 				Sandbox:   config.Binance.Sandbox,
+				Transport: rateLimits.Transport(
+					binanceadapter.ProviderName, config.Binance.APIKey, nil),
 			}),
 		),
 	}
@@ -146,7 +163,11 @@ func run() error {
 			moralisadapter.ProviderName: {
 				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
 					return moralisadapter.NewWalletSyncer(
-						moralisadapter.NewClient(moralisadapter.Config{APIKey: a.Data["api_key"]}),
+						moralisadapter.NewClient(moralisadapter.Config{
+							APIKey: a.Data["api_key"],
+							Transport: rateLimits.Transport(
+								moralisadapter.ProviderName, a.Data["api_key"], nil),
+						}),
 					), nil
 				},
 				Chains:         moralisadapter.SupportedChains(),
@@ -155,7 +176,11 @@ func run() error {
 			subscanadapter.ProviderName: {
 				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
 					return subscanadapter.NewWalletSyncer(
-						subscanadapter.NewClient(subscanadapter.Config{APIKey: a.Data["api_key"]}),
+						subscanadapter.NewClient(subscanadapter.Config{
+							APIKey: a.Data["api_key"],
+							Transport: rateLimits.Transport(
+								subscanadapter.ProviderName, a.Data["api_key"], nil),
+						}),
 					), nil
 				},
 				Chains:         subscanadapter.SupportedChains(),
@@ -164,7 +189,11 @@ func run() error {
 			tonapiadapter.ProviderName: {
 				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
 					return tonapiadapter.NewWalletSyncer(
-						tonapiadapter.NewClient(tonapiadapter.Config{APIKey: a.Data["api_key"]}),
+						tonapiadapter.NewClient(tonapiadapter.Config{
+							APIKey: a.Data["api_key"],
+							Transport: rateLimits.Transport(
+								tonapiadapter.ProviderName, a.Data["api_key"], nil),
+						}),
 					), nil
 				},
 				Chains:         tonapiadapter.SupportedChains(),
@@ -173,7 +202,11 @@ func run() error {
 			solanaadapter.ProviderName: {
 				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
 					return solanaadapter.NewWalletSyncer(
-						solanaadapter.NewClient(solanaadapter.Config{APIKey: a.Data["api_key"]}),
+						solanaadapter.NewClient(solanaadapter.Config{
+							APIKey: a.Data["api_key"],
+							Transport: rateLimits.Transport(
+								solanaadapter.ProviderName, a.Data["api_key"], nil),
+						}),
 					), nil
 				},
 				Chains:         solanaadapter.SupportedChains(),
@@ -192,7 +225,9 @@ func run() error {
 			esploraadapter.ProviderName: {
 				Factory: func(_ *entity.Account) (entity.WalletSyncer, error) {
 					return esploraadapter.NewWalletSyncer(
-						esploraadapter.NewClient(esploraadapter.Config{}),
+						esploraadapter.NewClient(esploraadapter.Config{
+							Transport: rateLimits.Transport(esploraadapter.ProviderName, "", nil),
+						}),
 					), nil
 				},
 				Chains:         esploraadapter.SupportedChains(),
@@ -201,7 +236,9 @@ func run() error {
 			cosmosadapter.ProviderName: {
 				Factory: func(_ *entity.Account) (entity.WalletSyncer, error) {
 					return cosmosadapter.NewWalletSyncer(
-						cosmosadapter.NewClient(cosmosadapter.Config{}),
+						cosmosadapter.NewClient(cosmosadapter.Config{
+							Transport: rateLimits.Transport(cosmosadapter.ProviderName, "", nil),
+						}),
 					), nil
 				},
 				Chains:         cosmosadapter.SupportedChains(),
@@ -210,7 +247,9 @@ func run() error {
 			tzktadapter.ProviderName: {
 				Factory: func(_ *entity.Account) (entity.WalletSyncer, error) {
 					return tzktadapter.NewWalletSyncer(
-						tzktadapter.NewClient(tzktadapter.Config{}),
+						tzktadapter.NewClient(tzktadapter.Config{
+							Transport: rateLimits.Transport(tzktadapter.ProviderName, "", nil),
+						}),
 					), nil
 				},
 				Chains:         tzktadapter.SupportedChains(),
@@ -221,6 +260,8 @@ func run() error {
 					return blockchairadapter.NewWalletSyncer(
 						blockchairadapter.NewClient(blockchairadapter.Config{
 							APIKey: a.Data["api_key"],
+							Transport: rateLimits.Transport(
+								blockchairadapter.ProviderName, a.Data["api_key"], nil),
 						}),
 					), nil
 				},
@@ -233,20 +274,25 @@ func run() error {
 				return binanceadapter.NewExchangeSyncer(binanceadapter.NewClient(binanceadapter.Config{
 					APIKey:    a.Data["api_key"],
 					APISecret: a.Data["api_secret"],
+					Transport: rateLimits.Transport(
+						binanceadapter.ProviderName, a.Data["api_key"], nil),
 				})), nil
 			},
 		},
 		PriceProviders: map[string]credentials.PriceProviderFactory{
 			coingecko.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
 				return coingecko.NewProvider(coingecko.NewClient(coingecko.Config{
-					APIKey: a.Data["api_key"],
-					Pro:    a.Data["pro"] == "true",
+					APIKey:    a.Data["api_key"],
+					Pro:       a.Data["pro"] == "true",
+					Transport: rateLimits.Transport(coingecko.ProviderName, a.Data["api_key"], nil),
 				})), nil
 			},
 			binanceadapter.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
 				return binanceadapter.NewProvider(binanceadapter.NewClient(binanceadapter.Config{
 					APIKey:    a.Data["api_key"],
 					APISecret: a.Data["api_secret"],
+					Transport: rateLimits.Transport(
+						binanceadapter.ProviderName, a.Data["api_key"], nil),
 				})), nil
 			},
 		},
@@ -392,4 +438,18 @@ func loggingInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {
 			return resp, err
 		}
 	}
+}
+
+// rateLimitOverrides converts the operator-facing config section into the
+// limiter's own type. A provider absent here keeps its built-in default, so
+// the section is only ever a correction.
+func rateLimitOverrides(config *Config) map[string]ratelimit.Limit {
+	if len(config.RateLimit) == 0 {
+		return nil
+	}
+	out := make(map[string]ratelimit.Limit, len(config.RateLimit))
+	for provider, l := range config.RateLimit {
+		out[provider] = ratelimit.Limit{RPS: l.RPS, Burst: l.Burst}
+	}
+	return out
 }

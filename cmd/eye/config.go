@@ -48,6 +48,12 @@ type Config struct {
 		// encryption at rest (ADR-005). Empty = plaintext mode.
 		MasterKey string `koanf:"masterKey"`
 	} `koanf:"security"`
+	// RateLimit lets an operator override the built-in per-provider request
+	// budget, keyed by provider slug (subscan, coingecko, ...). Useful on a
+	// paid plan, or to dial a provider down after an enforcement notice
+	// without waiting for a release. Omitted providers use the defaults in
+	// internal/adapter/ratelimit.
+	RateLimit map[string]RateLimitConfig `koanf:"ratelimit"`
 	Scheduler struct {
 		Enabled bool `koanf:"enabled"`
 		// PriceFetchCron is the cron spec for periodic external price
@@ -56,6 +62,15 @@ type Config struct {
 		// keys, and a camelCase default key would shadow the env override.
 		PriceFetchCron string `koanf:"pricefetchcron"`
 	} `koanf:"scheduler"`
+}
+
+// RateLimitConfig is one provider's request budget.
+type RateLimitConfig struct {
+	// RPS is the sustained rate. Fractional values are meaningful.
+	RPS float64 `koanf:"rps"`
+	// Burst is how many requests may go out back-to-back. Zero means one:
+	// providers that meter per second are tripped by bursts, not by rate.
+	Burst int `koanf:"burst"`
 }
 
 // ServiceConfig is a config for a service

@@ -70,7 +70,6 @@ func TestCoinGeckoClient_GetTokenPricesByContract_KeylessSingleAddressMode(t *te
 	client := NewClient(Config{}) // no API key → one address per request
 	client.baseURL = srv.URL
 	client.httpClient = srv.Client()
-	client.rateLimit = time.Millisecond
 
 	addresses := []string{
 		goodAddr,

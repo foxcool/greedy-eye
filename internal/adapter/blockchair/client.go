@@ -26,6 +26,11 @@ const defaultBaseURL = "https://api.blockchair.com"
 type Config struct {
 	APIKey  string
 	BaseURL string
+
+	// Transport, when set, replaces the client's HTTP transport. The shared
+	// provider rate budget (internal/adapter/ratelimit) is injected here:
+	// clients are built per account and must not each pace themselves.
+	Transport http.RoundTripper
 }
 
 // Client talks to the Blockchair dashboards API.
@@ -44,7 +49,7 @@ func NewClient(cfg Config) *Client {
 	return &Client{
 		apiKey:     cfg.APIKey,
 		baseURL:    baseURL,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: 30 * time.Second, Transport: cfg.Transport},
 	}
 }
 

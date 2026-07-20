@@ -22,6 +22,11 @@ const ProviderName = "moralis"
 // Config holds Moralis client configuration
 type Config struct {
 	APIKey string
+
+	// Transport, when set, replaces the client's HTTP transport. The shared
+	// provider rate budget (internal/adapter/ratelimit) is injected here:
+	// clients are built per account and must not each pace themselves.
+	Transport http.RoundTripper
 }
 
 // Balance represents wallet balance for a token
@@ -66,7 +71,7 @@ func NewClient(cfg Config) *Client {
 	return &Client{
 		apiKey:     cfg.APIKey,
 		baseURL:    "https://deep-index.moralis.io/api/v2",
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: 30 * time.Second, Transport: cfg.Transport},
 	}
 }
 
