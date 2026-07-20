@@ -108,7 +108,9 @@ func createChecksum(values []byte) []byte {
 
 	checksum := make([]byte, 6)
 	for i := range 6 {
-		checksum[i] = byte(mod>>uint(5*(5-i))) & 31
+		// Mask to five bits before narrowing: the checksum is six base32
+		// digits, and converting first would rely on the truncation to do it.
+		checksum[i] = byte((mod >> uint(5*(5-i))) & 31)
 	}
 	return checksum
 }

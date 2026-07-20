@@ -30,7 +30,9 @@ const (
 // with its own accounts, and a wallet holding a Token-2022 asset would
 // otherwise report nothing for it.
 const (
-	tokenProgram     = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+	// #nosec G101 -- public on-chain program addresses, the same for everyone
+	tokenProgram = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+	// #nosec G101 -- public on-chain program address, not a credential
 	token2022Program = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 )
 
