@@ -43,7 +43,13 @@ type network struct {
 // same DOT or KSM as the relay's and merges into one position by symbol, which
 // is correct — it is the same asset, held on another chain.
 //
-// Reading the assets themselves needs a different endpoint and is not done yet.
+// The assets themselves ride in the same /api/scan/account/tokens response
+// this adapter already reads, under builtin/assets/erc20 — surfacing them is
+// personal-feb.10 and deliberately not done here.
+//
+// symbol and decimals are fallbacks only. Live balances carry their own symbol
+// and precision, which always win: a table that disagrees with the chain is
+// how a position gets silently rescaled (personal-feb.12).
 var networks = map[string]network{
 	"polkadot":          {host: "polkadot", symbol: "DOT", name: "Polkadot", decimals: 10},
 	"kusama":            {host: "kusama", symbol: "KSM", name: "Kusama", decimals: 12},
