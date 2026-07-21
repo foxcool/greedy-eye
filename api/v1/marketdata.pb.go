@@ -103,7 +103,14 @@ type Asset struct {
 	// cryptocurrency -> "crypto", forex -> "forex"; required otherwise.
 	Market *string `protobuf:"bytes,8,opt,name=market,proto3,oneof" json:"market,omitempty"`
 	// Quote currency/base where applicable.
-	Quote         *string `protobuf:"bytes,9,opt,name=quote,proto3,oneof" json:"quote,omitempty"`
+	Quote *string `protobuf:"bytes,9,opt,name=quote,proto3,oneof" json:"quote,omitempty"`
+	// Identity axis (scam-filtering): whether the asset is what it claims to be.
+	// "unknown" | "legit" | "suspect" | "scam" | "impersonation". Output-only;
+	// set by the scoring pass or by a user verdict (SetAssetVerdict).
+	IdentityVerdict *string `protobuf:"bytes,10,opt,name=identity_verdict,json=identityVerdict,proto3,oneof" json:"identity_verdict,omitempty"`
+	// Provenance of the verdict: "heuristic" | "provider:<name>" | "curated" |
+	// "user:<id>". A user verdict is terminal — rescoring never overwrites it.
+	VerdictSource *string `protobuf:"bytes,11,opt,name=verdict_source,json=verdictSource,proto3,oneof" json:"verdict_source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -197,6 +204,20 @@ func (x *Asset) GetMarket() string {
 func (x *Asset) GetQuote() string {
 	if x != nil && x.Quote != nil {
 		return *x.Quote
+	}
+	return ""
+}
+
+func (x *Asset) GetIdentityVerdict() string {
+	if x != nil && x.IdentityVerdict != nil {
+		return *x.IdentityVerdict
+	}
+	return ""
+}
+
+func (x *Asset) GetVerdictSource() string {
+	if x != nil && x.VerdictSource != nil {
+		return *x.VerdictSource
 	}
 	return ""
 }
@@ -1554,7 +1575,7 @@ var File_v1_marketdata_proto protoreflect.FileDescriptor
 
 const file_v1_marketdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13v1/marketdata.proto\x12\x06eye.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/api/annotations.proto\"\xd1\x02\n" +
+	"\x13v1/marketdata.proto\x12\x06eye.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/api/annotations.proto\"\xd5\x03\n" +
 	"\x05Asset\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12%\n" +
@@ -1566,10 +1587,15 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x1b\n" +
 	"\x06market\x18\b \x01(\tH\x01R\x06market\x88\x01\x01\x12\x19\n" +
-	"\x05quote\x18\t \x01(\tH\x02R\x05quote\x88\x01\x01B\t\n" +
+	"\x05quote\x18\t \x01(\tH\x02R\x05quote\x88\x01\x01\x12.\n" +
+	"\x10identity_verdict\x18\n" +
+	" \x01(\tH\x03R\x0fidentityVerdict\x88\x01\x01\x12*\n" +
+	"\x0everdict_source\x18\v \x01(\tH\x04R\rverdictSource\x88\x01\x01B\t\n" +
 	"\a_symbolB\t\n" +
 	"\a_marketB\b\n" +
-	"\x06_quote\"\xa9\x03\n" +
+	"\x06_quoteB\x13\n" +
+	"\x11_identity_verdictB\x11\n" +
+	"\x0f_verdict_source\"\xa9\x03\n" +
 	"\x05Price\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tsource_id\x18\x02 \x01(\tR\bsourceId\x12\x19\n" +

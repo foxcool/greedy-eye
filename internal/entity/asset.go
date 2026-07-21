@@ -65,8 +65,38 @@ type Asset struct {
 	// Market is the listing market/venue: "crypto" (global), "nasdaq", "moex".
 	Market string
 	// Quote is the quote currency where applicable ("" when not meaningful).
-	Quote     string
-	Tags      []string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Quote string
+	Tags  []string
+	// IdentityVerdict is the scam-filtering axis-1 judgement:
+	// "unknown" | "legit" | "suspect" | "scam" | "impersonation". Empty is
+	// treated as "unknown". Derives holdings.excluded for scam/impersonation.
+	IdentityVerdict string
+	// IdentityScore is the last automated score (0..1); nil for user verdicts
+	// or never-scored assets.
+	IdentityScore *float64
+	// IdentitySignals maps each signal that fired to its weight, for UI
+	// explainability; nil until first scored.
+	IdentitySignals map[string]float64
+	// VerdictSource is the verdict provenance: "heuristic" | "provider:<name>" |
+	// "curated" | "user:<id>". A user verdict is terminal for rescoring.
+	VerdictSource string
+	// VerdictSetAt is when the current verdict was set; nil if never.
+	VerdictSetAt *time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// AssetRiskFlag is a situational-risk flag on a real asset (scam-filtering
+// axis 2): exploit, depeg, freeze, delisting, sanctions. Unlike an identity
+// verdict it does not exclude the asset from sums — the value is real. ReviewAt
+// bounds a temporary flag so it does not hang forever.
+type AssetRiskFlag struct {
+	ID         string
+	AssetID    string
+	Kind       string
+	Note       string
+	ActionHint string
+	ReviewAt   *time.Time
+	SetBy      string
+	CreatedAt  time.Time
 }

@@ -40,6 +40,13 @@ message Asset {
   optional string market = 8;
   // Quote currency/base where applicable.
   optional string quote = 9;
+  // Identity axis (scam-filtering): whether the asset is what it claims to be.
+  // "unknown" | "legit" | "suspect" | "scam" | "impersonation". Output-only;
+  // set by the scoring pass or by a user verdict (SetAssetVerdict).
+  optional string identity_verdict = 10;
+  // Provenance of the verdict: "heuristic" | "provider:<name>" | "curated" |
+  // "user:<id>". A user verdict is terminal — rescoring never overwrites it.
+  optional string verdict_source = 11;
 }
 
 // Price represents the price action of an Asset against a base Asset

@@ -158,6 +158,35 @@ table "assets" {
     type = jsonb
     null = false
   }
+  // Identity axis (scam-filtering): whether the asset is what it claims to be.
+  // A permanent property, distinct from a real asset's situational risk
+  // (asset_risk_flags) and from a user's per-holding excluded decision.
+  // Values: unknown | legit | suspect | scam | impersonation.
+  column "identity_verdict" {
+    type    = character_varying
+    null    = false
+    default = "unknown"
+  }
+  // Last score (0..1) behind an automated verdict; null for user verdicts.
+  column "identity_score" {
+    type = numeric
+    null = true
+  }
+  // {signal: weight} that fired, for UI explainability. Null until first scored.
+  column "identity_signals" {
+    type = jsonb
+    null = true
+  }
+  // Provenance of the verdict: 'heuristic' | 'provider:<name>' | 'curated' |
+  // 'user:<id>'. A user verdict is terminal — rescoring never overwrites it.
+  column "verdict_source" {
+    type = character_varying
+    null = true
+  }
+  column "verdict_set_at" {
+    type = timestamptz
+    null = true
+  }
 
   primary_key {
     columns = [column.id]
@@ -175,6 +204,68 @@ table "assets" {
   index "asset_tags" {
     columns = [column.tags]
     type    = GIN
+  }
+}
+
+// Situational risk of a real asset (axis 2): exploit, depeg, frozen transfers,
+// deprecation, delisting, sanctions freeze. Temporary and about real value, so
+// unlike an identity verdict it does NOT exclude the asset from sums — the money
+// is real and action may be needed on it. Every flag carries a review_at so a
+// hack flag does not hang forever. Venue/account-level risk lives elsewhere
+// (personal-ejr); this table is per-asset.
+table "asset_risk_flags" {
+  schema = schema.public
+
+  column "id" {
+    type = uuid
+    null = false
+  }
+  column "created_at" {
+    type = timestamptz
+    null = false
+  }
+  column "asset_id" {
+    type = uuid
+    null = false
+  }
+  // Risk kind: exploit | depeg | frozen_transfers | deprecation | delisting |
+  // sanctions_freeze.
+  column "kind" {
+    type = character_varying
+    null = false
+  }
+  column "note" {
+    type = character_varying
+    null = true
+  }
+  // Derived action direction (axis 3): none | hold | exit_soon.
+  column "action_hint" {
+    type = character_varying
+    null = true
+  }
+  // Review or end date; required so a temporary flag is never permanent.
+  column "review_at" {
+    type = timestamptz
+    null = true
+  }
+  column "set_by" {
+    type = character_varying
+    null = true
+  }
+
+  primary_key {
+    columns = [column.id]
+  }
+
+  index "asset_risk_flag_asset_id" {
+    columns = [column.asset_id]
+  }
+
+  foreign_key "asset_risk_flags_assets" {
+    columns     = [column.asset_id]
+    ref_columns = [table.assets.column.id]
+    on_update   = NO_ACTION
+    on_delete   = CASCADE
   }
 }
 
