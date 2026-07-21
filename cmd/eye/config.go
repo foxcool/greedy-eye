@@ -61,6 +61,10 @@ type Config struct {
 		// Key is lowercase on purpose: env vars produce lowercase koanf
 		// keys, and a camelCase default key would shadow the env override.
 		PriceFetchCron string `koanf:"pricefetchcron"`
+		// RescoreCron is the cron spec for the catalogue identity-rescore job
+		// (scam-filtering). Empty disables it. Lowercase key for the same
+		// env-override reason as pricefetchcron.
+		RescoreCron string `koanf:"rescorecron"`
 	} `koanf:"scheduler"`
 }
 
@@ -97,6 +101,8 @@ func getConfig() (*Config, error) {
 		"server.port":              8080,
 		"scheduler.enabled":        true,
 		"scheduler.pricefetchcron": "*/15 * * * *",
+		// Daily at 03:00; catalogue identity rescore is cheap and idempotent.
+		"scheduler.rescorecron": "0 3 * * *",
 		"services": []any{
 			map[string]any{"type": ServiceConfigTypeMarketData},
 			map[string]any{"type": ServiceConfigTypePortfolio},

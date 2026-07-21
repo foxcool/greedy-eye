@@ -17,6 +17,7 @@ import (
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
+	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 )
 
 const (
@@ -45,11 +46,21 @@ type PriceFetcher interface {
 	FetchExternalPrices(ctx context.Context, req *connect.Request[apiv1.FetchExternalPricesRequest]) (*connect.Response[apiv1.FetchExternalPricesResponse], error)
 }
 
+// AssetRescorer rescores the catalogue for scam-filtering identity verdicts.
+// Satisfied by *marketdata.Handler; the concrete report is logged by the
+// rescorer itself, so the scheduler only needs the error.
+type AssetRescorer interface {
+	RescoreAssets(ctx context.Context) (marketdata.RescoreReport, error)
+}
+
 // Config holds scheduler settings.
 type Config struct {
 	// PriceFetchCron is the cron spec for the external price fetch job.
 	// Empty disables the job.
 	PriceFetchCron string
+	// RescoreCron is the cron spec for the catalogue identity-rescore job.
+	// Empty disables the job.
+	RescoreCron string
 }
 
 // ruleEntry tracks a scheduled rule so reloads can diff instead of rebuild.
@@ -62,31 +73,38 @@ type ruleEntry struct {
 type Scheduler struct {
 	cfg    Config
 	cron   *cron.Cron
-	rules  RuleStore
-	exec   RuleExecutor
-	prices PriceFetcher
-	log    *slog.Logger
+	rules    RuleStore
+	exec     RuleExecutor
+	prices   PriceFetcher
+	rescorer AssetRescorer
+	log      *slog.Logger
 
 	mu      sync.Mutex
 	entries map[string]ruleEntry // rule ID -> scheduled entry
 }
 
 // New validates the config and builds a stopped scheduler.
-func New(cfg Config, rules RuleStore, exec RuleExecutor, prices PriceFetcher, log *slog.Logger) (*Scheduler, error) {
+func New(cfg Config, rules RuleStore, exec RuleExecutor, prices PriceFetcher, rescorer AssetRescorer, log *slog.Logger) (*Scheduler, error) {
 	if cfg.PriceFetchCron != "" {
 		if _, err := cron.ParseStandard(cfg.PriceFetchCron); err != nil {
 			return nil, fmt.Errorf("invalid priceFetchCron %q: %w", cfg.PriceFetchCron, err)
 		}
 	}
+	if cfg.RescoreCron != "" {
+		if _, err := cron.ParseStandard(cfg.RescoreCron); err != nil {
+			return nil, fmt.Errorf("invalid rescoreCron %q: %w", cfg.RescoreCron, err)
+		}
+	}
 	cl := &cronLogger{log: log}
 	return &Scheduler{
-		cfg:     cfg,
-		cron:    cron.New(cron.WithChain(cron.Recover(cl), cron.SkipIfStillRunning(cl))),
-		rules:   rules,
-		exec:    exec,
-		prices:  prices,
-		log:     log,
-		entries: make(map[string]ruleEntry),
+		cfg:      cfg,
+		cron:     cron.New(cron.WithChain(cron.Recover(cl), cron.SkipIfStillRunning(cl))),
+		rules:    rules,
+		exec:     exec,
+		prices:   prices,
+		rescorer: rescorer,
+		log:      log,
+		entries:  make(map[string]ruleEntry),
 	}, nil
 }
 
@@ -97,6 +115,11 @@ func (s *Scheduler) Start() error {
 	if s.cfg.PriceFetchCron != "" {
 		if _, err := s.cron.AddFunc(s.cfg.PriceFetchCron, s.fetchPrices); err != nil {
 			return fmt.Errorf("register price fetch job: %w", err)
+		}
+	}
+	if s.cfg.RescoreCron != "" && s.rescorer != nil {
+		if _, err := s.cron.AddFunc(s.cfg.RescoreCron, s.rescoreAssets); err != nil {
+			return fmt.Errorf("register asset rescore job: %w", err)
 		}
 	}
 	if _, err := s.cron.AddFunc(ruleReloadSpec, func() { s.reloadRules(context.Background()) }); err != nil {

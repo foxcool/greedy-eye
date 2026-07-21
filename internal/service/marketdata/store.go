@@ -21,6 +21,10 @@ type Store interface {
 	UpdateAsset(ctx context.Context, asset *entity.Asset, fields []string) (*entity.Asset, error)
 	DeleteAsset(ctx context.Context, id string) error
 	ListAssets(ctx context.Context, opts ListAssetsOpts) ([]*entity.Asset, string, error)
+	// SetAssetVerdict writes an identity verdict (scam-filtering axis 1). A user
+	// verdict (source "user:*") is terminal: an automated write never overwrites
+	// one. The bool reports whether the row was written.
+	SetAssetVerdict(ctx context.Context, assetID, verdict string, score *float64, signals map[string]float64, source string) (bool, error)
 
 	// Prices
 	CreatePrice(ctx context.Context, price *entity.StoredPrice) (*entity.StoredPrice, error)

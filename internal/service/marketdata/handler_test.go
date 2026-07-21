@@ -76,6 +76,11 @@ func (m *mockStore) DeleteAsset(ctx context.Context, id string) error {
 	return m.Called(ctx, id).Error(0)
 }
 
+func (m *mockStore) SetAssetVerdict(ctx context.Context, assetID, verdict string, score *float64, signals map[string]float64, source string) (bool, error) {
+	args := m.Called(ctx, assetID, verdict, score, signals, source)
+	return args.Bool(0), args.Error(1)
+}
+
 func (m *mockStore) ListAssets(ctx context.Context, opts ListAssetsOpts) ([]*entity.Asset, string, error) {
 	args := m.Called(ctx, opts)
 	if v := args.Get(0); v != nil {

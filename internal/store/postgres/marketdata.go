@@ -32,7 +32,8 @@ func NewMarketDataStore(pool *pgxpool.Pool) *MarketDataStore {
 }
 
 // assetColumns is the canonical column list scanned by scanAsset.
-const assetColumns = "id, symbol, name, type, market, quote, tags, created_at, updated_at"
+const assetColumns = "id, symbol, name, type, market, quote, tags, created_at, updated_at, " +
+	"identity_verdict, identity_score, identity_signals, verdict_source, verdict_set_at"
 
 type rowScanner interface {
 	Scan(dest ...any) error
@@ -44,6 +45,8 @@ func scanAsset(row rowScanner) (*entity.Asset, error) {
 	var typeStr string
 	var quote *string
 	var tagsJSON []byte
+	var signalsJSON []byte
+	var verdictSource *string
 
 	if err := row.Scan(
 		&asset.ID,
@@ -55,6 +58,11 @@ func scanAsset(row rowScanner) (*entity.Asset, error) {
 		&tagsJSON,
 		&asset.CreatedAt,
 		&asset.UpdatedAt,
+		&asset.IdentityVerdict,
+		&asset.IdentityScore,
+		&signalsJSON,
+		&verdictSource,
+		&asset.VerdictSetAt,
 	); err != nil {
 		return nil, err
 	}
@@ -63,8 +71,16 @@ func scanAsset(row rowScanner) (*entity.Asset, error) {
 	if quote != nil {
 		asset.Quote = *quote
 	}
+	if verdictSource != nil {
+		asset.VerdictSource = *verdictSource
+	}
 	if err := json.Unmarshal(tagsJSON, &asset.Tags); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal tags: %w", err)
+	}
+	if len(signalsJSON) > 0 {
+		if err := json.Unmarshal(signalsJSON, &asset.IdentitySignals); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal identity signals: %w", err)
+		}
 	}
 	return &asset, nil
 }
@@ -332,6 +348,43 @@ func (s *MarketDataStore) UpdateAsset(ctx context.Context, asset *entity.Asset, 
 	}
 
 	return result, nil
+}
+
+// SetAssetVerdict writes an identity verdict (scam-filtering axis 1) with its
+// score, signals and provenance. A user verdict (source "user:*") is terminal:
+// an automated write never overwrites one, while a user write always wins. The
+// bool reports whether the row was actually written, so a rescoring pass can
+// count what it changed versus what it left to a human decision.
+func (s *MarketDataStore) SetAssetVerdict(ctx context.Context, assetID, verdict string, score *float64, signals map[string]float64, source string) (bool, error) {
+	if !isValidUUID(assetID) {
+		return false, fmt.Errorf("%w: invalid asset ID format", store.ErrInvalidArgument)
+	}
+	if verdict == "" || source == "" {
+		return false, fmt.Errorf("%w: verdict and source are required", store.ErrInvalidArgument)
+	}
+
+	var signalsJSON []byte
+	if signals != nil {
+		var err error
+		if signalsJSON, err = json.Marshal(signals); err != nil {
+			return false, fmt.Errorf("failed to marshal identity signals: %w", err)
+		}
+	}
+
+	// The guard lets a user source through unconditionally and blocks any other
+	// source from clobbering an existing user verdict.
+	const query = `
+		UPDATE assets
+		SET identity_verdict = $2, identity_score = $3, identity_signals = $4,
+		    verdict_source = $5, verdict_set_at = NOW(), updated_at = NOW()
+		WHERE id = $1
+		  AND ($5 LIKE 'user:%' OR verdict_source IS NULL OR verdict_source NOT LIKE 'user:%')`
+
+	tag, err := s.pool.Exec(ctx, query, assetID, verdict, score, signalsJSON, source)
+	if err != nil {
+		return false, fmt.Errorf("failed to set asset verdict: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 // DeleteAsset deletes an asset by ID.

@@ -349,15 +349,19 @@ func run() error {
 	// Start background scheduler (periodic rules + price fetch)
 	var sched *scheduler.Scheduler
 	if config.Scheduler.Enabled {
-		sched, err = scheduler.New(scheduler.Config{PriceFetchCron: config.Scheduler.PriceFetchCron},
-			automationStore, automationHandler, mdHandler, log)
+		sched, err = scheduler.New(scheduler.Config{
+			PriceFetchCron: config.Scheduler.PriceFetchCron,
+			RescoreCron:    config.Scheduler.RescoreCron,
+		}, automationStore, automationHandler, mdHandler, mdHandler, log)
 		if err != nil {
 			return fmt.Errorf("init scheduler: %w", err)
 		}
 		if err := sched.Start(); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}
-		log.Info("scheduler started", slog.String("price_fetch_cron", config.Scheduler.PriceFetchCron))
+		log.Info("scheduler started",
+			slog.String("price_fetch_cron", config.Scheduler.PriceFetchCron),
+			slog.String("rescore_cron", config.Scheduler.RescoreCron))
 	}
 
 	// Create server with h2c (HTTP/2 cleartext) support for Connect
