@@ -207,6 +207,68 @@ table "assets" {
   }
 }
 
+// Maps an asset to its identifier in an external namespace: an on-chain
+// contract/mint, a provider coin id (coingecko), a broker FIGI. Identity on a
+// chain is the contract, not the symbol — this table lets sync resolve a token
+// by its contract so a scam clone of a real ticker cannot merge into the real
+// asset (personal-avm, personal-iyr). source namespaces the ref: "onchain:<chain>"
+// for a contract/mint, "coingecko"/"cmc" for a provider id. UNIQUE(source, ref)
+// makes the same address on two chains two distinct identities.
+table "asset_external_refs" {
+  schema = schema.public
+
+  column "id" {
+    type = uuid
+    null = false
+  }
+  column "created_at" {
+    type = timestamptz
+    null = false
+  }
+  column "asset_id" {
+    type = uuid
+    null = false
+  }
+  // Namespace of the ref: "onchain:<chain>" (contract/mint), "coingecko", "cmc",
+  // broker id spaces.
+  column "source" {
+    type = character_varying
+    null = false
+  }
+  // The external identifier within source (contract address, mint, coin id).
+  column "ref" {
+    type = character_varying
+    null = false
+  }
+  // How the mapping was made: auto | manual | seed. A manual link is terminal —
+  // auto-discovery never overwrites it.
+  column "origin" {
+    type    = character_varying
+    null    = false
+    default = "auto"
+  }
+
+  primary_key {
+    columns = [column.id]
+  }
+
+  index "asset_external_ref_source_ref" {
+    columns = [column.source, column.ref]
+    unique  = true
+  }
+
+  index "asset_external_ref_asset_id" {
+    columns = [column.asset_id]
+  }
+
+  foreign_key "asset_external_refs_assets" {
+    columns     = [column.asset_id]
+    ref_columns = [table.assets.column.id]
+    on_update   = NO_ACTION
+    on_delete   = CASCADE
+  }
+}
+
 // Situational risk of a real asset (axis 2): exploit, depeg, frozen transfers,
 // deprecation, delisting, sanctions freeze. Temporary and about real value, so
 // unlike an identity verdict it does NOT exclude the asset from sums — the money

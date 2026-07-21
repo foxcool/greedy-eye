@@ -387,6 +387,65 @@ func (s *MarketDataStore) SetAssetVerdict(ctx context.Context, assetID, verdict 
 	return tag.RowsAffected() > 0, nil
 }
 
+// FindAssetIDByExternalRef resolves an asset by its identifier in an external
+// namespace (a contract on a chain, a provider coin id). This is the
+// contract-identity lookup the sync path uses so a scam clone of a real ticker
+// resolves to its own asset, not the real one. Returns ErrNotFound when the ref
+// is unmapped.
+func (s *MarketDataStore) FindAssetIDByExternalRef(ctx context.Context, source, ref string) (string, error) {
+	if source == "" || ref == "" {
+		return "", fmt.Errorf("%w: source and ref are required", store.ErrInvalidArgument)
+	}
+	var assetID string
+	err := s.pool.QueryRow(ctx,
+		`SELECT asset_id FROM asset_external_refs WHERE source = $1 AND ref = $2`,
+		source, ref,
+	).Scan(&assetID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("%w: external ref %s/%s", store.ErrNotFound, source, ref)
+		}
+		return "", fmt.Errorf("failed to find asset by external ref: %w", err)
+	}
+	return assetID, nil
+}
+
+// CreateAssetExternalRef maps an asset to an external identifier. A conflicting
+// (source, ref) is left untouched — identity is stable once bound, and a manual
+// link must never be silently replaced by an auto one. ErrConstraint signals the
+// caller a mapping already exists.
+func (s *MarketDataStore) CreateAssetExternalRef(ctx context.Context, ref *entity.AssetExternalRef) (*entity.AssetExternalRef, error) {
+	if ref == nil || ref.AssetID == "" || ref.Source == "" || ref.Ref == "" {
+		return nil, fmt.Errorf("%w: asset_id, source and ref are required", store.ErrInvalidArgument)
+	}
+	if !isValidUUID(ref.AssetID) {
+		return nil, fmt.Errorf("%w: invalid asset ID format", store.ErrInvalidArgument)
+	}
+	if ref.Origin == "" {
+		ref.Origin = entity.RefOriginAuto
+	}
+
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate ID: %w", err)
+	}
+	ref.ID = id.String()
+
+	err = s.pool.QueryRow(ctx,
+		`INSERT INTO asset_external_refs (id, asset_id, source, ref, origin, created_at)
+		 VALUES ($1, $2, $3, $4, $5, NOW())
+		 RETURNING created_at`,
+		ref.ID, ref.AssetID, ref.Source, ref.Ref, ref.Origin,
+	).Scan(&ref.CreatedAt)
+	if err != nil {
+		if isConstraintError(err) {
+			return nil, fmt.Errorf("%w: %v", store.ErrConstraint, err)
+		}
+		return nil, fmt.Errorf("failed to create asset external ref: %w", err)
+	}
+	return ref, nil
+}
+
 // DeleteAsset deletes an asset by ID.
 func (s *MarketDataStore) DeleteAsset(ctx context.Context, id string) error {
 	if id == "" {

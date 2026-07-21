@@ -86,6 +86,32 @@ type Asset struct {
 	UpdatedAt    time.Time
 }
 
+// AssetExternalRef maps an asset to its identifier in an external namespace
+// (an on-chain contract/mint, a provider coin id, a broker FIGI). Identity on a
+// chain is the contract, not the symbol, so sync resolves a token by (Source,
+// Ref) and a scam clone of a real ticker cannot merge into the real asset.
+type AssetExternalRef struct {
+	ID        string
+	AssetID   string
+	Source    string // "onchain:<chain>", "coingecko", "cmc", ...
+	Ref       string // contract address, mint, coin id
+	Origin    string // "auto" | "manual" | "seed"
+	CreatedAt time.Time
+}
+
+// External-ref origins. A manual link is terminal for auto-discovery.
+const (
+	RefOriginAuto   = "auto"
+	RefOriginManual = "manual"
+	RefOriginSeed   = "seed"
+)
+
+// OnchainSource builds the external-ref source namespace for a chain's
+// contract/mint space, keeping the same address on two chains distinct.
+func OnchainSource(chain string) string {
+	return "onchain:" + strings.ToLower(strings.TrimSpace(chain))
+}
+
 // AssetRiskFlag is a situational-risk flag on a real asset (scam-filtering
 // axis 2): exploit, depeg, freeze, delisting, sanctions. Unlike an identity
 // verdict it does not exclude the asset from sums — the value is real. ReviewAt

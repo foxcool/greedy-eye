@@ -81,6 +81,19 @@ func (m *mockStore) SetAssetVerdict(ctx context.Context, assetID, verdict string
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *mockStore) FindAssetIDByExternalRef(ctx context.Context, source, ref string) (string, error) {
+	args := m.Called(ctx, source, ref)
+	return args.String(0), args.Error(1)
+}
+
+func (m *mockStore) CreateAssetExternalRef(ctx context.Context, ref *entity.AssetExternalRef) (*entity.AssetExternalRef, error) {
+	args := m.Called(ctx, ref)
+	if v := args.Get(0); v != nil {
+		return v.(*entity.AssetExternalRef), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockStore) ListAssets(ctx context.Context, opts ListAssetsOpts) ([]*entity.Asset, string, error) {
 	args := m.Called(ctx, opts)
 	if v := args.Get(0); v != nil {

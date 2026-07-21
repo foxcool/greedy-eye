@@ -25,6 +25,12 @@ type Store interface {
 	// verdict (source "user:*") is terminal: an automated write never overwrites
 	// one. The bool reports whether the row was written.
 	SetAssetVerdict(ctx context.Context, assetID, verdict string, score *float64, signals map[string]float64, source string) (bool, error)
+	// FindAssetIDByExternalRef resolves an asset by its identifier in an external
+	// namespace (contract on a chain, provider coin id). ErrNotFound when unmapped.
+	FindAssetIDByExternalRef(ctx context.Context, source, ref string) (string, error)
+	// CreateAssetExternalRef maps an asset to an external identifier; a
+	// conflicting (source, ref) yields ErrConstraint (identity is stable).
+	CreateAssetExternalRef(ctx context.Context, ref *entity.AssetExternalRef) (*entity.AssetExternalRef, error)
 
 	// Prices
 	CreatePrice(ctx context.Context, price *entity.StoredPrice) (*entity.StoredPrice, error)
