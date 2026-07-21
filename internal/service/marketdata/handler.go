@@ -152,6 +152,9 @@ func (h *Handler) ListAssets(ctx context.Context, req *connect.Request[apiv1.Lis
 	if req.Msg.PageToken != nil {
 		opts.PageToken = *req.Msg.PageToken
 	}
+	if req.Msg.IdentityVerdict != nil {
+		opts.IdentityVerdict = *req.Msg.IdentityVerdict
+	}
 
 	assets, nextPageToken, err := h.store.ListAssets(ctx, opts)
 	if err != nil {
@@ -516,6 +519,46 @@ func (h *Handler) scoreAndPersistVerdict(ctx context.Context, a *entity.Asset, r
 	return string(res.Verdict)
 }
 
+// settableVerdicts are the identity verdicts a human may assign. "unknown" is
+// the never-scored default and is not a judgement, so it cannot be set.
+var settableVerdicts = map[string]bool{
+	string(scamfilter.VerdictLegit):         true,
+	string(scamfilter.VerdictSuspect):       true,
+	string(scamfilter.VerdictScam):          true,
+	string(scamfilter.VerdictImpersonation): true,
+}
+
+// SetAssetVerdict records a human identity verdict, provenanced to the user so
+// the automated scorer never overwrites it. Admin-only until per-asset RBAC
+// lands (personal-rme).
+func (h *Handler) SetAssetVerdict(ctx context.Context, req *connect.Request[apiv1.SetAssetVerdictRequest]) (*connect.Response[apiv1.Asset], error) {
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
+	}
+	if !user.IsAdmin() {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("setting an asset verdict is admin-only"))
+	}
+	if req.Msg.AssetId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset_id is required"))
+	}
+	verdict := req.Msg.Verdict
+	if !settableVerdicts[verdict] {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("verdict must be one of legit, suspect, scam, impersonation; got %q", verdict))
+	}
+
+	// A user verdict carries no automated score/signals and is terminal.
+	if _, err := h.store.SetAssetVerdict(ctx, req.Msg.AssetId, verdict, nil, nil, "user:"+user.ID); err != nil {
+		return nil, toConnectError(err)
+	}
+	updated, err := h.store.GetAsset(ctx, req.Msg.AssetId)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+	return connect.NewResponse(assetToProto(updated)), nil
+}
+
 // bindExternalRef maps a contract identity to an asset, best-effort: a conflict
 // means the ref is already bound (identity is stable), which is not an error for
 // the sync path. Other failures are logged, not surfaced — a missing mapping
@@ -660,15 +703,17 @@ func assetFromProto(p *apiv1.Asset) *entity.Asset {
 
 func assetToProto(e *entity.Asset) *apiv1.Asset {
 	return &apiv1.Asset{
-		Id:        e.ID,
-		Name:      e.Name,
-		Symbol:    optionalString(e.Symbol),
-		Type:      apiv1.AssetType(e.Type),
-		Market:    optionalString(e.Market),
-		Quote:     optionalString(e.Quote),
-		Tags:      e.Tags,
-		CreatedAt: timestamppb.New(e.CreatedAt),
-		UpdatedAt: timestamppb.New(e.UpdatedAt),
+		Id:              e.ID,
+		Name:            e.Name,
+		Symbol:          optionalString(e.Symbol),
+		Type:            apiv1.AssetType(e.Type),
+		Market:          optionalString(e.Market),
+		Quote:           optionalString(e.Quote),
+		Tags:            e.Tags,
+		IdentityVerdict: optionalString(e.IdentityVerdict),
+		VerdictSource:   optionalString(e.VerdictSource),
+		CreatedAt:       timestamppb.New(e.CreatedAt),
+		UpdatedAt:       timestamppb.New(e.UpdatedAt),
 	}
 }
 

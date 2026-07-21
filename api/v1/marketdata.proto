@@ -133,6 +133,16 @@ service MarketDataService {
     };
   }
 
+  // Set a human identity verdict on an asset (scam-filtering). A user verdict
+  // is terminal: the automated scorer never overwrites it. Admin-only until
+  // per-asset RBAC lands (personal-rme).
+  rpc SetAssetVerdict(SetAssetVerdictRequest) returns (Asset) {
+    option (google.api.http) = {
+      post: "/api/v1/assets/{asset_id}/verdict"
+      body: "*"
+    };
+  }
+
   // --- Price CRUD ---
   rpc CreatePrice(CreatePriceRequest) returns (Price) {
     option (google.api.http) = {
@@ -212,6 +222,10 @@ message ListAssetsRequest {
   optional int32 page_size = 1;
   optional string page_token = 2;
   repeated string tags = 3;
+  // Filter by identity verdict (scam-filtering): "unknown" | "legit" |
+  // "suspect" | "scam" | "impersonation". Empty returns all. Drives the
+  // Quarantine view.
+  optional string identity_verdict = 4;
 }
 
 message ListAssetsResponse {
@@ -261,6 +275,12 @@ message FindOrCreateAssetResponse {
   Asset asset = 1;
   // True when the asset was created (or would be, in a dry run).
   bool created = 2;
+}
+
+message SetAssetVerdictRequest {
+  string asset_id = 1;
+  // "legit" | "suspect" | "scam" | "impersonation". "unknown" is not settable.
+  string verdict = 2;
 }
 
 // =============================================================================

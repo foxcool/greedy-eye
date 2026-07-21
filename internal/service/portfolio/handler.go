@@ -266,10 +266,12 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 		quoteAssetID = defaultQuoteAsset
 	}
 
+	// Fetch all holdings (excluded included) and partition in code so the total
+	// can exclude the quarantined ones while still disclosing them — a silently
+	// shrunk total looks like a real outflow.
 	holdings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{
-		PortfolioID:  req.Msg.PortfolioId,
-		PageSize:     1000,
-		HideExcluded: true,
+		PortfolioID: req.Msg.PortfolioId,
+		PageSize:    1000,
 	})
 	if err != nil {
 		return nil, toConnectError(err)
@@ -277,11 +279,21 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 
 	const resultDecimals = 2
 	total := decimal.Zero
+	excludedTotal := decimal.Zero
+	var excludedCount uint32
 
 	for _, hld := range holdings {
 		unit, ok, err := h.unitPrice(ctx, hld.AssetID, quoteAssetID)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get price for %s: %w", hld.AssetID, err))
+		}
+		if hld.Excluded {
+			// Count every quarantined holding; add its value only when priced.
+			excludedCount++
+			if ok {
+				excludedTotal = excludedTotal.Add(hld.Amount.Shift(-decI32(hld.Decimals)).Mul(unit))
+			}
+			continue
 		}
 		if !ok {
 			continue // no price path for this asset → skip
@@ -293,14 +305,18 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 	}
 
 	// Convert to result decimals (e.g., 2 for USD cents) as a raw integer decimal string.
-	resultAmount := total.Mul(decimal.New(1, int32(resultDecimals))).Round(0).String()
+	scale := decimal.New(1, int32(resultDecimals))
+	resultAmount := total.Mul(scale).Round(0).String()
+	excludedAmount := excludedTotal.Mul(scale).Round(0).String()
 
 	return connect.NewResponse(&apiv1.PortfolioValueResponse{
-		PortfolioId:      req.Msg.PortfolioId,
-		QuoteAssetId:     quoteAssetID,
-		TotalValueAmount: resultAmount,
-		Decimals:         resultDecimals,
-		CalculationTime:  timestamppb.New(time.Now()),
+		PortfolioId:         req.Msg.PortfolioId,
+		QuoteAssetId:        quoteAssetID,
+		TotalValueAmount:    resultAmount,
+		Decimals:            resultDecimals,
+		CalculationTime:     timestamppb.New(time.Now()),
+		ExcludedCount:       excludedCount,
+		ExcludedValueAmount: excludedAmount,
 	}), nil
 }
 

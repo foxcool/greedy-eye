@@ -500,6 +500,12 @@ func (s *MarketDataStore) ListAssets(ctx context.Context, opts marketdata.ListAs
 		argIdx++
 	}
 
+	if opts.IdentityVerdict != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("identity_verdict = $%d", argIdx))
+		args = append(args, opts.IdentityVerdict)
+		argIdx++
+	}
+
 	whereClause := ""
 	if len(whereClauses) > 0 {
 		whereClause = "WHERE " + strings.Join(whereClauses, " AND ")

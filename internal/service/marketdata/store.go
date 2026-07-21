@@ -49,6 +49,8 @@ type ListAssetsOpts struct {
 	PageSize  int
 	PageToken string
 	Tags      []string
+	// IdentityVerdict filters by scam-filtering verdict when non-empty.
+	IdentityVerdict string
 }
 
 // ListPriceHistoryOpts contains options for listing price history.

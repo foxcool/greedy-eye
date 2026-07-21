@@ -934,6 +934,42 @@ func TestCalculatePortfolioValue_CrossRate(t *testing.T) {
 	assert.Equal(t, uint32(2), resp.Msg.Decimals)
 }
 
+// TestCalculatePortfolioValue_DisclosesExcluded: a quarantined holding stays out
+// of the total but is disclosed as excluded count and value, so the number never
+// silently diverges from the wallet.
+func TestCalculatePortfolioValue_DisclosesExcluded(t *testing.T) {
+	const (
+		legitAsset = "00000000-0000-0000-0000-0000000000a1"
+		scamAsset  = "00000000-0000-0000-0000-0000000000a2"
+	)
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	// Both holdings come back; the store no longer hides excluded here.
+	s.On("ListHoldings", mock.Anything, mock.MatchedBy(func(o ListHoldingsOpts) bool {
+		return !o.HideExcluded
+	})).Return([]*entity.Holding{
+		{ID: "h1", AssetID: legitAsset, Amount: decimal.NewFromInt(100000000), Decimals: 8},              // 1.0
+		{ID: "h2", AssetID: scamAsset, Amount: decimal.NewFromInt(500000000), Decimals: 8, Excluded: true}, // 5.0, quarantined
+	}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
+		return r.Msg.AssetId == legitAsset && r.Msg.BaseAssetId == "USD"
+	})).Return(connect.NewResponse(&apiv1.Price{Last: "300000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 3.0
+	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
+		return r.Msg.AssetId == scamAsset && r.Msg.BaseAssetId == "USD"
+	})).Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 1.0
+
+	h := newHandler(s).WithMarketDataClient(md)
+	resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
+		PortfolioId: testPortfolioID,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "300", resp.Msg.TotalValueAmount, "only the legit 1.0 × 3.0 counts")
+	assert.Equal(t, uint32(1), resp.Msg.ExcludedCount)
+	assert.Equal(t, "500", resp.Msg.ExcludedValueAmount, "quarantined 5.0 × 1.0 disclosed")
+}
+
 // --- Tests: Stubs return Unimplemented ---
 
 func TestStubs_ReturnUnimplemented(t *testing.T) {

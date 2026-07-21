@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
@@ -592,6 +593,42 @@ func TestFindOrCreateAsset_BindsRefOnCreate(t *testing.T) {
 	assert.True(t, resp.Msg.Created)
 	assert.Equal(t, "id-2", resp.Msg.Asset.Id)
 	s.AssertExpectations(t)
+}
+
+func TestSetAssetVerdict_AdminSetsUserVerdict(t *testing.T) {
+	s := &mockStore{}
+	s.On("SetAssetVerdict", mock.Anything, "id-1", "scam",
+		(*float64)(nil), map[string]float64(nil), "user:admin-1").Return(true, nil)
+	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
+	h := newHandler(s)
+
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "admin-1", Roles: []string{"admin"}})
+	resp, err := h.SetAssetVerdict(ctx, connect.NewRequest(&apiv1.SetAssetVerdictRequest{
+		AssetId: "id-1", Verdict: "scam",
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "id-1", resp.Msg.Id)
+	s.AssertExpectations(t)
+}
+
+func TestSetAssetVerdict_NonAdminDenied(t *testing.T) {
+	h := newHandler(&mockStore{})
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "u-1"})
+	_, err := h.SetAssetVerdict(ctx, connect.NewRequest(&apiv1.SetAssetVerdictRequest{
+		AssetId: "id-1", Verdict: "scam",
+	}))
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+}
+
+func TestSetAssetVerdict_RejectsUnknownVerdict(t *testing.T) {
+	h := newHandler(&mockStore{})
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "admin-1", Roles: []string{"admin"}})
+	for _, v := range []string{"unknown", "", "bogus"} {
+		_, err := h.SetAssetVerdict(ctx, connect.NewRequest(&apiv1.SetAssetVerdictRequest{
+			AssetId: "id-1", Verdict: v,
+		}))
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), "verdict %q", v)
+	}
 }
 
 func TestFindOrCreateAsset_StockRequiresMarket(t *testing.T) {
