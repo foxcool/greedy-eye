@@ -400,8 +400,33 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("market is required for this asset type"))
 	}
 
+	refSource := strings.TrimSpace(req.Msg.GetExternalRefSource())
+	ref := strings.TrimSpace(req.Msg.GetExternalRef())
+	hasRef := refSource != "" && ref != ""
+
+	// Resolve by external ref first: a token's contract is its identity, so a
+	// bound contract wins over symbol matching and a scam clone of a real ticker
+	// stays its own asset instead of resolving to the real one.
+	if hasRef {
+		if assetID, ferr := h.store.FindAssetIDByExternalRef(ctx, refSource, ref); ferr == nil {
+			if a, gerr := h.store.GetAsset(ctx, assetID); gerr == nil {
+				return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: assetToProto(a)}), nil
+			}
+			// A ref pointing at a missing asset should not happen (FK CASCADE);
+			// fall through to identity resolution rather than fail the sync.
+		} else if !errors.Is(ferr, store.ErrNotFound) {
+			return nil, toConnectError(ferr)
+		}
+	}
+
 	found, err := h.store.FindAssetByIdentity(ctx, symbol, market, typ)
 	if err == nil {
+		// Bind the contract to the resolved asset so the next sync short-circuits
+		// on the ref (and cross-chain contracts of the same symbol collapse onto
+		// one asset).
+		if hasRef {
+			h.bindExternalRef(ctx, found.ID, refSource, ref)
+		}
 		return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: assetToProto(found)}), nil
 	}
 	if !errors.Is(err, store.ErrNotFound) {
@@ -417,24 +442,54 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 	if req.Msg.Name != nil && strings.TrimSpace(*req.Msg.Name) != "" {
 		name = strings.TrimSpace(*req.Msg.Name)
 	}
+	// Mirror the contract as a tag on an on-chain create so the price providers
+	// that look tokens up by address (coingecko) keep resolving; the external ref
+	// is the identity, the tag is the pricing hint.
+	tags := []string{}
+	if hasRef && strings.HasPrefix(refSource, "onchain:") {
+		tags = append(tags, "contract:"+ref)
+	}
 	created, err := h.store.CreateAsset(ctx, &entity.Asset{
 		Symbol: symbol,
 		Name:   name,
 		Type:   typ,
 		Market: market,
-		Tags:   []string{},
+		Tags:   tags,
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrConstraint) {
 			// Concurrent insert won the race — read back the existing row.
 			if existing, ferr := h.store.FindAssetByIdentity(ctx, symbol, market, typ); ferr == nil {
+				if hasRef {
+					h.bindExternalRef(ctx, existing.ID, refSource, ref)
+				}
 				return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: assetToProto(existing)}), nil
 			}
 		}
 		return nil, toConnectError(err)
 	}
 
+	if hasRef {
+		h.bindExternalRef(ctx, created.ID, refSource, ref)
+	}
 	return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: assetToProto(created), Created: true}), nil
+}
+
+// bindExternalRef maps a contract identity to an asset, best-effort: a conflict
+// means the ref is already bound (identity is stable), which is not an error for
+// the sync path. Other failures are logged, not surfaced — a missing mapping
+// only costs the next sync a symbol lookup, it does not corrupt the holding.
+func (h *Handler) bindExternalRef(ctx context.Context, assetID, source, ref string) {
+	_, err := h.store.CreateAssetExternalRef(ctx, &entity.AssetExternalRef{
+		AssetID: assetID,
+		Source:  source,
+		Ref:     ref,
+		Origin:  entity.RefOriginAuto,
+	})
+	if err != nil && !errors.Is(err, store.ErrConstraint) && h.log != nil {
+		h.log.Warn("bind external ref failed",
+			"asset_id", assetID, "source", source, "ref", ref, "error", err)
+	}
 }
 
 // FetchExternalPrices fetches prices from configured providers and stores them.

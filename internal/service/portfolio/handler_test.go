@@ -965,6 +965,12 @@ func (m *mockWalletSyncer) SyncWallet(ctx context.Context, address string, chain
 
 type mockMDClient struct {
 	mock.Mock
+	// autoAsset makes FindOrCreateAsset resolve deterministically without an
+	// explicit expectation: one asset per normalized symbol, Created only the
+	// first time a symbol is seen — the find-vs-create semantics the sync path
+	// relies on. Import tests leave it false and mock FindOrCreateAsset directly.
+	autoAsset bool
+	seenAsset map[string]bool
 }
 
 func (m *mockMDClient) CreateAsset(ctx context.Context, req *connect.Request[apiv1.CreateAssetRequest]) (*connect.Response[apiv1.Asset], error) {
@@ -984,6 +990,18 @@ func (m *mockMDClient) GetAsset(ctx context.Context, req *connect.Request[apiv1.
 }
 
 func (m *mockMDClient) FindOrCreateAsset(ctx context.Context, req *connect.Request[apiv1.FindOrCreateAssetRequest]) (*connect.Response[apiv1.FindOrCreateAssetResponse], error) {
+	if m.autoAsset {
+		sym := entity.NormalizeSymbol(req.Msg.Symbol)
+		if m.seenAsset == nil {
+			m.seenAsset = map[string]bool{}
+		}
+		created := !m.seenAsset[sym]
+		m.seenAsset[sym] = true
+		return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{
+			Asset:   &apiv1.Asset{Id: "asset-" + sym, Symbol: &sym},
+			Created: created,
+		}), nil
+	}
 	args := m.Called(ctx, req)
 	if v := args.Get(0); v != nil {
 		return v.(*connect.Response[apiv1.FindOrCreateAssetResponse]), args.Error(1)
@@ -1046,11 +1064,7 @@ func TestSyncAccount_LargeBalance(t *testing.T) {
 		{Symbol: "ETH", Name: "Ethereum", Amount: bigAmount, Decimals: 18},
 	}, nil)
 
-	md := &mockMDClient{}
-	md.On("ListAssets", mock.Anything, mock.Anything).
-		Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
-	md.On("CreateAsset", mock.Anything, mock.Anything).
-		Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+	md := &mockMDClient{autoAsset: true}
 	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
 
@@ -1088,11 +1102,7 @@ func TestSyncAccount_MergeMixedDecimals(t *testing.T) {
 		{Symbol: "USDC", Name: "USD Coin", Amount: "2000000000000000000", Decimals: 18}, // 2.0 on BSC
 	}, nil)
 
-	md := &mockMDClient{}
-	md.On("ListAssets", mock.Anything, mock.Anything).
-		Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
-	md.On("CreateAsset", mock.Anything, mock.Anything).
-		Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+	md := &mockMDClient{autoAsset: true}
 	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
 
@@ -1132,11 +1142,7 @@ func TestSyncAccount_MultipleAddresses(t *testing.T) {
 		{Symbol: "BTC", Name: "Bitcoin", Amount: "150000000", Decimals: 8},
 	}, nil)
 
-	md := &mockMDClient{}
-	md.On("ListAssets", mock.Anything, mock.Anything).
-		Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
-	md.On("CreateAsset", mock.Anything, mock.Anything).
-		Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+	md := &mockMDClient{autoAsset: true}
 	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
 
@@ -1173,11 +1179,7 @@ func TestSyncAccount_MultipleAddressesPartialFailure(t *testing.T) {
 	ws.On("SyncWallet", mock.Anything, "bc1bad", []string{"bitcoin"}).
 		Return([]entity.WalletBalance{}, errors.New("esplora status 503"))
 
-	md := &mockMDClient{}
-	md.On("ListAssets", mock.Anything, mock.Anything).
-		Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
-	md.On("CreateAsset", mock.Anything, mock.Anything).
-		Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+	md := &mockMDClient{autoAsset: true}
 	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
 
@@ -1257,9 +1259,7 @@ func TestSyncAccount_Exchange(t *testing.T) {
 		{Symbol: "BTC", Amount: "60000000", Decimals: 8},
 	}, nil)
 
-	md := &mockMDClient{}
-	md.On("ListAssets", mock.Anything, mock.Anything).Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
-	md.On("CreateAsset", mock.Anything, mock.Anything).Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+	md := &mockMDClient{autoAsset: true}
 	md.On("FetchExternalPrices", mock.Anything, mock.Anything).Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
 
 	h := newHandler(s).WithMarketDataClient(md).WithExchangeSyncerSource(&mockExchangeSource{syncer: syncer})

@@ -240,6 +240,14 @@ message FindOrCreateAssetRequest {
   optional string name = 4;
   // When true, never creates: reports what would happen instead.
   bool dry_run = 5;
+  // Optional external identity for resolution and binding. When set, the asset
+  // is resolved by (external_ref_source, external_ref) first — a token's
+  // contract is its identity, so a scam clone of a real ticker resolves to its
+  // own asset rather than merging into the real one. On a miss the mapping is
+  // bound to the resolved/created asset. Source namespaces the ref:
+  // "onchain:<chain>" for a contract/mint.
+  optional string external_ref_source = 6;
+  optional string external_ref = 7;
 }
 
 message FindOrCreateAssetResponse {

@@ -779,9 +779,17 @@ type FindOrCreateAssetRequest struct {
 	// Asset name when created; defaults to the symbol.
 	Name *string `protobuf:"bytes,4,opt,name=name,proto3,oneof" json:"name,omitempty"`
 	// When true, never creates: reports what would happen instead.
-	DryRun        bool `protobuf:"varint,5,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	DryRun bool `protobuf:"varint,5,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	// Optional external identity for resolution and binding. When set, the asset
+	// is resolved by (external_ref_source, external_ref) first — a token's
+	// contract is its identity, so a scam clone of a real ticker resolves to its
+	// own asset rather than merging into the real one. On a miss the mapping is
+	// bound to the resolved/created asset. Source namespaces the ref:
+	// "onchain:<chain>" for a contract/mint.
+	ExternalRefSource *string `protobuf:"bytes,6,opt,name=external_ref_source,json=externalRefSource,proto3,oneof" json:"external_ref_source,omitempty"`
+	ExternalRef       *string `protobuf:"bytes,7,opt,name=external_ref,json=externalRef,proto3,oneof" json:"external_ref,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *FindOrCreateAssetRequest) Reset() {
@@ -847,6 +855,20 @@ func (x *FindOrCreateAssetRequest) GetDryRun() bool {
 		return x.DryRun
 	}
 	return false
+}
+
+func (x *FindOrCreateAssetRequest) GetExternalRefSource() string {
+	if x != nil && x.ExternalRefSource != nil {
+		return *x.ExternalRefSource
+	}
+	return ""
+}
+
+func (x *FindOrCreateAssetRequest) GetExternalRef() string {
+	if x != nil && x.ExternalRef != nil {
+		return *x.ExternalRef
+	}
+	return ""
 }
 
 type FindOrCreateAssetResponse struct {
@@ -1642,15 +1664,19 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\asources\x18\x02 \x03(\tR\asources\"K\n" +
 	"\x18FindSimilarAssetsRequest\x12\x19\n" +
 	"\basset_id\x18\x01 \x01(\tR\aassetId\x12\x14\n" +
-	"\x05limit\x18\x02 \x01(\x05R\x05limit\"\xbc\x01\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\"\xc2\x02\n" +
 	"\x18FindOrCreateAssetRequest\x12\x16\n" +
 	"\x06symbol\x18\x01 \x01(\tR\x06symbol\x12\x1b\n" +
 	"\x06market\x18\x02 \x01(\tH\x00R\x06market\x88\x01\x01\x12%\n" +
 	"\x04type\x18\x03 \x01(\x0e2\x11.eye.v1.AssetTypeR\x04type\x12\x17\n" +
 	"\x04name\x18\x04 \x01(\tH\x01R\x04name\x88\x01\x01\x12\x17\n" +
-	"\adry_run\x18\x05 \x01(\bR\x06dryRunB\t\n" +
+	"\adry_run\x18\x05 \x01(\bR\x06dryRun\x123\n" +
+	"\x13external_ref_source\x18\x06 \x01(\tH\x02R\x11externalRefSource\x88\x01\x01\x12&\n" +
+	"\fexternal_ref\x18\a \x01(\tH\x03R\vexternalRef\x88\x01\x01B\t\n" +
 	"\a_marketB\a\n" +
-	"\x05_name\"Z\n" +
+	"\x05_nameB\x16\n" +
+	"\x14_external_ref_sourceB\x0f\n" +
+	"\r_external_ref\"Z\n" +
 	"\x19FindOrCreateAssetResponse\x12#\n" +
 	"\x05asset\x18\x01 \x01(\v2\r.eye.v1.AssetR\x05asset\x12\x18\n" +
 	"\acreated\x18\x02 \x01(\bR\acreated\"9\n" +

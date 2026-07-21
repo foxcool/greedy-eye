@@ -122,6 +122,7 @@ func (a *WalletSyncerAdapter) tokenBalances(ctx context.Context, chain, address 
 			Amount:          b.Balance,
 			Decimals:        b.Decimals,
 			ContractAddress: b.TokenAddress,
+			Chain:           chain,
 		})
 	}
 	return result, nil
@@ -148,5 +149,6 @@ func (a *WalletSyncerAdapter) nativeBalance(ctx context.Context, chain, address 
 		Name:     native.name,
 		Amount:   raw,
 		Decimals: nativeDecimals,
+		Chain:    chain,
 	}, nil
 }

@@ -3,6 +3,7 @@ package marketdata
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -501,6 +502,82 @@ func TestFindOrCreateAsset_LosesCreationRace(t *testing.T) {
 	assert.False(t, resp.Msg.Created)
 	require.NotNil(t, resp.Msg.Asset)
 	assert.Equal(t, "id-1", resp.Msg.Asset.Id)
+}
+
+// TestFindOrCreateAsset_ResolvesByExternalRef: a bound contract wins over symbol
+// matching, so a scam clone of a real ticker resolves to its own asset and the
+// symbol identity is never even consulted.
+func TestFindOrCreateAsset_ResolvesByExternalRef(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetIDByExternalRef", mock.Anything, "onchain:eth", "0xCAFE").Return("id-9", nil)
+	s.On("GetAsset", mock.Anything, "id-9").Return(testAsset("id-9"), nil)
+	h := newHandler(s)
+
+	source, ref := "onchain:eth", "0xCAFE"
+	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol:            "USDT",
+		ExternalRefSource: &source,
+		ExternalRef:       &ref,
+	}))
+	require.NoError(t, err)
+	assert.False(t, resp.Msg.Created)
+	require.NotNil(t, resp.Msg.Asset)
+	assert.Equal(t, "id-9", resp.Msg.Asset.Id)
+	s.AssertNotCalled(t, "FindAssetByIdentity")
+	s.AssertNotCalled(t, "CreateAsset")
+}
+
+// TestFindOrCreateAsset_BindsRefOnIdentityMatch: an unbound contract that
+// resolves by symbol gets bound to that asset, so the next sync short-circuits
+// on the ref and cross-chain contracts of one asset collapse together.
+func TestFindOrCreateAsset_BindsRefOnIdentityMatch(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetIDByExternalRef", mock.Anything, "onchain:bsc", "0xBEEF").Return("", store.ErrNotFound)
+	s.On("FindAssetByIdentity", mock.Anything, "USDC", "crypto", entity.AssetTypeCryptocurrency).
+		Return(testAsset("id-1"), nil)
+	s.On("CreateAssetExternalRef", mock.Anything, mock.MatchedBy(func(r *entity.AssetExternalRef) bool {
+		return r.AssetID == "id-1" && r.Source == "onchain:bsc" && r.Ref == "0xBEEF" && r.Origin == entity.RefOriginAuto
+	})).Return(&entity.AssetExternalRef{}, nil)
+	h := newHandler(s)
+
+	source, ref := "onchain:bsc", "0xBEEF"
+	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol:            "USDC",
+		ExternalRefSource: &source,
+		ExternalRef:       &ref,
+	}))
+	require.NoError(t, err)
+	assert.False(t, resp.Msg.Created)
+	assert.Equal(t, "id-1", resp.Msg.Asset.Id)
+	s.AssertExpectations(t)
+}
+
+// TestFindOrCreateAsset_BindsRefOnCreate: a brand-new contract creates the asset
+// and binds the ref to it.
+func TestFindOrCreateAsset_BindsRefOnCreate(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetIDByExternalRef", mock.Anything, "onchain:solana", "MintX").Return("", store.ErrNotFound)
+	s.On("FindAssetByIdentity", mock.Anything, "WIF", "crypto", entity.AssetTypeCryptocurrency).
+		Return(nil, store.ErrNotFound)
+	// The contract is mirrored as a tag so coingecko can still price the token.
+	s.On("CreateAsset", mock.Anything, mock.MatchedBy(func(a *entity.Asset) bool {
+		return slices.Contains(a.Tags, "contract:MintX")
+	})).Return(testAsset("id-2"), nil)
+	s.On("CreateAssetExternalRef", mock.Anything, mock.MatchedBy(func(r *entity.AssetExternalRef) bool {
+		return r.AssetID == "id-2" && r.Source == "onchain:solana" && r.Ref == "MintX"
+	})).Return(&entity.AssetExternalRef{}, nil)
+	h := newHandler(s)
+
+	source, ref := "onchain:solana", "MintX"
+	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol:            "WIF",
+		ExternalRefSource: &source,
+		ExternalRef:       &ref,
+	}))
+	require.NoError(t, err)
+	assert.True(t, resp.Msg.Created)
+	assert.Equal(t, "id-2", resp.Msg.Asset.Id)
+	s.AssertExpectations(t)
 }
 
 func TestFindOrCreateAsset_StockRequiresMarket(t *testing.T) {

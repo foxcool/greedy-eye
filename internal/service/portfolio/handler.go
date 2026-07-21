@@ -823,7 +823,8 @@ type syncedBalance struct {
 	name            string
 	amount          string // raw integer string scaled by decimals
 	decimals        int
-	contractAddress string // EVM token contract; empty for exchange/native
+	contractAddress string // token contract/mint; empty for exchange/native
+	chain           string // network the balance is on; empty for exchange
 }
 
 // SyncAccount fetches external holdings for a wallet or exchange account and
@@ -960,6 +961,7 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 			amount:          b.Amount,
 			decimals:        b.Decimals,
 			contractAddress: b.ContractAddress,
+			chain:           b.Chain,
 		})
 	}
 	return result, syncErrors, nil
@@ -997,21 +999,20 @@ func (h *Handler) syncExchangeBalances(ctx context.Context, account *entity.Acco
 	return result, syncErrors, nil
 }
 
-// upsertSyncedBalances merges same-symbol balances, ensures assets exist, and
-// upserts holdings for the account. Returns per-symbol failures as error strings.
+// upsertSyncedBalances resolves each balance to an asset and upserts holdings
+// for the account. Resolution is by contract identity (external ref) first and
+// by symbol otherwise, so a scam clone of a real ticker resolves to its own
+// asset while cross-chain instances of the same asset collapse onto one asset_id
+// and sum into one holding. The same asset can carry different decimals per
+// chain (USDC is 6 on Ethereum, 18 on BSC), so quantities are summed as real
+// amounts (raw / 10^decimals) and stored at the largest decimals seen — summing
+// raw integers across mismatched scales would corrupt the total.
 func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Account, balances []syncedBalance) (assetsUpserted, holdingsUpserted int32, syncErrors []string, err error) {
-	// Merge same-symbol tokens across chains, keyed by the canonical (uppercase) symbol
-	// so "usdc"/"USDC" collapse into one holding. The same symbol can carry different
-	// decimals per chain (e.g. USDC is 6 on Ethereum, 18 on BSC), so balances are summed
-	// as real quantities (raw / 10^decimals) and stored at the largest decimals seen —
-	// summing raw integers across mismatched scales would corrupt the total.
 	type accumulated struct {
-		name            string
-		contractAddress string
-		qty             decimal.Decimal // real token quantity, decimals applied
-		decimals        int             // max decimals seen → stored holding scale
+		qty      decimal.Decimal // real token quantity, decimals applied
+		decimals int             // max decimals seen → stored holding scale
 	}
-	bySymbol := make(map[string]*accumulated)
+	byAssetID := make(map[string]*accumulated)
 
 	for _, b := range balances {
 		amt, ok := new(big.Int).SetString(strings.TrimSpace(b.amount), 10)
@@ -1022,38 +1023,24 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 		if amt.Sign() == 0 {
 			continue
 		}
-		symbol := entity.NormalizeSymbol(b.symbol)
+
+		assetID, created, rerr := h.resolveSyncedAsset(ctx, b)
+		if rerr != nil {
+			syncErrors = append(syncErrors, fmt.Sprintf("resolve asset %s: %v", b.symbol, rerr))
+			continue
+		}
+		if created {
+			assetsUpserted++
+		}
+
 		qty := decimal.NewFromBigInt(amt, -intToI32(b.decimals)) // raw / 10^decimals
-		if entry, ok := bySymbol[symbol]; ok {
+		if entry, ok := byAssetID[assetID]; ok {
 			entry.qty = entry.qty.Add(qty)
 			if b.decimals > entry.decimals {
 				entry.decimals = b.decimals
 			}
-			if entry.contractAddress == "" {
-				entry.contractAddress = b.contractAddress
-			}
 		} else {
-			bySymbol[symbol] = &accumulated{
-				name:            b.name,
-				contractAddress: b.contractAddress,
-				qty:             qty,
-				decimals:        b.decimals,
-			}
-		}
-	}
-
-	// Build symbol → asset ID map from existing assets
-	pageSize := int32(1000)
-	listResp, err := h.mdClient.ListAssets(ctx, connect.NewRequest(&apiv1.ListAssetsRequest{
-		PageSize: &pageSize,
-	}))
-	if err != nil {
-		return 0, 0, nil, err
-	}
-	symbolToAssetID := make(map[string]string, len(listResp.Msg.Assets))
-	for _, a := range listResp.Msg.Assets {
-		if a.Symbol != nil {
-			symbolToAssetID[entity.NormalizeSymbol(*a.Symbol)] = a.Id
+			byAssetID[assetID] = &accumulated{qty: qty, decimals: b.decimals}
 		}
 	}
 
@@ -1069,43 +1056,18 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 
 	defaultPortfolioID := account.PortfolioID
 
-	for symbol, entry := range bySymbol {
+	for assetID, entry := range byAssetID {
 		decimals := intToU32(entry.decimals)
 		// holdings.amount is NUMERIC: store the merged quantity as a raw integer at the
 		// holding's decimals scale (exact — qty has at most `decimals` fractional digits).
 		amount := entry.qty.Shift(intToI32(entry.decimals))
-
-		// Ensure asset exists
-		assetID, exists := symbolToAssetID[symbol]
-		if !exists {
-			// Store contract address as a tag so price providers can look up by address.
-			var tags []string
-			if entry.contractAddress != "" {
-				tags = append(tags, "contract:"+entry.contractAddress)
-			}
-			createResp, err := h.mdClient.CreateAsset(ctx, connect.NewRequest(&apiv1.CreateAssetRequest{
-				Asset: &apiv1.Asset{
-					Name:   entry.name,
-					Symbol: &symbol,
-					Type:   apiv1.AssetType_ASSET_TYPE_CRYPTOCURRENCY,
-					Tags:   tags,
-				},
-			}))
-			if err != nil {
-				syncErrors = append(syncErrors, fmt.Sprintf("create asset %s: %v", symbol, err))
-				continue
-			}
-			assetID = createResp.Msg.Id
-			symbolToAssetID[symbol] = assetID
-			assetsUpserted++
-		}
 
 		if existing, ok := holdingByAssetID[assetID]; ok {
 			// Update existing holding: only refresh amount/decimals; never touch portfolio assignment
 			existing.Amount = amount
 			existing.Decimals = decimals
 			if _, err := h.store.UpdateHolding(ctx, existing, []string{"amount", "decimals"}); err != nil {
-				syncErrors = append(syncErrors, fmt.Sprintf("update holding %s: %v", symbol, err))
+				syncErrors = append(syncErrors, fmt.Sprintf("update holding for asset %s: %v", assetID, err))
 				continue
 			}
 		} else {
@@ -1119,7 +1081,7 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 				Source:      entity.SourceSync,
 			})
 			if err != nil {
-				syncErrors = append(syncErrors, fmt.Sprintf("create holding %s: %v", symbol, err))
+				syncErrors = append(syncErrors, fmt.Sprintf("create holding for asset %s: %v", assetID, err))
 				continue
 			}
 		}
@@ -1127,6 +1089,36 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 	}
 
 	return assetsUpserted, holdingsUpserted, syncErrors, nil
+}
+
+// resolveSyncedAsset resolves (creating when needed) the asset for one synced
+// balance through the MarketData service. A balance that carries a contract is
+// resolved by its on-chain identity (external ref), so a token is matched by
+// contract before symbol and cross-chain instances of the same asset collapse
+// onto one asset_id.
+func (h *Handler) resolveSyncedAsset(ctx context.Context, b syncedBalance) (assetID string, created bool, err error) {
+	msg := &apiv1.FindOrCreateAssetRequest{
+		Symbol: b.symbol,
+		Type:   apiv1.AssetType_ASSET_TYPE_CRYPTOCURRENCY,
+	}
+	if b.name != "" {
+		msg.Name = &b.name
+	}
+	if b.contractAddress != "" && b.chain != "" {
+		source := entity.OnchainSource(b.chain)
+		contract := b.contractAddress
+		msg.ExternalRefSource = &source
+		msg.ExternalRef = &contract
+	}
+
+	resp, err := h.mdClient.FindOrCreateAsset(ctx, connect.NewRequest(msg))
+	if err != nil {
+		return "", false, err
+	}
+	if resp.Msg.Asset == nil {
+		return "", false, fmt.Errorf("marketdata returned no asset for %s", b.symbol)
+	}
+	return resp.Msg.Asset.Id, resp.Msg.Created, nil
 }
 
 // --- Transaction CRUD ---

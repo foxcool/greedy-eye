@@ -83,6 +83,7 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 			Name:     net.name,
 			Amount:   total.BigInt().String(),
 			Decimals: net.decimals,
+			Chain:    chain,
 		})
 	}
 

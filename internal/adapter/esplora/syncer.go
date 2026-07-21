@@ -84,5 +84,6 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 		Name:     nativeName,
 		Amount:   strconv.FormatInt(sats, 10),
 		Decimals: nativeDecimals,
+		Chain:    Chain,
 	}}, nil
 }
