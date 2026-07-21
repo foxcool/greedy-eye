@@ -124,10 +124,13 @@ func TestSyncWallet_BothTokenProgramsQueried(t *testing.T) {
 	assert.Equal(t, []string{tokenProgram, token2022Program}, programs)
 }
 
-// TestIsJunk_LiveSpamSamples pins the filter against what a real wallet held.
-// All three of its SPL positions were spam and the first version of this floor
-// let every one of them through.
-func TestIsJunk_LiveSpamSamples(t *testing.T) {
+// TestIsJunk_StructuralOnly pins the floor to structural non-positions. isJunk
+// no longer judges identity: a divisible homoglyph or domain-named token now
+// survives it and is condemned downstream by scoring (scam-filtering), so the
+// position keeps syncing as a quarantined asset instead of vanishing here. The
+// two live SPL spam samples happened to be indivisible (decimals 0), so they are
+// still dropped — as NFTs/airdrop lures, not as scams.
+func TestIsJunk_StructuralOnly(t *testing.T) {
 	tests := []struct {
 		name string
 		acc  TokenAccount
@@ -135,37 +138,35 @@ func TestIsJunk_LiveSpamSamples(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "airdrop lure naming a domain",
+			name: "indivisible airdrop lure (decimals 0)",
 			acc:  TokenAccount{Amount: "69619", Decimals: 0},
 			meta: AssetMeta{Symbol: "JUPDROP", Name: "jupfinally.com 🎁 Airdrop"},
 			want: true,
 		},
 		{
-			// Cyrillic а, р, о standing in for Latin ones.
-			name: "homoglyph impersonation of Raydium",
-			acc:  TokenAccount{Amount: "39", Decimals: 0},
-			meta: AssetMeta{Symbol: "RAP", Name: "Rауdium аlрhа рrоgrаm"},
+			name: "burnt mint",
+			acc:  TokenAccount{Amount: "100", Decimals: 6},
+			meta: AssetMeta{Symbol: "DEAD", Burnt: true},
 			want: true,
 		},
 		{
-			// Documented gap: structurally an ordinary token. Only a
-			// catalogue can judge it (personal-6yn).
-			name: "mint calling itself NFT still passes",
-			acc:  TokenAccount{Amount: "9000000000", Decimals: 9},
-			meta: AssetMeta{Symbol: "NFT", Name: "NFT"},
+			name: "empty symbol",
+			acc:  TokenAccount{Amount: "100", Decimals: 6},
+			meta: AssetMeta{Name: "No Ticker"},
+			want: true,
+		},
+		{
+			// Divisible homoglyph clone: structurally a real balance, so it
+			// survives the floor and flows to scoring, which flags it.
+			name: "divisible homoglyph survives the floor",
+			acc:  TokenAccount{Amount: "39000000", Decimals: 6},
+			meta: AssetMeta{Symbol: "RAP", Name: "Rауdium аlрhа рrоgrаm"},
 			want: false,
 		},
 		{
 			name: "ordinary token survives",
 			acc:  TokenAccount{Amount: "1500000", Decimals: 6},
 			meta: AssetMeta{Symbol: "USDC", Name: "USD Coin"},
-			want: false,
-		},
-		{
-			// A name written wholly in one non-Latin script is ordinary.
-			name: "single-script non-latin name survives",
-			acc:  TokenAccount{Amount: "1000", Decimals: 6},
-			meta: AssetMeta{Symbol: "ТОКЕН", Name: "Русский токен"},
 			want: false,
 		},
 	}

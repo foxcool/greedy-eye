@@ -82,6 +82,14 @@ func (m *mockStore) SetAssetVerdict(ctx context.Context, assetID, verdict string
 	return args.Bool(0), args.Error(1)
 }
 
+// expectVerdict lets a FindOrCreateAsset test ignore the scoring side effect:
+// every successful resolve scores the asset and persists the verdict, which is
+// covered on its own elsewhere and is noise for identity-resolution tests.
+func expectVerdict(s *mockStore) {
+	s.On("SetAssetVerdict", mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything).Return(true, nil).Maybe()
+}
+
 func (m *mockStore) FindAssetIDByExternalRef(ctx context.Context, source, ref string) (string, error) {
 	args := m.Called(ctx, source, ref)
 	return args.String(0), args.Error(1)
@@ -436,6 +444,7 @@ func TestFindOrCreateAsset_FindsExisting(t *testing.T) {
 	s := &mockStore{}
 	s.On("FindAssetByIdentity", mock.Anything, "BTC", "crypto", entity.AssetTypeCryptocurrency).
 		Return(testAsset("id-1"), nil)
+	expectVerdict(s)
 	h := newHandler(s)
 
 	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
@@ -471,6 +480,7 @@ func TestFindOrCreateAsset_Creates(t *testing.T) {
 	s.On("CreateAsset", mock.Anything, mock.MatchedBy(func(a *entity.Asset) bool {
 		return a.Symbol == "NEW" && a.Name == "New Token" && a.Market == "crypto" && a.Type == entity.AssetTypeCryptocurrency
 	})).Return(testAsset("id-2"), nil)
+	expectVerdict(s)
 	h := newHandler(s)
 
 	name := "New Token"
@@ -493,6 +503,7 @@ func TestFindOrCreateAsset_LosesCreationRace(t *testing.T) {
 	s.On("CreateAsset", mock.Anything, mock.Anything).Return(nil, store.ErrConstraint)
 	s.On("FindAssetByIdentity", mock.Anything, "BTC", "crypto", entity.AssetTypeCryptocurrency).
 		Return(testAsset("id-1"), nil).Once()
+	expectVerdict(s)
 	h := newHandler(s)
 
 	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
@@ -511,6 +522,7 @@ func TestFindOrCreateAsset_ResolvesByExternalRef(t *testing.T) {
 	s := &mockStore{}
 	s.On("FindAssetIDByExternalRef", mock.Anything, "onchain:eth", "0xCAFE").Return("id-9", nil)
 	s.On("GetAsset", mock.Anything, "id-9").Return(testAsset("id-9"), nil)
+	expectVerdict(s)
 	h := newHandler(s)
 
 	source, ref := "onchain:eth", "0xCAFE"
@@ -538,6 +550,7 @@ func TestFindOrCreateAsset_BindsRefOnIdentityMatch(t *testing.T) {
 	s.On("CreateAssetExternalRef", mock.Anything, mock.MatchedBy(func(r *entity.AssetExternalRef) bool {
 		return r.AssetID == "id-1" && r.Source == "onchain:bsc" && r.Ref == "0xBEEF" && r.Origin == entity.RefOriginAuto
 	})).Return(&entity.AssetExternalRef{}, nil)
+	expectVerdict(s)
 	h := newHandler(s)
 
 	source, ref := "onchain:bsc", "0xBEEF"
@@ -566,6 +579,7 @@ func TestFindOrCreateAsset_BindsRefOnCreate(t *testing.T) {
 	s.On("CreateAssetExternalRef", mock.Anything, mock.MatchedBy(func(r *entity.AssetExternalRef) bool {
 		return r.AssetID == "id-2" && r.Source == "onchain:solana" && r.Ref == "MintX"
 	})).Return(&entity.AssetExternalRef{}, nil)
+	expectVerdict(s)
 	h := newHandler(s)
 
 	source, ref := "onchain:solana", "MintX"

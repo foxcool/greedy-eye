@@ -788,8 +788,14 @@ type FindOrCreateAssetRequest struct {
 	// "onchain:<chain>" for a contract/mint.
 	ExternalRefSource *string `protobuf:"bytes,6,opt,name=external_ref_source,json=externalRefSource,proto3,oneof" json:"external_ref_source,omitempty"`
 	ExternalRef       *string `protobuf:"bytes,7,opt,name=external_ref,json=externalRef,proto3,oneof" json:"external_ref,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Provider identity signals for scam scoring at sync intake, where reported:
+	// provider_spam is a source's own spam flag (moralis possible_spam),
+	// contract_verified its contract-verification bit. Unset means "not reported"
+	// (native coins, non-EVM chains) and does not influence the score.
+	ProviderSpam     *bool `protobuf:"varint,8,opt,name=provider_spam,json=providerSpam,proto3,oneof" json:"provider_spam,omitempty"`
+	ContractVerified *bool `protobuf:"varint,9,opt,name=contract_verified,json=contractVerified,proto3,oneof" json:"contract_verified,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *FindOrCreateAssetRequest) Reset() {
@@ -869,6 +875,20 @@ func (x *FindOrCreateAssetRequest) GetExternalRef() string {
 		return *x.ExternalRef
 	}
 	return ""
+}
+
+func (x *FindOrCreateAssetRequest) GetProviderSpam() bool {
+	if x != nil && x.ProviderSpam != nil {
+		return *x.ProviderSpam
+	}
+	return false
+}
+
+func (x *FindOrCreateAssetRequest) GetContractVerified() bool {
+	if x != nil && x.ContractVerified != nil {
+		return *x.ContractVerified
+	}
+	return false
 }
 
 type FindOrCreateAssetResponse struct {
@@ -1664,7 +1684,7 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\asources\x18\x02 \x03(\tR\asources\"K\n" +
 	"\x18FindSimilarAssetsRequest\x12\x19\n" +
 	"\basset_id\x18\x01 \x01(\tR\aassetId\x12\x14\n" +
-	"\x05limit\x18\x02 \x01(\x05R\x05limit\"\xc2\x02\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\"\xc6\x03\n" +
 	"\x18FindOrCreateAssetRequest\x12\x16\n" +
 	"\x06symbol\x18\x01 \x01(\tR\x06symbol\x12\x1b\n" +
 	"\x06market\x18\x02 \x01(\tH\x00R\x06market\x88\x01\x01\x12%\n" +
@@ -1672,11 +1692,15 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\x04name\x18\x04 \x01(\tH\x01R\x04name\x88\x01\x01\x12\x17\n" +
 	"\adry_run\x18\x05 \x01(\bR\x06dryRun\x123\n" +
 	"\x13external_ref_source\x18\x06 \x01(\tH\x02R\x11externalRefSource\x88\x01\x01\x12&\n" +
-	"\fexternal_ref\x18\a \x01(\tH\x03R\vexternalRef\x88\x01\x01B\t\n" +
+	"\fexternal_ref\x18\a \x01(\tH\x03R\vexternalRef\x88\x01\x01\x12(\n" +
+	"\rprovider_spam\x18\b \x01(\bH\x04R\fproviderSpam\x88\x01\x01\x120\n" +
+	"\x11contract_verified\x18\t \x01(\bH\x05R\x10contractVerified\x88\x01\x01B\t\n" +
 	"\a_marketB\a\n" +
 	"\x05_nameB\x16\n" +
 	"\x14_external_ref_sourceB\x0f\n" +
-	"\r_external_ref\"Z\n" +
+	"\r_external_refB\x10\n" +
+	"\x0e_provider_spamB\x14\n" +
+	"\x12_contract_verified\"Z\n" +
 	"\x19FindOrCreateAssetResponse\x12#\n" +
 	"\x05asset\x18\x01 \x01(\v2\r.eye.v1.AssetR\x05asset\x12\x18\n" +
 	"\acreated\x18\x02 \x01(\bR\acreated\"9\n" +

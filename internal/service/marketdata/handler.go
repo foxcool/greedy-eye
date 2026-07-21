@@ -17,6 +17,7 @@ import (
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
+	"github.com/foxcool/greedy-eye/internal/scamfilter"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -410,7 +411,7 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 	if hasRef {
 		if assetID, ferr := h.store.FindAssetIDByExternalRef(ctx, refSource, ref); ferr == nil {
 			if a, gerr := h.store.GetAsset(ctx, assetID); gerr == nil {
-				return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: assetToProto(a)}), nil
+				return h.respondScored(ctx, a, req.Msg, false), nil
 			}
 			// A ref pointing at a missing asset should not happen (FK CASCADE);
 			// fall through to identity resolution rather than fail the sync.
@@ -427,7 +428,7 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 		if hasRef {
 			h.bindExternalRef(ctx, found.ID, refSource, ref)
 		}
-		return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: assetToProto(found)}), nil
+		return h.respondScored(ctx, found, req.Msg, false), nil
 	}
 	if !errors.Is(err, store.ErrNotFound) {
 		return nil, toConnectError(err)
@@ -463,7 +464,7 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 				if hasRef {
 					h.bindExternalRef(ctx, existing.ID, refSource, ref)
 				}
-				return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: assetToProto(existing)}), nil
+				return h.respondScored(ctx, existing, req.Msg, false), nil
 			}
 		}
 		return nil, toConnectError(err)
@@ -472,7 +473,47 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 	if hasRef {
 		h.bindExternalRef(ctx, created.ID, refSource, ref)
 	}
-	return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: assetToProto(created), Created: true}), nil
+	return h.respondScored(ctx, created, req.Msg, true), nil
+}
+
+// respondScored scores the asset's identity, persists the verdict (never over a
+// user verdict) and returns the response with the effective verdict stamped on
+// the asset so the sync path can derive holdings.excluded from it.
+func (h *Handler) respondScored(ctx context.Context, a *entity.Asset, req *apiv1.FindOrCreateAssetRequest, created bool) *connect.Response[apiv1.FindOrCreateAssetResponse] {
+	verdict := h.scoreAndPersistVerdict(ctx, a, req)
+	p := assetToProto(a)
+	if verdict != "" {
+		p.IdentityVerdict = &verdict
+	}
+	return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: p, Created: created})
+}
+
+// scoreAndPersistVerdict scores an asset with scamfilter and stores the verdict
+// under the "heuristic" source, which the store guards against overwriting a
+// user verdict. It returns the effective verdict: the freshly scored one when
+// written, or the asset's existing (possibly user) verdict when the write was
+// skipped or failed — so the caller never acts on a verdict the store rejected.
+func (h *Handler) scoreAndPersistVerdict(ctx context.Context, a *entity.Asset, req *apiv1.FindOrCreateAssetRequest) string {
+	in := scamfilter.Input{
+		Symbol:           a.Symbol,
+		Name:             a.Name,
+		ProviderSpam:     req.ProviderSpam,
+		ContractVerified: req.ContractVerified,
+	}
+	res := scamfilter.Score(in, scamfilter.DefaultWeights())
+	score := res.Score
+	written, err := h.store.SetAssetVerdict(ctx, a.ID, string(res.Verdict), &score, res.Signals, rescoreVerdictSource)
+	if err != nil {
+		if h.log != nil {
+			h.log.Warn("persist identity verdict failed", "asset_id", a.ID, "error", err)
+		}
+		return a.IdentityVerdict
+	}
+	if !written {
+		// A user verdict is terminal; report what actually stands.
+		return a.IdentityVerdict
+	}
+	return string(res.Verdict)
 }
 
 // bindExternalRef maps a contract identity to an asset, best-effort: a conflict

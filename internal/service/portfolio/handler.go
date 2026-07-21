@@ -16,6 +16,7 @@ import (
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
+	"github.com/foxcool/greedy-eye/internal/scamfilter"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -825,6 +826,10 @@ type syncedBalance struct {
 	decimals        int
 	contractAddress string // token contract/mint; empty for exchange/native
 	chain           string // network the balance is on; empty for exchange
+	// providerSpam / contractVerified carry a source's identity signals for scam
+	// scoring at intake; nil when the source does not report them.
+	providerSpam     *bool
+	contractVerified *bool
 }
 
 // SyncAccount fetches external holdings for a wallet or exchange account and
@@ -956,12 +961,14 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 	result := make([]syncedBalance, 0, len(balances))
 	for _, b := range balances {
 		result = append(result, syncedBalance{
-			symbol:          b.Symbol,
-			name:            b.Name,
-			amount:          b.Amount,
-			decimals:        b.Decimals,
-			contractAddress: b.ContractAddress,
-			chain:           b.Chain,
+			symbol:           b.Symbol,
+			name:             b.Name,
+			amount:           b.Amount,
+			decimals:         b.Decimals,
+			contractAddress:  b.ContractAddress,
+			chain:            b.Chain,
+			providerSpam:     b.ProviderSpam,
+			contractVerified: b.ContractVerified,
 		})
 	}
 	return result, syncErrors, nil
@@ -1011,6 +1018,7 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 	type accumulated struct {
 		qty      decimal.Decimal // real token quantity, decimals applied
 		decimals int             // max decimals seen → stored holding scale
+		excluded bool            // derived from a scam/impersonation verdict
 	}
 	byAssetID := make(map[string]*accumulated)
 
@@ -1024,7 +1032,7 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 			continue
 		}
 
-		assetID, created, rerr := h.resolveSyncedAsset(ctx, b)
+		assetID, created, verdict, rerr := h.resolveSyncedAsset(ctx, b)
 		if rerr != nil {
 			syncErrors = append(syncErrors, fmt.Sprintf("resolve asset %s: %v", b.symbol, rerr))
 			continue
@@ -1039,8 +1047,13 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 			if b.decimals > entry.decimals {
 				entry.decimals = b.decimals
 			}
+			entry.excluded = entry.excluded || isQuarantineVerdict(verdict)
 		} else {
-			byAssetID[assetID] = &accumulated{qty: qty, decimals: b.decimals}
+			byAssetID[assetID] = &accumulated{
+				qty:      qty,
+				decimals: b.decimals,
+				excluded: isQuarantineVerdict(verdict),
+			}
 		}
 	}
 
@@ -1071,7 +1084,11 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 				continue
 			}
 		} else {
-			// Create new holding; inherit account's default portfolio if configured
+			// Create new holding; inherit account's default portfolio if configured.
+			// A scam/impersonation verdict on the asset excludes the new holding
+			// from the sums; the position still syncs (no frozen holding), it is
+			// just quarantined. An existing holding's excluded flag is left alone
+			// on update so a user's manual override survives resync.
 			_, err := h.store.CreateHolding(ctx, &entity.Holding{
 				AssetID:     assetID,
 				AccountID:   account.ID,
@@ -1079,6 +1096,7 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 				Amount:      amount,
 				Decimals:    decimals,
 				Source:      entity.SourceSync,
+				Excluded:    entry.excluded,
 			})
 			if err != nil {
 				syncErrors = append(syncErrors, fmt.Sprintf("create holding for asset %s: %v", assetID, err))
@@ -1096,10 +1114,12 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 // resolved by its on-chain identity (external ref), so a token is matched by
 // contract before symbol and cross-chain instances of the same asset collapse
 // onto one asset_id.
-func (h *Handler) resolveSyncedAsset(ctx context.Context, b syncedBalance) (assetID string, created bool, err error) {
+func (h *Handler) resolveSyncedAsset(ctx context.Context, b syncedBalance) (assetID string, created bool, verdict string, err error) {
 	msg := &apiv1.FindOrCreateAssetRequest{
-		Symbol: b.symbol,
-		Type:   apiv1.AssetType_ASSET_TYPE_CRYPTOCURRENCY,
+		Symbol:           b.symbol,
+		Type:             apiv1.AssetType_ASSET_TYPE_CRYPTOCURRENCY,
+		ProviderSpam:     b.providerSpam,
+		ContractVerified: b.contractVerified,
 	}
 	if b.name != "" {
 		msg.Name = &b.name
@@ -1113,12 +1133,20 @@ func (h *Handler) resolveSyncedAsset(ctx context.Context, b syncedBalance) (asse
 
 	resp, err := h.mdClient.FindOrCreateAsset(ctx, connect.NewRequest(msg))
 	if err != nil {
-		return "", false, err
+		return "", false, "", err
 	}
 	if resp.Msg.Asset == nil {
-		return "", false, fmt.Errorf("marketdata returned no asset for %s", b.symbol)
+		return "", false, "", fmt.Errorf("marketdata returned no asset for %s", b.symbol)
 	}
-	return resp.Msg.Asset.Id, resp.Msg.Created, nil
+	return resp.Msg.Asset.Id, resp.Msg.Created, resp.Msg.Asset.GetIdentityVerdict(), nil
+}
+
+// isQuarantineVerdict reports whether an identity verdict excludes a synced
+// holding from the sums: a scam or an impersonation is not the user's money to
+// count, while a real asset's situational risk (a separate axis) never excludes.
+func isQuarantineVerdict(verdict string) bool {
+	return verdict == string(scamfilter.VerdictScam) ||
+		verdict == string(scamfilter.VerdictImpersonation)
 }
 
 // --- Transaction CRUD ---

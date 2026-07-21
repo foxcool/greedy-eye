@@ -1041,6 +1041,57 @@ func (m *mockMDClient) FetchExternalPrices(ctx context.Context, req *connect.Req
 	return nil, args.Error(1)
 }
 
+// TestSyncAccount_ScamVerdictExcludesHolding: a synced token whose asset comes
+// back with a scam identity verdict is created as an excluded holding — it keeps
+// syncing (no frozen position) but stays out of the sums — while a legit token
+// alongside it is included.
+func TestSyncAccount_ScamVerdictExcludesHolding(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		return h.AssetID == "asset-scam" && h.Excluded
+	})).Return(&entity.Holding{ID: "h-scam"}, nil)
+	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		return h.AssetID == "asset-legit" && !h.Excluded
+	})).Return(&entity.Holding{ID: "h-legit"}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{
+		{Symbol: "USDT", Name: "Fake USDT", Amount: "100", Decimals: 6, ContractAddress: "0xscam", Chain: "eth"},
+		{Symbol: "DAI", Name: "Dai", Amount: "100", Decimals: 18, ContractAddress: "0xdai", Chain: "eth"},
+	}, nil)
+
+	md := &mockMDClient{}
+	scam, legit := "scam", "legit"
+	md.On("FindOrCreateAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.FindOrCreateAssetRequest]) bool {
+		return r.Msg.Symbol == "USDT"
+	})).Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{
+		Asset: &apiv1.Asset{Id: "asset-scam", IdentityVerdict: &scam}, Created: true,
+	}), nil)
+	md.On("FindOrCreateAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.FindOrCreateAssetRequest]) bool {
+		return r.Msg.Symbol == "DAI"
+	})).Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{
+		Asset: &apiv1.Asset{Id: "asset-legit", IdentityVerdict: &legit}, Created: true,
+	}), nil)
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.Errors)
+	assert.Equal(t, int32(2), resp.Msg.HoldingsUpserted)
+	s.AssertExpectations(t)
+}
+
 // TestSyncAccount_LargeBalance verifies a uint256 balance that overflows int64 is stored
 // losslessly as a decimal string (regression for the bigint storage limit).
 func TestSyncAccount_LargeBalance(t *testing.T) {

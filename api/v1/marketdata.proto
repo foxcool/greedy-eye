@@ -248,6 +248,12 @@ message FindOrCreateAssetRequest {
   // "onchain:<chain>" for a contract/mint.
   optional string external_ref_source = 6;
   optional string external_ref = 7;
+  // Provider identity signals for scam scoring at sync intake, where reported:
+  // provider_spam is a source's own spam flag (moralis possible_spam),
+  // contract_verified its contract-verification bit. Unset means "not reported"
+  // (native coins, non-EVM chains) and does not influence the score.
+  optional bool provider_spam = 8;
+  optional bool contract_verified = 9;
 }
 
 message FindOrCreateAssetResponse {
