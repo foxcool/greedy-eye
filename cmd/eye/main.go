@@ -36,8 +36,6 @@ import (
 	storecrypto "github.com/foxcool/greedy-eye/internal/store/crypto"
 	"github.com/foxcool/greedy-eye/internal/store/postgres"
 	"github.com/getsentry/sentry-go"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 )
 
 const ServiceName = "EYE"
@@ -364,10 +362,17 @@ func run() error {
 			slog.String("rescore_cron", config.Scheduler.RescoreCron))
 	}
 
-	// Create server with h2c (HTTP/2 cleartext) support for Connect
+	// Serve HTTP/1.1 and cleartext HTTP/2 (h2c) for Connect. Since Go 1.24 this
+	// is native via http.Server.Protocols — no golang.org/x/net/http2/h2c
+	// wrapper (deprecated) needed; the browser reaches Connect without a
+	// grpc-web proxy behind the TLS-terminating edge.
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", config.Server.Port),
-		Handler:           h2c.NewHandler(mux, &http2.Server{}),
+		Handler:           mux,
+		Protocols:         protocols,
 		ReadHeaderTimeout: 10 * time.Second, // mitigate Slowloris (gosec G112)
 	}
 
