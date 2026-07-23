@@ -4,11 +4,24 @@ import "context"
 
 // WalletBalance represents a single token balance returned by a wallet syncer.
 type WalletBalance struct {
-	Symbol          string
-	Name            string
-	Amount          string // raw integer string (no decimals applied)
-	Decimals        int
-	ContractAddress string // EVM token contract address; empty for native coins
+	Symbol   string
+	Name     string
+	Amount   string // raw integer string (no decimals applied)
+	Decimals int
+	// ContractAddress is the token contract/mint address; empty for native coins.
+	ContractAddress string
+	// Chain identifies the network this balance is on ("eth", "solana",
+	// "polkadot", ...). Both native coins and tokens carry it. It namespaces the
+	// contract identity (OnchainSource) so the same address on two chains
+	// resolves to two distinct assets.
+	Chain string
+	// ProviderSpam is a source's own spam flag where reported (moralis
+	// possible_spam); nil when the provider does not report it. Fed to the
+	// identity scorer at sync intake.
+	ProviderSpam *bool
+	// ContractVerified is a source's contract-verification bit where reported;
+	// nil when unreported (native coins, non-EVM chains).
+	ContractVerified *bool
 }
 
 // WalletSyncer fetches token balances for a blockchain wallet across one or more chains.

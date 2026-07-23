@@ -63,6 +63,7 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 			Name:     nativeName,
 			Amount:   native,
 			Decimals: nativeDecimals,
+			Chain:    Chain,
 		})
 	}
 
@@ -84,6 +85,7 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 			// The jetton master doubles as the contract address, so price
 			// providers can look the token up the same way as an ERC-20.
 			ContractAddress: j.Address,
+			Chain:           Chain,
 		})
 	}
 

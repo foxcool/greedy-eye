@@ -32,7 +32,8 @@ func NewMarketDataStore(pool *pgxpool.Pool) *MarketDataStore {
 }
 
 // assetColumns is the canonical column list scanned by scanAsset.
-const assetColumns = "id, symbol, name, type, market, quote, tags, created_at, updated_at"
+const assetColumns = "id, symbol, name, type, market, quote, tags, created_at, updated_at, " +
+	"identity_verdict, identity_score, identity_signals, verdict_source, verdict_set_at"
 
 type rowScanner interface {
 	Scan(dest ...any) error
@@ -44,6 +45,8 @@ func scanAsset(row rowScanner) (*entity.Asset, error) {
 	var typeStr string
 	var quote *string
 	var tagsJSON []byte
+	var signalsJSON []byte
+	var verdictSource *string
 
 	if err := row.Scan(
 		&asset.ID,
@@ -55,6 +58,11 @@ func scanAsset(row rowScanner) (*entity.Asset, error) {
 		&tagsJSON,
 		&asset.CreatedAt,
 		&asset.UpdatedAt,
+		&asset.IdentityVerdict,
+		&asset.IdentityScore,
+		&signalsJSON,
+		&verdictSource,
+		&asset.VerdictSetAt,
 	); err != nil {
 		return nil, err
 	}
@@ -63,8 +71,16 @@ func scanAsset(row rowScanner) (*entity.Asset, error) {
 	if quote != nil {
 		asset.Quote = *quote
 	}
+	if verdictSource != nil {
+		asset.VerdictSource = *verdictSource
+	}
 	if err := json.Unmarshal(tagsJSON, &asset.Tags); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal tags: %w", err)
+	}
+	if len(signalsJSON) > 0 {
+		if err := json.Unmarshal(signalsJSON, &asset.IdentitySignals); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal identity signals: %w", err)
+		}
 	}
 	return &asset, nil
 }
@@ -334,6 +350,102 @@ func (s *MarketDataStore) UpdateAsset(ctx context.Context, asset *entity.Asset, 
 	return result, nil
 }
 
+// SetAssetVerdict writes an identity verdict (scam-filtering axis 1) with its
+// score, signals and provenance. A user verdict (source "user:*") is terminal:
+// an automated write never overwrites one, while a user write always wins. The
+// bool reports whether the row was actually written, so a rescoring pass can
+// count what it changed versus what it left to a human decision.
+func (s *MarketDataStore) SetAssetVerdict(ctx context.Context, assetID, verdict string, score *float64, signals map[string]float64, source string) (bool, error) {
+	if !isValidUUID(assetID) {
+		return false, fmt.Errorf("%w: invalid asset ID format", store.ErrInvalidArgument)
+	}
+	if verdict == "" || source == "" {
+		return false, fmt.Errorf("%w: verdict and source are required", store.ErrInvalidArgument)
+	}
+
+	var signalsJSON []byte
+	if signals != nil {
+		var err error
+		if signalsJSON, err = json.Marshal(signals); err != nil {
+			return false, fmt.Errorf("failed to marshal identity signals: %w", err)
+		}
+	}
+
+	// The guard lets a user source through unconditionally and blocks any other
+	// source from clobbering an existing user verdict.
+	const query = `
+		UPDATE assets
+		SET identity_verdict = $2, identity_score = $3, identity_signals = $4,
+		    verdict_source = $5, verdict_set_at = NOW(), updated_at = NOW()
+		WHERE id = $1
+		  AND ($5 LIKE 'user:%' OR verdict_source IS NULL OR verdict_source NOT LIKE 'user:%')`
+
+	tag, err := s.pool.Exec(ctx, query, assetID, verdict, score, signalsJSON, source)
+	if err != nil {
+		return false, fmt.Errorf("failed to set asset verdict: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// FindAssetIDByExternalRef resolves an asset by its identifier in an external
+// namespace (a contract on a chain, a provider coin id). This is the
+// contract-identity lookup the sync path uses so a scam clone of a real ticker
+// resolves to its own asset, not the real one. Returns ErrNotFound when the ref
+// is unmapped.
+func (s *MarketDataStore) FindAssetIDByExternalRef(ctx context.Context, source, ref string) (string, error) {
+	if source == "" || ref == "" {
+		return "", fmt.Errorf("%w: source and ref are required", store.ErrInvalidArgument)
+	}
+	var assetID string
+	err := s.pool.QueryRow(ctx,
+		`SELECT asset_id FROM asset_external_refs WHERE source = $1 AND ref = $2`,
+		source, ref,
+	).Scan(&assetID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("%w: external ref %s/%s", store.ErrNotFound, source, ref)
+		}
+		return "", fmt.Errorf("failed to find asset by external ref: %w", err)
+	}
+	return assetID, nil
+}
+
+// CreateAssetExternalRef maps an asset to an external identifier. A conflicting
+// (source, ref) is left untouched — identity is stable once bound, and a manual
+// link must never be silently replaced by an auto one. ErrConstraint signals the
+// caller a mapping already exists.
+func (s *MarketDataStore) CreateAssetExternalRef(ctx context.Context, ref *entity.AssetExternalRef) (*entity.AssetExternalRef, error) {
+	if ref == nil || ref.AssetID == "" || ref.Source == "" || ref.Ref == "" {
+		return nil, fmt.Errorf("%w: asset_id, source and ref are required", store.ErrInvalidArgument)
+	}
+	if !isValidUUID(ref.AssetID) {
+		return nil, fmt.Errorf("%w: invalid asset ID format", store.ErrInvalidArgument)
+	}
+	if ref.Origin == "" {
+		ref.Origin = entity.RefOriginAuto
+	}
+
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate ID: %w", err)
+	}
+	ref.ID = id.String()
+
+	err = s.pool.QueryRow(ctx,
+		`INSERT INTO asset_external_refs (id, asset_id, source, ref, origin, created_at)
+		 VALUES ($1, $2, $3, $4, $5, NOW())
+		 RETURNING created_at`,
+		ref.ID, ref.AssetID, ref.Source, ref.Ref, ref.Origin,
+	).Scan(&ref.CreatedAt)
+	if err != nil {
+		if isConstraintError(err) {
+			return nil, fmt.Errorf("%w: %v", store.ErrConstraint, err)
+		}
+		return nil, fmt.Errorf("failed to create asset external ref: %w", err)
+	}
+	return ref, nil
+}
+
 // DeleteAsset deletes an asset by ID.
 func (s *MarketDataStore) DeleteAsset(ctx context.Context, id string) error {
 	if id == "" {
@@ -385,6 +497,12 @@ func (s *MarketDataStore) ListAssets(ctx context.Context, opts marketdata.ListAs
 		}
 		whereClauses = append(whereClauses, fmt.Sprintf("tags @> $%d::jsonb", argIdx))
 		args = append(args, string(tagsJSON))
+		argIdx++
+	}
+
+	if opts.IdentityVerdict != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("identity_verdict = $%d", argIdx))
+		args = append(args, opts.IdentityVerdict)
 		argIdx++
 	}
 

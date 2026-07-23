@@ -1146,11 +1146,17 @@ type PortfolioValueResponse struct {
 	// Echoes the requested quote (UUID or symbol) used to value the portfolio.
 	QuoteAssetId string `protobuf:"bytes,2,opt,name=quote_asset_id,json=quoteAssetId,proto3" json:"quote_asset_id,omitempty"`
 	// Total value as a raw integer decimal string (scaled by `decimals`).
+	// Excludes quarantined holdings (scam/impersonation) — see excluded_* below.
 	TotalValueAmount string                 `protobuf:"bytes,3,opt,name=total_value_amount,json=totalValueAmount,proto3" json:"total_value_amount,omitempty"`
 	Decimals         uint32                 `protobuf:"varint,4,opt,name=decimals,proto3" json:"decimals,omitempty"`
 	CalculationTime  *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=calculation_time,json=calculationTime,proto3" json:"calculation_time,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Quarantined holdings kept out of the total, disclosed so the number never
+	// silently diverges from the wallet: count and their summed value at the same
+	// `decimals`.
+	ExcludedCount       uint32 `protobuf:"varint,6,opt,name=excluded_count,json=excludedCount,proto3" json:"excluded_count,omitempty"`
+	ExcludedValueAmount string `protobuf:"bytes,7,opt,name=excluded_value_amount,json=excludedValueAmount,proto3" json:"excluded_value_amount,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *PortfolioValueResponse) Reset() {
@@ -1216,6 +1222,20 @@ func (x *PortfolioValueResponse) GetCalculationTime() *timestamppb.Timestamp {
 		return x.CalculationTime
 	}
 	return nil
+}
+
+func (x *PortfolioValueResponse) GetExcludedCount() uint32 {
+	if x != nil {
+		return x.ExcludedCount
+	}
+	return 0
+}
+
+func (x *PortfolioValueResponse) GetExcludedValueAmount() string {
+	if x != nil {
+		return x.ExcludedValueAmount
+	}
+	return ""
 }
 
 type GetPortfolioPerformanceRequest struct {
@@ -3204,13 +3224,15 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x1eCalculatePortfolioValueRequest\x12!\n" +
 	"\fportfolio_id\x18\x01 \x01(\tR\vportfolioId\x12$\n" +
 	"\x0equote_asset_id\x18\x02 \x01(\tR\fquoteAssetId\x123\n" +
-	"\aat_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x06atTime\"\xf2\x01\n" +
+	"\aat_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x06atTime\"\xcd\x02\n" +
 	"\x16PortfolioValueResponse\x12!\n" +
 	"\fportfolio_id\x18\x01 \x01(\tR\vportfolioId\x12$\n" +
 	"\x0equote_asset_id\x18\x02 \x01(\tR\fquoteAssetId\x12,\n" +
 	"\x12total_value_amount\x18\x03 \x01(\tR\x10totalValueAmount\x12\x1a\n" +
 	"\bdecimals\x18\x04 \x01(\rR\bdecimals\x12E\n" +
-	"\x10calculation_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x0fcalculationTime\"\xcd\x01\n" +
+	"\x10calculation_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x0fcalculationTime\x12%\n" +
+	"\x0eexcluded_count\x18\x06 \x01(\rR\rexcludedCount\x122\n" +
+	"\x15excluded_value_amount\x18\a \x01(\tR\x13excludedValueAmount\"\xcd\x01\n" +
 	"\x1eGetPortfolioPerformanceRequest\x12!\n" +
 	"\fportfolio_id\x18\x01 \x01(\tR\vportfolioId\x12.\n" +
 	"\x04from\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x04from\x12*\n" +

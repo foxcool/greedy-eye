@@ -40,6 +40,13 @@ message Asset {
   optional string market = 8;
   // Quote currency/base where applicable.
   optional string quote = 9;
+  // Identity axis (scam-filtering): whether the asset is what it claims to be.
+  // "unknown" | "legit" | "suspect" | "scam" | "impersonation". Output-only;
+  // set by the scoring pass or by a user verdict (SetAssetVerdict).
+  optional string identity_verdict = 10;
+  // Provenance of the verdict: "heuristic" | "provider:<name>" | "curated" |
+  // "user:<id>". A user verdict is terminal — rescoring never overwrites it.
+  optional string verdict_source = 11;
 }
 
 // Price represents the price action of an Asset against a base Asset
@@ -126,6 +133,16 @@ service MarketDataService {
     };
   }
 
+  // Set a human identity verdict on an asset (scam-filtering). A user verdict
+  // is terminal: the automated scorer never overwrites it. Admin-only until
+  // per-asset RBAC lands (personal-rme).
+  rpc SetAssetVerdict(SetAssetVerdictRequest) returns (Asset) {
+    option (google.api.http) = {
+      post: "/api/v1/assets/{asset_id}/verdict"
+      body: "*"
+    };
+  }
+
   // --- Price CRUD ---
   rpc CreatePrice(CreatePriceRequest) returns (Price) {
     option (google.api.http) = {
@@ -205,6 +222,10 @@ message ListAssetsRequest {
   optional int32 page_size = 1;
   optional string page_token = 2;
   repeated string tags = 3;
+  // Filter by identity verdict (scam-filtering): "unknown" | "legit" |
+  // "suspect" | "scam" | "impersonation". Empty returns all. Drives the
+  // Quarantine view.
+  optional string identity_verdict = 4;
 }
 
 message ListAssetsResponse {
@@ -233,6 +254,20 @@ message FindOrCreateAssetRequest {
   optional string name = 4;
   // When true, never creates: reports what would happen instead.
   bool dry_run = 5;
+  // Optional external identity for resolution and binding. When set, the asset
+  // is resolved by (external_ref_source, external_ref) first — a token's
+  // contract is its identity, so a scam clone of a real ticker resolves to its
+  // own asset rather than merging into the real one. On a miss the mapping is
+  // bound to the resolved/created asset. Source namespaces the ref:
+  // "onchain:<chain>" for a contract/mint.
+  optional string external_ref_source = 6;
+  optional string external_ref = 7;
+  // Provider identity signals for scam scoring at sync intake, where reported:
+  // provider_spam is a source's own spam flag (moralis possible_spam),
+  // contract_verified its contract-verification bit. Unset means "not reported"
+  // (native coins, non-EVM chains) and does not influence the score.
+  optional bool provider_spam = 8;
+  optional bool contract_verified = 9;
 }
 
 message FindOrCreateAssetResponse {
@@ -240,6 +275,12 @@ message FindOrCreateAssetResponse {
   Asset asset = 1;
   // True when the asset was created (or would be, in a dry run).
   bool created = 2;
+}
+
+message SetAssetVerdictRequest {
+  string asset_id = 1;
+  // "legit" | "suspect" | "scam" | "impersonation". "unknown" is not settable.
+  string verdict = 2;
 }
 
 // =============================================================================

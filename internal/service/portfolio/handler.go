@@ -16,6 +16,7 @@ import (
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
+	"github.com/foxcool/greedy-eye/internal/scamfilter"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -265,10 +266,12 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 		quoteAssetID = defaultQuoteAsset
 	}
 
+	// Fetch all holdings (excluded included) and partition in code so the total
+	// can exclude the quarantined ones while still disclosing them — a silently
+	// shrunk total looks like a real outflow.
 	holdings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{
-		PortfolioID:  req.Msg.PortfolioId,
-		PageSize:     1000,
-		HideExcluded: true,
+		PortfolioID: req.Msg.PortfolioId,
+		PageSize:    1000,
 	})
 	if err != nil {
 		return nil, toConnectError(err)
@@ -276,11 +279,21 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 
 	const resultDecimals = 2
 	total := decimal.Zero
+	excludedTotal := decimal.Zero
+	var excludedCount uint32
 
 	for _, hld := range holdings {
 		unit, ok, err := h.unitPrice(ctx, hld.AssetID, quoteAssetID)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get price for %s: %w", hld.AssetID, err))
+		}
+		if hld.Excluded {
+			// Count every quarantined holding; add its value only when priced.
+			excludedCount++
+			if ok {
+				excludedTotal = excludedTotal.Add(hld.Amount.Shift(-decI32(hld.Decimals)).Mul(unit))
+			}
+			continue
 		}
 		if !ok {
 			continue // no price path for this asset → skip
@@ -292,14 +305,18 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 	}
 
 	// Convert to result decimals (e.g., 2 for USD cents) as a raw integer decimal string.
-	resultAmount := total.Mul(decimal.New(1, int32(resultDecimals))).Round(0).String()
+	scale := decimal.New(1, int32(resultDecimals))
+	resultAmount := total.Mul(scale).Round(0).String()
+	excludedAmount := excludedTotal.Mul(scale).Round(0).String()
 
 	return connect.NewResponse(&apiv1.PortfolioValueResponse{
-		PortfolioId:      req.Msg.PortfolioId,
-		QuoteAssetId:     quoteAssetID,
-		TotalValueAmount: resultAmount,
-		Decimals:         resultDecimals,
-		CalculationTime:  timestamppb.New(time.Now()),
+		PortfolioId:         req.Msg.PortfolioId,
+		QuoteAssetId:        quoteAssetID,
+		TotalValueAmount:    resultAmount,
+		Decimals:            resultDecimals,
+		CalculationTime:     timestamppb.New(time.Now()),
+		ExcludedCount:       excludedCount,
+		ExcludedValueAmount: excludedAmount,
 	}), nil
 }
 
@@ -823,7 +840,12 @@ type syncedBalance struct {
 	name            string
 	amount          string // raw integer string scaled by decimals
 	decimals        int
-	contractAddress string // EVM token contract; empty for exchange/native
+	contractAddress string // token contract/mint; empty for exchange/native
+	chain           string // network the balance is on; empty for exchange
+	// providerSpam / contractVerified carry a source's identity signals for scam
+	// scoring at intake; nil when the source does not report them.
+	providerSpam     *bool
+	contractVerified *bool
 }
 
 // SyncAccount fetches external holdings for a wallet or exchange account and
@@ -955,11 +977,14 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 	result := make([]syncedBalance, 0, len(balances))
 	for _, b := range balances {
 		result = append(result, syncedBalance{
-			symbol:          b.Symbol,
-			name:            b.Name,
-			amount:          b.Amount,
-			decimals:        b.Decimals,
-			contractAddress: b.ContractAddress,
+			symbol:           b.Symbol,
+			name:             b.Name,
+			amount:           b.Amount,
+			decimals:         b.Decimals,
+			contractAddress:  b.ContractAddress,
+			chain:            b.Chain,
+			providerSpam:     b.ProviderSpam,
+			contractVerified: b.ContractVerified,
 		})
 	}
 	return result, syncErrors, nil
@@ -997,21 +1022,21 @@ func (h *Handler) syncExchangeBalances(ctx context.Context, account *entity.Acco
 	return result, syncErrors, nil
 }
 
-// upsertSyncedBalances merges same-symbol balances, ensures assets exist, and
-// upserts holdings for the account. Returns per-symbol failures as error strings.
+// upsertSyncedBalances resolves each balance to an asset and upserts holdings
+// for the account. Resolution is by contract identity (external ref) first and
+// by symbol otherwise, so a scam clone of a real ticker resolves to its own
+// asset while cross-chain instances of the same asset collapse onto one asset_id
+// and sum into one holding. The same asset can carry different decimals per
+// chain (USDC is 6 on Ethereum, 18 on BSC), so quantities are summed as real
+// amounts (raw / 10^decimals) and stored at the largest decimals seen — summing
+// raw integers across mismatched scales would corrupt the total.
 func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Account, balances []syncedBalance) (assetsUpserted, holdingsUpserted int32, syncErrors []string, err error) {
-	// Merge same-symbol tokens across chains, keyed by the canonical (uppercase) symbol
-	// so "usdc"/"USDC" collapse into one holding. The same symbol can carry different
-	// decimals per chain (e.g. USDC is 6 on Ethereum, 18 on BSC), so balances are summed
-	// as real quantities (raw / 10^decimals) and stored at the largest decimals seen —
-	// summing raw integers across mismatched scales would corrupt the total.
 	type accumulated struct {
-		name            string
-		contractAddress string
-		qty             decimal.Decimal // real token quantity, decimals applied
-		decimals        int             // max decimals seen → stored holding scale
+		qty      decimal.Decimal // real token quantity, decimals applied
+		decimals int             // max decimals seen → stored holding scale
+		excluded bool            // derived from a scam/impersonation verdict
 	}
-	bySymbol := make(map[string]*accumulated)
+	byAssetID := make(map[string]*accumulated)
 
 	for _, b := range balances {
 		amt, ok := new(big.Int).SetString(strings.TrimSpace(b.amount), 10)
@@ -1022,38 +1047,29 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 		if amt.Sign() == 0 {
 			continue
 		}
-		symbol := entity.NormalizeSymbol(b.symbol)
+
+		assetID, created, verdict, rerr := h.resolveSyncedAsset(ctx, b)
+		if rerr != nil {
+			syncErrors = append(syncErrors, fmt.Sprintf("resolve asset %s: %v", b.symbol, rerr))
+			continue
+		}
+		if created {
+			assetsUpserted++
+		}
+
 		qty := decimal.NewFromBigInt(amt, -intToI32(b.decimals)) // raw / 10^decimals
-		if entry, ok := bySymbol[symbol]; ok {
+		if entry, ok := byAssetID[assetID]; ok {
 			entry.qty = entry.qty.Add(qty)
 			if b.decimals > entry.decimals {
 				entry.decimals = b.decimals
 			}
-			if entry.contractAddress == "" {
-				entry.contractAddress = b.contractAddress
-			}
+			entry.excluded = entry.excluded || isQuarantineVerdict(verdict)
 		} else {
-			bySymbol[symbol] = &accumulated{
-				name:            b.name,
-				contractAddress: b.contractAddress,
-				qty:             qty,
-				decimals:        b.decimals,
+			byAssetID[assetID] = &accumulated{
+				qty:      qty,
+				decimals: b.decimals,
+				excluded: isQuarantineVerdict(verdict),
 			}
-		}
-	}
-
-	// Build symbol → asset ID map from existing assets
-	pageSize := int32(1000)
-	listResp, err := h.mdClient.ListAssets(ctx, connect.NewRequest(&apiv1.ListAssetsRequest{
-		PageSize: &pageSize,
-	}))
-	if err != nil {
-		return 0, 0, nil, err
-	}
-	symbolToAssetID := make(map[string]string, len(listResp.Msg.Assets))
-	for _, a := range listResp.Msg.Assets {
-		if a.Symbol != nil {
-			symbolToAssetID[entity.NormalizeSymbol(*a.Symbol)] = a.Id
 		}
 	}
 
@@ -1069,47 +1085,26 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 
 	defaultPortfolioID := account.PortfolioID
 
-	for symbol, entry := range bySymbol {
+	for assetID, entry := range byAssetID {
 		decimals := intToU32(entry.decimals)
 		// holdings.amount is NUMERIC: store the merged quantity as a raw integer at the
 		// holding's decimals scale (exact — qty has at most `decimals` fractional digits).
 		amount := entry.qty.Shift(intToI32(entry.decimals))
-
-		// Ensure asset exists
-		assetID, exists := symbolToAssetID[symbol]
-		if !exists {
-			// Store contract address as a tag so price providers can look up by address.
-			var tags []string
-			if entry.contractAddress != "" {
-				tags = append(tags, "contract:"+entry.contractAddress)
-			}
-			createResp, err := h.mdClient.CreateAsset(ctx, connect.NewRequest(&apiv1.CreateAssetRequest{
-				Asset: &apiv1.Asset{
-					Name:   entry.name,
-					Symbol: &symbol,
-					Type:   apiv1.AssetType_ASSET_TYPE_CRYPTOCURRENCY,
-					Tags:   tags,
-				},
-			}))
-			if err != nil {
-				syncErrors = append(syncErrors, fmt.Sprintf("create asset %s: %v", symbol, err))
-				continue
-			}
-			assetID = createResp.Msg.Id
-			symbolToAssetID[symbol] = assetID
-			assetsUpserted++
-		}
 
 		if existing, ok := holdingByAssetID[assetID]; ok {
 			// Update existing holding: only refresh amount/decimals; never touch portfolio assignment
 			existing.Amount = amount
 			existing.Decimals = decimals
 			if _, err := h.store.UpdateHolding(ctx, existing, []string{"amount", "decimals"}); err != nil {
-				syncErrors = append(syncErrors, fmt.Sprintf("update holding %s: %v", symbol, err))
+				syncErrors = append(syncErrors, fmt.Sprintf("update holding for asset %s: %v", assetID, err))
 				continue
 			}
 		} else {
-			// Create new holding; inherit account's default portfolio if configured
+			// Create new holding; inherit account's default portfolio if configured.
+			// A scam/impersonation verdict on the asset excludes the new holding
+			// from the sums; the position still syncs (no frozen holding), it is
+			// just quarantined. An existing holding's excluded flag is left alone
+			// on update so a user's manual override survives resync.
 			_, err := h.store.CreateHolding(ctx, &entity.Holding{
 				AssetID:     assetID,
 				AccountID:   account.ID,
@@ -1117,9 +1112,10 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 				Amount:      amount,
 				Decimals:    decimals,
 				Source:      entity.SourceSync,
+				Excluded:    entry.excluded,
 			})
 			if err != nil {
-				syncErrors = append(syncErrors, fmt.Sprintf("create holding %s: %v", symbol, err))
+				syncErrors = append(syncErrors, fmt.Sprintf("create holding for asset %s: %v", assetID, err))
 				continue
 			}
 		}
@@ -1127,6 +1123,46 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 	}
 
 	return assetsUpserted, holdingsUpserted, syncErrors, nil
+}
+
+// resolveSyncedAsset resolves (creating when needed) the asset for one synced
+// balance through the MarketData service. A balance that carries a contract is
+// resolved by its on-chain identity (external ref), so a token is matched by
+// contract before symbol and cross-chain instances of the same asset collapse
+// onto one asset_id.
+func (h *Handler) resolveSyncedAsset(ctx context.Context, b syncedBalance) (assetID string, created bool, verdict string, err error) {
+	msg := &apiv1.FindOrCreateAssetRequest{
+		Symbol:           b.symbol,
+		Type:             apiv1.AssetType_ASSET_TYPE_CRYPTOCURRENCY,
+		ProviderSpam:     b.providerSpam,
+		ContractVerified: b.contractVerified,
+	}
+	if b.name != "" {
+		msg.Name = &b.name
+	}
+	if b.contractAddress != "" && b.chain != "" {
+		source := entity.OnchainSource(b.chain)
+		contract := b.contractAddress
+		msg.ExternalRefSource = &source
+		msg.ExternalRef = &contract
+	}
+
+	resp, err := h.mdClient.FindOrCreateAsset(ctx, connect.NewRequest(msg))
+	if err != nil {
+		return "", false, "", err
+	}
+	if resp.Msg.Asset == nil {
+		return "", false, "", fmt.Errorf("marketdata returned no asset for %s", b.symbol)
+	}
+	return resp.Msg.Asset.Id, resp.Msg.Created, resp.Msg.Asset.GetIdentityVerdict(), nil
+}
+
+// isQuarantineVerdict reports whether an identity verdict excludes a synced
+// holding from the sums: a scam or an impersonation is not the user's money to
+// count, while a real asset's situational risk (a separate axis) never excludes.
+func isQuarantineVerdict(verdict string) bool {
+	return verdict == string(scamfilter.VerdictScam) ||
+		verdict == string(scamfilter.VerdictImpersonation)
 }
 
 // --- Transaction CRUD ---

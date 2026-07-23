@@ -339,9 +339,15 @@ message PortfolioValueResponse {
   // Echoes the requested quote (UUID or symbol) used to value the portfolio.
   string quote_asset_id = 2;
   // Total value as a raw integer decimal string (scaled by `decimals`).
+  // Excludes quarantined holdings (scam/impersonation) — see excluded_* below.
   string total_value_amount = 3;
   uint32 decimals = 4;
   google.protobuf.Timestamp calculation_time = 5;
+  // Quarantined holdings kept out of the total, disclosed so the number never
+  // silently diverges from the wallet: count and their summed value at the same
+  // `decimals`.
+  uint32 excluded_count = 6;
+  string excluded_value_amount = 7;
 }
 
 message GetPortfolioPerformanceRequest {

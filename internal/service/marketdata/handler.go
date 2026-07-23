@@ -17,6 +17,7 @@ import (
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
+	"github.com/foxcool/greedy-eye/internal/scamfilter"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -150,6 +151,9 @@ func (h *Handler) ListAssets(ctx context.Context, req *connect.Request[apiv1.Lis
 	}
 	if req.Msg.PageToken != nil {
 		opts.PageToken = *req.Msg.PageToken
+	}
+	if req.Msg.IdentityVerdict != nil {
+		opts.IdentityVerdict = *req.Msg.IdentityVerdict
 	}
 
 	assets, nextPageToken, err := h.store.ListAssets(ctx, opts)
@@ -400,9 +404,34 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("market is required for this asset type"))
 	}
 
+	refSource := strings.TrimSpace(req.Msg.GetExternalRefSource())
+	ref := strings.TrimSpace(req.Msg.GetExternalRef())
+	hasRef := refSource != "" && ref != ""
+
+	// Resolve by external ref first: a token's contract is its identity, so a
+	// bound contract wins over symbol matching and a scam clone of a real ticker
+	// stays its own asset instead of resolving to the real one.
+	if hasRef {
+		if assetID, ferr := h.store.FindAssetIDByExternalRef(ctx, refSource, ref); ferr == nil {
+			if a, gerr := h.store.GetAsset(ctx, assetID); gerr == nil {
+				return h.respondScored(ctx, a, req.Msg, false), nil
+			}
+			// A ref pointing at a missing asset should not happen (FK CASCADE);
+			// fall through to identity resolution rather than fail the sync.
+		} else if !errors.Is(ferr, store.ErrNotFound) {
+			return nil, toConnectError(ferr)
+		}
+	}
+
 	found, err := h.store.FindAssetByIdentity(ctx, symbol, market, typ)
 	if err == nil {
-		return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: assetToProto(found)}), nil
+		// Bind the contract to the resolved asset so the next sync short-circuits
+		// on the ref (and cross-chain contracts of the same symbol collapse onto
+		// one asset).
+		if hasRef {
+			h.bindExternalRef(ctx, found.ID, refSource, ref)
+		}
+		return h.respondScored(ctx, found, req.Msg, false), nil
 	}
 	if !errors.Is(err, store.ErrNotFound) {
 		return nil, toConnectError(err)
@@ -417,24 +446,134 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 	if req.Msg.Name != nil && strings.TrimSpace(*req.Msg.Name) != "" {
 		name = strings.TrimSpace(*req.Msg.Name)
 	}
+	// Mirror the contract as a tag on an on-chain create so the price providers
+	// that look tokens up by address (coingecko) keep resolving; the external ref
+	// is the identity, the tag is the pricing hint.
+	tags := []string{}
+	if hasRef && strings.HasPrefix(refSource, "onchain:") {
+		tags = append(tags, "contract:"+ref)
+	}
 	created, err := h.store.CreateAsset(ctx, &entity.Asset{
 		Symbol: symbol,
 		Name:   name,
 		Type:   typ,
 		Market: market,
-		Tags:   []string{},
+		Tags:   tags,
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrConstraint) {
 			// Concurrent insert won the race — read back the existing row.
 			if existing, ferr := h.store.FindAssetByIdentity(ctx, symbol, market, typ); ferr == nil {
-				return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: assetToProto(existing)}), nil
+				if hasRef {
+					h.bindExternalRef(ctx, existing.ID, refSource, ref)
+				}
+				return h.respondScored(ctx, existing, req.Msg, false), nil
 			}
 		}
 		return nil, toConnectError(err)
 	}
 
-	return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: assetToProto(created), Created: true}), nil
+	if hasRef {
+		h.bindExternalRef(ctx, created.ID, refSource, ref)
+	}
+	return h.respondScored(ctx, created, req.Msg, true), nil
+}
+
+// respondScored scores the asset's identity, persists the verdict (never over a
+// user verdict) and returns the response with the effective verdict stamped on
+// the asset so the sync path can derive holdings.excluded from it.
+func (h *Handler) respondScored(ctx context.Context, a *entity.Asset, req *apiv1.FindOrCreateAssetRequest, created bool) *connect.Response[apiv1.FindOrCreateAssetResponse] {
+	verdict := h.scoreAndPersistVerdict(ctx, a, req)
+	p := assetToProto(a)
+	if verdict != "" {
+		p.IdentityVerdict = &verdict
+	}
+	return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: p, Created: created})
+}
+
+// scoreAndPersistVerdict scores an asset with scamfilter and stores the verdict
+// under the "heuristic" source, which the store guards against overwriting a
+// user verdict. It returns the effective verdict: the freshly scored one when
+// written, or the asset's existing (possibly user) verdict when the write was
+// skipped or failed — so the caller never acts on a verdict the store rejected.
+func (h *Handler) scoreAndPersistVerdict(ctx context.Context, a *entity.Asset, req *apiv1.FindOrCreateAssetRequest) string {
+	in := scamfilter.Input{
+		Symbol:           a.Symbol,
+		Name:             a.Name,
+		ProviderSpam:     req.ProviderSpam,
+		ContractVerified: req.ContractVerified,
+	}
+	res := scamfilter.Score(in, scamfilter.DefaultWeights())
+	score := res.Score
+	written, err := h.store.SetAssetVerdict(ctx, a.ID, string(res.Verdict), &score, res.Signals, rescoreVerdictSource)
+	if err != nil {
+		if h.log != nil {
+			h.log.Warn("persist identity verdict failed", "asset_id", a.ID, "error", err)
+		}
+		return a.IdentityVerdict
+	}
+	if !written {
+		// A user verdict is terminal; report what actually stands.
+		return a.IdentityVerdict
+	}
+	return string(res.Verdict)
+}
+
+// settableVerdicts are the identity verdicts a human may assign. "unknown" is
+// the never-scored default and is not a judgement, so it cannot be set.
+var settableVerdicts = map[string]bool{
+	string(scamfilter.VerdictLegit):         true,
+	string(scamfilter.VerdictSuspect):       true,
+	string(scamfilter.VerdictScam):          true,
+	string(scamfilter.VerdictImpersonation): true,
+}
+
+// SetAssetVerdict records a human identity verdict, provenanced to the user so
+// the automated scorer never overwrites it. Admin-only until per-asset RBAC
+// lands (personal-rme).
+func (h *Handler) SetAssetVerdict(ctx context.Context, req *connect.Request[apiv1.SetAssetVerdictRequest]) (*connect.Response[apiv1.Asset], error) {
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
+	}
+	if !user.IsAdmin() {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("setting an asset verdict is admin-only"))
+	}
+	if req.Msg.AssetId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset_id is required"))
+	}
+	verdict := req.Msg.Verdict
+	if !settableVerdicts[verdict] {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("verdict must be one of legit, suspect, scam, impersonation; got %q", verdict))
+	}
+
+	// A user verdict carries no automated score/signals and is terminal.
+	if _, err := h.store.SetAssetVerdict(ctx, req.Msg.AssetId, verdict, nil, nil, "user:"+user.ID); err != nil {
+		return nil, toConnectError(err)
+	}
+	updated, err := h.store.GetAsset(ctx, req.Msg.AssetId)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+	return connect.NewResponse(assetToProto(updated)), nil
+}
+
+// bindExternalRef maps a contract identity to an asset, best-effort: a conflict
+// means the ref is already bound (identity is stable), which is not an error for
+// the sync path. Other failures are logged, not surfaced — a missing mapping
+// only costs the next sync a symbol lookup, it does not corrupt the holding.
+func (h *Handler) bindExternalRef(ctx context.Context, assetID, source, ref string) {
+	_, err := h.store.CreateAssetExternalRef(ctx, &entity.AssetExternalRef{
+		AssetID: assetID,
+		Source:  source,
+		Ref:     ref,
+		Origin:  entity.RefOriginAuto,
+	})
+	if err != nil && !errors.Is(err, store.ErrConstraint) && h.log != nil {
+		h.log.Warn("bind external ref failed",
+			"asset_id", assetID, "source", source, "ref", ref, "error", err)
+	}
 }
 
 // FetchExternalPrices fetches prices from configured providers and stores them.
@@ -564,15 +703,17 @@ func assetFromProto(p *apiv1.Asset) *entity.Asset {
 
 func assetToProto(e *entity.Asset) *apiv1.Asset {
 	return &apiv1.Asset{
-		Id:        e.ID,
-		Name:      e.Name,
-		Symbol:    optionalString(e.Symbol),
-		Type:      apiv1.AssetType(e.Type),
-		Market:    optionalString(e.Market),
-		Quote:     optionalString(e.Quote),
-		Tags:      e.Tags,
-		CreatedAt: timestamppb.New(e.CreatedAt),
-		UpdatedAt: timestamppb.New(e.UpdatedAt),
+		Id:              e.ID,
+		Name:            e.Name,
+		Symbol:          optionalString(e.Symbol),
+		Type:            apiv1.AssetType(e.Type),
+		Market:          optionalString(e.Market),
+		Quote:           optionalString(e.Quote),
+		Tags:            e.Tags,
+		IdentityVerdict: optionalString(e.IdentityVerdict),
+		VerdictSource:   optionalString(e.VerdictSource),
+		CreatedAt:       timestamppb.New(e.CreatedAt),
+		UpdatedAt:       timestamppb.New(e.UpdatedAt),
 	}
 }
 

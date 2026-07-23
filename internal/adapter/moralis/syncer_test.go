@@ -30,7 +30,12 @@ func TestHandlesAddress(t *testing.T) {
 	}
 }
 
-func TestWalletSyncer_TokenBalances_FiltersSpam(t *testing.T) {
+// TestWalletSyncer_TokenBalances_CarriesSpamSignals verifies the adapter no
+// longer drops possible-spam/unverified tokens at the source: it returns every
+// balance and carries the provider's spam and verification bits as scoring
+// signals, so a scam clone syncs as its own quarantined asset downstream instead
+// of vanishing (scam-filtering). The chain is stamped on every balance.
+func TestWalletSyncer_TokenBalances_CarriesSpamSignals(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`[
@@ -47,7 +52,25 @@ func TestWalletSyncer_TokenBalances_FiltersSpam(t *testing.T) {
 
 	balances, err := syncer.tokenBalances(context.Background(), "eth", "0xabc")
 	require.NoError(t, err)
-	require.Len(t, balances, 1)
-	assert.Equal(t, "GRT", balances[0].Symbol)
-	assert.Equal(t, "1000", balances[0].Amount)
+	require.Len(t, balances, 3, "no balance is dropped at the source")
+
+	bySymbol := map[string]int{}
+	for i, b := range balances {
+		bySymbol[b.Symbol] = i
+		assert.Equal(t, "eth", b.Chain, b.Symbol)
+		require.NotNil(t, b.ProviderSpam, b.Symbol)
+		require.NotNil(t, b.ContractVerified, b.Symbol)
+	}
+
+	grt := balances[bySymbol["GRT"]]
+	assert.False(t, *grt.ProviderSpam)
+	assert.True(t, *grt.ContractVerified)
+
+	scam := balances[bySymbol["SCAM"]]
+	assert.True(t, *scam.ProviderSpam)
+	assert.False(t, *scam.ContractVerified)
+
+	fakeUSDT := balances[bySymbol["USDT"]]
+	assert.False(t, *fakeUSDT.ProviderSpam)
+	assert.False(t, *fakeUSDT.ContractVerified)
 }

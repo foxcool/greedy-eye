@@ -934,6 +934,42 @@ func TestCalculatePortfolioValue_CrossRate(t *testing.T) {
 	assert.Equal(t, uint32(2), resp.Msg.Decimals)
 }
 
+// TestCalculatePortfolioValue_DisclosesExcluded: a quarantined holding stays out
+// of the total but is disclosed as excluded count and value, so the number never
+// silently diverges from the wallet.
+func TestCalculatePortfolioValue_DisclosesExcluded(t *testing.T) {
+	const (
+		legitAsset = "00000000-0000-0000-0000-0000000000a1"
+		scamAsset  = "00000000-0000-0000-0000-0000000000a2"
+	)
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	// Both holdings come back; the store no longer hides excluded here.
+	s.On("ListHoldings", mock.Anything, mock.MatchedBy(func(o ListHoldingsOpts) bool {
+		return !o.HideExcluded
+	})).Return([]*entity.Holding{
+		{ID: "h1", AssetID: legitAsset, Amount: decimal.NewFromInt(100000000), Decimals: 8},              // 1.0
+		{ID: "h2", AssetID: scamAsset, Amount: decimal.NewFromInt(500000000), Decimals: 8, Excluded: true}, // 5.0, quarantined
+	}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
+		return r.Msg.AssetId == legitAsset && r.Msg.BaseAssetId == "USD"
+	})).Return(connect.NewResponse(&apiv1.Price{Last: "300000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 3.0
+	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
+		return r.Msg.AssetId == scamAsset && r.Msg.BaseAssetId == "USD"
+	})).Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 1.0
+
+	h := newHandler(s).WithMarketDataClient(md)
+	resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
+		PortfolioId: testPortfolioID,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "300", resp.Msg.TotalValueAmount, "only the legit 1.0 × 3.0 counts")
+	assert.Equal(t, uint32(1), resp.Msg.ExcludedCount)
+	assert.Equal(t, "500", resp.Msg.ExcludedValueAmount, "quarantined 5.0 × 1.0 disclosed")
+}
+
 // --- Tests: Stubs return Unimplemented ---
 
 func TestStubs_ReturnUnimplemented(t *testing.T) {
@@ -965,6 +1001,12 @@ func (m *mockWalletSyncer) SyncWallet(ctx context.Context, address string, chain
 
 type mockMDClient struct {
 	mock.Mock
+	// autoAsset makes FindOrCreateAsset resolve deterministically without an
+	// explicit expectation: one asset per normalized symbol, Created only the
+	// first time a symbol is seen — the find-vs-create semantics the sync path
+	// relies on. Import tests leave it false and mock FindOrCreateAsset directly.
+	autoAsset bool
+	seenAsset map[string]bool
 }
 
 func (m *mockMDClient) CreateAsset(ctx context.Context, req *connect.Request[apiv1.CreateAssetRequest]) (*connect.Response[apiv1.Asset], error) {
@@ -984,6 +1026,18 @@ func (m *mockMDClient) GetAsset(ctx context.Context, req *connect.Request[apiv1.
 }
 
 func (m *mockMDClient) FindOrCreateAsset(ctx context.Context, req *connect.Request[apiv1.FindOrCreateAssetRequest]) (*connect.Response[apiv1.FindOrCreateAssetResponse], error) {
+	if m.autoAsset {
+		sym := entity.NormalizeSymbol(req.Msg.Symbol)
+		if m.seenAsset == nil {
+			m.seenAsset = map[string]bool{}
+		}
+		created := !m.seenAsset[sym]
+		m.seenAsset[sym] = true
+		return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{
+			Asset:   &apiv1.Asset{Id: "asset-" + sym, Symbol: &sym},
+			Created: created,
+		}), nil
+	}
 	args := m.Called(ctx, req)
 	if v := args.Get(0); v != nil {
 		return v.(*connect.Response[apiv1.FindOrCreateAssetResponse]), args.Error(1)
@@ -1023,6 +1077,57 @@ func (m *mockMDClient) FetchExternalPrices(ctx context.Context, req *connect.Req
 	return nil, args.Error(1)
 }
 
+// TestSyncAccount_ScamVerdictExcludesHolding: a synced token whose asset comes
+// back with a scam identity verdict is created as an excluded holding — it keeps
+// syncing (no frozen position) but stays out of the sums — while a legit token
+// alongside it is included.
+func TestSyncAccount_ScamVerdictExcludesHolding(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		return h.AssetID == "asset-scam" && h.Excluded
+	})).Return(&entity.Holding{ID: "h-scam"}, nil)
+	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		return h.AssetID == "asset-legit" && !h.Excluded
+	})).Return(&entity.Holding{ID: "h-legit"}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{
+		{Symbol: "USDT", Name: "Fake USDT", Amount: "100", Decimals: 6, ContractAddress: "0xscam", Chain: "eth"},
+		{Symbol: "DAI", Name: "Dai", Amount: "100", Decimals: 18, ContractAddress: "0xdai", Chain: "eth"},
+	}, nil)
+
+	md := &mockMDClient{}
+	scam, legit := "scam", "legit"
+	md.On("FindOrCreateAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.FindOrCreateAssetRequest]) bool {
+		return r.Msg.Symbol == "USDT"
+	})).Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{
+		Asset: &apiv1.Asset{Id: "asset-scam", IdentityVerdict: &scam}, Created: true,
+	}), nil)
+	md.On("FindOrCreateAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.FindOrCreateAssetRequest]) bool {
+		return r.Msg.Symbol == "DAI"
+	})).Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{
+		Asset: &apiv1.Asset{Id: "asset-legit", IdentityVerdict: &legit}, Created: true,
+	}), nil)
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.Errors)
+	assert.Equal(t, int32(2), resp.Msg.HoldingsUpserted)
+	s.AssertExpectations(t)
+}
+
 // TestSyncAccount_LargeBalance verifies a uint256 balance that overflows int64 is stored
 // losslessly as a decimal string (regression for the bigint storage limit).
 func TestSyncAccount_LargeBalance(t *testing.T) {
@@ -1046,11 +1151,7 @@ func TestSyncAccount_LargeBalance(t *testing.T) {
 		{Symbol: "ETH", Name: "Ethereum", Amount: bigAmount, Decimals: 18},
 	}, nil)
 
-	md := &mockMDClient{}
-	md.On("ListAssets", mock.Anything, mock.Anything).
-		Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
-	md.On("CreateAsset", mock.Anything, mock.Anything).
-		Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+	md := &mockMDClient{autoAsset: true}
 	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
 
@@ -1088,11 +1189,7 @@ func TestSyncAccount_MergeMixedDecimals(t *testing.T) {
 		{Symbol: "USDC", Name: "USD Coin", Amount: "2000000000000000000", Decimals: 18}, // 2.0 on BSC
 	}, nil)
 
-	md := &mockMDClient{}
-	md.On("ListAssets", mock.Anything, mock.Anything).
-		Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
-	md.On("CreateAsset", mock.Anything, mock.Anything).
-		Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+	md := &mockMDClient{autoAsset: true}
 	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
 
@@ -1132,11 +1229,7 @@ func TestSyncAccount_MultipleAddresses(t *testing.T) {
 		{Symbol: "BTC", Name: "Bitcoin", Amount: "150000000", Decimals: 8},
 	}, nil)
 
-	md := &mockMDClient{}
-	md.On("ListAssets", mock.Anything, mock.Anything).
-		Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
-	md.On("CreateAsset", mock.Anything, mock.Anything).
-		Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+	md := &mockMDClient{autoAsset: true}
 	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
 
@@ -1173,11 +1266,7 @@ func TestSyncAccount_MultipleAddressesPartialFailure(t *testing.T) {
 	ws.On("SyncWallet", mock.Anything, "bc1bad", []string{"bitcoin"}).
 		Return([]entity.WalletBalance{}, errors.New("esplora status 503"))
 
-	md := &mockMDClient{}
-	md.On("ListAssets", mock.Anything, mock.Anything).
-		Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
-	md.On("CreateAsset", mock.Anything, mock.Anything).
-		Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+	md := &mockMDClient{autoAsset: true}
 	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
 
@@ -1257,9 +1346,7 @@ func TestSyncAccount_Exchange(t *testing.T) {
 		{Symbol: "BTC", Amount: "60000000", Decimals: 8},
 	}, nil)
 
-	md := &mockMDClient{}
-	md.On("ListAssets", mock.Anything, mock.Anything).Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
-	md.On("CreateAsset", mock.Anything, mock.Anything).Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+	md := &mockMDClient{autoAsset: true}
 	md.On("FetchExternalPrices", mock.Anything, mock.Anything).Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
 
 	h := newHandler(s).WithMarketDataClient(md).WithExchangeSyncerSource(&mockExchangeSource{syncer: syncer})

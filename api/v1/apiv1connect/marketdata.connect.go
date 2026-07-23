@@ -58,6 +58,9 @@ const (
 	// MarketDataServiceFindOrCreateAssetProcedure is the fully-qualified name of the
 	// MarketDataService's FindOrCreateAsset RPC.
 	MarketDataServiceFindOrCreateAssetProcedure = "/eye.v1.MarketDataService/FindOrCreateAsset"
+	// MarketDataServiceSetAssetVerdictProcedure is the fully-qualified name of the MarketDataService's
+	// SetAssetVerdict RPC.
+	MarketDataServiceSetAssetVerdictProcedure = "/eye.v1.MarketDataService/SetAssetVerdict"
 	// MarketDataServiceCreatePriceProcedure is the fully-qualified name of the MarketDataService's
 	// CreatePrice RPC.
 	MarketDataServiceCreatePriceProcedure = "/eye.v1.MarketDataService/CreatePrice"
@@ -98,6 +101,10 @@ type MarketDataServiceClient interface {
 	// Find-first asset resolution by composite identity (symbol, market, type);
 	// creates the asset only when nothing matches and dry_run is false.
 	FindOrCreateAsset(context.Context, *connect.Request[v1.FindOrCreateAssetRequest]) (*connect.Response[v1.FindOrCreateAssetResponse], error)
+	// Set a human identity verdict on an asset (scam-filtering). A user verdict
+	// is terminal: the automated scorer never overwrites it. Admin-only until
+	// per-asset RBAC lands (personal-rme).
+	SetAssetVerdict(context.Context, *connect.Request[v1.SetAssetVerdictRequest]) (*connect.Response[v1.Asset], error)
 	// --- Price CRUD ---
 	CreatePrice(context.Context, *connect.Request[v1.CreatePriceRequest]) (*connect.Response[v1.Price], error)
 	CreatePrices(context.Context, *connect.Request[v1.CreatePricesRequest]) (*connect.Response[v1.CreatePricesResponse], error)
@@ -169,6 +176,12 @@ func NewMarketDataServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(marketDataServiceMethods.ByName("FindOrCreateAsset")),
 			connect.WithClientOptions(opts...),
 		),
+		setAssetVerdict: connect.NewClient[v1.SetAssetVerdictRequest, v1.Asset](
+			httpClient,
+			baseURL+MarketDataServiceSetAssetVerdictProcedure,
+			connect.WithSchema(marketDataServiceMethods.ByName("SetAssetVerdict")),
+			connect.WithClientOptions(opts...),
+		),
 		createPrice: connect.NewClient[v1.CreatePriceRequest, v1.Price](
 			httpClient,
 			baseURL+MarketDataServiceCreatePriceProcedure,
@@ -230,6 +243,7 @@ type marketDataServiceClient struct {
 	enrichAssetData      *connect.Client[v1.EnrichAssetDataRequest, v1.Asset]
 	findSimilarAssets    *connect.Client[v1.FindSimilarAssetsRequest, v1.ListAssetsResponse]
 	findOrCreateAsset    *connect.Client[v1.FindOrCreateAssetRequest, v1.FindOrCreateAssetResponse]
+	setAssetVerdict      *connect.Client[v1.SetAssetVerdictRequest, v1.Asset]
 	createPrice          *connect.Client[v1.CreatePriceRequest, v1.Price]
 	createPrices         *connect.Client[v1.CreatePricesRequest, v1.CreatePricesResponse]
 	getLatestPrice       *connect.Client[v1.GetLatestPriceRequest, v1.Price]
@@ -278,6 +292,11 @@ func (c *marketDataServiceClient) FindSimilarAssets(ctx context.Context, req *co
 // FindOrCreateAsset calls eye.v1.MarketDataService.FindOrCreateAsset.
 func (c *marketDataServiceClient) FindOrCreateAsset(ctx context.Context, req *connect.Request[v1.FindOrCreateAssetRequest]) (*connect.Response[v1.FindOrCreateAssetResponse], error) {
 	return c.findOrCreateAsset.CallUnary(ctx, req)
+}
+
+// SetAssetVerdict calls eye.v1.MarketDataService.SetAssetVerdict.
+func (c *marketDataServiceClient) SetAssetVerdict(ctx context.Context, req *connect.Request[v1.SetAssetVerdictRequest]) (*connect.Response[v1.Asset], error) {
+	return c.setAssetVerdict.CallUnary(ctx, req)
 }
 
 // CreatePrice calls eye.v1.MarketDataService.CreatePrice.
@@ -334,6 +353,10 @@ type MarketDataServiceHandler interface {
 	// Find-first asset resolution by composite identity (symbol, market, type);
 	// creates the asset only when nothing matches and dry_run is false.
 	FindOrCreateAsset(context.Context, *connect.Request[v1.FindOrCreateAssetRequest]) (*connect.Response[v1.FindOrCreateAssetResponse], error)
+	// Set a human identity verdict on an asset (scam-filtering). A user verdict
+	// is terminal: the automated scorer never overwrites it. Admin-only until
+	// per-asset RBAC lands (personal-rme).
+	SetAssetVerdict(context.Context, *connect.Request[v1.SetAssetVerdictRequest]) (*connect.Response[v1.Asset], error)
 	// --- Price CRUD ---
 	CreatePrice(context.Context, *connect.Request[v1.CreatePriceRequest]) (*connect.Response[v1.Price], error)
 	CreatePrices(context.Context, *connect.Request[v1.CreatePricesRequest]) (*connect.Response[v1.CreatePricesResponse], error)
@@ -399,6 +422,12 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 		MarketDataServiceFindOrCreateAssetProcedure,
 		svc.FindOrCreateAsset,
 		connect.WithSchema(marketDataServiceMethods.ByName("FindOrCreateAsset")),
+		connect.WithHandlerOptions(opts...),
+	)
+	marketDataServiceSetAssetVerdictHandler := connect.NewUnaryHandler(
+		MarketDataServiceSetAssetVerdictProcedure,
+		svc.SetAssetVerdict,
+		connect.WithSchema(marketDataServiceMethods.ByName("SetAssetVerdict")),
 		connect.WithHandlerOptions(opts...),
 	)
 	marketDataServiceCreatePriceHandler := connect.NewUnaryHandler(
@@ -467,6 +496,8 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 			marketDataServiceFindSimilarAssetsHandler.ServeHTTP(w, r)
 		case MarketDataServiceFindOrCreateAssetProcedure:
 			marketDataServiceFindOrCreateAssetHandler.ServeHTTP(w, r)
+		case MarketDataServiceSetAssetVerdictProcedure:
+			marketDataServiceSetAssetVerdictHandler.ServeHTTP(w, r)
 		case MarketDataServiceCreatePriceProcedure:
 			marketDataServiceCreatePriceHandler.ServeHTTP(w, r)
 		case MarketDataServiceCreatePricesProcedure:
@@ -522,6 +553,10 @@ func (UnimplementedMarketDataServiceHandler) FindSimilarAssets(context.Context, 
 
 func (UnimplementedMarketDataServiceHandler) FindOrCreateAsset(context.Context, *connect.Request[v1.FindOrCreateAssetRequest]) (*connect.Response[v1.FindOrCreateAssetResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.FindOrCreateAsset is not implemented"))
+}
+
+func (UnimplementedMarketDataServiceHandler) SetAssetVerdict(context.Context, *connect.Request[v1.SetAssetVerdictRequest]) (*connect.Response[v1.Asset], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.SetAssetVerdict is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) CreatePrice(context.Context, *connect.Request[v1.CreatePriceRequest]) (*connect.Response[v1.Price], error) {

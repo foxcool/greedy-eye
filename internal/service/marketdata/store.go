@@ -21,6 +21,16 @@ type Store interface {
 	UpdateAsset(ctx context.Context, asset *entity.Asset, fields []string) (*entity.Asset, error)
 	DeleteAsset(ctx context.Context, id string) error
 	ListAssets(ctx context.Context, opts ListAssetsOpts) ([]*entity.Asset, string, error)
+	// SetAssetVerdict writes an identity verdict (scam-filtering axis 1). A user
+	// verdict (source "user:*") is terminal: an automated write never overwrites
+	// one. The bool reports whether the row was written.
+	SetAssetVerdict(ctx context.Context, assetID, verdict string, score *float64, signals map[string]float64, source string) (bool, error)
+	// FindAssetIDByExternalRef resolves an asset by its identifier in an external
+	// namespace (contract on a chain, provider coin id). ErrNotFound when unmapped.
+	FindAssetIDByExternalRef(ctx context.Context, source, ref string) (string, error)
+	// CreateAssetExternalRef maps an asset to an external identifier; a
+	// conflicting (source, ref) yields ErrConstraint (identity is stable).
+	CreateAssetExternalRef(ctx context.Context, ref *entity.AssetExternalRef) (*entity.AssetExternalRef, error)
 
 	// Prices
 	CreatePrice(ctx context.Context, price *entity.StoredPrice) (*entity.StoredPrice, error)
@@ -39,6 +49,8 @@ type ListAssetsOpts struct {
 	PageSize  int
 	PageToken string
 	Tags      []string
+	// IdentityVerdict filters by scam-filtering verdict when non-empty.
+	IdentityVerdict string
 }
 
 // ListPriceHistoryOpts contains options for listing price history.

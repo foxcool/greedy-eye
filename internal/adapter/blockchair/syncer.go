@@ -90,6 +90,7 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 			Name:     net.name,
 			Amount:   strconv.FormatInt(amount, 10),
 			Decimals: net.decimals,
+			Chain:    chain,
 		})
 	}
 

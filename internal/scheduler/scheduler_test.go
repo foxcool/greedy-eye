@@ -70,7 +70,7 @@ func testLogger() *slog.Logger {
 
 func newTestScheduler(t *testing.T, cfg Config, rules RuleStore, exec RuleExecutor, prices PriceFetcher) *Scheduler {
 	t.Helper()
-	s, err := New(cfg, rules, exec, prices, testLogger())
+	s, err := New(cfg, rules, exec, prices, nil, testLogger())
 	require.NoError(t, err)
 	return s
 }
@@ -98,7 +98,7 @@ func expectRulesPage(store *mockRuleStore, token string, rules []*entity.Rule, n
 // --- New ---
 
 func TestNew_InvalidPriceFetchCron(t *testing.T) {
-	_, err := New(Config{PriceFetchCron: "not a cron"}, &mockRuleStore{}, &fakeExecutor{}, &fakeFetcher{}, testLogger())
+	_, err := New(Config{PriceFetchCron: "not a cron"}, &mockRuleStore{}, &fakeExecutor{}, &fakeFetcher{}, nil, testLogger())
 	assert.Error(t, err)
 }
 

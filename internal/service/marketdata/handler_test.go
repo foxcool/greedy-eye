@@ -3,12 +3,14 @@ package marketdata
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
@@ -74,6 +76,32 @@ func (m *mockStore) UpdateAsset(ctx context.Context, asset *entity.Asset, fields
 
 func (m *mockStore) DeleteAsset(ctx context.Context, id string) error {
 	return m.Called(ctx, id).Error(0)
+}
+
+func (m *mockStore) SetAssetVerdict(ctx context.Context, assetID, verdict string, score *float64, signals map[string]float64, source string) (bool, error) {
+	args := m.Called(ctx, assetID, verdict, score, signals, source)
+	return args.Bool(0), args.Error(1)
+}
+
+// expectVerdict lets a FindOrCreateAsset test ignore the scoring side effect:
+// every successful resolve scores the asset and persists the verdict, which is
+// covered on its own elsewhere and is noise for identity-resolution tests.
+func expectVerdict(s *mockStore) {
+	s.On("SetAssetVerdict", mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything).Return(true, nil).Maybe()
+}
+
+func (m *mockStore) FindAssetIDByExternalRef(ctx context.Context, source, ref string) (string, error) {
+	args := m.Called(ctx, source, ref)
+	return args.String(0), args.Error(1)
+}
+
+func (m *mockStore) CreateAssetExternalRef(ctx context.Context, ref *entity.AssetExternalRef) (*entity.AssetExternalRef, error) {
+	args := m.Called(ctx, ref)
+	if v := args.Get(0); v != nil {
+		return v.(*entity.AssetExternalRef), args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
 func (m *mockStore) ListAssets(ctx context.Context, opts ListAssetsOpts) ([]*entity.Asset, string, error) {
@@ -417,6 +445,7 @@ func TestFindOrCreateAsset_FindsExisting(t *testing.T) {
 	s := &mockStore{}
 	s.On("FindAssetByIdentity", mock.Anything, "BTC", "crypto", entity.AssetTypeCryptocurrency).
 		Return(testAsset("id-1"), nil)
+	expectVerdict(s)
 	h := newHandler(s)
 
 	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
@@ -452,6 +481,7 @@ func TestFindOrCreateAsset_Creates(t *testing.T) {
 	s.On("CreateAsset", mock.Anything, mock.MatchedBy(func(a *entity.Asset) bool {
 		return a.Symbol == "NEW" && a.Name == "New Token" && a.Market == "crypto" && a.Type == entity.AssetTypeCryptocurrency
 	})).Return(testAsset("id-2"), nil)
+	expectVerdict(s)
 	h := newHandler(s)
 
 	name := "New Token"
@@ -474,6 +504,7 @@ func TestFindOrCreateAsset_LosesCreationRace(t *testing.T) {
 	s.On("CreateAsset", mock.Anything, mock.Anything).Return(nil, store.ErrConstraint)
 	s.On("FindAssetByIdentity", mock.Anything, "BTC", "crypto", entity.AssetTypeCryptocurrency).
 		Return(testAsset("id-1"), nil).Once()
+	expectVerdict(s)
 	h := newHandler(s)
 
 	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
@@ -483,6 +514,121 @@ func TestFindOrCreateAsset_LosesCreationRace(t *testing.T) {
 	assert.False(t, resp.Msg.Created)
 	require.NotNil(t, resp.Msg.Asset)
 	assert.Equal(t, "id-1", resp.Msg.Asset.Id)
+}
+
+// TestFindOrCreateAsset_ResolvesByExternalRef: a bound contract wins over symbol
+// matching, so a scam clone of a real ticker resolves to its own asset and the
+// symbol identity is never even consulted.
+func TestFindOrCreateAsset_ResolvesByExternalRef(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetIDByExternalRef", mock.Anything, "onchain:eth", "0xCAFE").Return("id-9", nil)
+	s.On("GetAsset", mock.Anything, "id-9").Return(testAsset("id-9"), nil)
+	expectVerdict(s)
+	h := newHandler(s)
+
+	source, ref := "onchain:eth", "0xCAFE"
+	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol:            "USDT",
+		ExternalRefSource: &source,
+		ExternalRef:       &ref,
+	}))
+	require.NoError(t, err)
+	assert.False(t, resp.Msg.Created)
+	require.NotNil(t, resp.Msg.Asset)
+	assert.Equal(t, "id-9", resp.Msg.Asset.Id)
+	s.AssertNotCalled(t, "FindAssetByIdentity")
+	s.AssertNotCalled(t, "CreateAsset")
+}
+
+// TestFindOrCreateAsset_BindsRefOnIdentityMatch: an unbound contract that
+// resolves by symbol gets bound to that asset, so the next sync short-circuits
+// on the ref and cross-chain contracts of one asset collapse together.
+func TestFindOrCreateAsset_BindsRefOnIdentityMatch(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetIDByExternalRef", mock.Anything, "onchain:bsc", "0xBEEF").Return("", store.ErrNotFound)
+	s.On("FindAssetByIdentity", mock.Anything, "USDC", "crypto", entity.AssetTypeCryptocurrency).
+		Return(testAsset("id-1"), nil)
+	s.On("CreateAssetExternalRef", mock.Anything, mock.MatchedBy(func(r *entity.AssetExternalRef) bool {
+		return r.AssetID == "id-1" && r.Source == "onchain:bsc" && r.Ref == "0xBEEF" && r.Origin == entity.RefOriginAuto
+	})).Return(&entity.AssetExternalRef{}, nil)
+	expectVerdict(s)
+	h := newHandler(s)
+
+	source, ref := "onchain:bsc", "0xBEEF"
+	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol:            "USDC",
+		ExternalRefSource: &source,
+		ExternalRef:       &ref,
+	}))
+	require.NoError(t, err)
+	assert.False(t, resp.Msg.Created)
+	assert.Equal(t, "id-1", resp.Msg.Asset.Id)
+	s.AssertExpectations(t)
+}
+
+// TestFindOrCreateAsset_BindsRefOnCreate: a brand-new contract creates the asset
+// and binds the ref to it.
+func TestFindOrCreateAsset_BindsRefOnCreate(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetIDByExternalRef", mock.Anything, "onchain:solana", "MintX").Return("", store.ErrNotFound)
+	s.On("FindAssetByIdentity", mock.Anything, "WIF", "crypto", entity.AssetTypeCryptocurrency).
+		Return(nil, store.ErrNotFound)
+	// The contract is mirrored as a tag so coingecko can still price the token.
+	s.On("CreateAsset", mock.Anything, mock.MatchedBy(func(a *entity.Asset) bool {
+		return slices.Contains(a.Tags, "contract:MintX")
+	})).Return(testAsset("id-2"), nil)
+	s.On("CreateAssetExternalRef", mock.Anything, mock.MatchedBy(func(r *entity.AssetExternalRef) bool {
+		return r.AssetID == "id-2" && r.Source == "onchain:solana" && r.Ref == "MintX"
+	})).Return(&entity.AssetExternalRef{}, nil)
+	expectVerdict(s)
+	h := newHandler(s)
+
+	source, ref := "onchain:solana", "MintX"
+	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol:            "WIF",
+		ExternalRefSource: &source,
+		ExternalRef:       &ref,
+	}))
+	require.NoError(t, err)
+	assert.True(t, resp.Msg.Created)
+	assert.Equal(t, "id-2", resp.Msg.Asset.Id)
+	s.AssertExpectations(t)
+}
+
+func TestSetAssetVerdict_AdminSetsUserVerdict(t *testing.T) {
+	s := &mockStore{}
+	s.On("SetAssetVerdict", mock.Anything, "id-1", "scam",
+		(*float64)(nil), map[string]float64(nil), "user:admin-1").Return(true, nil)
+	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
+	h := newHandler(s)
+
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "admin-1", Roles: []string{"admin"}})
+	resp, err := h.SetAssetVerdict(ctx, connect.NewRequest(&apiv1.SetAssetVerdictRequest{
+		AssetId: "id-1", Verdict: "scam",
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "id-1", resp.Msg.Id)
+	s.AssertExpectations(t)
+}
+
+func TestSetAssetVerdict_NonAdminDenied(t *testing.T) {
+	h := newHandler(&mockStore{})
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "u-1"})
+	_, err := h.SetAssetVerdict(ctx, connect.NewRequest(&apiv1.SetAssetVerdictRequest{
+		AssetId: "id-1", Verdict: "scam",
+	}))
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+}
+
+func TestSetAssetVerdict_RejectsUnknownVerdict(t *testing.T) {
+	h := newHandler(&mockStore{})
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "admin-1", Roles: []string{"admin"}})
+	for _, v := range []string{"unknown", "", "bogus"} {
+		_, err := h.SetAssetVerdict(ctx, connect.NewRequest(&apiv1.SetAssetVerdictRequest{
+			AssetId: "id-1", Verdict: v,
+		}))
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), "verdict %q", v)
+	}
 }
 
 func TestFindOrCreateAsset_StockRequiresMarket(t *testing.T) {

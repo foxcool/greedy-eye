@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
-	"strings"
-	"unicode"
 
 	"github.com/foxcool/greedy-eye/internal/adapter/internal/base58"
 	"github.com/foxcool/greedy-eye/internal/entity"
@@ -72,6 +69,7 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 			Name:     nativeName,
 			Amount:   lamports,
 			Decimals: nativeDecimals,
+			Chain:    Chain,
 		})
 	}
 
@@ -115,24 +113,24 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 			// The mint doubles as the contract address, so price providers can
 			// look the token up the same way as an ERC-20.
 			ContractAddress: acc.Mint,
+			Chain:           Chain,
 		})
 	}
 
 	return balances, errors.Join(errs...)
 }
 
-// isJunk drops what cannot be a priceable fungible position.
+// isJunk drops what cannot be a priceable fungible position — a structural
+// floor, not a scam filter. It removes shapes that are not a balance at all;
+// judging whether a plausibly-shaped token is a scam clone or an impersonation
+// is the scoring layer's job (scam-filtering), which lets such a token sync as
+// its own quarantined asset rather than vanish here.
 //
-// The rules below were written against what a live wallet actually held: every
-// one of its three SPL positions was spam — an airdrop lure naming a phishing
-// domain, a mint calling itself "NFT", and "Rауdium аlрhа рrоgrаm" with Cyrillic
-// letters standing in for Latin ones.
-//
-// This is still a floor, not a filter. It catches shapes that cannot be a real
-// holding and impersonation that cannot be accidental; it does not judge whether
-// a plausible-looking token is worth anything. The mint calling itself "NFT"
-// passes all of it — structurally it is an ordinary token. Catalogue-wide
-// scoring is personal-6yn.
+// The rules were written against a live wallet whose three SPL positions were
+// all spam: an airdrop lure naming a phishing domain, a mint calling itself
+// "NFT", and "Rауdium аlрhа рrоgrаm" in Cyrillic lookalikes. The domain and
+// Cyrillic ones now flow through to scoring (which condemns them by verdict);
+// only the structurally-impossible remain dropped here.
 func isJunk(acc TokenAccount, m AssetMeta) bool {
 	switch {
 	case m.Burnt, m.Symbol == "":
@@ -143,41 +141,6 @@ func isJunk(acc TokenAccount, m AssetMeta) bool {
 	// occasional oddity and removes most of the spam.
 	case acc.Decimals == 0:
 		return true
-
-	case hasMixedScript(m.Symbol), hasMixedScript(m.Name):
-		return true
-
-	case looksLikeDomain(m.Symbol), looksLikeDomain(m.Name):
-		return true
 	}
 	return false
-}
-
-// hasMixedScript reports Latin letters sitting beside Cyrillic or Greek ones.
-//
-// That combination is how a scam mint impersonates a known project: swapping
-// "a", "o" and "p" for their identical-looking Cyrillic counterparts renders a
-// name indistinguishable from the real one. Nothing legitimate mixes alphabets
-// mid-name, while a name written wholly in one script is ordinary and stays.
-func hasMixedScript(s string) bool {
-	var latin, confusable bool
-	for _, r := range s {
-		switch {
-		case unicode.Is(unicode.Latin, r):
-			latin = true
-		case unicode.Is(unicode.Cyrillic, r), unicode.Is(unicode.Greek, r):
-			confusable = true
-		}
-	}
-	return latin && confusable
-}
-
-// domainLike matches a hostname with a plausible TLD, the signature of an
-// airdrop lure that wants the holder to visit a site. Real tokens name
-// themselves, not a destination.
-var domainLike = regexp.MustCompile(
-	`(?i)\b[a-z0-9][a-z0-9-]*\.(com|net|org|io|xyz|app|link|site|top|vip|gift|claim|finance|fi|me|ru|cc)\b`)
-
-func looksLikeDomain(s string) bool {
-	return domainLike.MatchString(s) || strings.Contains(strings.ToLower(s), "http")
 }
