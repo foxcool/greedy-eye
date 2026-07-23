@@ -23,7 +23,7 @@ func TestScore_Fixtures(t *testing.T) {
 		// --- Hard signals: terminal regardless of score ---
 		{
 			name:        "invisible separator in symbol",
-			in:          Input{Symbol: "UNILP.NET⁣", Name: "UNILP.NET"},
+			in:          Input{Symbol: "UNILP.NET\u2063", Name: "UNILP.NET"},
 			wantVerdict: VerdictScam,
 			wantSignal:  SignalInvisibleUnicode,
 		},
@@ -125,7 +125,7 @@ func TestScore_NilSignalsDoNotContribute(t *testing.T) {
 // every soft context signal says legit — an invisible rune is not outvoted.
 func TestScore_HardSignalBeatsCleanContext(t *testing.T) {
 	got := Score(Input{
-		Symbol:           "US​DT", // zero-width space
+		Symbol:           "US\u200bDT", // zero-width space
 		Name:             "Tether",
 		ProviderSpam:     ptr(false),
 		ContractVerified: ptr(true),
