@@ -109,7 +109,27 @@ const (
 // OnchainSource builds the external-ref source namespace for a chain's
 // contract/mint space, keeping the same address on two chains distinct.
 func OnchainSource(chain string) string {
-	return "onchain:" + strings.ToLower(strings.TrimSpace(chain))
+	return onchainPrefix + strings.ToLower(strings.TrimSpace(chain))
+}
+
+const onchainPrefix = "onchain:"
+
+// ChainFromOnchainSource extracts the chain from an "onchain:<chain>" ref
+// source; ok is false for any other namespace (coingecko, broker ID spaces).
+func ChainFromOnchainSource(source string) (chain string, ok bool) {
+	chain, ok = strings.CutPrefix(strings.ToLower(strings.TrimSpace(source)), onchainPrefix)
+	return chain, ok && chain != ""
+}
+
+// ContractMarket is the market of an asset row that stands for one specific
+// unverified contract rather than for the global instrument. A token whose
+// contract no provider lists cannot be proven to be the ticker it claims, so it
+// gets its own identity instead of merging into the real asset and inheriting
+// its price (personal-c3b). The contract is the discriminator because nothing
+// else distinguishes a counterfeit: name, ticker and even the balance can be
+// copied from the genuine position.
+func ContractMarket(chain, address string) string {
+	return NormalizeMarket(OnchainSource(chain) + "/" + address)
 }
 
 // AssetRiskFlag is a situational-risk flag on a real asset (scam-filtering

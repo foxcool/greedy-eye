@@ -125,13 +125,14 @@ var nativeCoinID = map[string]string{
 
 // Provider adapts *Client to marketdata.PriceProvider.
 type Provider struct {
-	client *Client
-	log    *slog.Logger
+	client    *Client
+	contracts *contractIndex
+	log       *slog.Logger
 }
 
 // NewProvider wraps a *Client as a CoinGecko price provider.
 func NewProvider(c *Client) *Provider {
-	return &Provider{client: c, log: slog.Default()}
+	return &Provider{client: c, contracts: newContractIndex(c), log: slog.Default()}
 }
 
 // BaseAssetSymbol returns the ticker of the quote currency used by CoinGecko ("USD").
@@ -164,7 +165,12 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 		// The curated symbol map wins over a contract tag: contract addresses
 		// synced from L2 chains (e.g. OP on Optimism) are not listed under the
 		// Ethereum platform, while the map targets the canonical coin ID.
-		if _, ok := nativeCoinID[strings.ToLower(a.Symbol)]; ok {
+		//
+		// It applies to the global crypto market only. A per-contract row
+		// (market "onchain:<chain>/<address>") is an unverified instrument that
+		// merely carries a well-known ticker: pricing it from the symbol map is
+		// exactly how a counterfeit USDT was valued as real USDT (personal-c3b).
+		if _, ok := nativeCoinID[strings.ToLower(a.Symbol)]; ok && a.Market == entity.MarketCrypto {
 			nativeAssets = append(nativeAssets, a)
 		} else if addr := contractTag(a.Tags); addr != "" {
 			contractAssets = append(contractAssets, contractAsset{id: a.ID, address: addr})
