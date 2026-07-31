@@ -545,6 +545,54 @@ table "prices" {
   }
 }
 
+// How much of a provider credential's plan has been spent in the current
+// period. A monthly allowance tracked only in memory is no allowance at all: a
+// deploy would hand the process a fresh one while the provider keeps counting.
+//
+// The key is a fingerprint, never the API key: this table is dumped, backed up
+// and read by humans, and the secret has no business being in any of those.
+// Counters are added to, not set, so two backend instances sum the way the
+// provider sums them.
+table "provider_usage" {
+  schema = schema.public
+
+  column "provider" {
+    type = character_varying
+    null = false
+  }
+  // SHA-256 prefix of the API key, or "keyless".
+  column "key_fingerprint" {
+    type = character_varying
+    null = false
+  }
+  // Start of the plan's billing window, UTC — providers meter on calendar
+  // boundaries, not on a rolling window.
+  column "period_start" {
+    type = timestamptz
+    null = false
+  }
+  column "requests" {
+    type    = bigint
+    null    = false
+    default = 0
+  }
+  // Times the provider answered "slow down" (429/418/430). A rising count is
+  // the signal that the rate limit, not the volume limit, needs attention.
+  column "backoffs" {
+    type    = bigint
+    null    = false
+    default = 0
+  }
+  column "updated_at" {
+    type = timestamptz
+    null = false
+  }
+
+  primary_key {
+    columns = [column.provider, column.key_fingerprint, column.period_start]
+  }
+}
+
 // Per (asset, source) record of price fetch attempts, which is what an
 // unattended sweep selects on. Freshness cannot be read off the prices table
 // alone: an asset the provider does not list never gets a price, so an

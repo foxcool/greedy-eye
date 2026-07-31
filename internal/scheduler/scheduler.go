@@ -15,6 +15,7 @@ import (
 	"github.com/robfig/cron/v3"
 
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
+	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
@@ -53,6 +54,12 @@ type AssetRescorer interface {
 	RescoreAssets(ctx context.Context) (marketdata.RescoreReport, error)
 }
 
+// UsageReporter reports outbound provider spend. Satisfied by
+// *ratelimit.Registry. Optional: nil simply leaves the counts out of the log.
+type UsageReporter interface {
+	Snapshot() []ratelimit.Usage
+}
+
 // Config holds scheduler settings.
 type Config struct {
 	// PriceFetchCron is the cron spec for the external price fetch job.
@@ -77,6 +84,7 @@ type Scheduler struct {
 	exec     RuleExecutor
 	prices   PriceFetcher
 	rescorer AssetRescorer
+	usage    UsageReporter
 	log      *slog.Logger
 
 	mu      sync.Mutex
@@ -106,6 +114,14 @@ func New(cfg Config, rules RuleStore, exec RuleExecutor, prices PriceFetcher, re
 		log:      log,
 		entries:  make(map[string]ruleEntry),
 	}, nil
+}
+
+// WithUsageReporter makes the price job log what each run cost the provider
+// and what the period has cost so far. Optional: without it the job runs
+// unchanged, just without the numbers.
+func (s *Scheduler) WithUsageReporter(u UsageReporter) *Scheduler {
+	s.usage = u
+	return s
 }
 
 // Start registers the static jobs, performs the initial rule load and starts
