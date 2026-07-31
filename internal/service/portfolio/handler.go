@@ -281,6 +281,8 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 	total := decimal.Zero
 	excludedTotal := decimal.Zero
 	var excludedCount uint32
+	coverage := &apiv1.ValuationCoverage{}
+	var unpriced []*entity.Holding
 
 	for _, hld := range holdings {
 		unit, ok, err := h.unitPrice(ctx, hld.AssetID, quoteAssetID)
@@ -289,6 +291,8 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 		}
 		if hld.Excluded {
 			// Count every quarantined holding; add its value only when priced.
+			// Quarantine is its own axis: an excluded holding is out of the total
+			// by decision, not for lack of a quote, so it stays out of coverage.
 			excludedCount++
 			if ok {
 				excludedTotal = excludedTotal.Add(hld.Amount.Shift(-decI32(hld.Decimals)).Mul(unit))
@@ -296,13 +300,20 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 			continue
 		}
 		if !ok {
-			continue // no price path for this asset → skip
+			// No price path: report the holding instead of letting it contribute
+			// zero. Zero is an assertion about the market; this is missing data.
+			coverage.UnpricedCount++
+			unpriced = append(unpriced, hld)
+			continue
 		}
+		coverage.PricedCount++
 
 		// value = (amount / 10^holding.Decimals) * unitPrice
 		holdingValue := hld.Amount.Shift(-decI32(hld.Decimals)).Mul(unit)
 		total = total.Add(holdingValue)
 	}
+
+	coverage.Unpriced, coverage.UnpricedTruncated = h.describeUnpriced(ctx, unpriced)
 
 	// Convert to result decimals (e.g., 2 for USD cents) as a raw integer decimal string.
 	scale := decimal.New(1, int32(resultDecimals))
@@ -317,7 +328,44 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 		CalculationTime:     timestamppb.New(time.Now()),
 		ExcludedCount:       excludedCount,
 		ExcludedValueAmount: excludedAmount,
+		Coverage:            coverage,
 	}), nil
+}
+
+// maxUnpricedDisclosed caps the per-holding detail in a coverage block: the
+// count is always exact, the list is a sample bounded by read size.
+const maxUnpricedDisclosed = 50
+
+// describeUnpriced labels unpriced holdings for disclosure, up to the cap, and
+// reports whether the list was truncated.
+//
+// A failed asset lookup degrades to an empty symbol rather than failing the
+// valuation: the asset_id still identifies the position, and losing the whole
+// total over a display label would be a worse trade than a missing name.
+func (h *Handler) describeUnpriced(ctx context.Context, holdings []*entity.Holding) ([]*apiv1.UnpricedHolding, bool) {
+	if len(holdings) == 0 {
+		return nil, false
+	}
+	listed := holdings
+	truncated := false
+	if len(listed) > maxUnpricedDisclosed {
+		listed = listed[:maxUnpricedDisclosed]
+		truncated = true
+	}
+
+	out := make([]*apiv1.UnpricedHolding, 0, len(listed))
+	for _, hld := range listed {
+		item := &apiv1.UnpricedHolding{HoldingId: hld.ID, AssetId: hld.AssetID}
+		resp, err := h.mdClient.GetAsset(ctx, connect.NewRequest(&apiv1.GetAssetRequest{Id: hld.AssetID}))
+		if err != nil {
+			h.log.WarnContext(ctx, "unpriced holding: asset lookup failed, reporting without a symbol",
+				"asset_id", hld.AssetID, "holding_id", hld.ID, "error", err)
+		} else {
+			item.Symbol = resp.Msg.GetSymbol()
+		}
+		out = append(out, item)
+	}
+	return out, truncated
 }
 
 // unitPrice returns the per-token price of assetID expressed in quoteAssetID as a

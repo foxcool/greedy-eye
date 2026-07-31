@@ -71,6 +71,34 @@ message Price {
   google.protobuf.Timestamp timestamp = 13;
 }
 
+// ValuationCoverage reports how much of a computed value actually had prices
+// behind it. An absent quote and a zero valuation are different statements: a
+// holding with no price path stays OUT of the total and is reported here,
+// instead of silently contributing nothing and making the result look complete.
+//
+// It lives in marketdata because it describes the price side of a valuation:
+// both the portfolio total and the analytics heatmap embed the same block
+// rather than each growing its own coverage fields.
+message ValuationCoverage {
+  // Holdings that entered the total.
+  uint32 priced_count = 1;
+  // Holdings left out of the total because no price path exists for the asset.
+  uint32 unpriced_count = 2;
+  // Identifies the unpriced holdings, capped for read size.
+  repeated UnpricedHolding unpriced = 3;
+  // True when unpriced_count exceeds the cap and `unpriced` lists only a prefix.
+  bool unpriced_truncated = 4;
+}
+
+// UnpricedHolding names one position that could not be valued. There is no
+// amount-in-quote field by construction: the whole point is that no quote exists.
+message UnpricedHolding {
+  string holding_id = 1;
+  string asset_id = 2;
+  // Best-effort label for display; empty when the asset lookup failed.
+  string symbol = 3;
+}
+
 // =============================================================================
 // SERVICE
 // =============================================================================
