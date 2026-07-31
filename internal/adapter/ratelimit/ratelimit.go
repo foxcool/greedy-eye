@@ -334,6 +334,29 @@ func (r *Registry) Remaining(c Credential) (requests int, periodEnd time.Time, o
 	return b.remaining(r.now())
 }
 
+// Budget binds one credential to its registry, so a client can size its own
+// work without being handed the registry and having to know which credential
+// it was built from.
+type Budget struct {
+	reg  *Registry
+	cred Credential
+}
+
+// Budget returns the handle for a credential. A nil Registry yields a handle
+// that reports no allowance, which callers read as "not metered by volume".
+func (r *Registry) Budget(c Credential) *Budget {
+	return &Budget{reg: r, cred: c}
+}
+
+// Remaining reports the background allowance left in the period and when the
+// period ends. ok is false when the plan meters only rate.
+func (b *Budget) Remaining() (requests int, periodEnd time.Time, ok bool) {
+	if b == nil || b.reg == nil {
+		return 0, time.Time{}, false
+	}
+	return b.reg.Remaining(b.cred)
+}
+
 // Snapshot reports spend per credential since the period began. This is the
 // number an operator divides by the plan's allowance; there is no metrics
 // system in this process to publish it to.

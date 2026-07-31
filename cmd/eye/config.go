@@ -100,11 +100,11 @@ func getConfig() (*Config, error) {
 		"sentry.tracesSampleRate": 1.0,
 		"server.port":             8080,
 		"scheduler.enabled":       true,
-		// Every two hours, not every fifteen minutes: one sweep costs a
-		// request per 30 contract-priced assets, and at 96 sweeps a day that
-		// spent CoinGecko's whole monthly free quota in eight days. The
-		// interval comes back down once sweeps are budgeted (personal-a3v.4).
-		"scheduler.pricefetchcron": "0 */2 * * *",
+		// Hourly. The sweep no longer re-prices the whole catalogue: it takes
+		// what is due, oldest first, within the share of the provider's plan
+		// this interval affords. Fifteen minutes was what burned CoinGecko's
+		// monthly free quota in eight days.
+		"scheduler.pricefetchcron": "0 * * * *",
 		// Daily at 03:00; catalogue identity rescore is cheap and idempotent.
 		"scheduler.rescorecron": "0 3 * * *",
 		"services": []any{

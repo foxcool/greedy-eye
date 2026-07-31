@@ -784,3 +784,200 @@ func TestFindOrCreateAsset_StockRequiresMarket(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 }
+
+// --- Tests: FetchExternalPrices selection ---
+
+// fakePriceProvider records what it was asked for and prices whatever it was
+// told to. It optionally implements the budget interfaces, so one type covers
+// both a plain provider and a metered one.
+type fakePriceProvider struct {
+	asked      [][]*entity.Asset
+	prices     map[string]bool // asset IDs it will return a price for
+	exempt     []string
+	budget     int
+	hasBudget  bool
+	fetchError error
+}
+
+func (f *fakePriceProvider) FetchPrices(_ context.Context, assets []*entity.Asset) ([]entity.StoredPrice, error) {
+	f.asked = append(f.asked, assets)
+	if f.fetchError != nil {
+		return nil, f.fetchError
+	}
+	var out []entity.StoredPrice
+	for _, a := range assets {
+		if f.prices[a.ID] {
+			out = append(out, entity.StoredPrice{AssetID: a.ID, Last: decimal.NewFromInt(1)})
+		}
+	}
+	return out, nil
+}
+
+func (f *fakePriceProvider) BaseAssetSymbol() string         { return "USD" }
+func (f *fakePriceProvider) BaseAssetType() entity.AssetType { return entity.AssetTypeForex }
+func (f *fakePriceProvider) BudgetExemptSymbols() []string   { return f.exempt }
+
+func (f *fakePriceProvider) AssetBudget(_ time.Time, _ time.Duration) (int, bool) {
+	return f.budget, f.hasBudget
+}
+
+// expectBaseAsset lets the handler resolve the quote currency.
+func expectBaseAsset(s *mockStore) {
+	s.On("GetOrCreateAssetBySymbol", mock.Anything, "USD", "USD", entity.AssetTypeForex).
+		Return(&entity.Asset{ID: "usd-id", Symbol: "USD"}, nil)
+}
+
+// TestFetchExternalPrices_SweepSelectsDueAssets: an unattended sweep asks the
+// store what is due for this source rather than re-pricing the catalogue, and
+// records the outcome so the next sweep can skip what is fresh.
+func TestFetchExternalPrices_SweepSelectsDueAssets(t *testing.T) {
+	due := testAsset("due-1")
+	s := &mockStore{}
+	expectBaseAsset(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {
+		return o.SourceID == "fake" && len(o.Symbols) == 0
+	})).Return([]*entity.Asset{due}, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.MatchedBy(func(o RecordAttemptsOpts) bool {
+		return o.SourceID == "fake" && assert.ObjectsAreEqual([]string{"due-1"}, o.Priced) && len(o.Missed) == 0
+	})).Return(nil)
+
+	p := &fakePriceProvider{prices: map[string]bool{"due-1": true}}
+	h := newHandler(s).WithProvider("fake", p)
+
+	resp, err := h.FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), resp.Msg.PricesFetched)
+	s.AssertExpectations(t)
+	s.AssertNotCalled(t, "ListAssets", mock.Anything, mock.Anything)
+	require.Len(t, p.asked, 1)
+	assert.Equal(t, []*entity.Asset{due}, p.asked[0])
+}
+
+// TestFetchExternalPrices_ExplicitIDsBypassSelection: naming asset ids is a
+// deliberate reconciliation — it reads exactly those rows and skips both the
+// freshness check and the per-sweep portion.
+func TestFetchExternalPrices_ExplicitIDsBypassSelection(t *testing.T) {
+	named := testAsset("named-1")
+	s := &mockStore{}
+	expectBaseAsset(s)
+	s.On("ListAssets", mock.Anything, mock.MatchedBy(func(o ListAssetsOpts) bool {
+		return len(o.IDs) == 1 && o.IDs[0] == "named-1"
+	})).Return([]*entity.Asset{named}, "", nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+
+	p := &fakePriceProvider{prices: map[string]bool{"named-1": true}}
+	h := newHandler(s).WithProvider("fake", p)
+
+	_, err := h.FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{AssetIds: []string{"named-1"}}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+	s.AssertNotCalled(t, "ListStalePricingTargets", mock.Anything, mock.Anything)
+}
+
+// TestFetchExternalPrices_BudgetCapsTheSweep: the portion a provider can afford
+// becomes the store's limit, while the symbols it prices for free are selected
+// separately and uncapped.
+func TestFetchExternalPrices_BudgetCapsTheSweep(t *testing.T) {
+	free := testAsset("free-1")
+	paid := testAsset("paid-1")
+
+	s := &mockStore{}
+	expectBaseAsset(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {
+		return len(o.Symbols) == 1 && o.Symbols[0] == "BTC" && o.Limit == 0
+	})).Return([]*entity.Asset{free}, nil)
+	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {
+		return len(o.ExcludeSymbols) == 1 && o.Limit == 60
+	})).Return([]*entity.Asset{paid}, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(2, nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+
+	p := &fakePriceProvider{
+		exempt:    []string{"BTC"},
+		budget:    60,
+		hasBudget: true,
+		prices:    map[string]bool{"free-1": true, "paid-1": true},
+	}
+	h := newHandler(s).WithProvider("fake", p).WithRefreshWindow(time.Hour)
+
+	_, err := h.FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+	require.Len(t, p.asked, 1)
+	assert.Len(t, p.asked[0], 2, "both tiers reach the provider in one call")
+}
+
+// TestFetchExternalPrices_ExhaustedBudgetStillPricesFreeTier: with the plan's
+// background allowance spent, the curated batch still goes out — it costs one
+// request whatever happens — and nothing else is asked for.
+func TestFetchExternalPrices_ExhaustedBudgetStillPricesFreeTier(t *testing.T) {
+	free := testAsset("free-1")
+
+	s := &mockStore{}
+	expectBaseAsset(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {
+		return len(o.Symbols) == 1
+	})).Return([]*entity.Asset{free}, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+
+	p := &fakePriceProvider{
+		exempt:    []string{"BTC"},
+		budget:    0,
+		hasBudget: true,
+		prices:    map[string]bool{"free-1": true},
+	}
+	h := newHandler(s).WithProvider("fake", p).WithRefreshWindow(time.Hour)
+
+	_, err := h.FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+	s.AssertNumberOfCalls(t, "ListStalePricingTargets", 1)
+}
+
+// TestFetchExternalPrices_MissesAreRecorded: assets the provider did not price
+// are recorded as misses, which is what backs them off out of the rotation.
+func TestFetchExternalPrices_MissesAreRecorded(t *testing.T) {
+	priced := testAsset("priced-1")
+	unlisted := testAsset("unlisted-1")
+
+	s := &mockStore{}
+	expectBaseAsset(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{priced, unlisted}, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.MatchedBy(func(o RecordAttemptsOpts) bool {
+		return assert.ObjectsAreEqual([]string{"priced-1"}, o.Priced) &&
+			assert.ObjectsAreEqual([]string{"unlisted-1"}, o.Missed) &&
+			o.TTL == priceTTL && o.MaxBackoff == missBackoffCap
+	})).Return(nil)
+
+	p := &fakePriceProvider{prices: map[string]bool{"priced-1": true}}
+	h := newHandler(s).WithProvider("fake", p)
+
+	_, err := h.FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+}
+
+// TestFetchExternalPrices_QuarantinedExcluded: scam and impersonation assets are
+// already out of the portfolio sums, so pricing them spends quota for nothing.
+func TestFetchExternalPrices_QuarantinedExcluded(t *testing.T) {
+	s := &mockStore{}
+	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {
+		return assert.ObjectsAreEqual([]string{"scam", "impersonation"}, o.ExcludeVerdicts)
+	})).Return([]*entity.Asset{}, nil)
+
+	h := newHandler(s).WithProvider("fake", &fakePriceProvider{})
+
+	_, err := h.FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+}

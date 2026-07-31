@@ -36,6 +36,7 @@ import (
 	storecrypto "github.com/foxcool/greedy-eye/internal/store/crypto"
 	"github.com/foxcool/greedy-eye/internal/store/postgres"
 	"github.com/getsentry/sentry-go"
+	"github.com/robfig/cron/v3"
 )
 
 const ServiceName = "EYE"
@@ -119,21 +120,23 @@ func run() error {
 	}()
 
 	// Initialize price providers.
+	cgCred := ratelimit.Credential{
+		Provider: coingecko.ProviderName,
+		APIKey:   config.CoinGecko.APIKey,
+		Tier:     coingeckoTier(config.CoinGecko.Pro),
+	}
 	cgClient := coingecko.NewClient(coingecko.Config{
 		APIKey:    config.CoinGecko.APIKey,
 		Pro:       config.CoinGecko.Pro,
-		Transport: rateLimits.Transport(ratelimit.Credential{
-			Provider: coingecko.ProviderName,
-			APIKey:   config.CoinGecko.APIKey,
-			Tier:     coingeckoTier(config.CoinGecko.Pro),
-		}, nil),
+		Transport: rateLimits.Transport(cgCred, nil),
+		Budget:    rateLimits.Budget(cgCred),
 	})
 
 	// Initialize optional Moralis wallet syncer
 	var walletSyncer entity.WalletSyncer
 	if apiKey := config.Moralis.APIKey; apiKey != "" {
 		moralisClient := moralisadapter.NewClient(moralisadapter.Config{
-			APIKey:    apiKey,
+			APIKey: apiKey,
 			Transport: rateLimits.Transport(ratelimit.Credential{
 				Provider: moralisadapter.ProviderName, APIKey: apiKey,
 			}, nil),
@@ -183,7 +186,7 @@ func run() error {
 				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
 					return moralisadapter.NewWalletSyncer(
 						moralisadapter.NewClient(moralisadapter.Config{
-							APIKey: a.Data["api_key"],
+							APIKey:    a.Data["api_key"],
 							Transport: rateLimits.Transport(accountCred(moralisadapter.ProviderName, a), nil),
 						}),
 					), nil
@@ -195,7 +198,7 @@ func run() error {
 				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
 					return subscanadapter.NewWalletSyncer(
 						subscanadapter.NewClient(subscanadapter.Config{
-							APIKey: a.Data["api_key"],
+							APIKey:    a.Data["api_key"],
 							Transport: rateLimits.Transport(accountCred(subscanadapter.ProviderName, a), nil),
 						}),
 					), nil
@@ -207,7 +210,7 @@ func run() error {
 				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
 					return tonapiadapter.NewWalletSyncer(
 						tonapiadapter.NewClient(tonapiadapter.Config{
-							APIKey: a.Data["api_key"],
+							APIKey:    a.Data["api_key"],
 							Transport: rateLimits.Transport(accountCred(tonapiadapter.ProviderName, a), nil),
 						}),
 					), nil
@@ -219,7 +222,7 @@ func run() error {
 				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
 					return solanaadapter.NewWalletSyncer(
 						solanaadapter.NewClient(solanaadapter.Config{
-							APIKey: a.Data["api_key"],
+							APIKey:    a.Data["api_key"],
 							Transport: rateLimits.Transport(accountCred(solanaadapter.ProviderName, a), nil),
 						}),
 					), nil
@@ -274,7 +277,7 @@ func run() error {
 				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
 					return blockchairadapter.NewWalletSyncer(
 						blockchairadapter.NewClient(blockchairadapter.Config{
-							APIKey: a.Data["api_key"],
+							APIKey:    a.Data["api_key"],
 							Transport: rateLimits.Transport(accountCred(blockchairadapter.ProviderName, a), nil),
 						}),
 					), nil
@@ -294,10 +297,12 @@ func run() error {
 		},
 		PriceProviders: map[string]credentials.PriceProviderFactory{
 			coingecko.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
+				cred := accountCred(coingecko.ProviderName, a)
 				return coingecko.NewProvider(coingecko.NewClient(coingecko.Config{
 					APIKey:    a.Data["api_key"],
 					Pro:       a.Data["pro"] == "true",
-					Transport: rateLimits.Transport(accountCred(coingecko.ProviderName, a), nil),
+					Transport: rateLimits.Transport(cred, nil),
+					Budget:    rateLimits.Budget(cred),
 				})), nil
 			},
 			binanceadapter.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
@@ -327,7 +332,11 @@ func run() error {
 	mdHandler := marketdata.NewHandler(mdStore, log).
 		WithProvider(coingecko.ProviderName, envPriceProviders[coingecko.ProviderName]).
 		WithProvider(binanceadapter.ProviderName, envPriceProviders[binanceadapter.ProviderName]).
-		WithProviderSource(credResolver)
+		WithProviderSource(credResolver).
+		// The sweep interval is what a provider divides its remaining plan
+		// allowance by, so it comes from the cron spec rather than a second
+		// config key that could disagree with it.
+		WithRefreshWindow(sweepWindow(config.Scheduler.PriceFetchCron))
 	automationStore := postgres.NewAutomationStore(pool)
 	automationHandler := automation.NewHandler(automationStore, log)
 	for _, svc := range config.Services {
@@ -488,6 +497,21 @@ func accountCred(provider string, a *entity.Account) ratelimit.Credential {
 		tier = "pro"
 	}
 	return ratelimit.Credential{Provider: provider, APIKey: a.Data["api_key"], Tier: tier}
+}
+
+// sweepWindow is how long the price job waits between runs, read off its own
+// cron spec by asking when it would fire twice. An unparsable or disabled spec
+// yields zero, which leaves sweeps unbudgeted rather than guessing.
+func sweepWindow(spec string) time.Duration {
+	if spec == "" {
+		return 0
+	}
+	sched, err := cron.ParseStandard(spec)
+	if err != nil {
+		return 0
+	}
+	first := sched.Next(time.Now())
+	return sched.Next(first).Sub(first)
 }
 
 // coingeckoTier maps the env-configured pro flag onto a plan tier. Empty means

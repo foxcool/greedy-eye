@@ -1708,10 +1708,19 @@ func (x *DeletePricesRequest) GetSourceId() string {
 	return ""
 }
 
+// Naming asset_ids makes this a deliberate reconciliation: those assets are
+// priced whatever their current freshness, and the per-sweep portion does not
+// apply. The credential's plan quota still does — a ceiling is a ceiling.
+//
+// An empty request is an unattended sweep: it takes only what is due for each
+// source, oldest first, within the share of the plan's remaining allowance
+// that this interval affords.
 type FetchExternalPricesRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SourceIds     []string               `protobuf:"bytes,1,rep,name=source_ids,json=sourceIds,proto3" json:"source_ids,omitempty"`
-	AssetIds      []string               `protobuf:"bytes,2,rep,name=asset_ids,json=assetIds,proto3" json:"asset_ids,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Providers to call. Empty means every configured provider.
+	SourceIds []string `protobuf:"bytes,1,rep,name=source_ids,json=sourceIds,proto3" json:"source_ids,omitempty"`
+	// Assets to price. Empty makes the call a budgeted sweep (see above).
+	AssetIds      []string `protobuf:"bytes,2,rep,name=asset_ids,json=assetIds,proto3" json:"asset_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

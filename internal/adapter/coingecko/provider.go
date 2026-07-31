@@ -135,6 +135,44 @@ func NewProvider(c *Client) *Provider {
 	return &Provider{client: c, contracts: newContractIndex(c), log: slog.Default()}
 }
 
+// BudgetExemptSymbols reports the curated coins one /coins/markets request
+// covers regardless of how many are asked for. Refreshing them costs a single
+// request, so an unattended sweep does not budget them.
+func (p *Provider) BudgetExemptSymbols() []string {
+	out := make([]string, 0, len(nativeCoinID))
+	for symbol := range nativeCoinID {
+		out = append(out, strings.ToUpper(symbol))
+	}
+	return out
+}
+
+// AssetBudget converts what is left of the plan's period allowance into a
+// number of assets this sweep may ask about.
+//
+// The share is proportional: spending the remainder evenly over the rest of the
+// period is what keeps a monthly allowance from being gone in the first week.
+// One request is reserved for the curated batch, and the rest buy contract
+// lookups at this tier's batch size.
+func (p *Provider) AssetBudget(now time.Time, window time.Duration) (int, bool) {
+	remaining, periodEnd, ok := p.client.budget.Remaining()
+	if !ok {
+		return 0, false
+	}
+
+	left := periodEnd.Sub(now)
+	if left <= 0 || window <= 0 {
+		return 0, true
+	}
+
+	requests := int(float64(remaining) * (float64(window) / float64(left)))
+	// Always leave room for the curated batch: it is one request and covers the
+	// assets that matter most.
+	if requests <= 1 {
+		return 0, true
+	}
+	return (requests - 1) * p.client.contractBatchSize(), true
+}
+
 // BaseAssetSymbol returns the ticker of the quote currency used by CoinGecko ("USD").
 func (p *Provider) BaseAssetSymbol() string { return "USD" }
 

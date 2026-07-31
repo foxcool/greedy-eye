@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCoinGeckoClient_GetMultiplePrices_EmptyInput(t *testing.T) {
@@ -123,4 +124,62 @@ func TestCoinGeckoClient_GetTokenPricesByContract_AllInvalid(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Empty(t, result)
+}
+
+// TestGetTokenPricesByContract_BackoffAbortsRemainingBatches: a 429 means the
+// credential's budget is already spent and the transport has frozen it. Every
+// remaining batch would sit out that freeze only to earn another 429, and a
+// dozen of them outlast the job timeout — so the loop stops instead.
+func TestGetTokenPricesByContract_BackoffAbortsRemainingBatches(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		if calls == 1 {
+			_, _ = fmt.Fprint(w, `{}`)
+			return
+		}
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	client := NewClient(Config{APIKey: "demo-key"}) // batches of 30
+	client.baseURL = srv.URL
+	client.httpClient = srv.Client()
+
+	// Four batches' worth of addresses; the second answers 429.
+	addresses := make([]string, 0, 4*keyedContractBatch)
+	for i := range 4 * keyedContractBatch {
+		addresses = append(addresses, fmt.Sprintf("0x%040x", i+1))
+	}
+
+	_, err := client.GetTokenPricesByContract(context.Background(), "ethereum", addresses, "usd")
+	require.Error(t, err)
+	assert.Equal(t, 2, calls, "the sweep must stop at the back-off, not spend the rest of the batches")
+}
+
+// TestGetMultiplePrices_ChunksBeyondPageSize: /coins/markets returns at most
+// per_page items, so a longer id list has to be split rather than silently
+// truncated.
+func TestGetMultiplePrices_ChunksBeyondPageSize(t *testing.T) {
+	var pages int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pages++
+		id := strings.Split(r.URL.Query().Get("ids"), ",")[0]
+		_, _ = fmt.Fprintf(w, `[{"id": %q, "symbol": "x", "current_price": 1}]`, id)
+	}))
+	defer srv.Close()
+
+	client := NewClient(Config{APIKey: "demo-key"})
+	client.baseURL = srv.URL
+	client.httpClient = srv.Client()
+
+	ids := make([]string, 0, marketsPageSize+1)
+	for i := range marketsPageSize + 1 {
+		ids = append(ids, fmt.Sprintf("coin-%d", i))
+	}
+
+	got, err := client.GetMultiplePrices(context.Background(), ids, "usd")
+	require.NoError(t, err)
+	assert.Equal(t, 2, pages, "the tail past per_page needs its own request")
+	assert.Len(t, got, 2, "both pages contribute")
 }
