@@ -948,7 +948,7 @@ func TestCalculatePortfolioValue_DisclosesExcluded(t *testing.T) {
 	s.On("ListHoldings", mock.Anything, mock.MatchedBy(func(o ListHoldingsOpts) bool {
 		return !o.HideExcluded
 	})).Return([]*entity.Holding{
-		{ID: "h1", AssetID: legitAsset, Amount: decimal.NewFromInt(100000000), Decimals: 8},              // 1.0
+		{ID: "h1", AssetID: legitAsset, Amount: decimal.NewFromInt(100000000), Decimals: 8},                // 1.0
 		{ID: "h2", AssetID: scamAsset, Amount: decimal.NewFromInt(500000000), Decimals: 8, Excluded: true}, // 5.0, quarantined
 	}, "", nil)
 
@@ -968,6 +968,101 @@ func TestCalculatePortfolioValue_DisclosesExcluded(t *testing.T) {
 	assert.Equal(t, "300", resp.Msg.TotalValueAmount, "only the legit 1.0 × 3.0 counts")
 	assert.Equal(t, uint32(1), resp.Msg.ExcludedCount)
 	assert.Equal(t, "500", resp.Msg.ExcludedValueAmount, "quarantined 5.0 × 1.0 disclosed")
+}
+
+// TestCalculatePortfolioValue_ReportsUnpricedCoverage: a holding with no price
+// path stays out of the total, as before, but is now disclosed by count and
+// identity. Absence of a quote is not a valuation of zero, and a total that
+// silently drops it looks complete when it is not.
+func TestCalculatePortfolioValue_ReportsUnpricedCoverage(t *testing.T) {
+	const (
+		pricedAsset   = "00000000-0000-0000-0000-0000000000a1"
+		unpricedAsset = "00000000-0000-0000-0000-0000000000a2"
+		scamAsset     = "00000000-0000-0000-0000-0000000000a3"
+	)
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
+		{ID: "h1", AssetID: pricedAsset, Amount: decimal.NewFromInt(100000000), Decimals: 8},               // 1.0, priced
+		{ID: "h2", AssetID: unpricedAsset, Amount: decimal.NewFromInt(700000000), Decimals: 8},             // 7.0, no quote
+		{ID: "h3", AssetID: scamAsset, Amount: decimal.NewFromInt(500000000), Decimals: 8, Excluded: true}, // quarantined
+	}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
+		return r.Msg.AssetId == pricedAsset && r.Msg.BaseAssetId == "USD"
+	})).Return(connect.NewResponse(&apiv1.Price{Last: "300000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 3.0
+	// The FinEx-style case: no direct quote and no traded pair to cross through.
+	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
+		return r.Msg.AssetId == unpricedAsset
+	})).Return(nil, connect.NewError(connect.CodeNotFound, errors.New("not found")))
+	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
+		return r.Msg.AssetId == scamAsset && r.Msg.BaseAssetId == "USD"
+	})).Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 1.0
+	symbol := "FXUS"
+	md.On("GetAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetAssetRequest]) bool {
+		return r.Msg.Id == unpricedAsset
+	})).Return(connect.NewResponse(&apiv1.Asset{Id: unpricedAsset, Symbol: &symbol}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+	resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
+		PortfolioId: testPortfolioID,
+	}))
+	require.NoError(t, err)
+
+	assert.Equal(t, "300", resp.Msg.TotalValueAmount, "only the priced 1.0 × 3.0 counts")
+	assert.Equal(t, uint32(1), resp.Msg.ExcludedCount, "quarantine disclosure is unchanged")
+	assert.Equal(t, "500", resp.Msg.ExcludedValueAmount)
+
+	cov := resp.Msg.Coverage
+	require.NotNil(t, cov)
+	assert.Equal(t, uint32(1), cov.PricedCount)
+	assert.Equal(t, uint32(1), cov.UnpricedCount, "the excluded holding is not counted here: quarantine is a separate axis")
+	assert.False(t, cov.UnpricedTruncated)
+	require.Len(t, cov.Unpriced, 1)
+	assert.Equal(t, "h2", cov.Unpriced[0].HoldingId)
+	assert.Equal(t, unpricedAsset, cov.Unpriced[0].AssetId)
+	assert.Equal(t, "FXUS", cov.Unpriced[0].Symbol)
+}
+
+// TestCalculatePortfolioValue_UnpricedListIsCapped: the count stays exact while
+// the per-holding list is a bounded sample, and a failed asset lookup costs a
+// label rather than the whole valuation.
+func TestCalculatePortfolioValue_UnpricedListIsCapped(t *testing.T) {
+	holdings := make([]*entity.Holding, 0, maxUnpricedDisclosed+3)
+	for i := range maxUnpricedDisclosed + 3 {
+		holdings = append(holdings, &entity.Holding{
+			ID:       fmt.Sprintf("h%d", i),
+			AssetID:  fmt.Sprintf("00000000-0000-0000-0000-%012d", i),
+			Amount:   decimal.NewFromInt(100000000),
+			Decimals: 8,
+		})
+	}
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return(holdings, "", nil)
+
+	md := &mockMDClient{}
+	md.On("GetLatestPrice", mock.Anything, mock.Anything).
+		Return(nil, connect.NewError(connect.CodeNotFound, errors.New("not found")))
+	md.On("GetAsset", mock.Anything, mock.Anything).
+		Return(nil, connect.NewError(connect.CodeNotFound, errors.New("asset gone")))
+
+	h := newHandler(s).WithMarketDataClient(md)
+	resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
+		PortfolioId: testPortfolioID,
+	}))
+	require.NoError(t, err)
+
+	cov := resp.Msg.Coverage
+	require.NotNil(t, cov)
+	assert.Equal(t, uint32(0), cov.PricedCount)
+	assert.Equal(t, uint32(maxUnpricedDisclosed+3), cov.UnpricedCount, "the count is exact")
+	assert.Len(t, cov.Unpriced, maxUnpricedDisclosed, "the list is capped")
+	assert.True(t, cov.UnpricedTruncated)
+	assert.Empty(t, cov.Unpriced[0].Symbol, "a failed lookup degrades to no symbol")
+	assert.NotEmpty(t, cov.Unpriced[0].AssetId, "the position is still identified")
+	assert.Equal(t, "0", resp.Msg.TotalValueAmount, "nothing could be valued")
 }
 
 // --- Tests: Stubs return Unimplemented ---

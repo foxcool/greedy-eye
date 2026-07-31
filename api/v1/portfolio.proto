@@ -348,6 +348,10 @@ message PortfolioValueResponse {
   // `decimals`.
   uint32 excluded_count = 6;
   string excluded_value_amount = 7;
+  // Price coverage of the holdings that were not quarantined: how many entered
+  // the total and which ones had no quote at all. Absence of a price is not a
+  // valuation of zero, so unpriced positions are reported, never written down.
+  ValuationCoverage coverage = 8;
 }
 
 message GetPortfolioPerformanceRequest {
