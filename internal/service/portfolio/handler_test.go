@@ -1223,6 +1223,69 @@ func TestSyncAccount_ScamVerdictExcludesHolding(t *testing.T) {
 	s.AssertExpectations(t)
 }
 
+// TestSyncAccount_PricesOnlySyncedAssets: the post-sync price fetch names the
+// assets this sync wrote. An unfiltered request would re-price the entire
+// catalogue on every sync, which is what exhausted the provider's monthly quota.
+func TestSyncAccount_PricesOnlySyncedAssets(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: "h-1"}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{
+		{Symbol: "DAI", Amount: "100", Decimals: 18, ContractAddress: "0xdai", Chain: "eth"},
+		{Symbol: "WETH", Amount: "200", Decimals: 18, ContractAddress: "0xweth", Chain: "eth"},
+	}, nil)
+
+	md := &mockMDClient{autoAsset: true}
+	var priced []string
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			req := args.Get(1).(*connect.Request[apiv1.FetchExternalPricesRequest])
+			priced = req.Msg.AssetIds
+		}).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	_, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"asset-DAI", "asset-WETH"}, priced)
+	md.AssertNumberOfCalls(t, "FetchExternalPrices", 1)
+}
+
+// TestSyncAccount_NoBalancesSkipsPriceFetch: a sync that wrote nothing spends no
+// provider quota.
+func TestSyncAccount_NoBalancesSkipsPriceFetch(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{}, nil)
+
+	md := &mockMDClient{autoAsset: true}
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.Zero(t, resp.Msg.HoldingsUpserted)
+	md.AssertNotCalled(t, "FetchExternalPrices", mock.Anything, mock.Anything)
+}
+
 // TestSyncAccount_LargeBalance verifies a uint256 balance that overflows int64 is stored
 // losslessly as a decimal string (regression for the bigint storage limit).
 func TestSyncAccount_LargeBalance(t *testing.T) {
