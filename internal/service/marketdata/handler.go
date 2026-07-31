@@ -43,6 +43,18 @@ type ProviderSource interface {
 	PriceProvidersFor(ctx context.Context, userID string) (map[string]PriceProvider, error)
 }
 
+// ContractResolver confirms a token's on-chain identity: given a chain and a
+// contract address it reports the ticker the provider lists that contract
+// under. A provider implements it opportunistically; FindOrCreateAsset uses it
+// to decide whether an unknown contract may claim an existing ticker.
+type ContractResolver interface {
+	// ResolveContractSymbol returns the listed coin's symbol for the contract.
+	// listed is false when the contract is not in the provider's universe (or
+	// the chain is not covered); an error means the provider could not be
+	// consulted and must never be read as "not listed".
+	ResolveContractSymbol(ctx context.Context, chain, address string) (symbol string, listed bool, err error)
+}
+
 // Handler implements apiv1connect.MarketDataServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedMarketDataServiceHandler
@@ -423,6 +435,16 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 		}
 	}
 
+	// An unbound contract may only claim the global market once its identity is
+	// confirmed; otherwise it gets a market of its own (see marketForContract).
+	if hasRef {
+		resolved, merr := h.marketForContract(ctx, market, symbol, refSource, ref)
+		if merr != nil {
+			return nil, connect.NewError(connect.CodeUnavailable, merr)
+		}
+		market = resolved
+	}
+
 	found, err := h.store.FindAssetByIdentity(ctx, symbol, market, typ)
 	if err == nil {
 		// Bind the contract to the resolved asset so the next sync short-circuits
@@ -575,6 +597,90 @@ func (h *Handler) bindExternalRef(ctx context.Context, assetID, source, ref stri
 			"asset_id", assetID, "source", source, "ref", ref, "error", err)
 	}
 }
+
+// marketForContract decides which market an unbound contract may be resolved
+// in. The global crypto market is reserved for contracts a price provider
+// actually lists under that ticker; anything else lands in a market of its own
+// (entity.ContractMarket) so it can neither merge into the genuine asset nor be
+// priced as it.
+//
+// This is the fix for personal-c3b: matching by ticker alone let the first
+// appearance of a counterfeit bind its contract to the real asset, after which
+// its balance was summed into the real position and valued at the real price.
+// Name, ticker and amount are all copyable — the contract is the only thing
+// that is not.
+//
+// Without a resolver (no market-data credential configured) nothing can be
+// confirmed, so every unbound contract is isolated: a duplicate row is visible
+// and mergeable, an inflated total is neither.
+func (h *Handler) marketForContract(ctx context.Context, market, symbol, refSource, ref string) (string, error) {
+	chain, ok := entity.ChainFromOnchainSource(refSource)
+	if !ok {
+		// Non-chain namespaces (broker/FIGI, provider coin IDs) are assigned by
+		// an authority, not minted by whoever pays the gas.
+		return market, nil
+	}
+
+	resolver, err := h.contractResolver(ctx)
+	if err != nil {
+		return "", err
+	}
+	if resolver == nil {
+		return entity.ContractMarket(chain, ref), nil
+	}
+
+	listed, found, err := resolver.ResolveContractSymbol(ctx, chain, ref)
+	if err != nil {
+		// Fail loud: treating an unreachable provider as "not listed" would
+		// scatter genuine multi-chain tokens into per-contract rows for good.
+		return "", fmt.Errorf("confirm contract %s on %s: %w", ref, chain, err)
+	}
+	if found && entity.NormalizeSymbol(listed) == symbol {
+		return market, nil
+	}
+	if found && h.log != nil {
+		// The contract is listed but under another ticker: the balance claims a
+		// symbol its own contract does not have.
+		h.log.Warn("contract listed under a different symbol",
+			"chain", chain, "contract", ref, "claimed", symbol, "listed", listed)
+	}
+	return entity.ContractMarket(chain, ref), nil
+}
+
+// contractResolver picks a price provider that can confirm contract identity,
+// preferring CoinGecko as the one with a full-universe contract catalog. A nil
+// resolver means no configured provider can confirm anything; an error means the
+// registry itself could not be read, which is not evidence about the contract.
+// It is consulted only for contracts that are not bound yet, so a settled
+// catalog costs nothing per sync.
+func (h *Handler) contractResolver(ctx context.Context) (ContractResolver, error) {
+	providers := h.providers
+	if h.providerSource != nil {
+		userID := ""
+		if user, ok := middleware.UserFromContext(ctx); ok {
+			userID = user.ID
+		}
+		resolved, err := h.providerSource.PriceProvidersFor(ctx, userID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve price providers: %w", err)
+		}
+		providers = resolved
+	}
+
+	if r, ok := providers[coingeckoProvider].(ContractResolver); ok {
+		return r, nil
+	}
+	for _, name := range slices.Sorted(maps.Keys(providers)) {
+		if r, ok := providers[name].(ContractResolver); ok {
+			return r, nil
+		}
+	}
+	return nil, nil
+}
+
+// coingeckoProvider is the provider slug whose contract catalog is preferred for
+// identity confirmation. Named here to avoid importing the adapter package.
+const coingeckoProvider = "coingecko"
 
 // FetchExternalPrices fetches prices from configured providers and stores them.
 // If source_ids is specified in the request, only those providers are called.
