@@ -21,6 +21,15 @@ type Store interface {
 	UpdateAsset(ctx context.Context, asset *entity.Asset, fields []string) (*entity.Asset, error)
 	DeleteAsset(ctx context.Context, id string) error
 	ListAssets(ctx context.Context, opts ListAssetsOpts) ([]*entity.Asset, string, error)
+	// ListStalePricingTargets returns assets due for a price refresh from one
+	// source, oldest deadline first. Everything it leaves out is either already
+	// in the database or backed off after repeated misses — re-requesting it
+	// would spend provider quota to learn nothing.
+	ListStalePricingTargets(ctx context.Context, opts StalePricingOpts) ([]*entity.Asset, error)
+	// RecordPriceAttempts records one sweep's outcome per asset. A miss pushes
+	// the next attempt out exponentially, so assets the provider does not list
+	// drain out of the rotation instead of blocking its head.
+	RecordPriceAttempts(ctx context.Context, opts RecordAttemptsOpts) error
 	// SetAssetVerdict writes an identity verdict (scam-filtering axis 1). A user
 	// verdict (source "user:*") is terminal: an automated write never overwrites
 	// one. The bool reports whether the row was written.
@@ -51,6 +60,47 @@ type ListAssetsOpts struct {
 	Tags      []string
 	// IdentityVerdict filters by scam-filtering verdict when non-empty.
 	IdentityVerdict string
+	// IDs restricts the result to these asset IDs. Lets a caller that already
+	// knows what it wants read exactly those rows instead of paging the whole
+	// catalogue and filtering in Go.
+	IDs []string
+}
+
+// StalePricingOpts selects what one sweep refreshes from one source.
+type StalePricingOpts struct {
+	// SourceID scopes freshness to one provider: an asset Binance priced a
+	// minute ago is still stale for CoinGecko. Required.
+	SourceID string
+	// Now is the deadline the selection compares against; an asset is due when
+	// its next attempt is not in the future.
+	Now time.Time
+	// Limit caps the result — this is the per-sweep budget, which is what makes
+	// the long tail rotate in oldest-first instead of arriving as one spike.
+	// Zero means no cap.
+	Limit int
+	// Symbols restricts the selection to these symbols. Used for the subset a
+	// provider prices in a single request, which is not worth budgeting.
+	Symbols []string
+	// ExcludeSymbols is the complement of Symbols, for selecting everything the
+	// provider charges per unit for.
+	ExcludeSymbols []string
+	// ExcludeVerdicts drops assets quarantined from the portfolio sums. Pricing
+	// money that is not counted buys nothing.
+	ExcludeVerdicts []string
+}
+
+// RecordAttemptsOpts records what one sweep asked a source for and what came back.
+type RecordAttemptsOpts struct {
+	SourceID string
+	At       time.Time
+	// Priced are the assets the provider returned a price for.
+	Priced []string
+	// Missed are the assets asked for that came back without one.
+	Missed []string
+	// TTL is how long a successful fetch counts as current.
+	TTL time.Duration
+	// MaxBackoff caps the exponential push-out applied to consecutive misses.
+	MaxBackoff time.Duration
 }
 
 // ListPriceHistoryOpts contains options for listing price history.

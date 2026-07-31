@@ -35,6 +35,11 @@ func NewMarketDataStore(pool *pgxpool.Pool) *MarketDataStore {
 const assetColumns = "id, symbol, name, type, market, quote, tags, created_at, updated_at, " +
 	"identity_verdict, identity_score, identity_signals, verdict_source, verdict_set_at"
 
+// prefixedAssetColumns is assetColumns for queries that join assets as "a".
+const prefixedAssetColumns = "a.id, a.symbol, a.name, a.type, a.market, a.quote, a.tags, " +
+	"a.created_at, a.updated_at, a.identity_verdict, a.identity_score, a.identity_signals, " +
+	"a.verdict_source, a.verdict_set_at"
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }
@@ -506,6 +511,12 @@ func (s *MarketDataStore) ListAssets(ctx context.Context, opts marketdata.ListAs
 		argIdx++
 	}
 
+	if len(opts.IDs) > 0 {
+		whereClauses = append(whereClauses, fmt.Sprintf("id = ANY($%d::uuid[])", argIdx))
+		args = append(args, opts.IDs)
+		argIdx++
+	}
+
 	whereClause := ""
 	if len(whereClauses) > 0 {
 		whereClause = "WHERE " + strings.Join(whereClauses, " AND ")
@@ -547,6 +558,149 @@ func (s *MarketDataStore) ListAssets(ctx context.Context, opts marketdata.ListAs
 	}
 
 	return assets, nextPageToken, nil
+}
+
+// ListStalePricingTargets returns assets whose next price attempt for this
+// source is due, oldest deadline first.
+//
+// The join is against price_fetch_attempts rather than prices because an asset
+// the provider does not list never gets a price row: ordering on price age
+// would park it at the head of the queue permanently and spend every sweep's
+// budget re-asking for it. NULLS FIRST puts never-attempted assets ahead of
+// everything else, so a freshly synced token is priced on the next sweep, and
+// the id tie-break keeps the rotation deterministic.
+func (s *MarketDataStore) ListStalePricingTargets(ctx context.Context, opts marketdata.StalePricingOpts) ([]*entity.Asset, error) {
+	if opts.SourceID == "" {
+		return nil, fmt.Errorf("%w: source_id is required", store.ErrInvalidArgument)
+	}
+	now := opts.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+
+	args := []any{opts.SourceID, now}
+	argIdx := 3
+	whereClauses := []string{"(f.next_attempt_at IS NULL OR f.next_attempt_at <= $2)"}
+
+	if len(opts.Symbols) > 0 {
+		whereClauses = append(whereClauses, fmt.Sprintf("a.symbol = ANY($%d)", argIdx))
+		args = append(args, opts.Symbols)
+		argIdx++
+	}
+	if len(opts.ExcludeSymbols) > 0 {
+		whereClauses = append(whereClauses, fmt.Sprintf("a.symbol <> ALL($%d)", argIdx))
+		args = append(args, opts.ExcludeSymbols)
+		argIdx++
+	}
+	if len(opts.ExcludeVerdicts) > 0 {
+		whereClauses = append(whereClauses, fmt.Sprintf("a.identity_verdict <> ALL($%d)", argIdx))
+		args = append(args, opts.ExcludeVerdicts)
+		argIdx++
+	}
+
+	limitClause := ""
+	if opts.Limit > 0 {
+		limitClause = fmt.Sprintf("LIMIT $%d", argIdx)
+		args = append(args, opts.Limit)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT `+prefixedAssetColumns+`
+		FROM assets a
+		LEFT JOIN price_fetch_attempts f
+			ON f.asset_id = a.id AND f.source_id = $1
+		WHERE %s
+		ORDER BY f.next_attempt_at ASC NULLS FIRST, a.id
+		%s`,
+		strings.Join(whereClauses, " AND "), limitClause)
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list stale pricing targets: %w", err)
+	}
+	defer rows.Close()
+
+	var assets []*entity.Asset
+	for rows.Next() {
+		asset, err := scanAsset(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan asset: %w", err)
+		}
+		assets = append(assets, asset)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate stale pricing targets: %w", err)
+	}
+
+	return assets, nil
+}
+
+// RecordPriceAttempts records one sweep's outcome for a source.
+//
+// A hit resets the miss counter and schedules the next attempt one TTL out. A
+// miss doubles the interval per consecutive miss up to MaxBackoff, which is
+// what drains permanently unlistable assets out of the rotation without ever
+// dropping them: a token listed later is still retried, just rarely.
+func (s *MarketDataStore) RecordPriceAttempts(ctx context.Context, opts marketdata.RecordAttemptsOpts) error {
+	if opts.SourceID == "" {
+		return fmt.Errorf("%w: source_id is required", store.ErrInvalidArgument)
+	}
+	if len(opts.Priced) == 0 && len(opts.Missed) == 0 {
+		return nil
+	}
+	at := opts.At
+	if at.IsZero() {
+		at = time.Now()
+	}
+	ttl := opts.TTL
+	if ttl <= 0 {
+		ttl = time.Hour
+	}
+	maxBackoff := opts.MaxBackoff
+	if maxBackoff < ttl {
+		maxBackoff = ttl
+	}
+
+	batch := &pgx.Batch{}
+	if len(opts.Priced) > 0 {
+		batch.Queue(`
+			INSERT INTO price_fetch_attempts
+				(asset_id, source_id, attempted_at, succeeded_at, misses, next_attempt_at)
+			SELECT id, $2, $3::timestamptz, $3::timestamptz, 0,
+			       $3::timestamptz + make_interval(secs => $4::float8)
+			FROM unnest($1::uuid[]) AS id
+			ON CONFLICT (asset_id, source_id) DO UPDATE SET
+				attempted_at    = EXCLUDED.attempted_at,
+				succeeded_at    = EXCLUDED.succeeded_at,
+				misses          = 0,
+				next_attempt_at = EXCLUDED.next_attempt_at`,
+			opts.Priced, opts.SourceID, at, ttl.Seconds())
+	}
+	if len(opts.Missed) > 0 {
+		// power(2, misses) uses the pre-update value, so the first miss waits
+		// one TTL, the second two, and so on until the cap.
+		batch.Queue(`
+			INSERT INTO price_fetch_attempts
+				(asset_id, source_id, attempted_at, succeeded_at, misses, next_attempt_at)
+			SELECT id, $2, $3::timestamptz, NULL, 1,
+			       $3::timestamptz + make_interval(secs => $4::float8)
+			FROM unnest($1::uuid[]) AS id
+			ON CONFLICT (asset_id, source_id) DO UPDATE SET
+				attempted_at    = EXCLUDED.attempted_at,
+				misses          = price_fetch_attempts.misses + 1,
+				next_attempt_at = EXCLUDED.attempted_at + make_interval(
+					secs => LEAST($4::float8 * power(2, price_fetch_attempts.misses), $5::float8))`,
+			opts.Missed, opts.SourceID, at, ttl.Seconds(), maxBackoff.Seconds())
+	}
+
+	results := s.pool.SendBatch(ctx, batch)
+	defer func() { _ = results.Close() }()
+	for range batch.Len() {
+		if _, err := results.Exec(); err != nil {
+			return fmt.Errorf("failed to record price attempts: %w", err)
+		}
+	}
+	return nil
 }
 
 // CreatePrice creates a new price record.

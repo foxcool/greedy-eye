@@ -113,6 +113,18 @@ func (m *mockStore) ListAssets(ctx context.Context, opts ListAssetsOpts) ([]*ent
 	return nil, args.String(1), args.Error(2)
 }
 
+func (m *mockStore) ListStalePricingTargets(ctx context.Context, opts StalePricingOpts) ([]*entity.Asset, error) {
+	args := m.Called(ctx, opts)
+	if v := args.Get(0); v != nil {
+		return v.([]*entity.Asset), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockStore) RecordPriceAttempts(ctx context.Context, opts RecordAttemptsOpts) error {
+	return m.Called(ctx, opts).Error(0)
+}
+
 func (m *mockStore) CreatePrice(ctx context.Context, price *entity.StoredPrice) (*entity.StoredPrice, error) {
 	args := m.Called(ctx, price)
 	if v := args.Get(0); v != nil {

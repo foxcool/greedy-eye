@@ -43,6 +43,7 @@ func getTestPool(t *testing.T) *pgxpool.Pool {
 		"transactions",
 		"holdings",
 		"prices",
+		"price_fetch_attempts",
 		"portfolios",
 		"accounts",
 		"assets",

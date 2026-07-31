@@ -573,3 +573,218 @@ func TestFindAssetByIdentity(t *testing.T) {
 	_, err = s.FindAssetByIdentity(ctx, "IDENTBTC", "crypto", entity.AssetTypeUnspecified)
 	require.ErrorIs(t, err, store.ErrInvalidArgument)
 }
+
+// assetIDs is a readability helper for asserting on selection order.
+func assetIDs(assets []*entity.Asset) []string {
+	ids := make([]string, 0, len(assets))
+	for _, a := range assets {
+		ids = append(ids, a.ID)
+	}
+	return ids
+}
+
+// TestListStalePricingTargets covers the selection an unattended sweep runs on:
+// never-attempted assets first, freshness scoped to one source, the per-sweep
+// limit, symbol tiers and the quarantine exclusion.
+func TestListStalePricingTargets(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+	now := time.Now()
+
+	fresh := createTestAsset(t, s, "StaleFresh")
+	overdue := createTestAsset(t, s, "StaleOverdue")
+	never := createTestAsset(t, s, "StaleNever")
+
+	require.NoError(t, s.RecordPriceAttempts(ctx, marketdata.RecordAttemptsOpts{
+		SourceID: "coingecko",
+		At:       now.Add(-10 * time.Minute),
+		Priced:   []string{fresh.ID},
+		TTL:      time.Hour,
+	}))
+	require.NoError(t, s.RecordPriceAttempts(ctx, marketdata.RecordAttemptsOpts{
+		SourceID: "coingecko",
+		At:       now.Add(-3 * time.Hour),
+		Priced:   []string{overdue.ID},
+		TTL:      time.Hour,
+	}))
+
+	t.Run("never attempted comes first, fresh is skipped", func(t *testing.T) {
+		got, err := s.ListStalePricingTargets(ctx, marketdata.StalePricingOpts{
+			SourceID: "coingecko",
+			Now:      now,
+		})
+		require.NoError(t, err)
+		require.Len(t, got, 2)
+		assert.Equal(t, never.ID, got[0].ID, "never-attempted asset must lead the rotation")
+		assert.Equal(t, overdue.ID, got[1].ID)
+	})
+
+	t.Run("freshness is per source", func(t *testing.T) {
+		got, err := s.ListStalePricingTargets(ctx, marketdata.StalePricingOpts{
+			SourceID: "binance",
+			Now:      now,
+		})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{fresh.ID, overdue.ID, never.ID}, assetIDs(got))
+	})
+
+	t.Run("limit keeps the oldest", func(t *testing.T) {
+		got, err := s.ListStalePricingTargets(ctx, marketdata.StalePricingOpts{
+			SourceID: "coingecko",
+			Now:      now,
+			Limit:    1,
+		})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, never.ID, got[0].ID)
+	})
+
+	t.Run("symbol tiers partition the catalogue", func(t *testing.T) {
+		exempt := []string{never.Symbol}
+
+		got, err := s.ListStalePricingTargets(ctx, marketdata.StalePricingOpts{
+			SourceID: "coingecko",
+			Now:      now,
+			Symbols:  exempt,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []string{never.ID}, assetIDs(got))
+
+		got, err = s.ListStalePricingTargets(ctx, marketdata.StalePricingOpts{
+			SourceID:       "coingecko",
+			Now:            now,
+			ExcludeSymbols: exempt,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []string{overdue.ID}, assetIDs(got))
+	})
+
+	t.Run("quarantined assets are excluded", func(t *testing.T) {
+		_, err := s.SetAssetVerdict(ctx, never.ID, "scam", nil, nil, "heuristic")
+		require.NoError(t, err)
+
+		got, err := s.ListStalePricingTargets(ctx, marketdata.StalePricingOpts{
+			SourceID:        "coingecko",
+			Now:             now,
+			ExcludeVerdicts: []string{"scam", "impersonation"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []string{overdue.ID}, assetIDs(got))
+	})
+
+	t.Run("source is required", func(t *testing.T) {
+		_, err := s.ListStalePricingTargets(ctx, marketdata.StalePricingOpts{Now: now})
+		require.ErrorIs(t, err, store.ErrInvalidArgument)
+	})
+}
+
+// TestRecordPriceAttempts_MissBackoff verifies consecutive misses push the next
+// attempt out exponentially up to the cap, and that a hit resets it — this is
+// what keeps an asset the provider never lists from blocking the rotation.
+func TestRecordPriceAttempts_MissBackoff(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+	base := time.Now().Truncate(time.Second)
+
+	asset := createTestAsset(t, s, "BackoffAsset")
+
+	nextAttempt := func() (time.Time, int) {
+		t.Helper()
+		var next time.Time
+		var misses int
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT next_attempt_at, misses FROM price_fetch_attempts
+			 WHERE asset_id = $1 AND source_id = 'coingecko'`, asset.ID).Scan(&next, &misses))
+		return next, misses
+	}
+
+	miss := func(at time.Time) {
+		t.Helper()
+		require.NoError(t, s.RecordPriceAttempts(ctx, marketdata.RecordAttemptsOpts{
+			SourceID:   "coingecko",
+			At:         at,
+			Missed:     []string{asset.ID},
+			TTL:        time.Hour,
+			MaxBackoff: 4 * time.Hour,
+		}))
+	}
+
+	miss(base)
+	next, misses := nextAttempt()
+	assert.Equal(t, 1, misses)
+	assert.WithinDuration(t, base.Add(time.Hour), next, time.Second)
+
+	miss(base)
+	next, misses = nextAttempt()
+	assert.Equal(t, 2, misses, "consecutive misses accumulate")
+	assert.WithinDuration(t, base.Add(2*time.Hour), next, time.Second)
+
+	miss(base)
+	next, _ = nextAttempt()
+	assert.WithinDuration(t, base.Add(4*time.Hour), next, time.Second)
+
+	miss(base)
+	next, misses = nextAttempt()
+	assert.Equal(t, 4, misses)
+	assert.WithinDuration(t, base.Add(4*time.Hour), next, time.Second, "backoff is capped")
+
+	require.NoError(t, s.RecordPriceAttempts(ctx, marketdata.RecordAttemptsOpts{
+		SourceID: "coingecko",
+		At:       base,
+		Priced:   []string{asset.ID},
+		TTL:      time.Hour,
+	}))
+	next, misses = nextAttempt()
+	assert.Zero(t, misses, "a hit resets the miss counter")
+	assert.WithinDuration(t, base.Add(time.Hour), next, time.Second)
+
+	t.Run("no attempts is a no-op", func(t *testing.T) {
+		require.NoError(t, s.RecordPriceAttempts(ctx, marketdata.RecordAttemptsOpts{SourceID: "coingecko"}))
+	})
+}
+
+// TestCreatePrices_TwoSourcesSameInstant: two providers may record the same
+// asset at the same moment. The old UNIQUE(asset_id, timestamp) index made that
+// a constraint violation, which the sweep then reported as a failed fetch.
+func TestCreatePrices_TwoSourcesSameInstant(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	asset := createTestAsset(t, s, "TwoSourceAsset")
+	base := createTestAsset(t, s, "TwoSourceBase")
+	ts := time.Now()
+
+	price := func(source string) *entity.StoredPrice {
+		return &entity.StoredPrice{
+			SourceID:    source,
+			AssetID:     asset.ID,
+			BaseAssetID: base.ID,
+			Interval:    "latest",
+			Decimals:    8,
+			Last:        decimal.NewFromInt(42),
+			Timestamp:   ts,
+		}
+	}
+
+	count, err := s.CreatePrices(ctx, []*entity.StoredPrice{price("coingecko"), price("binance")})
+	require.NoError(t, err)
+	assert.Equal(t, 2, count)
+}
+
+// TestListAssets_IDsFilter: the explicit reconciliation path reads exactly the
+// assets it names instead of paging the catalogue and filtering in Go.
+func TestListAssets_IDsFilter(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	want := createTestAsset(t, s, "IDsFilterWanted")
+	createTestAsset(t, s, "IDsFilterOther")
+
+	got, _, err := s.ListAssets(ctx, marketdata.ListAssetsOpts{IDs: []string{want.ID}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{want.ID}, assetIDs(got))
+}

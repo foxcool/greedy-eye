@@ -519,8 +519,14 @@ table "prices" {
     columns = [column.id]
   }
 
-  index "price_asset_id_timestamp" {
-    columns = [column.asset_id, column.timestamp]
+  // Uniqueness is per (asset, source, instant, pair). The old (asset_id,
+  // timestamp) index made two providers pricing the same asset at the same
+  // moment a constraint violation, which CreatePrices then counted as a failed
+  // fetch. Column order is load-bearing: the (asset_id, source_id, timestamp)
+  // prefix is what GetLatestPrice and the staleness lookup scan, so both get an
+  // ordered index seek instead of a filter over every price row of the asset.
+  index "price_asset_source_timestamp_base" {
+    columns = [column.asset_id, column.source_id, column.timestamp, column.base_asset_id]
     unique  = true
   }
 
@@ -536,6 +542,65 @@ table "prices" {
     ref_columns = [table.assets.column.id]
     on_update   = NO_ACTION
     on_delete   = RESTRICT
+  }
+}
+
+// Per (asset, source) record of price fetch attempts, which is what an
+// unattended sweep selects on. Freshness cannot be read off the prices table
+// alone: an asset the provider does not list never gets a price, so an
+// oldest-first rotation keyed on price timestamps would put it at the head of
+// the queue forever and spend the whole per-sweep budget re-asking for it.
+//
+// next_attempt_at is a materialized deadline rather than a computed one: the
+// exponential push-out is applied on write, so the selection stays an index
+// seek. misses drives that exponent and resets on the first success.
+table "price_fetch_attempts" {
+  schema = schema.public
+
+  column "asset_id" {
+    type = uuid
+    null = false
+  }
+  // Provider slug, matching prices.source_id ("coingecko", "binance").
+  column "source_id" {
+    type = character_varying
+    null = false
+  }
+  column "attempted_at" {
+    type = timestamptz
+    null = false
+  }
+  // Last attempt that actually returned a price. NULL means the provider has
+  // never priced this asset.
+  column "succeeded_at" {
+    type = timestamptz
+    null = true
+  }
+  // Consecutive attempts that returned nothing.
+  column "misses" {
+    type    = integer
+    null    = false
+    default = 0
+  }
+  column "next_attempt_at" {
+    type = timestamptz
+    null = false
+  }
+
+  primary_key {
+    columns = [column.asset_id, column.source_id]
+  }
+
+  // Serves the due-target lookup: one source, deadline in the past, oldest first.
+  index "price_fetch_attempt_due" {
+    columns = [column.source_id, column.next_attempt_at]
+  }
+
+  foreign_key "price_fetch_attempts_assets" {
+    columns     = [column.asset_id]
+    ref_columns = [table.assets.column.id]
+    on_update   = NO_ACTION
+    on_delete   = CASCADE
   }
 }
 
