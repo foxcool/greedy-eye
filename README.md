@@ -12,48 +12,59 @@ Personal investment intelligence platform. Aggregate data from multiple sources,
 
 ## What It Does
 
-Think of it as a personal Bloomberg Terminal on a budget — aggregate financial data from exchanges, brokers, and price feeds into one place. Track all your investments (crypto, stocks, bonds) and get insights to make better decisions.
+Aggregates everything you own — on-chain wallets, exchange accounts, broker
+positions, manually entered holdings — into one catalog, prices it, and shows
+what the total actually consists of.
 
-Built as a learning project to demonstrate production-ready Go architecture for financial applications.
+Built as a personal, self-hosted system, and as a demonstration of production-shaped
+Go architecture for financial data.
 
 ---
 
 ## Core Capabilities
 
 **Data Aggregation**
-- Pull data from exchanges (Binance), price feeds (CoinGecko), and brokerages
-- Unified view of crypto, stocks, bonds, and derivatives
-- Historical price tracking and performance analytics
+- On-chain balances across EVM chains, Substrate, TON, Solana, Bitcoin, Cosmos,
+  Tezos and more — one `WalletSyncer` per ecosystem, routed by address shape
+- Exchange balances (Binance spot) via the account's own signed API key
+- Manual and LLM-assisted import of positions and transactions, with provenance
+- Prices from external providers on a budgeted schedule
 
-**Portfolio Intelligence**
-- Multi-account position tracking across platforms
-- P&L calculations and cost basis tracking
-- Asset allocation analysis
+**Portfolio Truth**
+- Multi-account position tracking with per-user ownership enforcement
+- Portfolio valuation that **reports what it could not price** (`ValuationCoverage`)
+  instead of silently dropping those positions
+- Scam-filter verdicts on assets; flagged holdings are quarantined out of totals
+  in the open, not subtracted quietly
+- Composite asset identity `(symbol, market, type)` plus contract-level identity,
+  so a fake token cannot inherit a real ticker's price
 
 **Extensible Architecture**
-- Modular gRPC services for different data sources
-- Easy to add new adapters for exchanges or price feeds
-- Connect-RPC serves REST and gRPC on a single endpoint for external integrations
+- Adapter pattern for every external API; credentials live in the database,
+  encrypted, resolved per account
+- Connect-RPC serves browser-friendly JSON and gRPC from one port
+- Modular monolith that can be split into services by configuration
 
 ---
 
 ## Technology Stack
 
 **Backend:**
-- Go 1.25+ with gRPC and Protocol Buffers
-- PostgreSQL 17+ with pgx
-- Connect-RPC for HTTP API
+- Go 1.25+, Connect-RPC and Protocol Buffers (h2c on :8080)
+- PostgreSQL 17+ with pgx (raw SQL, no ORM)
+- Atlas declarative schema (`schema.hcl`)
 
 **Infrastructure:**
-- Docker & Docker Compose
-- Atlas declarative migrations (schema.hcl)
+- Docker & Docker Compose; Traefik with psina forwardAuth in front
 - Testcontainers for integration tests
-- Structured logging (slog, Sentry)
+- Structured logging (slog), Sentry
 
 **Integrations:**
-- CoinGecko, Binance APIs
-- Telegram Bot (optional interface)
-- Connect-RPC (JSON + gRPC) from `api/v1/*.proto`
+- Prices: CoinGecko, Binance
+- On-chain: Moralis (EVM), Subscan (Substrate), tonapi, Helius (Solana),
+  Esplora (Bitcoin), Cosmos LCD, TzKT (Tezos), Blockchair
+- Notifications: Telegram
+- See [docs/providers.md](docs/providers.md) for what each one needs
 
 ---
 
@@ -99,23 +110,26 @@ make test-integration        # Integration tests (uses testcontainers)
 
 ```
 greedy-eye/
-├── api/v1/                # Protocol Buffer definitions (domain-based)
-│   ├── marketdata.proto   # Asset + Price management
-│   ├── portfolio.proto    # Portfolio + Holding + Account + Transaction
-│   └── automation.proto   # Rule + RuleExecution
-├── cmd/eye/               # Main application
+├── api/v1/                # Protobuf definitions + generated code
+│   ├── marketdata.proto   # Assets, prices, valuation coverage
+│   ├── portfolio.proto    # Portfolios, accounts, holdings, transactions, import
+│   ├── automation.proto   # Rules + executions
+│   ├── analytics.proto    # Heatmaps
+│   └── apiv1connect/      # Generated Connect handlers and clients
+├── cmd/eye/               # Binary: wiring, config, provider registration
 ├── internal/
-│   ├── adapter/           # External API clients (Binance, CoinGecko, Telegram)
-│   ├── api/               # Generated gRPC/HTTP code
-│   ├── entity/            # Domain entities
-│   ├── service/           # Business logic services
-│   ├── store/             # Data persistence layer
-│   │   └── postgres/      # PostgreSQL implementation
-│   └── testutil/          # Test utilities (testcontainers)
-├── schema.hcl             # Database schema (Atlas)
-├── atlas.hcl              # Atlas configuration
-├── docs/                  # Architecture documentation
-└── deploy/                # Docker configs
+│   ├── adapter/           # External API clients, one package per provider
+│   │                      # + ratelimit/ (shared rate and quota budget per key)
+│   ├── entity/            # Domain entities and provider interfaces
+│   ├── middleware/        # User provisioning, ownership enforcement
+│   ├── scamfilter/        # Asset identity scoring and verdicts
+│   ├── scheduler/         # Cron: rule schedules + price sweep
+│   ├── service/           # Connect handlers: marketdata, portfolio,
+│   │                      # automation, analytics, credentials
+│   └── store/postgres/    # pgx implementation + integration tests
+├── schema.hcl             # Database schema (Atlas, declarative)
+├── docs/                  # Architecture, development, providers
+└── deploy/                # Compose config
 ```
 
 ---
@@ -130,36 +144,33 @@ greedy-eye/
 
 ## Development Status
 
-**Phase 1-3:** ✅ Complete — Foundation, 3-service Connect-RPC API, integrations
-**Phase 4:** 🔄 In Progress — Automation engines & analytics
-**Phase 5:** 📋 Planned — Production hardening
+**Alpha, running in production by its author.** One instance, one user, a real
+portfolio. The label is not modesty: the number the system reports is still being
+made trustworthy, and that is the current focus.
 
-Current implementation:
-- ✅ 3-service Connect-RPC monolith (MarketData, Portfolio, Automation)
-- ✅ Database layer with pgx raw SQL; encrypted account credentials (ADR-005)
-- ✅ Per-account credential resolver; ownership enforcement across RPCs
-- ✅ Account sync: wallet balances (Moralis) + exchange balances (Binance)
-- ✅ External price fetch (CoinGecko); integration test coverage
-- 🔄 Automation rule engines (DCA / rebalancing / stop-loss) + scheduler
+Done:
+- ✅ 4-service Connect-RPC monolith (MarketData, Portfolio, Automation, Analytics)
+- ✅ pgx raw SQL store; account credentials encrypted at rest (ADR-005), resolved
+  per account (user → system → env)
+- ✅ Ownership enforced on every by-ID and list RPC
+- ✅ Wallet sync across 8 ecosystems; Binance spot sync; manual and LLM import
+- ✅ Scheduled price fetch, budgeted against each credential's remaining plan
+- ✅ Scam filtering with contract-level asset identity
+- ✅ Valuation coverage: the total says what it could not price
 
----
+In progress / next:
+- 🔄 Quote confidence — a price with no market volume behind it must not enter
+  the sum as if it were real
+- 🔄 Price coverage for non-crypto assets (MOEX, SPBEX, FX)
+- 📋 Automation engines (DCA / rebalancing / stop-loss) — deliberately blocked
+  until the portfolio total is trustworthy; rules on top of a wrong number are
+  worse than no rules
+- 📋 Metrics and monitoring beyond the health check
 
-## Key Features
-
-### Multi-Source Data
-- Aggregate price data from exchanges and feeds
-- Support for crypto, stocks, bonds, derivatives
-- Extensible adapter pattern for new sources
-
-### Portfolio Tracking
-- Multi-account position aggregation
-- Performance analytics and P&L
-- Historical tracking
-
-### Architecture
-- Modular monolith (microservice-ready)
-- Clean separation: services, adapters, domain
-- Comprehensive testing
+Beyond the feature work above, calling this beta would also need a documented
+upgrade path for someone else's instance (the schema is applied declaratively,
+with no versioned migrations), end-to-end tests in CI, and metrics. Known risks
+and debt: [docs/architecture.md](docs/architecture.md) §11.
 
 ---
 
