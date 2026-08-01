@@ -397,21 +397,45 @@ func (r *Registry) bucket(c Credential) *bucket {
 	return b
 }
 
-// limitFor resolves the limit for a credential: an operator override first,
-// then the tier entry, then the provider's keyed entry, then the fallback.
+// limitFor resolves the limit for a credential: the plan tier decides, and an
+// operator override adjusts it field by field.
+//
+// Field by field, not wholesale, because the two dimensions belong to different
+// people. Rate is a property of this deployment — providers meter it per IP as
+// much as per key, and the process has one address, so throttling a provider
+// after an enforcement notice must reach every credential including a user's
+// own. Volume is that key's plan and that key's money, and an operator dialling
+// their own rate down has no business touching it.
+//
+// Returning the override wholesale did exactly that: the config surface carries
+// no quota, so its zero silently disabled volume accounting for the whole
+// provider — the protection this package exists for. An unset field now means
+// "leave the plan's value alone"; only a value an operator actually wrote wins.
 func (r *Registry) limitFor(c Credential) Limit {
-	if l, ok := r.overrides[c.Provider]; ok {
-		return l
+	limit := fallbackLimit
+	if l, ok := defaultLimits[c.Provider]; ok {
+		limit = l
 	}
 	if tier := c.tier(); tier != "" {
 		if l, ok := defaultLimits[c.Provider+":"+tier]; ok {
-			return l
+			limit = l
 		}
 	}
-	if l, ok := defaultLimits[c.Provider]; ok {
-		return l
+
+	if o, ok := r.overrides[c.Provider]; ok {
+		if o.RPS > 0 {
+			limit.RPS = o.RPS
+		}
+		if o.Burst > 0 {
+			limit.Burst = o.Burst
+		}
+		// A quota can only be set deliberately, and it comes with its period.
+		if o.Quota > 0 {
+			limit.Quota = o.Quota
+			limit.Period = o.Period
+		}
 	}
-	return fallbackLimit
+	return limit
 }
 
 // periodStart truncates a moment to the beginning of its quota period, in UTC —

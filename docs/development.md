@@ -292,9 +292,22 @@ EYE_SCHEDULER_PRICEFETCHCRON="0 * * * *"  # empty = price job off
 # the month more expensive.
 
 # Provider request budget (see docs/providers.md)
-EYE_COINGECKO_PRO=false                 # legacy spelling of accounts.data.tier=pro
-EYE_RATELIMIT_SUBSCAN_RPS=1.8           # override a provider's built-in rate
+# Plans belong to accounts, not to this file: an account's data.tier picks the
+# rate AND the volume allowance for its own key. Nothing here can change a
+# user's plan.
+#
+# These knobs throttle the whole deployment's rate towards one provider, which
+# is the right scope for an enforcement notice — providers meter rate per IP as
+# much as per key, and the process has one address. They do not touch anyone's
+# monthly allowance.
+EYE_RATELIMIT_SUBSCAN_RPS=1.8
 EYE_RATELIMIT_SUBSCAN_BURST=1
+
+# Credentials for the deprecated env-configured provider path (no account row).
+# EYE_COINGECKO_PRO selects the paid host and plan for THAT client only —
+# accounts carry their own tier.
+EYE_COINGECKO_APIKEY=your_key
+EYE_COINGECKO_PRO=false
 
 # Observability
 EYE_SENTRY_DSN=your_dsn

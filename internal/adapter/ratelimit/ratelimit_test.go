@@ -95,6 +95,36 @@ func TestLimitResolution(t *testing.T) {
 	assert.Equal(t, fallbackLimit.RPS, reg.limitFor(Credential{Provider: "nobody-knows-this-one", APIKey: "key"}).RPS)
 }
 
+// TestOverrideDoesNotTouchVolume: an operator throttling their own rate must not
+// hand every credential on that provider — including a user's own paid plan —
+// an unlimited allowance. Rate is this deployment's business (one IP, metered
+// per IP as much as per key); volume is that key's plan and that key's money.
+func TestOverrideDoesNotTouchVolume(t *testing.T) {
+	reg := NewRegistry(map[string]Limit{"coingecko": {RPS: 0.2, Burst: 1}})
+
+	demo := reg.limitFor(Credential{Provider: "coingecko", APIKey: "key"})
+	assert.Equal(t, 0.2, demo.RPS, "the operator's rate applies")
+	assert.Equal(t, defaultLimits["coingecko"].Quota, demo.Quota,
+		"the plan's monthly allowance survives a rate override")
+	assert.Equal(t, QuotaMonth, demo.Period)
+
+	pro := reg.limitFor(Credential{Provider: "coingecko", APIKey: "key", Tier: "pro"})
+	assert.Equal(t, 0.2, pro.RPS, "the throttle reaches every credential: the IP is shared")
+	assert.Equal(t, defaultLimits["coingecko:pro"].Quota, pro.Quota,
+		"a user's paid plan keeps its own allowance")
+}
+
+// TestPartialOverrideKeepsTierRate: naming only a burst leaves the tier's rate
+// alone, so an operator cannot zero a limit by omission.
+func TestPartialOverrideKeepsTierRate(t *testing.T) {
+	reg := NewRegistry(map[string]Limit{"coingecko": {Burst: 3}})
+
+	got := reg.limitFor(Credential{Provider: "coingecko", APIKey: "key"})
+
+	assert.Equal(t, defaultLimits["coingecko"].RPS, got.RPS)
+	assert.Equal(t, 3, got.Burst)
+}
+
 // TestSubscanDefaultUnderPlanCeiling pins the number that caused this package
 // to exist: plan #31202 enforces 2 rps and logged us at 3.
 func TestSubscanDefaultUnderPlanCeiling(t *testing.T) {

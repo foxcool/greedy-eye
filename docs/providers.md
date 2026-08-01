@@ -155,7 +155,8 @@ with one. Moving to a paid plan is therefore a settings edit, not a release,
 and the numbers behind each tier stay in code where they can carry the
 reasoning that produced them.
 
-To override a provider outright, without a rebuild:
+To throttle a provider deployment-wide, without a rebuild — after an
+enforcement notice, say:
 
 ```yaml
 ratelimit:
@@ -164,8 +165,18 @@ ratelimit:
     burst: 1   # keep at 1 for per-second meters; bursts are what trip them
 ```
 
-An override replaces every tier of that provider. Providers not named keep
-their defaults, and a provider with no default at all gets 1 rps.
+This applies to **every credential** on that provider, a user's own account
+included. That is deliberate: providers meter rate per IP as much as per key,
+and the whole process shares one address, so a rate one account is told to
+respect is a rate all of them have to respect.
+
+It changes rate only. A **volume allowance stays with the key it belongs to** —
+it is that account's plan and that account's money, and no operator setting can
+raise or lower it. Fields left unset keep the tier's value, so naming a burst
+does not silently zero the rate.
+
+Providers not named keep their defaults, and a provider with no default at all
+gets 1 rps.
 
 ### Spending the volume allowance
 
