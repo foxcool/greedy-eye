@@ -587,7 +587,7 @@ Cron / API Client → AutomationService/ExecuteRule
 
 **Monitoring and Alerting:**
 - **Health Checks**: /health endpoint for all services
-- **Metrics Collection**: Prometheus-compatible metrics
+- **Provider quota**: spend per credential persisted in `provider_usage`, reported on the sweep's own log line (no metrics system in-process yet)
 - **Error Tracking**: Structured logging with correlation IDs
 - **SLA Monitoring**: Response time SLA tracking
 
@@ -606,7 +606,8 @@ Cron / API Client → AutomationService/ExecuteRule
 
 **Background Scheduler (`internal/scheduler`):**
 - Single cron scheduler (robfig/cron/v3) inside the `eye` binary, gated by `scheduler.enabled`
-- Consumers: periodic automation rules (`RuleSchedule.CronExpression` + `Timezone`) and external price fetching (`scheduler.priceFetchCron`, default every 15 min)
+- Consumers: periodic automation rules (`RuleSchedule.CronExpression` + `Timezone`) and external price fetching (`scheduler.priceFetchCron`, default hourly)
+- The price sweep is budgeted, not exhaustive: it asks each source only for assets whose next attempt is due (`price_fetch_attempts`), oldest first, capped by the share of the credential's remaining plan allowance that one interval affords. Naming `asset_ids` on the RPC makes it a deliberate reconciliation and bypasses both
 - Active rule schedules are fully reloaded every minute — rule CRUD needs no hooks, mutations take effect within a minute
 - Missed fires during downtime are **skipped, never caught up**: executing a stale trade plan is worse than skipping it
 - Rule jobs call `ExecuteRule` in-process on behalf of the rule owner, so executions are recorded identically to the RPC path

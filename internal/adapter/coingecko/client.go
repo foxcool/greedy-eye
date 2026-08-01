@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -17,7 +18,21 @@ type Client struct {
 	apiKey     string
 	baseURL    string
 	httpClient *http.Client
+	budget     PlanBudget
 }
+
+// PlanBudget reports what is left of this credential's plan for the current
+// period. Satisfied by *ratelimit.Budget; the interface keeps the adapter from
+// depending on how budgets are keyed.
+type PlanBudget interface {
+	Remaining() (requests int, periodEnd time.Time, ok bool)
+}
+
+// noBudget stands in when none was wired: unmetered by volume, so callers that
+// size themselves from a plan simply do not.
+type noBudget struct{}
+
+func (noBudget) Remaining() (int, time.Time, bool) { return 0, time.Time{}, false }
 
 // Config holds CoinGecko client configuration
 type Config struct {
@@ -28,6 +43,10 @@ type Config struct {
 	// provider rate budget (internal/adapter/ratelimit) is injected here:
 	// clients are built per account and must not each pace themselves.
 	Transport http.RoundTripper
+
+	// Budget, when set, lets an unattended sweep size itself from what is left
+	// of the plan's monthly allowance instead of a hardcoded cap.
+	Budget PlanBudget
 }
 
 // PriceData represents price information for an asset
@@ -62,11 +81,26 @@ func NewClient(cfg Config) *Client {
 	// pace itself, which paced one instance while the resolver built others
 	// against the same key. The budget now lives in the transport
 	// (internal/adapter/ratelimit), shared per credential.
+	budget := cfg.Budget
+	if budget == nil {
+		budget = noBudget{}
+	}
 	return &Client{
 		apiKey:     cfg.APIKey,
 		baseURL:    baseURL,
 		httpClient: &http.Client{Timeout: 30 * time.Second, Transport: cfg.Transport},
+		budget:     budget,
 	}
+}
+
+// contractBatchSize is how many contract addresses fit in one token_price
+// request at this credential's tier. The keyless API rejects more than one
+// address per request with a 400.
+func (c *Client) contractBatchSize() int {
+	if c.apiKey == "" {
+		return 1
+	}
+	return keyedContractBatch
 }
 
 // coingeckoMarketItem is the JSON shape from /coins/markets endpoint.
@@ -82,22 +116,38 @@ type coingeckoMarketItem struct {
 	Low24h            float64 `json:"low_24h"`
 }
 
+// marketsPageSize is how many coin ids one /coins/markets response can carry.
+// Asking for more silently truncates, which is worse than a second request.
+const marketsPageSize = 250
+
 // GetMultiplePrices retrieves current prices for multiple assets.
 func (c *Client) GetMultiplePrices(ctx context.Context, assetIDs []string, currency string) (map[string]*PriceData, error) {
 	if len(assetIDs) == 0 {
 		return map[string]*PriceData{}, nil
 	}
 
+	result := make(map[string]*PriceData, len(assetIDs))
+	for chunk := range slices.Chunk(assetIDs, marketsPageSize) {
+		if err := c.fetchMarkets(ctx, chunk, currency, result); err != nil {
+			return result, err
+		}
+	}
+	return result, nil
+}
+
+// fetchMarkets reads one page of /coins/markets into result.
+func (c *Client) fetchMarkets(ctx context.Context, assetIDs []string, currency string, result map[string]*PriceData) error {
 	url := fmt.Sprintf(
-		"%s/coins/markets?vs_currency=%s&ids=%s&order=market_cap_desc&per_page=250&page=1&sparkline=false",
+		"%s/coins/markets?vs_currency=%s&ids=%s&order=market_cap_desc&per_page=%d&page=1&sparkline=false",
 		c.baseURL,
 		currency,
 		strings.Join(assetIDs, ","),
+		marketsPageSize,
 	)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+		return fmt.Errorf("create request: %w", err)
 	}
 	if c.apiKey != "" {
 		req.Header.Set("x-cg-demo-api-key", c.apiKey)
@@ -105,21 +155,20 @@ func (c *Client) GetMultiplePrices(ctx context.Context, assetIDs []string, curre
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("do request: %w", err)
+		return fmt.Errorf("do request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status %d from CoinGecko", resp.StatusCode)
+		return fmt.Errorf("unexpected status %d from CoinGecko", resp.StatusCode)
 	}
 
 	var items []coingeckoMarketItem
 	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+		return fmt.Errorf("decode response: %w", err)
 	}
 
 	now := time.Now()
-	result := make(map[string]*PriceData, len(items))
 	for _, item := range items {
 		result[item.ID] = &PriceData{
 			AssetID:       item.ID,
@@ -135,7 +184,7 @@ func (c *Client) GetMultiplePrices(ctx context.Context, assetIDs []string, curre
 		}
 	}
 
-	return result, nil
+	return nil
 }
 
 // evmAddressRe matches a canonical EVM contract address. Catalog tags may
@@ -143,9 +192,23 @@ func (c *Client) GetMultiplePrices(ctx context.Context, assetIDs []string, curre
 // not matching would poison the whole token_price batch with a 400.
 var evmAddressRe = regexp.MustCompile(`^0x[0-9a-fA-F]{40}$`)
 
-// keylessMaxContractLookups caps per-address token_price requests in one
-// call on the keyless tier, where each address costs a full request.
-const keylessMaxContractLookups = 15
+const (
+	// keylessMaxContractLookups caps per-address token_price requests in one
+	// call on the keyless tier, where each address costs a full request.
+	keylessMaxContractLookups = 15
+	// keyedContractBatch is how many contract addresses a demo or paid key may
+	// put in one token_price request.
+	keyedContractBatch = 30
+)
+
+// backoffStatuses are the answers that mean "stop sending for a while": 429 is
+// the standard one, 418 is Binance-style, 430 is Blockchair's blacklist. Seeing
+// one mid-sweep means the remaining batches are pointless.
+var backoffStatuses = map[int]bool{
+	http.StatusTooManyRequests: true,
+	http.StatusTeapot:          true,
+	430:                        true,
+}
 
 // GetTokenPricesByContract retrieves prices for ERC-20 tokens by their contract addresses.
 // platform is the CoinGecko platform ID, e.g. "ethereum", "base", "polygon-pos".
@@ -177,9 +240,8 @@ func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, 
 	// the keyless per-minute budget (and not starve other endpoints), only a
 	// random subset is attempted per call — repeated fetches rotate through
 	// the full set.
-	batchSize := 30
+	batchSize := c.contractBatchSize()
 	if c.apiKey == "" {
-		batchSize = 1
 		if len(valid) > keylessMaxContractLookups {
 			// #nosec G404 -- rotation of which public addresses get priced, not a security decision
 			rand.Shuffle(len(valid), func(i, j int) { valid[i], valid[j] = valid[j], valid[i] })
@@ -223,6 +285,13 @@ func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, 
 		if resp.StatusCode != http.StatusOK {
 			_ = resp.Body.Close()
 			errs = append(errs, fmt.Errorf("token_price batch %d-%d: unexpected status %d from CoinGecko", i, end, resp.StatusCode))
+			if backoffStatuses[resp.StatusCode] {
+				// The budget is already spent: the transport has frozen this
+				// credential, so every remaining batch would sit out the freeze
+				// only to earn another 429 — twelve of them outlast the job
+				// timeout and take the whole sweep down with them.
+				break
+			}
 			continue
 		}
 

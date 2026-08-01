@@ -97,10 +97,14 @@ func getConfig() (*Config, error) {
 	// Default values
 
 	defaults := map[string]any{
-		"sentry.tracesSampleRate":  1.0,
-		"server.port":              8080,
-		"scheduler.enabled":        true,
-		"scheduler.pricefetchcron": "*/15 * * * *",
+		"sentry.tracesSampleRate": 1.0,
+		"server.port":             8080,
+		"scheduler.enabled":       true,
+		// Hourly. The sweep no longer re-prices the whole catalogue: it takes
+		// what is due, oldest first, within the share of the provider's plan
+		// this interval affords. Fifteen minutes was what burned CoinGecko's
+		// monthly free quota in eight days.
+		"scheduler.pricefetchcron": "0 * * * *",
 		// Daily at 03:00; catalogue identity rescore is cheap and idempotent.
 		"scheduler.rescorecron": "0 3 * * *",
 		"services": []any{

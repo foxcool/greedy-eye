@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -37,6 +38,26 @@ type PriceProvider interface {
 	BaseAssetType() entity.AssetType
 }
 
+// BudgetExemptProvider is implemented by providers whose request cost does not
+// grow with the number of assets in some subset — CoinGecko covers up to 250
+// curated coin ids in a single /coins/markets call. Those symbols bypass the
+// per-sweep portion: refreshing them costs nothing extra, and they are the
+// assets carrying most of the portfolio's value.
+type BudgetExemptProvider interface {
+	BudgetExemptSymbols() []string
+}
+
+// BudgetedProvider reports how many assets it may be asked for in one sweep,
+// derived from what is left of its credential's plan for the period. The
+// handler cannot compute this: it knows neither the credential nor how many
+// assets fit in one request of this particular API.
+//
+// ok is false when the plan meters only rate, in which case the sweep is not
+// capped by volume at all.
+type BudgetedProvider interface {
+	AssetBudget(now time.Time, window time.Duration) (n int, ok bool)
+}
+
 // ProviderSource resolves the effective price provider registry for a user
 // from stored account credentials (see internal/service/credentials).
 type ProviderSource interface {
@@ -61,7 +82,10 @@ type Handler struct {
 	store          Store
 	providers      map[string]PriceProvider // keyed by source name e.g. "coingecko"
 	providerSource ProviderSource           // optional; takes precedence over providers
-	log            *slog.Logger
+	// refreshWindow is how long until the next unattended sweep. Zero disables
+	// budgeting, which keeps tests and minimal configs on the old behaviour.
+	refreshWindow time.Duration
+	log           *slog.Logger
 }
 
 func NewHandler(store Store, log *slog.Logger) *Handler {
@@ -88,6 +112,15 @@ func (h *Handler) WithProvider(name string, p PriceProvider) *Handler {
 func (h *Handler) WithProviderSource(src ProviderSource) *Handler {
 	copied := h.clone()
 	copied.providerSource = src
+	return copied
+}
+
+// WithRefreshWindow enables budgeted sweeps: window is the time until the next
+// one, which is what a provider divides its remaining plan allowance by. Zero
+// (the default) leaves sweeps unbudgeted.
+func (h *Handler) WithRefreshWindow(window time.Duration) *Handler {
+	copied := h.clone()
+	copied.refreshWindow = window
 	return copied
 }
 
@@ -682,8 +715,36 @@ func (h *Handler) contractResolver(ctx context.Context) (ContractResolver, error
 // identity confirmation. Named here to avoid importing the adapter package.
 const coingeckoProvider = "coingecko"
 
+// Freshness policy for unattended sweeps. These are product decisions, not
+// operator knobs: the sweep's size already follows the plan's remaining
+// allowance, and nobody has needed to tune these separately.
+const (
+	// priceTTL is how long a fetched price counts as current. An hour matches
+	// the sweep cadence — fresher spends quota on prices nobody read, staler
+	// defeats the point of sweeping at all.
+	priceTTL = time.Hour
+	// missBackoffCap bounds the exponential push-out for assets a provider
+	// keeps not listing. A week means a newly listed token is picked up within
+	// days, while the permanently unlistable tail costs one request a week
+	// instead of one per sweep.
+	missBackoffCap = 7 * 24 * time.Hour
+)
+
+// quarantineVerdicts are excluded from unattended pricing: their holdings are
+// already excluded from the portfolio sums, so a price for them buys nothing.
+var quarantineVerdicts = []string{
+	string(scamfilter.VerdictScam),
+	string(scamfilter.VerdictImpersonation),
+}
+
 // FetchExternalPrices fetches prices from configured providers and stores them.
 // If source_ids is specified in the request, only those providers are called.
+//
+// Naming asset_ids makes the request a deliberate reconciliation: those assets
+// are priced whatever their freshness, and the per-sweep portion does not apply
+// (the credential's plan quota still does — a ceiling is a ceiling). An empty
+// request is an unattended sweep and takes only what is due, oldest first,
+// within what the plan can afford until the next sweep.
 func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[apiv1.FetchExternalPricesRequest]) (*connect.Response[apiv1.FetchExternalPricesResponse], error) {
 	// Resolve the effective provider registry from stored credentials of the
 	// calling user; the static env-configured registry is the fallback.
@@ -703,29 +764,22 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("no price providers configured"))
 	}
 
-	// Load all assets; filter to the requested IDs if specified.
-	allAssets, _, err := h.store.ListAssets(ctx, ListAssetsOpts{PageSize: 500})
-	if err != nil {
-		return nil, toConnectError(err)
-	}
-
-	assets := allAssets
+	// Reconciliation reads exactly the assets it names. Paging the catalogue and
+	// filtering in Go is both wasteful and lossy — the discarded page token used
+	// to cap the whole sweep at 500 assets.
+	var named []*entity.Asset
 	if len(req.Msg.AssetIds) > 0 {
-		requested := make(map[string]bool, len(req.Msg.AssetIds))
-		for _, id := range req.Msg.AssetIds {
-			requested[id] = true
+		var err error
+		named, _, err = h.store.ListAssets(ctx, ListAssetsOpts{
+			IDs:      req.Msg.AssetIds,
+			PageSize: len(req.Msg.AssetIds),
+		})
+		if err != nil {
+			return nil, toConnectError(err)
 		}
-		filtered := make([]*entity.Asset, 0, len(req.Msg.AssetIds))
-		for _, a := range allAssets {
-			if requested[a.ID] {
-				filtered = append(filtered, a)
-			}
+		if len(named) == 0 {
+			return connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil
 		}
-		assets = filtered
-	}
-
-	if len(assets) == 0 {
-		return connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil
 	}
 
 	var allPrices []*entity.StoredPrice
@@ -739,11 +793,30 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		if len(req.Msg.SourceIds) > 0 && !slices.Contains(req.Msg.SourceIds, name) {
 			continue
 		}
+
+		// Selection is per source because freshness is: an asset Binance priced
+		// a minute ago is still stale for CoinGecko.
+		assets := named
+		if assets == nil {
+			var err error
+			assets, err = h.refreshTargets(ctx, name, provider)
+			if err != nil {
+				fetchErrs = append(fetchErrs, fmt.Sprintf("%s: select targets: %v", name, err))
+				continue
+			}
+		}
+		if len(assets) == 0 {
+			continue
+		}
+		h.attachExternalRefs(ctx, assets)
+
 		results, err := provider.FetchPrices(ctx, assets)
 		if err != nil {
 			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
+			h.recordAttempts(ctx, name, assets, nil)
 			continue
 		}
+		h.recordAttempts(ctx, name, assets, results)
 
 		// Resolve base asset UUID for this provider (create the asset if it doesn't exist yet).
 		sym := strings.ToUpper(provider.BaseAssetSymbol())
@@ -765,11 +838,15 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		}
 	}
 
-	stored, err := h.store.CreatePrices(ctx, allPrices)
-	if err != nil {
-		// Partial failures are non-fatal: surface them in the response errors field.
-		h.log.Warn("some prices failed to store", "error", err)
-		fetchErrs = append(fetchErrs, err.Error())
+	var stored int
+	if len(allPrices) > 0 {
+		var err error
+		stored, err = h.store.CreatePrices(ctx, allPrices)
+		if err != nil {
+			// Partial failures are non-fatal: surface them in the response errors field.
+			h.log.Warn("some prices failed to store", "error", err)
+			fetchErrs = append(fetchErrs, err.Error())
+		}
 	}
 
 	return connect.NewResponse(&apiv1.FetchExternalPricesResponse{
@@ -777,6 +854,116 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		PricesStored:  int32(stored),       // #nosec G115 -- count of rows stored, bounded by request size
 		Errors:        fetchErrs,
 	}), nil
+}
+
+// refreshTargets picks what an unattended sweep asks one source for: assets
+// whose next attempt is due, oldest first, capped by the portion the source's
+// remaining plan allowance affords between now and the next sweep.
+//
+// The symbols a provider prices for free are selected separately and uncapped —
+// one /coins/markets call covers them however many there are, and they carry
+// most of the portfolio's value, so budgeting them would cost freshness and
+// save nothing.
+func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PriceProvider) ([]*entity.Asset, error) {
+	now := time.Now()
+	base := StalePricingOpts{
+		SourceID:        sourceID,
+		Now:             now,
+		ExcludeVerdicts: quarantineVerdicts,
+	}
+
+	var exempt []string
+	if bp, ok := p.(BudgetExemptProvider); ok {
+		exempt = bp.BudgetExemptSymbols()
+	}
+
+	var targets []*entity.Asset
+	if len(exempt) > 0 {
+		free := base
+		free.Symbols = exempt
+		got, err := h.store.ListStalePricingTargets(ctx, free)
+		if err != nil {
+			return nil, err
+		}
+		targets = append(targets, got...)
+	}
+
+	budgeted := base
+	budgeted.ExcludeSymbols = exempt
+	if bp, ok := p.(BudgetedProvider); ok && h.refreshWindow > 0 {
+		n, ok := bp.AssetBudget(now, h.refreshWindow)
+		if ok {
+			if n <= 0 {
+				// The plan's background allowance is spent; the free tier above
+				// still went out, since it costs nothing extra.
+				return targets, nil
+			}
+			budgeted.Limit = n
+		}
+	}
+	got, err := h.store.ListStalePricingTargets(ctx, budgeted)
+	if err != nil {
+		return nil, err
+	}
+	return append(targets, got...), nil
+}
+
+// attachExternalRefs loads the assets' identities in external namespaces so a
+// provider can route a contract to the platform it actually lives on. Without
+// the chain, a Base address asked for under Ethereum is a request spent on a
+// certain miss — or worse, an address collision priced as somebody else's token.
+//
+// Best-effort: refs that fail to load leave the assets as they were, and a
+// provider that needs them skips those rather than guessing a chain.
+func (h *Handler) attachExternalRefs(ctx context.Context, assets []*entity.Asset) {
+	ids := make([]string, 0, len(assets))
+	byID := make(map[string]*entity.Asset, len(assets))
+	for _, a := range assets {
+		ids = append(ids, a.ID)
+		byID[a.ID] = a
+	}
+
+	refs, err := h.store.ListAssetExternalRefs(ctx, ids)
+	if err != nil {
+		if h.log != nil {
+			h.log.Warn("load asset external refs failed", "error", err)
+		}
+		return
+	}
+	for _, ref := range refs {
+		if a, ok := byID[ref.AssetID]; ok {
+			a.ExternalRefs = append(a.ExternalRefs, *ref)
+		}
+	}
+}
+
+// recordAttempts marks what was asked of a source and what came back, so the
+// next sweep can skip what is still fresh and back off from what the provider
+// does not price. Best-effort: failing to record costs the next sweep a
+// repeated request, which is not worth failing the whole fetch over.
+func (h *Handler) recordAttempts(ctx context.Context, sourceID string, asked []*entity.Asset, got []entity.StoredPrice) {
+	priced := make(map[string]bool, len(got))
+	for i := range got {
+		priced[got[i].AssetID] = true
+	}
+
+	opts := RecordAttemptsOpts{
+		SourceID:   sourceID,
+		At:         time.Now(),
+		TTL:        priceTTL,
+		MaxBackoff: missBackoffCap,
+	}
+	for _, a := range asked {
+		if priced[a.ID] {
+			opts.Priced = append(opts.Priced, a.ID)
+		} else {
+			opts.Missed = append(opts.Missed, a.ID)
+		}
+	}
+
+	if err := h.store.RecordPriceAttempts(ctx, opts); err != nil && h.log != nil {
+		h.log.Warn("record price attempts failed", "source", sourceID, "error", err)
+	}
 }
 
 // toConnectError converts store errors to Connect errors.

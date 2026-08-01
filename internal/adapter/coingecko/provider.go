@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -22,11 +23,6 @@ const (
 	// cgQuoteCurrency is the currency code used in CoinGecko API requests.
 	// Prices are returned in USD; the internal base_asset_id UUID is stored separately.
 	cgQuoteCurrency = "usd"
-
-	// cgPlatformEVM is the CoinGecko platform ID used for EVM token contract lookups.
-	// Most ERC-20 tokens on Ethereum, Arbitrum, Base share the same contract addresses
-	// and are listed under the Ethereum platform on CoinGecko.
-	cgPlatformEVM = "ethereum"
 )
 
 // nativeCoinID maps lowercase asset symbols → CoinGecko coin ID for native/major coins.
@@ -135,6 +131,44 @@ func NewProvider(c *Client) *Provider {
 	return &Provider{client: c, contracts: newContractIndex(c), log: slog.Default()}
 }
 
+// BudgetExemptSymbols reports the curated coins one /coins/markets request
+// covers regardless of how many are asked for. Refreshing them costs a single
+// request, so an unattended sweep does not budget them.
+func (p *Provider) BudgetExemptSymbols() []string {
+	out := make([]string, 0, len(nativeCoinID))
+	for symbol := range nativeCoinID {
+		out = append(out, strings.ToUpper(symbol))
+	}
+	return out
+}
+
+// AssetBudget converts what is left of the plan's period allowance into a
+// number of assets this sweep may ask about.
+//
+// The share is proportional: spending the remainder evenly over the rest of the
+// period is what keeps a monthly allowance from being gone in the first week.
+// One request is reserved for the curated batch, and the rest buy contract
+// lookups at this tier's batch size.
+func (p *Provider) AssetBudget(now time.Time, window time.Duration) (int, bool) {
+	remaining, periodEnd, ok := p.client.budget.Remaining()
+	if !ok {
+		return 0, false
+	}
+
+	left := periodEnd.Sub(now)
+	if left <= 0 || window <= 0 {
+		return 0, true
+	}
+
+	requests := int(float64(remaining) * (float64(window) / float64(left)))
+	// Always leave room for the curated batch: it is one request and covers the
+	// assets that matter most.
+	if requests <= 1 {
+		return 0, true
+	}
+	return (requests - 1) * p.client.contractBatchSize(), true
+}
+
 // BaseAssetSymbol returns the ticker of the quote currency used by CoinGecko ("USD").
 func (p *Provider) BaseAssetSymbol() string { return "USD" }
 
@@ -144,22 +178,28 @@ func (p *Provider) BaseAssetType() entity.AssetType { return entity.AssetTypeFor
 // FetchPrices fetches prices from CoinGecko for the given assets.
 //
 // Strategy:
-//  1. Assets with a "contract:0x..." tag → CoinGecko token_price by contract address
-//     (accurate for ERC-20 tokens whose contract address is on the Ethereum platform)
-//  2. Native/well-known coins → CoinGecko coin ID from the hardcoded symbol map
-//  3. Unknown symbols without contract addresses → skipped
+//  1. Native/well-known coins → CoinGecko coin ID from the curated symbol map,
+//     one /coins/markets request for all of them
+//  2. Assets with a contract → token_price on the platform their chain maps to,
+//     one request per platform; the chain comes from the asset's
+//     "onchain:<chain>" external ref
+//  3. Unknown symbols, contracts with no chain, and chains CoinGecko does not
+//     list → skipped, because a guessed platform prices somebody else's token
 func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]entity.StoredPrice, error) {
 	if len(assets) == 0 {
 		return nil, nil
 	}
 
-	// Split assets into two groups.
+	// Split assets into two groups. Contract lookups are grouped by the
+	// provider platform their chain maps to: one request per platform, and a
+	// chain CoinGecko does not list is skipped rather than defaulted.
 	type contractAsset struct {
 		id      string
 		address string
 	}
-	var contractAssets []contractAsset // ERC-20 with known contract address
-	var nativeAssets []*entity.Asset   // native coins looked up by symbol
+	contractsByPlatform := map[string][]contractAsset{}
+	var nativeAssets []*entity.Asset // native coins looked up by symbol
+	var unmappedChains []string
 
 	for _, a := range assets {
 		// The curated symbol map wins over a contract tag: contract addresses
@@ -172,10 +212,26 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 		// exactly how a counterfeit USDT was valued as real USDT (personal-c3b).
 		if _, ok := nativeCoinID[strings.ToLower(a.Symbol)]; ok && a.Market == entity.MarketCrypto {
 			nativeAssets = append(nativeAssets, a)
-		} else if addr := contractTag(a.Tags); addr != "" {
-			contractAssets = append(contractAssets, contractAsset{id: a.ID, address: addr})
+			continue
 		}
-		// else: unknown, skip — no reliable CoinGecko mapping
+
+		addr := contractTag(a.Tags)
+		if addr == "" {
+			continue // unknown, skip — no reliable CoinGecko mapping
+		}
+		chain, ok := onchainChain(a)
+		if !ok {
+			// A contract with no chain cannot be routed. Guessing Ethereum is
+			// how a Base address gets priced as an unrelated Ethereum token.
+			continue
+		}
+		platform, ok := chainPlatform[chain]
+		if !ok {
+			unmappedChains = append(unmappedChains, chain)
+			continue
+		}
+		contractsByPlatform[platform] = append(
+			contractsByPlatform[platform], contractAsset{id: a.ID, address: addr})
 	}
 
 	now := time.Now()
@@ -209,20 +265,21 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 		}
 	}
 
-	// --- Path 2: ERC-20 by contract address ---
-	if len(contractAssets) > 0 {
-		addrs := make([]string, len(contractAssets))
-		addrToID := make(map[string]string, len(contractAssets))
-		for i, ca := range contractAssets {
+	// --- Path 2: tokens by contract address, one request per platform ---
+	for platform, cas := range contractsByPlatform {
+		addrs := make([]string, len(cas))
+		addrToID := make(map[string]string, len(cas))
+		for i, ca := range cas {
 			addrs[i] = ca.address
 			addrToID[strings.ToLower(ca.address)] = ca.id
 		}
 
-		pricesByAddr, err := p.client.GetTokenPricesByContract(ctx, cgPlatformEVM, addrs, cgQuoteCurrency)
+		pricesByAddr, err := p.client.GetTokenPricesByContract(ctx, platform, addrs, cgQuoteCurrency)
 		if err != nil {
 			// Non-fatal: the map may still hold prices from succeeded batches,
 			// and the native lookup above has already been collected.
-			p.log.Warn("coingecko contract lookup partially failed", "error", err)
+			p.log.Warn("coingecko contract lookup partially failed",
+				"platform", platform, "error", err)
 		}
 		for addr, pd := range pricesByAddr {
 			assetID, ok := addrToID[strings.ToLower(addr)]
@@ -233,7 +290,26 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 		}
 	}
 
+	if len(unmappedChains) > 0 {
+		// One line per sweep, not per asset: an unlisted chain is a routine
+		// fact about the catalogue, not an incident.
+		p.log.Debug("coingecko has no platform for these chains, assets skipped",
+			"count", len(unmappedChains), "chains", slices.Compact(slices.Sorted(slices.Values(unmappedChains))))
+	}
+
 	return result, nil
+}
+
+// onchainChain reports the chain a contract-bearing asset lives on, read from
+// its "onchain:<chain>" external ref. Refs are loaded only on the pricing path,
+// so an asset without them yields false and is skipped rather than guessed at.
+func onchainChain(a *entity.Asset) (string, bool) {
+	for _, ref := range a.ExternalRefs {
+		if chain, ok := entity.ChainFromOnchainSource(ref.Source); ok {
+			return chain, true
+		}
+	}
+	return "", false
 }
 
 // contractTag extracts the contract address from a "contract:0x..." tag, or returns "".

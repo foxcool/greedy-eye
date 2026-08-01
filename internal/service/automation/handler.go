@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/store"
+	"github.com/robfig/cron/v3"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -241,6 +243,11 @@ func (h *Handler) ValidateRule(ctx context.Context, req *connect.Request[apiv1.V
 	}
 	if r.PortfolioId == "" {
 		errs = append(errs, "portfolio_id is required")
+	}
+	if r.Schedule != nil {
+		if err := validateCronExpression(r.Schedule.CronExpression); err != nil {
+			errs = append(errs, err.Error())
+		}
 	}
 
 	return connect.NewResponse(&apiv1.ValidateRuleResponse{
@@ -599,10 +606,40 @@ func ruleFromProto(p *apiv1.Rule) (*entity.Rule, error) {
 			t := p.Schedule.ExecuteAfter.AsTime()
 			s.ExecuteAfter = &t
 		}
+		if err := validateCronExpression(s.CronExpression); err != nil {
+			return nil, err
+		}
 		r.Schedule = s
 	}
 
 	return r, nil
+}
+
+// minRuleInterval is the shortest period a rule may fire on. Rule executions
+// will drive syncs and price fetches, each of which spends a provider's metered
+// allowance — "@every 1s" would be a fan-out generator, and it is far easier to
+// refuse it now than to explain the bill later.
+const minRuleInterval = time.Minute
+
+// validateCronExpression rejects a schedule the scheduler could not honour, at
+// the point it is written rather than at the next reload where it would only be
+// skipped and silently never run.
+func validateCronExpression(spec string) error {
+	if spec == "" {
+		return nil
+	}
+	sched, err := cron.ParseStandard(spec)
+	if err != nil {
+		return fmt.Errorf("invalid cron expression %q: %w", spec, err)
+	}
+
+	// ParseStandard accepts "@every 1s"; the five-field form cannot express
+	// anything under a minute, so only the descriptors need this check.
+	first := sched.Next(time.Now())
+	if sched.Next(first).Sub(first) < minRuleInterval {
+		return fmt.Errorf("cron expression %q fires more often than once a minute", spec)
+	}
+	return nil
 }
 
 func ruleToProto(r *entity.Rule) (*apiv1.Rule, error) {

@@ -350,3 +350,75 @@ func TestExecutionMethods_ValidateInputs(t *testing.T) {
 	_, err = h.SimulateRule(ctx, connect.NewRequest(&apiv1.SimulateRuleRequest{}))
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 }
+
+// TestCreateRule_RejectsUnhonourableSchedule: cron expressions are validated
+// where they are written, not at the next scheduler reload where an invalid one
+// is merely skipped and the rule silently never runs. Sub-minute intervals are
+// refused outright: rule executions will drive syncs and price fetches, each
+// spending a provider's metered allowance.
+func TestCreateRule_RejectsUnhonourableSchedule(t *testing.T) {
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+
+	tests := []struct {
+		name string
+		spec string
+	}{
+		{"sub-minute descriptor", "@every 1s"},
+		{"malformed spec", "not a cron"},
+		{"too many fields", "* * * * * * *"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &mockStore{}
+			h := newHandler(s)
+
+			_, err := h.CreateRule(ctx, connect.NewRequest(&apiv1.CreateRuleRequest{
+				Rule: &apiv1.Rule{
+					Name: "r", RuleType: "dca", PortfolioId: "p-1",
+					Schedule: &apiv1.RuleSchedule{CronExpression: tc.spec},
+				},
+			}))
+			require.Error(t, err)
+			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+			s.AssertNotCalled(t, "CreateRule", mock.Anything, mock.Anything)
+		})
+	}
+}
+
+// TestCreateRule_AcceptsMinuteSchedule: a minute is the floor, not a ban on
+// schedules; an empty expression stays valid because one-time rules carry none.
+func TestCreateRule_AcceptsMinuteSchedule(t *testing.T) {
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+
+	for _, spec := range []string{"* * * * *", "@every 1m", "0 3 * * *", ""} {
+		s := &mockStore{}
+		s.On("CreateRule", mock.Anything, mock.Anything).Return(testRule("r-1"), nil)
+		h := newHandler(s)
+
+		_, err := h.CreateRule(ctx, connect.NewRequest(&apiv1.CreateRuleRequest{
+			Rule: &apiv1.Rule{
+				Name: "r", RuleType: "dca", PortfolioId: "p-1",
+				Schedule: &apiv1.RuleSchedule{CronExpression: spec},
+			},
+		}))
+		require.NoError(t, err, "spec %q", spec)
+	}
+}
+
+// TestValidateRule_ReportsScheduleProblem: the dry-run path reports the same
+// problem as a write instead of accepting what CreateRule would reject.
+func TestValidateRule_ReportsScheduleProblem(t *testing.T) {
+	h := newHandler(&mockStore{})
+
+	resp, err := h.ValidateRule(context.Background(), connect.NewRequest(&apiv1.ValidateRuleRequest{
+		Rule: &apiv1.Rule{
+			Name: "r", RuleType: "dca", PortfolioId: "p-1",
+			Schedule: &apiv1.RuleSchedule{CronExpression: "@every 1s"},
+		},
+	}))
+	require.NoError(t, err)
+	assert.False(t, resp.Msg.Valid)
+	require.Len(t, resp.Msg.ValidationErrors, 1)
+	assert.Contains(t, resp.Msg.ValidationErrors[0], "once a minute")
+}

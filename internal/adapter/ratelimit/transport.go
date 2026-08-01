@@ -57,6 +57,12 @@ func (t *limitedTransport) clock() time.Time {
 func (t *limitedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
 
+	// The volume check comes before the waits: a request that has no allowance
+	// left should fail now rather than after sitting out a freeze for it.
+	if err := t.bucket.reserve(ClassFromContext(ctx), t.clock()); err != nil {
+		return nil, err
+	}
+
 	if err := t.waitOutFreeze(ctx); err != nil {
 		return nil, err
 	}
@@ -70,6 +76,7 @@ func (t *limitedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 
 	if backoffStatuses[resp.StatusCode] {
+		t.bucket.noteBackoff()
 		t.bucket.freezeUntil(t.clock().Add(retryAfter(resp)))
 	}
 

@@ -371,8 +371,17 @@ message DeletePricesRequest {
   optional string source_id = 5;
 }
 
+// Naming asset_ids makes this a deliberate reconciliation: those assets are
+// priced whatever their current freshness, and the per-sweep portion does not
+// apply. The credential's plan quota still does — a ceiling is a ceiling.
+//
+// An empty request is an unattended sweep: it takes only what is due for each
+// source, oldest first, within the share of the plan's remaining allowance
+// that this interval affords.
 message FetchExternalPricesRequest {
+  // Providers to call. Empty means every configured provider.
   repeated string source_ids = 1;
+  // Assets to price. Empty makes the call a budgeted sweep (see above).
   repeated string asset_ids = 2;
 }
 

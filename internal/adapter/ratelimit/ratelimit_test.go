@@ -47,7 +47,7 @@ func TestSharedBudgetAcrossClients(t *testing.T) {
 	var wg sync.WaitGroup
 	start := time.Now()
 	for range 3 {
-		client := &http.Client{Transport: reg.Transport("test", "key", nil)}
+		client := &http.Client{Transport: reg.Transport(Credential{Provider: "test", APIKey: "key"}, nil)}
 		wg.Go(func() {
 			doRequests(t, client, srv.URL, 2)
 		})
@@ -66,9 +66,9 @@ func TestSharedBudgetAcrossClients(t *testing.T) {
 func TestDistinctKeysDoNotShare(t *testing.T) {
 	reg := newTestRegistry(t, 1)
 
-	a := reg.bucket("test", "key-a")
-	b := reg.bucket("test", "key-b")
-	same := reg.bucket("test", "key-a")
+	a := reg.bucket(Credential{Provider: "test", APIKey: "key-a"})
+	b := reg.bucket(Credential{Provider: "test", APIKey: "key-b"})
+	same := reg.bucket(Credential{Provider: "test", APIKey: "key-a"})
 
 	assert.NotSame(t, a, b)
 	assert.Same(t, a, same, "same credential must resolve to one bucket")
@@ -79,20 +79,50 @@ func TestDistinctKeysDoNotShare(t *testing.T) {
 func TestKeylessTierIsSeparate(t *testing.T) {
 	reg := NewRegistry(nil)
 
-	assert.NotSame(t, reg.bucket("coingecko", ""), reg.bucket("coingecko", "key"))
+	assert.NotSame(t, reg.bucket(Credential{Provider: "coingecko"}), reg.bucket(Credential{Provider: "coingecko", APIKey: "key"}))
 	assert.Less(t,
-		reg.limitFor("coingecko", "").RPS,
-		reg.limitFor("coingecko", "key").RPS,
+		reg.limitFor(Credential{Provider: "coingecko"}).RPS,
+		reg.limitFor(Credential{Provider: "coingecko", APIKey: "key"}).RPS,
 		"keyless must be the slower tier")
 }
 
 func TestLimitResolution(t *testing.T) {
 	reg := NewRegistry(map[string]Limit{"subscan": {RPS: 0.5, Burst: 1}})
 
-	assert.Equal(t, 0.5, reg.limitFor("subscan", "key").RPS, "override wins")
-	assert.Equal(t, 0.5, reg.limitFor("subscan", "").RPS, "override covers both tiers")
-	assert.Equal(t, defaultLimits["moralis"].RPS, reg.limitFor("moralis", "key").RPS)
-	assert.Equal(t, fallbackLimit.RPS, reg.limitFor("nobody-knows-this-one", "key").RPS)
+	assert.Equal(t, 0.5, reg.limitFor(Credential{Provider: "subscan", APIKey: "key"}).RPS, "override wins")
+	assert.Equal(t, 0.5, reg.limitFor(Credential{Provider: "subscan"}).RPS, "override covers both tiers")
+	assert.Equal(t, defaultLimits["moralis"].RPS, reg.limitFor(Credential{Provider: "moralis", APIKey: "key"}).RPS)
+	assert.Equal(t, fallbackLimit.RPS, reg.limitFor(Credential{Provider: "nobody-knows-this-one", APIKey: "key"}).RPS)
+}
+
+// TestOverrideDoesNotTouchVolume: an operator throttling their own rate must not
+// hand every credential on that provider — including a user's own paid plan —
+// an unlimited allowance. Rate is this deployment's business (one IP, metered
+// per IP as much as per key); volume is that key's plan and that key's money.
+func TestOverrideDoesNotTouchVolume(t *testing.T) {
+	reg := NewRegistry(map[string]Limit{"coingecko": {RPS: 0.2, Burst: 1}})
+
+	demo := reg.limitFor(Credential{Provider: "coingecko", APIKey: "key"})
+	assert.Equal(t, 0.2, demo.RPS, "the operator's rate applies")
+	assert.Equal(t, defaultLimits["coingecko"].Quota, demo.Quota,
+		"the plan's monthly allowance survives a rate override")
+	assert.Equal(t, QuotaMonth, demo.Period)
+
+	pro := reg.limitFor(Credential{Provider: "coingecko", APIKey: "key", Tier: "pro"})
+	assert.Equal(t, 0.2, pro.RPS, "the throttle reaches every credential: the IP is shared")
+	assert.Equal(t, defaultLimits["coingecko:pro"].Quota, pro.Quota,
+		"a user's paid plan keeps its own allowance")
+}
+
+// TestPartialOverrideKeepsTierRate: naming only a burst leaves the tier's rate
+// alone, so an operator cannot zero a limit by omission.
+func TestPartialOverrideKeepsTierRate(t *testing.T) {
+	reg := NewRegistry(map[string]Limit{"coingecko": {Burst: 3}})
+
+	got := reg.limitFor(Credential{Provider: "coingecko", APIKey: "key"})
+
+	assert.Equal(t, defaultLimits["coingecko"].RPS, got.RPS)
+	assert.Equal(t, 3, got.Burst)
 }
 
 // TestSubscanDefaultUnderPlanCeiling pins the number that caused this package
@@ -126,7 +156,7 @@ func TestBackoffFreezesBucket(t *testing.T) {
 	defer srv.Close()
 
 	reg := newTestRegistry(t, 1000)
-	tr, ok := reg.Transport("test", "key", nil).(*limitedTransport)
+	tr, ok := reg.Transport(Credential{Provider: "test", APIKey: "key"}, nil).(*limitedTransport)
 	require.True(t, ok)
 
 	now := time.Now()
@@ -152,7 +182,7 @@ func TestFreezeBlocksUntilDeadline(t *testing.T) {
 	defer srv.Close()
 
 	reg := newTestRegistry(t, 1000)
-	tr, ok := reg.Transport("test", "key", nil).(*limitedTransport)
+	tr, ok := reg.Transport(Credential{Provider: "test", APIKey: "key"}, nil).(*limitedTransport)
 	require.True(t, ok)
 
 	now := time.Now()
@@ -179,7 +209,7 @@ func TestFreezeBlocksUntilDeadline(t *testing.T) {
 // one must not release the brake early.
 func TestFreezeNeverShortens(t *testing.T) {
 	now := time.Now()
-	b := newBucket(Limit{RPS: 1, Burst: 1})
+	b := newBucket("test", "keyless", Limit{RPS: 1, Burst: 1}, time.Time{})
 
 	b.freezeUntil(now.Add(time.Hour))
 	b.freezeUntil(now.Add(time.Minute))
@@ -224,6 +254,235 @@ func TestBackoffStatuses(t *testing.T) {
 // budget wiring working.
 func TestNilRegistryIsPassthrough(t *testing.T) {
 	var reg *Registry
-	assert.Nil(t, reg.Transport("test", "key", nil))
-	assert.Equal(t, http.DefaultTransport, reg.Transport("test", "key", http.DefaultTransport))
+	assert.Nil(t, reg.Transport(Credential{Provider: "test", APIKey: "key"}, nil))
+	assert.Equal(t, http.DefaultTransport, reg.Transport(Credential{Provider: "test", APIKey: "key"}, http.DefaultTransport))
+}
+
+// fakeUsageStore records what the registry writes and replays what it was
+// seeded with, standing in for the database across a simulated restart.
+type fakeUsageStore struct {
+	mu    sync.Mutex
+	rows  []Usage
+	added [][]Usage
+}
+
+func (f *fakeUsageStore) LoadUsage(_ context.Context, periodStart time.Time) ([]Usage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []Usage
+	for _, u := range f.rows {
+		if u.PeriodStart.Equal(periodStart) {
+			out = append(out, u)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeUsageStore) AddUsage(_ context.Context, deltas []Usage) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.added = append(f.added, deltas)
+	for _, d := range deltas {
+		found := false
+		for i, u := range f.rows {
+			if u.Provider == d.Provider && u.Fingerprint == d.Fingerprint && u.PeriodStart.Equal(d.PeriodStart) {
+				f.rows[i].Requests += d.Requests
+				f.rows[i].Backoffs += d.Backoffs
+				found = true
+				break
+			}
+		}
+		if !found {
+			f.rows = append(f.rows, d)
+		}
+	}
+	return nil
+}
+
+// quotaRegistry builds a registry whose only provider has a small monthly
+// allowance, so a test can spend it in a few calls.
+func quotaRegistry(quota int, now func() time.Time, opts ...Option) *Registry {
+	opts = append([]Option{WithClock(now)}, opts...)
+	return NewRegistry(map[string]Limit{
+		"test": {RPS: 1000, Burst: 100, Quota: quota, Period: QuotaMonth},
+	}, opts...)
+}
+
+// TestQuotaClassReserve: background work stops at the reserve so an interactive
+// request still has allowance left. This is the difference between a sweep
+// eating the month and a person being told "no" on the 20th.
+func TestQuotaClassReserve(t *testing.T) {
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	reg := quotaRegistry(10, func() time.Time { return now })
+	cred := Credential{Provider: "test", APIKey: "key"}
+	b := reg.bucket(cred)
+
+	// backgroundReserve is 0.8, so background gets 8 of 10.
+	for i := range 8 {
+		require.NoError(t, b.reserve(ClassBackground, now), "background request %d", i)
+	}
+	require.ErrorIs(t, b.reserve(ClassBackground, now), ErrQuotaExhausted)
+	require.NoError(t, b.reserve(ClassInteractive, now), "the reserve is for interactive work")
+	require.NoError(t, b.reserve(ClassInteractive, now))
+	require.ErrorIs(t, b.reserve(ClassInteractive, now), ErrQuotaExhausted, "hard ceiling for everyone")
+}
+
+// TestQuotaPeriodRollover: the allowance resets on the provider's calendar
+// boundary, not on a rolling window.
+func TestQuotaPeriodRollover(t *testing.T) {
+	now := time.Date(2026, 7, 31, 23, 59, 0, 0, time.UTC)
+	reg := quotaRegistry(2, func() time.Time { return now })
+	b := reg.bucket(Credential{Provider: "test", APIKey: "key"})
+
+	require.NoError(t, b.reserve(ClassInteractive, now))
+	require.NoError(t, b.reserve(ClassInteractive, now))
+	require.ErrorIs(t, b.reserve(ClassInteractive, now), ErrQuotaExhausted)
+
+	next := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, b.reserve(ClassInteractive, next), "a new month is a new allowance")
+}
+
+// TestRemainingSizesTheSweep: the portion a sweep may spend comes from what is
+// left of the plan, so changing the plan changes the budget with it.
+func TestRemainingSizesTheSweep(t *testing.T) {
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	reg := quotaRegistry(1000, func() time.Time { return now })
+	cred := Credential{Provider: "test", APIKey: "key"}
+
+	left, end, ok := reg.Remaining(cred)
+	require.True(t, ok)
+	assert.Equal(t, 800, left, "background may spend the reserve share")
+	assert.Equal(t, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), end)
+
+	require.NoError(t, reg.bucket(cred).reserve(ClassBackground, now))
+	left, _, _ = reg.Remaining(cred)
+	assert.Equal(t, 799, left)
+
+	// A rate-only plan has nothing to divide.
+	_, _, ok = reg.Remaining(Credential{Provider: "esplora"})
+	assert.False(t, ok)
+}
+
+// TestUsagePersistsAcrossRestart: a monthly allowance tracked only in memory is
+// no allowance at all — a deploy would hand the process a fresh one.
+func TestUsagePersistsAcrossRestart(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	store := &fakeUsageStore{}
+	cred := Credential{Provider: "test", APIKey: "key"}
+
+	reg := quotaRegistry(10, clock, WithUsageStore(store))
+	require.NoError(t, reg.Start(ctx))
+	b := reg.bucket(cred)
+	for range 6 {
+		require.NoError(t, b.reserve(ClassInteractive, now))
+	}
+	require.NoError(t, reg.Stop(ctx))
+
+	restarted := quotaRegistry(10, clock, WithUsageStore(store))
+	require.NoError(t, restarted.Start(ctx))
+	got := restarted.bucket(cred).snapshot()
+	assert.EqualValues(t, 6, got.Requests, "spend must survive the restart")
+	assert.Equal(t, fingerprint("key"), got.Fingerprint, "the key itself is never stored")
+	assert.NotContains(t, got.Fingerprint, "key")
+
+	// Restored spend counts against the background reserve (8 of 10): two more
+	// background requests fit, the third does not.
+	require.NoError(t, restarted.bucket(cred).reserve(ClassBackground, now))
+	require.NoError(t, restarted.bucket(cred).reserve(ClassBackground, now))
+	require.ErrorIs(t, restarted.bucket(cred).reserve(ClassBackground, now), ErrQuotaExhausted)
+}
+
+// TestFlushSendsOnlyDeltas: counters are added to, not set, so two backend
+// instances sum the way the provider sums them.
+func TestFlushSendsOnlyDeltas(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	store := &fakeUsageStore{}
+	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
+	b := reg.bucket(Credential{Provider: "test", APIKey: "key"})
+
+	require.NoError(t, b.reserve(ClassInteractive, now))
+	require.NoError(t, reg.Flush(ctx))
+	require.NoError(t, b.reserve(ClassInteractive, now))
+	require.NoError(t, reg.Flush(ctx))
+	require.NoError(t, reg.Flush(ctx), "nothing pending is not a write")
+
+	require.Len(t, store.added, 2)
+	assert.EqualValues(t, 1, store.added[0][0].Requests)
+	assert.EqualValues(t, 1, store.added[1][0].Requests)
+	assert.EqualValues(t, 2, store.rows[0].Requests)
+}
+
+// TestTierSelectsLimit: the plan named on the account picks the limit, and an
+// unnamed one is inferred from whether a key is present at all.
+func TestTierSelectsLimit(t *testing.T) {
+	reg := NewRegistry(nil)
+
+	keyless := reg.limitFor(Credential{Provider: "coingecko"})
+	demo := reg.limitFor(Credential{Provider: "coingecko", APIKey: "key"})
+	pro := reg.limitFor(Credential{Provider: "coingecko", APIKey: "key", Tier: "pro"})
+
+	assert.Zero(t, keyless.Quota, "the keyless tier meters rate, not volume")
+	assert.Equal(t, 10000, demo.Quota, "free keyed plan is the demo allowance")
+	assert.Equal(t, QuotaMonth, demo.Period)
+	assert.Greater(t, pro.Quota, demo.Quota)
+
+	assert.NotSame(t,
+		reg.bucket(Credential{Provider: "coingecko", APIKey: "key"}),
+		reg.bucket(Credential{Provider: "coingecko", APIKey: "key", Tier: "pro"}),
+		"a tier change is a different budget")
+}
+
+// TestQuotaRefusalReachesCaller: an exhausted quota surfaces as an error rather
+// than a request, because no amount of waiting fixes it before the period ends.
+func TestQuotaRefusalReachesCaller(t *testing.T) {
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	reg := quotaRegistry(1, func() time.Time { return now })
+	client := &http.Client{Transport: reg.Transport(Credential{Provider: "test", APIKey: "key"}, nil)}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
+	require.NoError(t, err)
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	req2, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
+	require.NoError(t, err)
+	_, err = client.Do(req2) //nolint:bodyclose // the request never goes out
+	require.ErrorIs(t, err, ErrQuotaExhausted)
+	assert.EqualValues(t, 1, hits.Load(), "the refused request must not reach the provider")
+}
+
+// TestBackoffsAreCounted: a rising back-off count is what tells an operator the
+// rate limit, not the volume limit, needs attention.
+func TestBackoffsAreCounted(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	reg := newTestRegistry(t, 100)
+	cred := Credential{Provider: "test", APIKey: "key"}
+	client := &http.Client{Transport: reg.Transport(cred, nil)}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
+	require.NoError(t, err)
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	snap := reg.Snapshot()
+	require.Len(t, snap, 1)
+	assert.EqualValues(t, 1, snap[0].Requests)
+	assert.EqualValues(t, 1, snap[0].Backoffs)
 }

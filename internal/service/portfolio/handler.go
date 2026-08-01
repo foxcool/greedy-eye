@@ -929,15 +929,20 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 		return nil, err
 	}
 
-	assetsUpserted, holdingsUpserted, upsertErrors, err := h.upsertSyncedBalances(ctx, account, balances)
+	assetsUpserted, holdingsUpserted, syncedAssetIDs, upsertErrors, err := h.upsertSyncedBalances(ctx, account, balances)
 	if err != nil {
 		return nil, err
 	}
 	syncErrors = append(syncErrors, upsertErrors...)
 
-	// Fetch fresh prices for all synced assets so CalculatePortfolioValue returns current values.
-	if assetsUpserted > 0 || holdingsUpserted > 0 {
-		if _, err := h.mdClient.FetchExternalPrices(ctx, connect.NewRequest(&apiv1.FetchExternalPricesRequest{})); err != nil {
+	// Price what this sync touched, so CalculatePortfolioValue returns current
+	// values. Naming the assets matters: an unfiltered request re-prices the
+	// whole catalogue, which on a monthly provider quota costs as much as an
+	// hour of the cron sweep and buys nothing the sync changed.
+	if len(syncedAssetIDs) > 0 {
+		if _, err := h.mdClient.FetchExternalPrices(ctx, connect.NewRequest(&apiv1.FetchExternalPricesRequest{
+			AssetIds: syncedAssetIDs,
+		})); err != nil {
 			h.log.Warn("fetch prices after sync failed", "error", err)
 		}
 	}
@@ -1078,7 +1083,11 @@ func (h *Handler) syncExchangeBalances(ctx context.Context, account *entity.Acco
 // chain (USDC is 6 on Ethereum, 18 on BSC), so quantities are summed as real
 // amounts (raw / 10^decimals) and stored at the largest decimals seen — summing
 // raw integers across mismatched scales would corrupt the total.
-func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Account, balances []syncedBalance) (assetsUpserted, holdingsUpserted int32, syncErrors []string, err error) {
+// syncedAssetIDs lists the assets whose holdings this sync actually wrote. It
+// is what the caller prices afterwards: a provider quota is monthly, and
+// re-pricing the whole catalogue on every sync spends it on data the sync did
+// not touch.
+func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Account, balances []syncedBalance) (assetsUpserted, holdingsUpserted int32, syncedAssetIDs []string, syncErrors []string, err error) {
 	type accumulated struct {
 		qty      decimal.Decimal // real token quantity, decimals applied
 		decimals int             // max decimals seen → stored holding scale
@@ -1124,7 +1133,7 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 	// Build existing holdings map for this account
 	existingHoldings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{AccountID: account.ID, PageSize: 1000})
 	if err != nil {
-		return 0, 0, nil, toConnectError(err)
+		return 0, 0, nil, nil, toConnectError(err)
 	}
 	holdingByAssetID := make(map[string]*entity.Holding, len(existingHoldings))
 	for _, hld := range existingHoldings {
@@ -1168,9 +1177,10 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 			}
 		}
 		holdingsUpserted++
+		syncedAssetIDs = append(syncedAssetIDs, assetID)
 	}
 
-	return assetsUpserted, holdingsUpserted, syncErrors, nil
+	return assetsUpserted, holdingsUpserted, syncedAssetIDs, syncErrors, nil
 }
 
 // resolveSyncedAsset resolves (creating when needed) the asset for one synced

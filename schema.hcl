@@ -519,8 +519,14 @@ table "prices" {
     columns = [column.id]
   }
 
-  index "price_asset_id_timestamp" {
-    columns = [column.asset_id, column.timestamp]
+  // Uniqueness is per (asset, source, instant, pair). The old (asset_id,
+  // timestamp) index made two providers pricing the same asset at the same
+  // moment a constraint violation, which CreatePrices then counted as a failed
+  // fetch. Column order is load-bearing: the (asset_id, source_id, timestamp)
+  // prefix is what GetLatestPrice and the staleness lookup scan, so both get an
+  // ordered index seek instead of a filter over every price row of the asset.
+  index "price_asset_source_timestamp_base" {
+    columns = [column.asset_id, column.source_id, column.timestamp, column.base_asset_id]
     unique  = true
   }
 
@@ -536,6 +542,113 @@ table "prices" {
     ref_columns = [table.assets.column.id]
     on_update   = NO_ACTION
     on_delete   = RESTRICT
+  }
+}
+
+// How much of a provider credential's plan has been spent in the current
+// period. A monthly allowance tracked only in memory is no allowance at all: a
+// deploy would hand the process a fresh one while the provider keeps counting.
+//
+// The key is a fingerprint, never the API key: this table is dumped, backed up
+// and read by humans, and the secret has no business being in any of those.
+// Counters are added to, not set, so two backend instances sum the way the
+// provider sums them.
+table "provider_usage" {
+  schema = schema.public
+
+  column "provider" {
+    type = character_varying
+    null = false
+  }
+  // SHA-256 prefix of the API key, or "keyless".
+  column "key_fingerprint" {
+    type = character_varying
+    null = false
+  }
+  // Start of the plan's billing window, UTC — providers meter on calendar
+  // boundaries, not on a rolling window.
+  column "period_start" {
+    type = timestamptz
+    null = false
+  }
+  column "requests" {
+    type    = bigint
+    null    = false
+    default = 0
+  }
+  // Times the provider answered "slow down" (429/418/430). A rising count is
+  // the signal that the rate limit, not the volume limit, needs attention.
+  column "backoffs" {
+    type    = bigint
+    null    = false
+    default = 0
+  }
+  column "updated_at" {
+    type = timestamptz
+    null = false
+  }
+
+  primary_key {
+    columns = [column.provider, column.key_fingerprint, column.period_start]
+  }
+}
+
+// Per (asset, source) record of price fetch attempts, which is what an
+// unattended sweep selects on. Freshness cannot be read off the prices table
+// alone: an asset the provider does not list never gets a price, so an
+// oldest-first rotation keyed on price timestamps would put it at the head of
+// the queue forever and spend the whole per-sweep budget re-asking for it.
+//
+// next_attempt_at is a materialized deadline rather than a computed one: the
+// exponential push-out is applied on write, so the selection stays an index
+// seek. misses drives that exponent and resets on the first success.
+table "price_fetch_attempts" {
+  schema = schema.public
+
+  column "asset_id" {
+    type = uuid
+    null = false
+  }
+  // Provider slug, matching prices.source_id ("coingecko", "binance").
+  column "source_id" {
+    type = character_varying
+    null = false
+  }
+  column "attempted_at" {
+    type = timestamptz
+    null = false
+  }
+  // Last attempt that actually returned a price. NULL means the provider has
+  // never priced this asset.
+  column "succeeded_at" {
+    type = timestamptz
+    null = true
+  }
+  // Consecutive attempts that returned nothing.
+  column "misses" {
+    type    = integer
+    null    = false
+    default = 0
+  }
+  column "next_attempt_at" {
+    type = timestamptz
+    null = false
+  }
+
+  primary_key {
+    columns = [column.asset_id, column.source_id]
+  }
+
+  // Serves the due-target lookup: one source, deadline in the past, oldest first.
+  index "price_fetch_attempt_due" {
+    columns = [column.source_id, column.next_attempt_at]
+  }
+
+  foreign_key "price_fetch_attempts_assets" {
+    columns     = [column.asset_id]
+    ref_columns = [table.assets.column.id]
+    on_update   = NO_ACTION
+    on_delete   = CASCADE
   }
 }
 
