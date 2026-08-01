@@ -74,7 +74,7 @@ config, not in user data.
 
 | `provider` | Key | `data` fields | Notes |
 |---|---|---|---|
-| `coingecko` | optional | `api_key`, `pro` | The keyless tier accepts exactly one contract address per request and about 30 requests a minute. A free demo key raises this to batches of 30. Set `pro` to `true` only for a paid plan — it changes the API host |
+| `coingecko` | optional | `api_key`, `tier`, `pro` | The keyless tier accepts exactly one contract address per request and about 30 requests a minute. A free demo key raises this to batches of 30 and allows 10 000 calls a month. Name a paid plan with `tier: pro` — it changes the API host and the allowance. `pro: "true"` is the old spelling of the same thing and still works |
 | `binance` | required | `api_key`, `api_secret` | Also serves as an exchange syncer |
 
 ## Exchange accounts (`exchange` + `portfolio_sync`)
@@ -128,12 +128,34 @@ one per account, per sync — draw on a single budget. Without this, a sweep ove
 three accounts on one key sends three times the rate the provider meters, which
 is how the Subscan plan limit was tripped in the first place.
 
+The budget has two dimensions, because providers meter both. **Rate** is
+requests per second. **Volume** is how many calls a plan allows per month or
+per day — the limit that actually bit us: a price sweep stayed well under
+CoinGecko's per-second ceiling and still spent its whole free monthly
+allowance in eight days.
+
 Defaults live in `internal/adapter/ratelimit` (`defaultLimits`), deliberately
 under each provider's published ceiling, with a separate, tighter entry for the
 keyless tier where one exists. They are not repeated here: a table in two
 places drifts.
 
-To change one without a rebuild — a paid plan, or an enforcement notice:
+### Naming the plan
+
+Which limit applies comes from the account's `data.tier`, next to the key:
+
+```yaml
+data:
+  provider: coingecko
+  api_key: CG-...
+  tier: pro        # omit for the provider's free plan; "keyless" without a key
+```
+
+Leaving `tier` empty infers it — keyless with no `api_key`, the free keyed plan
+with one. Moving to a paid plan is therefore a settings edit, not a release,
+and the numbers behind each tier stay in code where they can carry the
+reasoning that produced them.
+
+To override a provider outright, without a rebuild:
 
 ```yaml
 ratelimit:
@@ -142,16 +164,36 @@ ratelimit:
     burst: 1   # keep at 1 for per-second meters; bursts are what trip them
 ```
 
-An override replaces both tiers of that provider. Providers not named keep
+An override replaces every tier of that provider. Providers not named keep
 their defaults, and a provider with no default at all gets 1 rps.
+
+### Spending the volume allowance
+
+Requests carry a class. Unattended work — the price sweep, catalogue
+refreshes — stops at 80% of the period's allowance; requests a person is
+waiting on may spend the rest. A sweep that empties the month must not also
+take the Sync button down with it.
+
+Spend is written to `provider_usage` and restored at startup, keyed by provider
+and a fingerprint of the API key (never the key itself). An allowance tracked
+only in memory is no allowance: a deploy would hand the process a fresh one
+while the provider keeps counting. Counters are added to, not set, so two
+backend instances sum the way the provider sums them.
+
+The price sweep logs what each run cost and what the period has cost so far —
+`coingecko_requests` and `coingecko_period_requests` on the
+`scheduler: prices fetched` line. Multiply the first by the runs in a month and
+compare with the plan.
 
 When a provider answers `429`, `418` or Blockchair's `430`, its bucket freezes
 for the `Retry-After` it asked for (one minute if it did not say, capped at
 fifteen) and traffic resumes on its own. The response still reaches the
-adapter, so sync errors keep carrying the provider's own message.
+adapter, so sync errors keep carrying the provider's own message. When the
+volume allowance is gone the request is refused outright instead: no amount of
+waiting fixes it before the period rolls over.
 
-The budget is in-process. A second backend instance keeps its own, and the
-provider sees the sum.
+The rate bucket is in-process; a second backend instance keeps its own and the
+provider sees the sum. Volume is shared through the database.
 
 ## Checking that a connection works
 

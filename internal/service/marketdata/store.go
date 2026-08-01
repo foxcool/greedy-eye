@@ -40,6 +40,11 @@ type Store interface {
 	// CreateAssetExternalRef maps an asset to an external identifier; a
 	// conflicting (source, ref) yields ErrConstraint (identity is stable).
 	CreateAssetExternalRef(ctx context.Context, ref *entity.AssetExternalRef) (*entity.AssetExternalRef, error)
+	// ListAssetExternalRefs returns every external ref of the given assets in
+	// one round trip. FindAssetIDByExternalRef answers the sync direction
+	// (ref -> asset); pricing needs the reverse — which chain a contract lives
+	// on — and one query per asset would be hundreds of round trips per sweep.
+	ListAssetExternalRefs(ctx context.Context, assetIDs []string) ([]*entity.AssetExternalRef, error)
 
 	// Prices
 	CreatePrice(ctx context.Context, price *entity.StoredPrice) (*entity.StoredPrice, error)

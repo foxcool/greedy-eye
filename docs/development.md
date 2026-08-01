@@ -286,7 +286,15 @@ EYE_TELEGRAM_CHATIDS="-1001234567890,987654321"
 
 # Background scheduler (periodic rules + price fetch)
 EYE_SCHEDULER_ENABLED=true              # default true; enable on ONE instance only
-EYE_SCHEDULER_PRICEFETCHCRON="*/15 * * * *"  # empty = price job off
+EYE_SCHEDULER_PRICEFETCHCRON="0 * * * *"  # empty = price job off
+# The interval is also the sweep's budget window: a provider divides what is
+# left of its monthly plan by it. Shortening it makes each sweep smaller, not
+# the month more expensive.
+
+# Provider request budget (see docs/providers.md)
+EYE_COINGECKO_PRO=false                 # legacy spelling of accounts.data.tier=pro
+EYE_RATELIMIT_SUBSCAN_RPS=1.8           # override a provider's built-in rate
+EYE_RATELIMIT_SUBSCAN_BURST=1
 
 # Observability
 EYE_SENTRY_DSN=your_dsn

@@ -113,6 +113,22 @@ func (m *mockStore) ListAssets(ctx context.Context, opts ListAssetsOpts) ([]*ent
 	return nil, args.String(1), args.Error(2)
 }
 
+func (m *mockStore) ListAssetExternalRefs(ctx context.Context, assetIDs []string) ([]*entity.AssetExternalRef, error) {
+	args := m.Called(ctx, assetIDs)
+	if v := args.Get(0); v != nil {
+		return v.([]*entity.AssetExternalRef), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+// expectExternalRefs lets a pricing test ignore the ref lookup: the pricing
+// path loads refs for every selected asset so providers can route contracts to
+// the right chain, which is covered on its own and noise elsewhere.
+func expectExternalRefs(s *mockStore) {
+	s.On("ListAssetExternalRefs", mock.Anything, mock.Anything).
+		Return([]*entity.AssetExternalRef{}, nil).Maybe()
+}
+
 func (m *mockStore) ListStalePricingTargets(ctx context.Context, opts StalePricingOpts) ([]*entity.Asset, error) {
 	args := m.Called(ctx, opts)
 	if v := args.Get(0); v != nil {
@@ -834,6 +850,7 @@ func TestFetchExternalPrices_SweepSelectsDueAssets(t *testing.T) {
 	due := testAsset("due-1")
 	s := &mockStore{}
 	expectBaseAsset(s)
+	expectExternalRefs(s)
 	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {
 		return o.SourceID == "fake" && len(o.Symbols) == 0
 	})).Return([]*entity.Asset{due}, nil)
@@ -862,6 +879,7 @@ func TestFetchExternalPrices_ExplicitIDsBypassSelection(t *testing.T) {
 	named := testAsset("named-1")
 	s := &mockStore{}
 	expectBaseAsset(s)
+	expectExternalRefs(s)
 	s.On("ListAssets", mock.Anything, mock.MatchedBy(func(o ListAssetsOpts) bool {
 		return len(o.IDs) == 1 && o.IDs[0] == "named-1"
 	})).Return([]*entity.Asset{named}, "", nil)
@@ -887,6 +905,7 @@ func TestFetchExternalPrices_BudgetCapsTheSweep(t *testing.T) {
 
 	s := &mockStore{}
 	expectBaseAsset(s)
+	expectExternalRefs(s)
 	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {
 		return len(o.Symbols) == 1 && o.Symbols[0] == "BTC" && o.Limit == 0
 	})).Return([]*entity.Asset{free}, nil)
@@ -920,6 +939,7 @@ func TestFetchExternalPrices_ExhaustedBudgetStillPricesFreeTier(t *testing.T) {
 
 	s := &mockStore{}
 	expectBaseAsset(s)
+	expectExternalRefs(s)
 	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {
 		return len(o.Symbols) == 1
 	})).Return([]*entity.Asset{free}, nil)
@@ -948,6 +968,7 @@ func TestFetchExternalPrices_MissesAreRecorded(t *testing.T) {
 
 	s := &mockStore{}
 	expectBaseAsset(s)
+	expectExternalRefs(s)
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
 		Return([]*entity.Asset{priced, unlisted}, nil)
 	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
@@ -970,6 +991,7 @@ func TestFetchExternalPrices_MissesAreRecorded(t *testing.T) {
 // already out of the portfolio sums, so pricing them spends quota for nothing.
 func TestFetchExternalPrices_QuarantinedExcluded(t *testing.T) {
 	s := &mockStore{}
+	expectExternalRefs(s)
 	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {
 		return assert.ObjectsAreEqual([]string{"scam", "impersonation"}, o.ExcludeVerdicts)
 	})).Return([]*entity.Asset{}, nil)

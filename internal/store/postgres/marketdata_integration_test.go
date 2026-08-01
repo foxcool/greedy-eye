@@ -788,3 +788,43 @@ func TestListAssets_IDsFilter(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{want.ID}, assetIDs(got))
 }
+
+// TestListAssetExternalRefs: the pricing path needs the reverse of
+// FindAssetIDByExternalRef — which chain a contract lives on — for every asset
+// in a sweep, in one round trip.
+func TestListAssetExternalRefs(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	onEth := createTestAsset(t, s, "RefsOnEth")
+	onBase := createTestAsset(t, s, "RefsOnBase")
+	bare := createTestAsset(t, s, "RefsNone")
+
+	for _, ref := range []*entity.AssetExternalRef{
+		{AssetID: onEth.ID, Source: entity.OnchainSource("eth"), Ref: "0xaaa"},
+		{AssetID: onEth.ID, Source: "coingecko", Ref: "some-coin"},
+		{AssetID: onBase.ID, Source: entity.OnchainSource("base"), Ref: "0xbbb"},
+	} {
+		_, err := s.CreateAssetExternalRef(ctx, ref)
+		require.NoError(t, err)
+	}
+
+	got, err := s.ListAssetExternalRefs(ctx, []string{onEth.ID, onBase.ID, bare.ID})
+	require.NoError(t, err)
+	require.Len(t, got, 3, "an asset with no refs simply contributes none")
+
+	chains := map[string]string{}
+	for _, ref := range got {
+		if chain, ok := entity.ChainFromOnchainSource(ref.Source); ok {
+			chains[ref.AssetID] = chain
+		}
+	}
+	assert.Equal(t, map[string]string{onEth.ID: "eth", onBase.ID: "base"}, chains)
+
+	t.Run("no assets is no query", func(t *testing.T) {
+		rows, err := s.ListAssetExternalRefs(ctx, nil)
+		require.NoError(t, err)
+		assert.Empty(t, rows)
+	})
+}

@@ -808,6 +808,7 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		if len(assets) == 0 {
 			continue
 		}
+		h.attachExternalRefs(ctx, assets)
 
 		results, err := provider.FetchPrices(ctx, assets)
 		if err != nil {
@@ -905,6 +906,35 @@ func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PricePr
 		return nil, err
 	}
 	return append(targets, got...), nil
+}
+
+// attachExternalRefs loads the assets' identities in external namespaces so a
+// provider can route a contract to the platform it actually lives on. Without
+// the chain, a Base address asked for under Ethereum is a request spent on a
+// certain miss — or worse, an address collision priced as somebody else's token.
+//
+// Best-effort: refs that fail to load leave the assets as they were, and a
+// provider that needs them skips those rather than guessing a chain.
+func (h *Handler) attachExternalRefs(ctx context.Context, assets []*entity.Asset) {
+	ids := make([]string, 0, len(assets))
+	byID := make(map[string]*entity.Asset, len(assets))
+	for _, a := range assets {
+		ids = append(ids, a.ID)
+		byID[a.ID] = a
+	}
+
+	refs, err := h.store.ListAssetExternalRefs(ctx, ids)
+	if err != nil {
+		if h.log != nil {
+			h.log.Warn("load asset external refs failed", "error", err)
+		}
+		return
+	}
+	for _, ref := range refs {
+		if a, ok := byID[ref.AssetID]; ok {
+			a.ExternalRefs = append(a.ExternalRefs, *ref)
+		}
+	}
 }
 
 // recordAttempts marks what was asked of a source and what came back, so the

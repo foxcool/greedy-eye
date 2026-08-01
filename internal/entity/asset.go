@@ -84,6 +84,16 @@ type Asset struct {
 	VerdictSetAt *time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	// ExternalRefs are the asset's identities in external namespaces. It is
+	// populated only on the pricing path, which needs the chain behind a
+	// contract to pick the right provider platform — asking CoinGecko for a
+	// Base address under the Ethereum platform spends a request on a certain
+	// miss and, on an address collision, prices the token as an unrelated
+	// Ethereum contract.
+	//
+	// Every other read leaves it nil. Treat nil as "not loaded", never as
+	// "this asset has none".
+	ExternalRefs []AssetExternalRef
 }
 
 // AssetExternalRef maps an asset to its identifier in an external namespace

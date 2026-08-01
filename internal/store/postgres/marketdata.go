@@ -451,6 +451,39 @@ func (s *MarketDataStore) CreateAssetExternalRef(ctx context.Context, ref *entit
 	return ref, nil
 }
 
+// ListAssetExternalRefs returns the external refs of several assets at once.
+// The pricing path needs the reverse of FindAssetIDByExternalRef — which chain
+// a contract lives on — for every asset in a sweep, and asking per asset would
+// be hundreds of round trips.
+func (s *MarketDataStore) ListAssetExternalRefs(ctx context.Context, assetIDs []string) ([]*entity.AssetExternalRef, error) {
+	if len(assetIDs) == 0 {
+		return nil, nil
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, asset_id, source, ref, origin, created_at
+		FROM asset_external_refs
+		WHERE asset_id = ANY($1::uuid[])
+		ORDER BY asset_id, created_at`, assetIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list asset external refs: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*entity.AssetExternalRef
+	for rows.Next() {
+		var ref entity.AssetExternalRef
+		if err := rows.Scan(&ref.ID, &ref.AssetID, &ref.Source, &ref.Ref, &ref.Origin, &ref.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan asset external ref: %w", err)
+		}
+		out = append(out, &ref)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate asset external refs: %w", err)
+	}
+	return out, nil
+}
+
 // DeleteAsset deletes an asset by ID.
 func (s *MarketDataStore) DeleteAsset(ctx context.Context, id string) error {
 	if id == "" {

@@ -47,6 +47,7 @@ func getTestPool(t *testing.T) *pgxpool.Pool {
 		"provider_usage",
 		"portfolios",
 		"accounts",
+		"asset_external_refs",
 		"assets",
 		"users",
 	)
