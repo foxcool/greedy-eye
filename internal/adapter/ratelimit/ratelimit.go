@@ -249,7 +249,9 @@ func (r *Registry) Start(ctx context.Context) error {
 
 	r.stop = make(chan struct{})
 	r.done = make(chan struct{})
-	go r.flushLoop()
+	// ctx is the process lifetime, not the startup load's: the flush loop
+	// outlives this call and each flush takes its own timeout from it.
+	go r.flushLoop(ctx)
 	return nil
 }
 
@@ -264,7 +266,7 @@ func (r *Registry) Stop(ctx context.Context) error {
 	return r.Flush(ctx)
 }
 
-func (r *Registry) flushLoop() {
+func (r *Registry) flushLoop(ctx context.Context) {
 	defer close(r.done)
 	ticker := time.NewTicker(flushInterval)
 	defer ticker.Stop()
@@ -273,9 +275,13 @@ func (r *Registry) flushLoop() {
 		select {
 		case <-r.stop:
 			return
+		case <-ctx.Done():
+			// The lifetime this registry was started for is over. Stop still
+			// writes what is pending, under a context of its own.
+			return
 		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(context.Background(), flushInterval)
-			_ = r.Flush(ctx)
+			flushCtx, cancel := context.WithTimeout(ctx, flushInterval)
+			_ = r.Flush(flushCtx)
 			cancel()
 		}
 	}
