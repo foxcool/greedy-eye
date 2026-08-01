@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 )
 
@@ -148,40 +149,50 @@ func (c *Client) GetTokenAccounts(ctx context.Context, owner string) ([]TokenAcc
 	return accounts, nil
 }
 
-// GetAssetMetadata resolves mints to their symbols in one DAS call. Mints the
-// index does not know are simply absent from the result.
+// assetBatchLimit is how many ids getAssetBatch accepts in one call. This is
+// Helius's documented ceiling, not a guess: exceeding it fails the whole
+// request with a 400, which on a large wallet loses the metadata of every mint
+// at once — leaving positions unlabelled and unpriceable.
+const assetBatchLimit = 1000
+
+// GetAssetMetadata resolves mints to their symbols, one DAS call per batch.
+// Mints the index does not know are simply absent from the result.
 func (c *Client) GetAssetMetadata(ctx context.Context, mints []string) (map[string]AssetMeta, error) {
 	if len(mints) == 0 {
 		return nil, nil
 	}
 
-	var result []struct {
-		ID      string `json:"id"`
-		Burnt   bool   `json:"burnt"`
-		Content struct {
-			Metadata struct {
+	meta := make(map[string]AssetMeta, len(mints))
+	for chunk := range slices.Chunk(mints, assetBatchLimit) {
+		var result []struct {
+			ID      string `json:"id"`
+			Burnt   bool   `json:"burnt"`
+			Content struct {
+				Metadata struct {
+					Symbol string `json:"symbol"`
+					Name   string `json:"name"`
+				} `json:"metadata"`
+			} `json:"content"`
+			TokenInfo struct {
 				Symbol string `json:"symbol"`
-				Name   string `json:"name"`
-			} `json:"metadata"`
-		} `json:"content"`
-		TokenInfo struct {
-			Symbol string `json:"symbol"`
-		} `json:"token_info"`
-	}
-	if err := c.call(ctx, "getAssetBatch", map[string]any{"ids": mints}, &result); err != nil {
-		return nil, err
-	}
-
-	meta := make(map[string]AssetMeta, len(result))
-	for _, a := range result {
-		symbol := a.TokenInfo.Symbol
-		if symbol == "" {
-			symbol = a.Content.Metadata.Symbol
+			} `json:"token_info"`
 		}
-		meta[a.ID] = AssetMeta{
-			Symbol: symbol,
-			Name:   a.Content.Metadata.Name,
-			Burnt:  a.Burnt,
+		if err := c.call(ctx, "getAssetBatch", map[string]any{"ids": chunk}, &result); err != nil {
+			// Partial metadata beats none: the mints already resolved keep
+			// their symbols instead of the whole wallet going unlabelled.
+			return meta, err
+		}
+
+		for _, a := range result {
+			symbol := a.TokenInfo.Symbol
+			if symbol == "" {
+				symbol = a.Content.Metadata.Symbol
+			}
+			meta[a.ID] = AssetMeta{
+				Symbol: symbol,
+				Name:   a.Content.Metadata.Name,
+				Burnt:  a.Burnt,
+			}
 		}
 	}
 	return meta, nil

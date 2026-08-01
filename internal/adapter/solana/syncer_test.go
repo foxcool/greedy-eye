@@ -3,6 +3,7 @@ package solana
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -302,4 +303,42 @@ func TestHandlesAddress(t *testing.T) {
 
 func TestSupportedChainsIsStable(t *testing.T) {
 	assert.Equal(t, []string{"solana"}, SupportedChains())
+}
+
+// TestGetAssetMetadata_ChunksAtHeliusLimit: getAssetBatch rejects more ids than
+// its ceiling with a 400, which on a large wallet loses the metadata of every
+// mint at once — leaving positions unlabelled and unpriceable.
+func TestGetAssetMetadata_ChunksAtHeliusLimit(t *testing.T) {
+	var batches []int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req struct {
+			Params struct {
+				IDs []string `json:"ids"`
+			} `json:"params"`
+		}
+		require.NoError(t, json.Unmarshal(body, &req))
+
+		if len(req.Params.IDs) > assetBatchLimit {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		batches = append(batches, len(req.Params.IDs))
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":"greedy-eye","result":[]}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient(Config{APIKey: "test-key"})
+	client.baseURL = srv.URL
+
+	mints := make([]string, 0, assetBatchLimit+500)
+	for i := range assetBatchLimit + 500 {
+		mints = append(mints, fmt.Sprintf("mint-%d", i))
+	}
+
+	_, err := client.GetAssetMetadata(context.Background(), mints)
+	require.NoError(t, err)
+	assert.Equal(t, []int{assetBatchLimit, 500}, batches)
 }
