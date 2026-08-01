@@ -74,7 +74,7 @@ config, not in user data.
 
 | `provider` | Key | `data` fields | Notes |
 |---|---|---|---|
-| `coingecko` | optional | `api_key`, `tier`, `pro` | The keyless tier accepts exactly one contract address per request and about 30 requests a minute. A free demo key raises this to batches of 30 and allows 10 000 calls a month. Name a paid plan with `tier: pro` — it changes the API host and the allowance. `pro: "true"` is the old spelling of the same thing and still works |
+| `coingecko` | optional | `api_key`, `tier`, `pro` | The keyless tier accepts exactly one contract address per request and about 30 requests a minute. A free demo key raises this to batches of 30 and allows 10 000 calls a month. Name a paid plan with `tier: pro` — one name picks the API host, the auth header and the allowance, which have to agree. `pro: "true"` is the old spelling of the same thing and still works |
 | `binance` | required | `api_key`, `api_secret` | Also serves as an exchange syncer |
 
 ## Exchange accounts (`exchange` + `portfolio_sync`)

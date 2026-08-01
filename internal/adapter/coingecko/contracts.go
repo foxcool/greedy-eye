@@ -50,9 +50,7 @@ func (c *Client) ListCoinsWithPlatforms(ctx context.Context) ([]coinListItem, er
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	if c.apiKey != "" {
-		req.Header.Set("x-cg-demo-api-key", c.apiKey)
-	}
+	c.authenticate(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

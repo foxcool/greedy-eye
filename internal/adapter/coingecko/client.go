@@ -15,7 +15,11 @@ import (
 
 // Client implements PriceProvider interface for CoinGecko
 type Client struct {
-	apiKey     string
+	apiKey string
+	// authHeader is the header name this plan authenticates with. The paid API
+	// rejects the demo header and vice versa, so it is decided once, from the
+	// same plan that picked the host.
+	authHeader string
 	baseURL    string
 	httpClient *http.Client
 	budget     PlanBudget
@@ -34,10 +38,20 @@ type noBudget struct{}
 
 func (noBudget) Remaining() (int, time.Time, bool) { return 0, time.Time{}, false }
 
+// TierPro names CoinGecko's paid plans. It matches the tier an account carries
+// in data["tier"], which is also what the rate budget resolves its limits from:
+// one name has to pick the host, the auth header and the allowance together, or
+// a key ends up talking to the free host under a paid plan's rate.
+const TierPro = "pro"
+
 // Config holds CoinGecko client configuration
 type Config struct {
 	APIKey string
-	Pro    bool // Use Pro API endpoint
+	// Tier names the plan the key is on ("pro" for the paid API, empty for the
+	// free one). It selects the host and the auth header.
+	Tier string
+	// Pro is the older spelling of Tier == TierPro, still accepted.
+	Pro bool
 
 	// Transport, when set, replaces the client's HTTP transport. The shared
 	// provider rate budget (internal/adapter/ratelimit) is injected here:
@@ -72,9 +86,14 @@ type HistoricalPrice struct {
 
 // NewClient creates a new CoinGecko price data client
 func NewClient(cfg Config) *Client {
+	// Host, header and plan are one decision. Splitting them is how a key with
+	// tier "pro" reached the free host with the demo header while the rate
+	// budget handed it the paid plan's ceiling — every request a 429.
 	baseURL := "https://api.coingecko.com/api/v3"
-	if cfg.Pro {
+	authHeader := "x-cg-demo-api-key"
+	if cfg.Pro || cfg.Tier == TierPro {
 		baseURL = "https://pro-api.coingecko.com/api/v3"
+		authHeader = "x-cg-pro-api-key"
 	}
 
 	// Request spacing is not this client's business any more: it used to
@@ -87,10 +106,20 @@ func NewClient(cfg Config) *Client {
 	}
 	return &Client{
 		apiKey:     cfg.APIKey,
+		authHeader: authHeader,
 		baseURL:    baseURL,
 		httpClient: &http.Client{Timeout: 30 * time.Second, Transport: cfg.Transport},
 		budget:     budget,
 	}
+}
+
+// authenticate names the key on a request. Keyless calls carry no header at
+// all: the public tier is metered per IP and rejects an empty key value.
+func (c *Client) authenticate(req *http.Request) {
+	if c.apiKey == "" {
+		return
+	}
+	req.Header.Set(c.authHeader, c.apiKey)
 }
 
 // contractBatchSize is how many contract addresses fit in one token_price
@@ -149,9 +178,7 @@ func (c *Client) fetchMarkets(ctx context.Context, assetIDs []string, currency s
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
-	if c.apiKey != "" {
-		req.Header.Set("x-cg-demo-api-key", c.apiKey)
-	}
+	c.authenticate(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -272,9 +299,7 @@ func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, 
 		if err != nil {
 			return result, fmt.Errorf("create request: %w", err)
 		}
-		if c.apiKey != "" {
-			req.Header.Set("x-cg-demo-api-key", c.apiKey)
-		}
+		c.authenticate(req)
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {

@@ -13,6 +13,62 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestPlanSelectsHostAndAuthHeader: the tier has to pick the host and the auth
+// header together. Naming tier "pro" while the client stayed on the free host
+// with the demo header earned the paid plan's rate ceiling and a 429 per call.
+func TestPlanSelectsHostAndAuthHeader(t *testing.T) {
+	tests := []struct {
+		name       string
+		cfg        Config
+		wantHost   string
+		wantHeader string
+	}{
+		{
+			name:       "free keyed plan",
+			cfg:        Config{APIKey: "CG-demo"},
+			wantHost:   "https://api.coingecko.com/api/v3",
+			wantHeader: "x-cg-demo-api-key",
+		},
+		{
+			name:       "tier names the paid plan",
+			cfg:        Config{APIKey: "CG-paid", Tier: TierPro},
+			wantHost:   "https://pro-api.coingecko.com/api/v3",
+			wantHeader: "x-cg-pro-api-key",
+		},
+		{
+			name:       "legacy pro flag means the same plan",
+			cfg:        Config{APIKey: "CG-paid", Pro: true},
+			wantHost:   "https://pro-api.coingecko.com/api/v3",
+			wantHeader: "x-cg-pro-api-key",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := NewClient(tt.cfg)
+			assert.Equal(t, tt.wantHost, client.baseURL)
+
+			req, err := http.NewRequest(http.MethodGet, tt.wantHost+"/ping", nil)
+			require.NoError(t, err)
+			client.authenticate(req)
+
+			assert.Equal(t, tt.cfg.APIKey, req.Header.Get(tt.wantHeader))
+			assert.Len(t, req.Header, 1, "only the plan's own header may be sent")
+		})
+	}
+}
+
+// TestKeylessSendsNoAuthHeader: the public tier is metered per IP and rejects an
+// empty key value, so a keyless client sends no header at all.
+func TestKeylessSendsNoAuthHeader(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, "https://api.coingecko.com/api/v3/ping", nil)
+	require.NoError(t, err)
+
+	NewClient(Config{}).authenticate(req)
+
+	assert.Empty(t, req.Header)
+}
+
 func TestCoinGeckoClient_GetMultiplePrices_EmptyInput(t *testing.T) {
 	client := NewClient(Config{APIKey: "test-api-key"})
 
