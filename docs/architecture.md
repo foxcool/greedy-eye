@@ -78,7 +78,8 @@ different audiences:
 
 2. **Security** - Multi-layered protection for financial data
    - Metrics: encryption of all external API keys, audit of all operations
-   - JWT authentication + API key authorization with rate limiting
+   - Authentication delegated to psina (session cookies or personal access tokens);
+     ownership enforced per entity inside this service
 3. **Reliability** - Fault tolerance for financial operations
    - Metrics: 99.9% uptime, automatic recovery after failures
    - Graceful degradation when external services are unavailable
@@ -295,10 +296,14 @@ graph TB
     end
 
     subgraph "External Adapters"
-        CoinGecko[coingecko adapter<br/>prices]
-        Binance[binance adapter<br/>prices + balances]
-        Moralis[moralis adapter<br/>wallet balances]
-        Telegram[telegram adapter<br/>notifications]
+        Prices[coingecko, binance<br/>prices]
+        Wallets[moralis, subscan, tonapi, solana,<br/>esplora, cosmos, tzkt, blockchair<br/>wallet balances]
+        Telegram[telegram<br/>notifications]
+    end
+
+    subgraph "Domain Logic"
+        SF[scamfilter<br/>identity scoring]
+        RL[ratelimit<br/>rate + quota budget]
     end
 
     MDS --> MDSI --> MDSP --> DB[(PostgreSQL)]
@@ -307,25 +312,38 @@ graph TB
     ANS --> PSI
     ANS -.->|prices, assets| MDS
 
-    MDS -.->|FetchExternalPrices via resolver| CoinGecko
-    MDS -.->|FetchExternalPrices| Binance
-    PS  -.->|SyncAccount wallet| Moralis
-    PS  -.->|SyncAccount exchange| Binance
+    MDS -.->|FetchExternalPrices via resolver| Prices
+    PS  -.->|SyncAccount wallet| Wallets
+    PS  -.->|SyncAccount exchange| Prices
+    PS  -.->|score on intake| SF
+    Prices -.->|RoundTripper| RL
+    Wallets -.->|RoundTripper| RL
 ```
 
 ### 5.3 Level 3: Service Details
 
 **MarketDataService** (`internal/service/marketdata/`):
-- RPCs implemented: CreateAsset, GetAsset, UpdateAsset, DeleteAsset, ListAssets, CreatePrice,
-  CreatePrices, GetLatestPrice, ListPriceHistory, ListPricesByInterval, DeletePrice, DeletePrices,
-  FetchExternalPrices (via the credentials resolver: CoinGecko live, Binance batch has issues)
+- RPCs implemented: CreateAsset, GetAsset, UpdateAsset, DeleteAsset, ListAssets,
+  FindOrCreateAsset (by the composite identity, ADR-006), SetAssetVerdict (scam filter, ADR-007),
+  CreatePrice, CreatePrices, GetLatestPrice, ListPriceHistory, ListPricesByInterval, DeletePrice,
+  DeletePrices, FetchExternalPrices (via the credentials resolver: CoinGecko live, Binance batch
+  has issues)
 - RPCs stubbed: EnrichAssetData, FindSimilarAssets
-- Store: `MarketDataStore` (PostgreSQL) — assets + prices
+- Store: `MarketDataStore` (PostgreSQL) — assets, prices, `asset_external_refs`
+- Owns `ValuationCoverage` (ADR-008): the message lives here because it describes the price side
+  of a valuation, and both the portfolio total and the analytics heatmap embed the same block
 
 **PortfolioService** (`internal/service/portfolio/`):
-- RPCs implemented: full CRUD for Portfolio, Account, Holding, Transaction; CalculatePortfolioValue;
-  SyncAccount (wallet balances via Moralis, exchange balances via Binance)
+- RPCs implemented: full CRUD for Portfolio, Account, Holding, Transaction; DeleteHolding;
+  CalculatePortfolioValue (with `ValuationCoverage`); SyncAccount (wallet balances across eight
+  ecosystems, exchange balances via Binance); ImportPositions / ImportTransactions
 - RPCs stubbed: GetPortfolioPerformance
+- **Manual accounts and import**: an account of type `manual` carries no credentials and holds
+  hand-entered positions (`manual_positions` capability). Import is simulation-first — `dry_run=true`
+  returns a per-item plan with no writes, and the same call with `dry_run=false` commits under one
+  `import_id`. Every written row is stamped with `source` and `import_id` server-side, so imported
+  data is always distinguishable from synced data. `full_snapshot=true` reconciles: positions absent
+  from the payload are zeroed rather than left stale
 - Ownership: every by-ID and list RPC enforces caller ownership (`middleware.EnsureOwner`);
   `user_id` list overrides are admin-only. See §8.1.
 - Accounts carry a capability model (capabilities + admin-managed system_scopes) and encrypted
@@ -364,13 +382,28 @@ Adapters are no longer singletons: the credentials resolver (`internal/service/c
 per-account clients from stored credentials, falling back to env-configured clients.
 
 - **Price Adapters** (`internal/adapter/coingecko/`, `internal/adapter/binance/`): CoinGecko (live
-  prices), Binance (`ticker/price`; batch fails on invalid symbols — tracked separately)
+  prices; tier-aware — the tier picks the host, the auth header and the plan allowance),
+  Binance (`ticker/price`; batch fails on invalid symbols — tracked separately)
 - **Exchange sync** (`internal/adapter/binance/`): Binance spot balances via the SIGNED
   `GET /api/v3/account` (HMAC-SHA256) → `entity.ExchangeSyncer`
-- **Blockchain Adapters** (all → `entity.WalletSyncer`): Moralis EVM multi-chain balances
-  (`internal/adapter/moralis/`), Subscan Substrate balances — Polkadot, Kusama, Hydration,
-  Astar, Moonbeam (`internal/adapter/subscan/`), tonapi TON + jettons
-  (`internal/adapter/tonapi/`)
+- **Blockchain Adapters** (all → `entity.WalletSyncer`), one package per ecosystem:
+
+  | Package | Covers | Notes |
+  |---|---|---|
+  | `moralis` | EVM: eth, base, arbitrum, optimism, linea, polygon, bsc, avalanche | native + ERC-20; reports `possible_spam`/`verified` as signals |
+  | `subscan` | Substrate: Polkadot, Kusama, Hydration, Astar, Moonbeam + Asset Hub | position = `free + reserved`; whole units scaled to raw by chain decimals |
+  | `tonapi` | TON + jettons | |
+  | `solana` | Solana via Helius | both token programs, DAS symbols, batched asset lookups |
+  | `esplora` | Bitcoin | confirmed balances only |
+  | `cosmos` | Cosmos LCD | bank + delegations + unbonding, bech32 re-encode between chains |
+  | `tzkt` | Tezos | |
+  | `blockchair` | DASH, DOGE | keyless tier is very narrow |
+
+  A recurring trap, caught three times across these adapters: **never add
+  `free + reserved` or `balance + staked`.** In every one of these APIs the headline balance
+  already includes what is locked or staked, so summing them doubles the largest position on a
+  staking-heavy account.
+
 - **Messenger Adapters** (`internal/adapter/telegram/`): Telegram (notifications)
 - **Rate budget** (`internal/adapter/ratelimit/`): a process-wide registry of token buckets keyed by
   provider + digest of the API key, injected into every adapter client as an `http.RoundTripper`.
@@ -395,6 +428,11 @@ covering *every* requested chain.
   provider claims an address shape (EVM hex, SS58, …) and then sweeps its own chains, keeping
   the ones holding a balance. A provider claiming no shape stays out of discovery rather than
   being tried blindly. `Chains: nil` still marks a catch-all for any named chain.
+- **Shape claims must decode, not measure.** SS58 and a Solana address are both base58 of a
+  similar length, so a length check routes a Solana key to Substrate and reports an empty wallet.
+  `subscan.HandlesAddress` verifies the SS58 blake2b checksum; the Solana claim requires the
+  payload to decode to exactly 32 bytes. Both have regression tests fed with the other
+  ecosystem's addresses.
 - Discovery costs one request per chain swept, so it trades API budget for not having to
   configure chains. Chains named explicitly skip the sweep.
 - Adding an ecosystem: implement `entity.WalletSyncer` in `internal/adapter/<name>/`, expose a
@@ -411,6 +449,44 @@ covering *every* requested chain.
 - Accounts entered by hand during a manual import become live wallets by updating `type`,
   `capabilities` and `data` in **one** call — a wallet may not keep `manual_positions`, so a
   split update is rejected by the merged capability validation.
+
+**Scam filter** (`internal/scamfilter/`):
+
+A pure scoring function over what is cheaply knowable at sync intake or during a rescoring pass:
+the symbol and name text, plus context signals a provider may report. It replaced the interim
+per-adapter drops (Moralis `possible_spam`, Solana `isJunk`), which silently deleted positions.
+
+- **The verdict lives on the asset** (`assets.identity_verdict`), not on the holding — identity is
+  a property of the thing, and the same fake token seen from two accounts is one fake token.
+  Values: `unknown | legit | suspect | scam | impersonation`. `identity_score` and
+  `identity_signals` (jsonb, `{signal: weight}`) are kept for UI explainability and weight tuning
+- **`holdings.excluded` is derived, not authored**: a `scam` or `impersonation` verdict excludes
+  the holding from sums. The position keeps syncing and stays visible in quarantine — dropping it
+  would make a real balance disappear with no trace
+- **A user verdict is terminal.** `verdict_source` records provenance (`heuristic`,
+  `provider:<name>`, `curated`, `user:<id>`); the rescore job never overwrites a user's judgement
+- **Hard signals bypass the score**: invisible Unicode in a ticker (`UNILP.NET` with U+2063) and
+  mixed-script confusables are impersonation on sight, not a weighted sum
+- Weights and thresholds live in `Weights` so they can be tuned from config without a release
+- The scheduler runs a periodic rescore (`internal/scheduler/rescore.go`)
+
+**Asset identity resolution order** (why a counterfeit cannot inherit a real price):
+
+1. **Contract first.** A synced token resolves through
+   `asset_external_refs(source="onchain:<chain>", ref=<contract>)`. `UNIQUE(source, ref)` makes
+   the same address on two chains two distinct identities
+2. **Symbol only after the contract is vouched for.** With no matching ref, the code asks a
+   contract-confirming price provider (CoinGecko, as the one with a full-universe contract
+   catalog) what ticker that contract actually trades under. Only a match lets the token join the
+   ticker's asset row; anything else — listed under a different symbol, not listed, no provider
+   configured — sends it to a market of its own (`marketForContract`), so it becomes a visible,
+   mergeable duplicate row instead of extra balance on the genuine asset
+3. **A provider error fails loud.** Treating an unreachable provider as "not listed" would scatter
+   genuine multi-chain tokens into per-contract rows permanently
+
+Name, ticker and amount are all copyable; the contract is not. Matching by ticker alone is exactly
+how three different tokens once merged into one "Tether USD" on production and summed their
+balances — including 594 956 units of a "USDT" that does not exist.
 
 **Account credential model**:
 - Provider credentials live in `accounts.data` (encrypted at rest, ADR-005), keyed by a `provider`
@@ -455,10 +531,33 @@ API Client → MarketDataService/FetchExternalPrices → resolver → adapter �
 API Client → PortfolioService/SyncAccount → resolver → syncer → upsert holdings
   1. POST /eye.v1.PortfolioService/SyncAccount (owner or admin only)
   2. Branch on account type:
-     - wallet   → WalletSyncer (Moralis) by address across chains
+     - wallet   → WalletSyncer for the account's chains (registry, see §5.3)
      - exchange → ExchangeSyncer (Binance) via the account's own API key
-  3. Balances normalized, merged by symbol, assets ensured, holdings upserted
-  4. Response: SyncAccountResponse{assets_upserted, holdings_upserted, errors}
+  3. Each balance resolves to an asset: contract ref first, confirmed symbol second
+  4. New or unscored assets are scored by scamfilter; the verdict lands on the asset
+  5. Holdings upserted; scam/impersonation verdicts derive holdings.excluded
+  6. Response: SyncAccountResponse{assets_upserted, holdings_upserted, errors}
+```
+
+#### Scenario 2c: Value a Portfolio
+
+```text
+API Client → PortfolioService/CalculatePortfolioValue
+  1. Load holdings, skip excluded ones (they are reported separately)
+  2. For each holding, resolve a unit price in the quote asset
+  3. Priced holdings sum into total_value; unpriced ones DO NOT contribute zero —
+     they are collected into ValuationCoverage{priced, unpriced, unpriced[]}
+  4. Response: value + coverage, so the caller can render "X of Y positions priced"
+```
+
+#### Scenario 2d: Import Positions (simulation-first)
+
+```text
+LLM / API Client → PortfolioService/ImportPositions
+  1. dry_run=true  → per-item plan (create | update | skip), zero writes
+  2. Human confirms the plan
+  3. dry_run=false → commit under one import_id; every row stamped source+import_id
+     full_snapshot=true additionally zeroes positions missing from the payload
 ```
 
 #### Scenario 3: Execute Rebalancing Rule
@@ -565,7 +664,30 @@ Cron / API Client → AutomationService/ExecuteRule
 - **Connection Pooling**: Efficient use of database connections
 - **Batch Operations**: Group operations for multiple records
 
-### 8.3 Data Management
+### 8.3 Honesty of a computed number
+
+A total that quietly omits what it could not compute is worse than no total: it looks like an
+answer. Two mechanisms make omissions explicit, and both are deliberately *disclosures*, not
+corrections:
+
+| Omission | Mechanism | Where it shows |
+|---|---|---|
+| No price path for a holding | `ValuationCoverage` (ADR-008) | Embedded in the valuation response: counts plus the identified holdings, capped with a truncation flag |
+| Asset judged a scam or impersonation | `holdings.excluded`, derived from the asset verdict | Reported alongside the total; the position keeps syncing and stays visible in quarantine |
+
+Rules that follow from this:
+
+- An absent quote and a zero valuation are **different statements**. Nothing may turn the first
+  into the second
+- A new consumer of a valuation (heatmap, MCP, a future report) **embeds the existing coverage
+  message** instead of growing its own coverage fields
+- Filtering a position out of a sum without saying so is a bug, whatever the reason for filtering
+
+Known gap: a price that exists but has no market behind it (no volume, no depth) is still treated
+as a real quote and enters the total at face value. Collecting volume and market cap — both are
+returned by the provider and currently discarded — is the prerequisite for closing it.
+
+### 8.4 Data Management
 
 **Data Model:**
 - **Universal Asset Support**: Unified model for all asset types
@@ -583,7 +705,7 @@ Cron / API Client → AutomationService/ExecuteRule
 - **Schema Apply**: Atlas CLI applies schema to test containers
 - **Isolation**: Each test run gets clean database
 
-### 8.4 Operational Concepts
+### 8.5 Operational Concepts
 
 **Monitoring and Alerting:**
 - **Health Checks**: /health endpoint for all services
@@ -606,7 +728,9 @@ Cron / API Client → AutomationService/ExecuteRule
 
 **Background Scheduler (`internal/scheduler`):**
 - Single cron scheduler (robfig/cron/v3) inside the `eye` binary, gated by `scheduler.enabled`
-- Consumers: periodic automation rules (`RuleSchedule.CronExpression` + `Timezone`) and external price fetching (`scheduler.priceFetchCron`, default hourly)
+- Consumers: periodic automation rules (`RuleSchedule.CronExpression` + `Timezone`), external
+  price fetching (`scheduler.priceFetchCron`), and the asset rescore pass that re-applies
+  scam-filter verdicts to the catalogue (`internal/scheduler/rescore.go`)
 - The price sweep is budgeted, not exhaustive: it asks each source only for assets whose next attempt is due (`price_fetch_attempts`), oldest first, capped by the share of the credential's remaining plan allowance that one interval affords. Naming `asset_ids` on the RPC makes it a deliberate reconciliation and bypasses both
 - Active rule schedules are fully reloaded every minute — rule CRUD needs no hooks, mutations take effect within a minute
 - Missed fires during downtime are **skipped, never caught up**: executing a stale trade plan is worse than skipping it
@@ -642,6 +766,8 @@ Cron / API Client → AutomationService/ExecuteRule
   Auth, Messenger). This caused excessive indirection and coupling.
 - **Decision**: Consolidate into 3 domain services: MarketDataService (assets + prices),
   PortfolioService (portfolios, accounts, holdings, transactions), AutomationService (rules + executions).
+  A fourth, AnalyticsService, was added later (2026-07) for derived read-only views; it owns no
+  store, which is what keeps it a separate service rather than a fourth data owner.
 - **Consequences**:
   - ➕ Simpler handler structure, fewer inter-service calls
   - ➕ Each service owns its store directly (no StorageService middleman)
@@ -688,11 +814,11 @@ Cron / API Client → AutomationService/ExecuteRule
   Manual/broker import and non-crypto assets are blocked on this.
 - **Decision**: Identity is the composite `UNIQUE(symbol, market, type)`. `market` is the
   listing market/venue — `crypto` is a single global market for all crypto assets — **not** the
-  price source: mapping to provider-native identifiers (CoinGecko coin id, T-Invest FIGI) lives
-  in the provider adapters (hardcoded map for major coins, `contract:` tags for tokens); when a
-  source with a dynamic instrument universe lands (broker import), that mapping becomes a
-  dedicated `asset_external_refs(asset_id, source, ref)` table — one asset has refs in many
-  sources, so it is not an asset column. `quote` holds
+  price source: mapping to provider-native identifiers lives in
+  `asset_external_refs(asset_id, source, ref)` — one asset has refs in many sources, so it is not
+  an asset column. `source` namespaces the ref (`onchain:<chain>` for a contract or mint,
+  `coingecko`/`cmc` for a provider id, broker id spaces later) and `UNIQUE(source, ref)` makes the
+  same address on two chains two distinct identities. `quote` holds
   the quote currency where applicable. On create, `market` defaults by type
   (cryptocurrency → `crypto`, forex → `forex`) and is required for exchange-listed types.
   Symbol-only lookups (`GetAssetBySymbol`) return the unique match or fail with
@@ -707,6 +833,56 @@ Cron / API Client → AutomationService/ExecuteRule
   holdings); an `external_ref` column on `assets` (one asset maps to many provider IDs —
   1:N belongs in a mapping table, and a 1:1 column would die on the second source);
   prefixing symbol with venue in one field (loses clean symbol for search/display)
+- **Status of the ref table**: landed. Sync binds `("onchain:<chain>", address)` automatically
+  with `origin=auto`; manual, seeded and discovered refs (plus a link RPC) are still to come and
+  are needed by the first source with a dynamic instrument universe (T-Invest/FIGI, CMC)
+
+### ADR-007: The scam verdict belongs to the asset; exclusion is derived
+- **Status**: accepted
+- **Context**: A synced catalogue fills with phishing tokens (`VISIT [AAVE-SR.XYZ] AND CLAIM…`,
+  `UNILP.NET` with an invisible U+2063 in the ticker) and with lookalikes of real tickers. The
+  interim behaviour was per-adapter dropping: Moralis `possible_spam` and Solana `isJunk` made
+  positions vanish during sync. A vanished balance is indistinguishable from a balance that was
+  never there, and the rule was unexplainable and unfixable by the user.
+- **Decision**: One scorer (`internal/scamfilter`) produces a verdict stored **on the asset**
+  (`identity_verdict` + `identity_score` + `identity_signals`), and `holdings.excluded` is
+  **derived** from it. A `scam`/`impersonation` verdict keeps the position syncing and visible,
+  but out of the sums. `verdict_source` records provenance and a user verdict is terminal — the
+  periodic rescore never overwrites it. Hard signals (invisible Unicode, mixed-script confusables)
+  bypass the weighted score.
+- **Consequences**:
+  - ➕ Judging identity once per asset instead of once per holding; two accounts holding the same
+    fake token get one judgement
+  - ➕ Every exclusion is explainable: the signals that fired are stored with their weights
+  - ➕ Weights and thresholds are config, tunable without a release
+  - ➖ A user's terminal verdict is global on a shared catalogue — with more than one user, whose
+    judgement applies to whose sums becomes an open question
+- **Rejected**: dropping at the adapter (unexplainable, loses a real balance silently); a status
+  column mixing identity with a user's accounting decision (they answer different questions and
+  change for different reasons); marking holdings directly (repeats the same judgement per row and
+  desynchronises)
+
+### ADR-008: A valuation reports what it could not price
+- **Status**: accepted
+- **Context**: `CalculatePortfolioValue` skipped any holding without a price path. The `stocks`
+  portfolio on production therefore reported $0.00 with live positions in it — a number
+  indistinguishable from an empty portfolio.
+- **Decision**: The valuation response carries a `ValuationCoverage` block: how many holdings were
+  priced, how many were not, and which ones (capped, with a truncation flag). Unpriced holdings
+  still do not enter the total — an unknown price must not be spent as zero — but the response
+  no longer hides them. The message lives in `marketdata.proto` because it describes the price
+  side of a valuation, so every consumer (portfolio total, heatmap, MCP) embeds the same block
+  instead of growing its own fields.
+- **Consequences**:
+  - ➕ A partial answer is visibly partial; clients can render "X of Y positions priced"
+  - ➕ One message, one shape, across every surface
+  - ➖ Every valuation consumer must be updated to render it, or the disclosure stops at the API
+    boundary — currently the case for the frontend and MCP
+  - ➖ Coverage answers "was there a quote", not "was the quote meaningful": a price with no
+    volume behind it still counts as priced
+- **Rejected**: valuing unpriced holdings at zero (silently wrong in the safe-looking direction);
+  failing the whole request (one obscure asset would deny the user their portfolio value);
+  per-service coverage fields (three shapes drifting apart)
 
 ---
 
@@ -726,7 +902,7 @@ System Quality
 │   ├── Graceful degradation on external API failures
 │   └── Health checks for monitoring
 ├── Security
-│   ├── Authentication (JWT + API keys)
+│   ├── Authentication (psina: cookies or PAT)
 │   ├── Authorization (user-scoped operations)
 │   ├── Encryption (TLS + database encryption)
 │   └── Audit logging
@@ -772,28 +948,68 @@ System Quality
 
 ### 11.2 Technical Debt
 
-#### Debt 1: Partial business logic implementation
+#### Debt 1: No automation engines
 
-- Description: CRUD, portfolio valuation, external price fetch, and account sync (wallet +
-  exchange) are implemented. Remaining stubs: GetPortfolioPerformance, EnrichAssetData,
-  FindSimilarAssets, and the automation execution engines (DCA / rebalancing / stop-loss).
-  ExecuteRule runs a minimal synchronous flow, not real trading logic.
-- Impact: Data management, valuation, and sync work; automated strategy execution does not yet
-  place real trades.
-- Resolution Plan: rule-engine package → DCA/rebalancing/stop-loss engines → cron scheduler →
-  performance metrics.
+- Description: CRUD, valuation, price fetch, account sync and the cron scheduler are implemented.
+  Remaining stubs: GetPortfolioPerformance, EnrichAssetData, FindSimilarAssets, and the execution
+  engines (DCA / rebalancing / stop-loss). ExecuteRule runs a minimal synchronous flow, not
+  trading logic.
+- Impact: No automated strategy execution.
+- Resolution Plan: extract a rule-engine package out of `automation/handler.go` → a record-only
+  executor with a Plan→Apply split (paper trading) → the individual engines. Deliberately
+  sequenced **after** the valuation work: a rule acting on a number that lies is worse than no
+  rule.
 
-#### Debt 2: Lack of comprehensive monitoring
+#### Debt 2: A quote is trusted without a market behind it
 
-- Description: Basic health checks without detailed metrics
-- Impact: Difficulty diagnosing production issues
-- Resolution Plan: Prometheus + Grafana dashboards integration
+- Description: A price is accepted at face value regardless of whether anything trades at it.
+  The provider returns `market_cap` and `total_volume` on the by-id path and both are discarded
+  when the price is stored; the by-contract path does not even ask for them. Every token that
+  entered the catalogue by contract therefore has no market context at all.
+- Impact: An illiquid airdrop can dominate a portfolio total. On the dev instance one such token
+  accounted for 99% of the value of its price path.
+- Resolution Plan: collect volume and market cap on both paths first and look at the actual
+  distribution before choosing any threshold; then gate the sum through the existing
+  `ValuationCoverage` — "unknown", not "zero".
 
-#### Debt 3: Insufficient integration tests
+#### Debt 3: Price freshness is not checked
 
-- Description: Unit tests exist, but few end-to-end tests
-- Impact: Regression risk during changes
-- Resolution Plan: Automated integration tests in CI/CD
+- Description: A stored price is used as the current price no matter how old it is. There is no
+  staleness cutoff and no indication of a quote's age in a valuation.
+- Impact: A portfolio can be valued at prices from an arbitrary point in the past and look current.
+- Resolution Plan: an age cutoff, with stale holdings reported through the same coverage block.
+
+#### Debt 4: Lack of comprehensive monitoring
+
+- Description: Health check plus structured logs; provider spend is reported on the sweep's own
+  log line. No metrics system in-process.
+- Impact: Difficult to diagnose production issues; quota exhaustion is visible only in logs.
+- Resolution Plan: metrics endpoint + dashboards.
+
+#### Debt 5: No end-to-end test of the deployed shape
+
+- Description: Unit tests and store-level integration tests (testcontainers) exist. There is no
+  test that runs the service the way it is deployed, and none at all for the microservice mode
+  the architecture claims to support.
+- Impact: The "splittable into services" property is asserted, never verified.
+- Resolution Plan: per-domain schemas and Postgres roles as an enforced service boundary, plus a
+  distributed stand in CI.
+
+#### Debt 6: Volume-weighted provider budgets
+
+- Description: The quota accounting understands "one request = one unit". Moralis bills in
+  compute units and Binance in request weight, so their daily budgets carry no `Quota` at all and
+  are effectively untracked.
+- Impact: Those two providers can be exhausted without the system noticing in advance.
+- Resolution Plan: weighted cost per call, and reading the provider's own remaining-budget headers
+  where they exist (`X-MBX-USED-WEIGHT-*`).
+
+#### Debt 7: Catalogue mutations are not role-gated
+
+- Description: `assets` and `prices` are a shared catalogue that any authenticated user can
+  mutate. With a single user this is harmless; it does not survive a second one.
+- Impact: Blocks multi-user operation.
+- Resolution Plan: RBAC on catalogue mutations; user-scoped assets stay private.
 
 ---
 
@@ -806,6 +1022,11 @@ System Quality
 | **Account** | User's connection to an exchange, wallet, or broker |
 | **Rule** | Portfolio automation rule (DCA, rebalancing, stop-loss, withdrawal) |
 | **RuleExecution** | Single run of a Rule, with status and transaction references |
+| **ValuationCoverage** | Block on a valuation response naming the holdings it could not price |
+| **Identity verdict** | The scam filter's judgement of an asset: `unknown`, `legit`, `suspect`, `scam`, `impersonation` |
+| **Quarantine** | Holdings excluded from sums by a scam/impersonation verdict; still synced and visible |
+| **External ref** | An asset's identifier in another namespace: a contract, a provider coin id, a FIGI |
+| **Provenance** | `source` + `import_id` stamped on imported rows, distinguishing them from synced data |
 | **Connect-RPC** | Protocol from Buf that serves gRPC and browser-compatible HTTP API from one server |
 | **h2c** | HTTP/2 cleartext — HTTP/2 without TLS, used for Connect-RPC behind a TLS-terminating proxy |
 | **psina** | External service responsible for user management and authentication |
@@ -815,7 +1036,7 @@ System Quality
 
 ---
 
-**Document Version**: 1.4
-**Last Updated**: 2026-07-06
+**Document Version**: 1.5
+**Last Updated**: 2026-08-01
 **Owner**: foxcool
 **Status**: Active
