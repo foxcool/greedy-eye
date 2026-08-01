@@ -126,8 +126,10 @@ func run() error {
 		Tier:     coingeckoTier(config.CoinGecko.Pro),
 	}
 	cgClient := coingecko.NewClient(coingecko.Config{
-		APIKey:    config.CoinGecko.APIKey,
-		Pro:       config.CoinGecko.Pro,
+		APIKey: config.CoinGecko.APIKey,
+		// One tier, resolved once: it picks the host, the auth header and the
+		// plan allowance, and those three disagreeing is a 429 on every call.
+		Tier:      cgCred.Tier,
 		Transport: rateLimits.Transport(cgCred, nil),
 		Budget:    rateLimits.Budget(cgCred),
 	})
@@ -299,8 +301,11 @@ func run() error {
 			coingecko.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
 				cred := accountCred(coingecko.ProviderName, a)
 				return coingecko.NewProvider(coingecko.NewClient(coingecko.Config{
-					APIKey:    a.Data["api_key"],
-					Pro:       a.Data["pro"] == "true",
+					APIKey: a.Data["api_key"],
+					// accountCred already folded the legacy "pro" flag into the
+					// tier; reading data["pro"] separately here is what let the
+					// host and the plan disagree.
+					Tier:      cred.Tier,
 					Transport: rateLimits.Transport(cred, nil),
 					Budget:    rateLimits.Budget(cred),
 				})), nil
@@ -518,7 +523,7 @@ func sweepWindow(spec string) time.Duration {
 // the free keyed plan, whose 10k monthly allowance is the built-in default.
 func coingeckoTier(pro bool) string {
 	if pro {
-		return "pro"
+		return coingecko.TierPro
 	}
 	return ""
 }
