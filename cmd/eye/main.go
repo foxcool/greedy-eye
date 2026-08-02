@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -33,7 +32,6 @@ import (
 	"github.com/foxcool/greedy-eye/internal/service/credentials"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
-	storecrypto "github.com/foxcool/greedy-eye/internal/store/crypto"
 	"github.com/foxcool/greedy-eye/internal/store/postgres"
 	"github.com/getsentry/sentry-go"
 	"github.com/robfig/cron/v3"
@@ -147,22 +145,19 @@ func run() error {
 	}
 
 	// Initialize accounts.data encryption at rest (ADR-005)
+	encryptor, err := buildEncryptor(config, log)
+	if err != nil {
+		return err
+	}
 	var portfolioStoreOpts []postgres.PortfolioStoreOption
-	if config.Security.MasterKey != "" {
-		masterKey, err := base64.StdEncoding.DecodeString(config.Security.MasterKey)
-		if err != nil {
-			return fmt.Errorf("decode security master key: %w", err)
-		}
-		encryptor, err := storecrypto.NewEncryptor(masterKey)
-		if err != nil {
-			return fmt.Errorf("init encryptor: %w", err)
-		}
+	if encryptor != nil {
 		portfolioStoreOpts = append(portfolioStoreOpts, postgres.WithEncryptor(encryptor))
-	} else {
-		log.Warn("SECURITY_MASTERKEY is not set: accounts.data is stored in plaintext")
 	}
 
 	portfolioStore := postgres.NewPortfolioStore(pool, portfolioStoreOpts...)
+
+	// Converge rows sealed under a key being rotated out. No-op with one key.
+	startRekey(context.Background(), pool, encryptor, log)
 
 	// Env-configured price providers stay the fallback registry; the resolver
 	// overlays them with credentials stored in accounts (system → user).

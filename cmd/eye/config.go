@@ -44,8 +44,14 @@ type Config struct {
 		Sandbox   bool   `koanf:"sandbox"`
 	} `koanf:"binance"`
 	Security struct {
-		// MasterKey is a base64-encoded 32-byte key for accounts.data
-		// encryption at rest (ADR-005). Empty = plaintext mode.
+		// MasterKey holds one or more base64-encoded 32-byte keys for
+		// accounts.data encryption at rest (ADR-005), comma-separated. Empty =
+		// plaintext mode.
+		//
+		// The FIRST key is current and the only one written with; any others are
+		// accepted on read so rows sealed before a rotation stay readable.
+		// Rotating is prepending a key and restarting — the rekey job re-seals
+		// everything in the background and logs when the tail can be dropped.
 		MasterKey string `koanf:"masterKey"`
 	} `koanf:"security"`
 	// RateLimit lets an operator override the built-in per-provider request

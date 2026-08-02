@@ -817,13 +817,40 @@ returned by the provider and currently discarded — is the prerequisite for clo
   Read path: a map with the single `enc` key is decrypted; any other shape is a legacy plaintext
   row, returned as is and re-encrypted on its next update. Empty key = plaintext mode with a
   startup warning (dev); production must set the key.
+
+  **Rotation** (added later; the original decision left it as a follow-up).
+  `EYE_SECURITY_MASTERKEY` is a comma-separated **list**: the first key is current and the only
+  one written with, the rest are accepted on read. Rotating is prepending a key; without that,
+  changing the key makes every row unreadable at once, and because the store fails the entire
+  account row on a decryption error, that takes wallet addresses down with the credentials.
+
+  With more than one key configured, startup launches a background **rekey job** that re-seals
+  every row under the current key (the same pass that converges the legacy plaintext rows), then
+  re-reads every row with the current key **alone** and only then reports that the tail can be
+  dropped. The verification is not decoration: an earlier version of the pass skipped rows whose
+  data was empty as "nothing to seal" and left an encrypted `{}` under the retired key while
+  reporting success. A Postgres advisory lock keeps the pass to one instance. Procedure in
+  `docs/development.md`.
+
+  **Rejected**: re-encrypting lazily when a row is read under a stale key. It never converges —
+  a row nobody reads is a row nobody rewrites — so it could not answer the only question an
+  operator has ("is the old key still load bearing?"), and it turns every list into a burst of
+  writes that a read-only replica cannot serve.
 - **Consequences**:
   - ➕ Key never reaches the DB process, SQL statements, or server logs; unit-testable
   - ➕ No schema migration; legacy rows stay readable; format versioned (`v1:`) for rotation
   - ➕ Encrypted values can't be swapped between rows (fails GCM authentication)
+  - ➕ A key is retired without downtime and without an operator remembering a command; the pass
+    is idempotent and resumable, and it verifies its own completion
   - ➖ Wallet addresses no longer visible in raw SQL
-  - ➖ Losing the master key loses all encrypted `accounts.data`; key rotation and legacy backfill
-    are follow-ups
+  - ➖ Losing the master key still loses all encrypted `accounts.data`: the list covers a planned
+    rotation, not a lost key
+  - ➖ Every deploy during a rotation rewrites every credential row, and the outcome lives in
+    logs and Sentry rather than in a command's exit code
+  - ➖ Dropping the tail stays a manual step nothing enforces — an operator who never removes it
+    keeps the retired key load bearing forever
+  - ➖ Rolling back to a binary without the new key after a partial pass fails to read the rows
+    already re-sealed
 - **Rejected**: pgcrypto (key surfaces in `pg_stat_statements`/server logs, PG-coupled);
   per-field encryption (needs a secret-field classification, mixed-plaintext states);
   single static key without HKDF (swappable ciphertexts, shared nonce space)

@@ -270,9 +270,12 @@ EYE_SERVER_PORT=8080
 # Logging
 EYE_LOG_LEVEL=INFO            # DEBUG, INFO, WARN, ERROR
 
-# Secrets: accounts.data encryption (ADR-005). base64 of 32 random bytes.
+# Secrets: accounts.data encryption (ADR-005). base64 of 32 random bytes each,
+# comma-separated. The FIRST key is current and the only one written with; any
+# others are read-only, for rows sealed before a rotation.
 # Empty = plaintext mode with a startup warning (dev only).
 EYE_SECURITY_MASTERKEY=...    # openssl rand -base64 32
+# mid-rotation it looks like: EYE_SECURITY_MASTERKEY=<new>,<old>
 
 # External API keys (env fallback — deprecated, prefer system accounts)
 EYE_MORALIS_APIKEY=your_key
@@ -334,6 +337,46 @@ services:
   - portfolio
   - automation
 ```
+
+### Rotating the master key
+
+`accounts.data` is sealed per row under a key derived from `EYE_SECURITY_MASTERKEY`
+(ADR-005). **Replacing** that value re-encrypts nothing: every existing row stays sealed under
+the old key, and the store fails the whole account row when it cannot decrypt — so wallet
+addresses stop being readable along with the credentials. So you prepend rather than replace:
+
+```bash
+# 1. prepend the new key; the old one stays for reads
+EYE_SECURITY_MASTERKEY=<new>,<old>      # openssl rand -base64 32
+
+# 2. restart. The instance writes with <new>, reads with either, and starts a
+#    background rekey job because more than one key is configured.
+
+# 3. wait for the log line:
+#    "rekey: finished — every row is sealed under the current key, stale keys can be removed"
+
+# 4. drop the tail: EYE_SECURITY_MASTERKEY=<new>, restart
+```
+
+The instance is fully functional between steps 1 and 4; step 4 is what actually retires the old
+key. Going straight to it is what makes the data unrecoverable.
+
+Do not skip step 3. The job does not just re-seal, it then re-reads every row with the current
+key **alone** and only claims completion if all of them open — counters alone cannot tell you
+whether a stale key is still load bearing. On failure it logs at ERROR and reports to Sentry;
+if you see no completion line, the old key is still needed.
+
+Notes on how it behaves:
+
+- One key configured: the job does not run. Nothing to converge, and rewriting every credential
+  on every deploy is not free.
+- Several instances: a Postgres advisory lock keeps the pass to one of them.
+- Interrupted or repeated runs are safe — re-sealing a row already current just gives it a fresh
+  nonce.
+- The same pass converges the pre-ADR-005 plaintext rows, which were previously sealed only if
+  something happened to update them.
+- Rolling back to a binary that does not know `<new>` after a partial pass will fail to read the
+  rows already re-sealed. Roll the key list back too, or roll forward.
 
 ### Money Precision and Decimal Handling
 All monetary amounts use decimal precision to avoid floating-point errors:
