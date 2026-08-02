@@ -545,9 +545,12 @@ API Client → PortfolioService/SyncAccount → resolver → syncer → upsert h
 API Client → PortfolioService/CalculatePortfolioValue
   1. Load holdings, skip excluded ones (they are reported separately)
   2. For each holding, resolve a unit price in the quote asset
-  3. Priced holdings sum into total_value; unpriced ones DO NOT contribute zero —
-     they are collected into ValuationCoverage{priced, unpriced, unpriced[]}
-  4. Response: value + coverage, so the caller can render "X of Y positions priced"
+  3. Check the market behind that price: under $100k of 24h volume it does not value
+     the holding (ADR-009). A source that reported no volume is not a reason to drop it
+  4. Priced holdings sum into total_value; unpriced ones DO NOT contribute zero —
+     they are collected into ValuationCoverage{priced, unpriced, unpriced[]}, each
+     carrying whether it lacked a quote or lacked a market
+  5. Response: value + coverage, so the caller can render "X of Y positions priced"
 ```
 
 #### Scenario 2d: Import Positions (simulation-first)
@@ -673,6 +676,7 @@ corrections:
 | Omission | Mechanism | Where it shows |
 |---|---|---|
 | No price path for a holding | `ValuationCoverage` (ADR-008) | Embedded in the valuation response: counts plus the identified holdings, capped with a truncation flag |
+| A quote with no market behind it | `UnpricedReason.THIN_MARKET` in the same block (ADR-009) | Same place as a missing quote, with the reason attached — the position is unknown, not worthless |
 | Asset judged a scam or impersonation | `holdings.excluded`, derived from the asset verdict | Reported alongside the total; the position keeps syncing and stays visible in quarantine |
 
 Rules that follow from this:
@@ -878,11 +882,57 @@ returned by the provider and currently discarded — is the prerequisite for clo
   - ➕ One message, one shape, across every surface
   - ➖ Every valuation consumer must be updated to render it, or the disclosure stops at the API
     boundary — currently the case for the frontend and MCP
-  - ➖ Coverage answers "was there a quote", not "was the quote meaningful": a price with no
-    volume behind it still counts as priced
 - **Rejected**: valuing unpriced holdings at zero (silently wrong in the safe-looking direction);
   failing the whole request (one obscure asset would deny the user their portfolio value);
   per-service coverage fields (three shapes drifting apart)
+
+### ADR-009: A quote with no market behind it is not a valuation
+- **Status**: accepted
+- **Context**: ADR-008 answered "was there a quote", not "was the quote meaningful". MNEP
+  (Minereum Polygon) stood second in the dev portfolio at $4,175 — 300,000 airdropped units
+  times a genuine CoinGecko price — while the token's entire market turned over $40,655 a day.
+  Nothing was wrong by the system's own rules: identity was correct, the price was real, the
+  arithmetic was right. Selling the position at that price was not possible.
+- **Decision**: a price whose reported 24h volume falls below **$100,000**, converted to the
+  quote asset, does not value a holding. The holding routes into the existing
+  `ValuationCoverage` bucket with `UNPRICED_REASON_THIN_MARKET` — no parallel disclosure
+  mechanism, and no writing the position down to zero (zero is an assertion about the market;
+  this is a refusal to assert). The predicate lives in `internal/marketdepth` and is applied by
+  both valuation consumers, the portfolio total and the heatmap.
+
+  The threshold was measured, not guessed. A sweep of the 66 held assets on dev (2026-08-02)
+  gives a bimodal distribution with an empty bucket between the modes:
+
+  | 24h volume | assets |
+  |---|---|
+  | not reported | 11 |
+  | < $1k | 7 |
+  | $1k – 10k | 2 |
+  | $10k – 100k | 5 |
+  | **$100k – 1M** | **0** |
+  | $1M – 100M | 27 |
+  | > $100M | 14 |
+
+  Any threshold inside the empty bucket separates the same 14 assets; $100k is its lower edge
+  and so excludes the fewest. MNEP sits at $40,655, in the low mode.
+- **Consequences**:
+  - ➕ A price that cannot be realised stops inflating the total, without anyone marking
+    `holdings.excluded` by hand
+  - ➕ `UnpricedReason` distinguishes "nobody quoted this" from "we do not trust this quote";
+    `personal-tlz` will add `STALE` to the same enum rather than inventing a third state
+  - ➖ The gate is only as good as the volume the provider reports — an asset whose source
+    reports none is not gated at all
+  - ➖ The heatmap drops thin assets without saying so until it carries a coverage block
+    (`personal-saw`)
+  - ➖ One global threshold for every asset class; a thinly-traded bond will need its own rule
+- **Rejected**: a `volume > 0` floor (does not catch MNEP, which reports real volume);
+  gating on a missing market cap (the 11 no-volume assets on dev are mostly Aave receipt
+  tokens — aUSDC, aETHUSDC, aWETH — real money with no market of its own, and a naive gate
+  would report them as unknown); a position-relative ratio, i.e. holding value over daily
+  volume (answers a genuine question and catches more, but no distribution was measured for it,
+  and it makes a property of the price into a property of the position); a configuration knob
+  for the threshold (one documented number whose change is a code change with a test beats a
+  setting nobody can re-derive)
 
 ---
 

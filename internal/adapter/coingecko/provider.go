@@ -332,8 +332,13 @@ func scaled(v float64) decimal.Decimal {
 // unknown market, while a genuine zero says the market is there and empty. The
 // contract path used to store 0 for high and low it never asked for, which read
 // as the former and meant neither.
+//
+// Negative is not a claim at all — BTL comes back from CoinGecko with
+// market_cap = -1, which used to pass this test and get scaled into the database
+// as a real number. A price, a volume and a capitalisation are all non-negative
+// by construction, so anything below zero is the source failing to say.
 func reported(v float64) decimal.NullDecimal {
-	if v == 0 {
+	if v <= 0 {
 		return decimal.NullDecimal{}
 	}
 	return decimal.NullDecimal{Decimal: scaled(v), Valid: true}

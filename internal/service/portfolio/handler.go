@@ -15,6 +15,7 @@ import (
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/marketdepth"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/scamfilter"
 	"github.com/foxcool/greedy-eye/internal/store"
@@ -282,10 +283,10 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 	excludedTotal := decimal.Zero
 	var excludedCount uint32
 	coverage := &apiv1.ValuationCoverage{}
-	var unpriced []*entity.Holding
+	var unpriced []unpricedHolding
 
 	for _, hld := range holdings {
-		unit, ok, err := h.unitPrice(ctx, hld.AssetID, quoteAssetID)
+		unit, outcome, err := h.unitPrice(ctx, hld.AssetID, quoteAssetID)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get price for %s: %w", hld.AssetID, err))
 		}
@@ -294,16 +295,17 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 			// Quarantine is its own axis: an excluded holding is out of the total
 			// by decision, not for lack of a quote, so it stays out of coverage.
 			excludedCount++
-			if ok {
+			if outcome == outcomePriced {
 				excludedTotal = excludedTotal.Add(hld.Amount.Shift(-decI32(hld.Decimals)).Mul(unit))
 			}
 			continue
 		}
-		if !ok {
-			// No price path: report the holding instead of letting it contribute
-			// zero. Zero is an assertion about the market; this is missing data.
+		if outcome != outcomePriced {
+			// No usable price: report the holding instead of letting it contribute
+			// zero. Zero is an assertion about the market; this is missing data —
+			// either no quote at all, or a quote with no market behind it.
 			coverage.UnpricedCount++
-			unpriced = append(unpriced, hld)
+			unpriced = append(unpriced, unpricedHolding{holding: hld, reason: outcome.reason()})
 			continue
 		}
 		coverage.PricedCount++
@@ -336,13 +338,19 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 // count is always exact, the list is a sample bounded by read size.
 const maxUnpricedDisclosed = 50
 
+// unpricedHolding pairs a position left out of the total with the reason it was.
+type unpricedHolding struct {
+	holding *entity.Holding
+	reason  apiv1.UnpricedReason
+}
+
 // describeUnpriced labels unpriced holdings for disclosure, up to the cap, and
 // reports whether the list was truncated.
 //
 // A failed asset lookup degrades to an empty symbol rather than failing the
 // valuation: the asset_id still identifies the position, and losing the whole
 // total over a display label would be a worse trade than a missing name.
-func (h *Handler) describeUnpriced(ctx context.Context, holdings []*entity.Holding) ([]*apiv1.UnpricedHolding, bool) {
+func (h *Handler) describeUnpriced(ctx context.Context, holdings []unpricedHolding) ([]*apiv1.UnpricedHolding, bool) {
 	if len(holdings) == 0 {
 		return nil, false
 	}
@@ -354,8 +362,9 @@ func (h *Handler) describeUnpriced(ctx context.Context, holdings []*entity.Holdi
 	}
 
 	out := make([]*apiv1.UnpricedHolding, 0, len(listed))
-	for _, hld := range listed {
-		item := &apiv1.UnpricedHolding{HoldingId: hld.ID, AssetId: hld.AssetID}
+	for _, u := range listed {
+		hld := u.holding
+		item := &apiv1.UnpricedHolding{HoldingId: hld.ID, AssetId: hld.AssetID, Reason: u.reason}
 		resp, err := h.mdClient.GetAsset(ctx, connect.NewRequest(&apiv1.GetAssetRequest{Id: hld.AssetID}))
 		if err != nil {
 			h.log.WarnContext(ctx, "unpriced holding: asset lookup failed, reporting without a symbol",
@@ -368,6 +377,24 @@ func (h *Handler) describeUnpriced(ctx context.Context, holdings []*entity.Holdi
 	return out, truncated
 }
 
+// priceOutcome says whether a holding could be valued, and if not, why. The proto
+// enum is the wire shape; this is the domain one, so the pricing code never has to
+// spell UNPRICED_REASON_UNSPECIFIED to mean success.
+type priceOutcome int
+
+const (
+	outcomePriced priceOutcome = iota
+	outcomeNoQuote
+	outcomeThinMarket
+)
+
+func (o priceOutcome) reason() apiv1.UnpricedReason {
+	if o == outcomeThinMarket {
+		return apiv1.UnpricedReason_UNPRICED_REASON_THIN_MARKET
+	}
+	return apiv1.UnpricedReason_UNPRICED_REASON_NO_QUOTE
+}
+
 // unitPrice returns the per-token price of assetID expressed in quoteAssetID as a
 // real-unit decimal (i.e. already divided by the price's decimals).
 //
@@ -376,32 +403,51 @@ func (h *Handler) describeUnpriced(ctx context.Context, holdings []*entity.Holdi
 //  1. direct  — a price quoted straight in quoteAssetID
 //  2. cross   — the asset's latest price in its own base B, converted B→quote
 //
-// ok is false when no price path exists; a non-nil error signals an unexpected failure.
-func (h *Handler) unitPrice(ctx context.Context, assetID, quoteAssetID string) (decimal.Decimal, bool, error) {
-	if p, ok, err := h.realPrice(ctx, assetID, quoteAssetID); err != nil || ok {
-		return p, ok, err
+// A quote that survives resolution still has to have a market behind it: MNEP priced
+// $4,175 of airdropped tokens off a $40k/day market until this gate existed. The check
+// runs on the asset's OWN price row only — the cross rate is a currency pair, and
+// gating it would take down everything priced through it.
+//
+// A non-nil error signals an unexpected failure, not an unpriced holding.
+func (h *Handler) unitPrice(ctx context.Context, assetID, quoteAssetID string) (decimal.Decimal, priceOutcome, error) {
+	unit, price, ok, err := h.realPrice(ctx, assetID, quoteAssetID)
+	if err != nil {
+		return decimal.Zero, outcomeNoQuote, err
+	}
+	if ok {
+		if marketdepth.Thin(price, decimal.NewFromInt(1)) {
+			return decimal.Zero, outcomeThinMarket, nil
+		}
+		return unit, outcomePriced, nil
 	}
 
 	// The asset's actual traded pair: latest price in whatever base it has.
-	baseID, value, ok, err := h.latestAnyBase(ctx, assetID)
+	baseID, value, price, ok, err := h.latestAnyBase(ctx, assetID)
 	if err != nil || !ok {
-		return decimal.Zero, false, err
+		return decimal.Zero, outcomeNoQuote, err
 	}
 
 	rate, ok, err := h.crossRate(ctx, baseID, quoteAssetID)
 	if err != nil || !ok {
-		return decimal.Zero, false, err
+		return decimal.Zero, outcomeNoQuote, err
 	}
-	return value.Mul(rate), true, nil
+	// Volume is denominated in the base the asset trades in, so it converts with
+	// the same rate as the price.
+	if marketdepth.Thin(price, rate) {
+		return decimal.Zero, outcomeThinMarket, nil
+	}
+	return value.Mul(rate), outcomePriced, nil
 }
 
 // crossRate returns how many units of quoteID one unit of baseID is worth, using a
 // direct baseID/quoteID price or, failing that, the inverse quoteID/baseID price.
 func (h *Handler) crossRate(ctx context.Context, baseID, quoteID string) (decimal.Decimal, bool, error) {
-	if r, ok, err := h.realPrice(ctx, baseID, quoteID); err != nil || ok {
+	// The price row itself is discarded here on purpose: a currency pair is not
+	// subject to the market-depth gate (see unitPrice).
+	if r, _, ok, err := h.realPrice(ctx, baseID, quoteID); err != nil || ok {
 		return r, ok, err
 	}
-	inv, ok, err := h.realPrice(ctx, quoteID, baseID)
+	inv, _, ok, err := h.realPrice(ctx, quoteID, baseID)
 	if err != nil || !ok || inv.IsZero() {
 		return decimal.Zero, false, err
 	}
@@ -409,46 +455,49 @@ func (h *Handler) crossRate(ctx context.Context, baseID, quoteID string) (decima
 }
 
 // latestAnyBase returns the asset's most recent price regardless of base, as the base
-// asset ID and the real-unit value. ok is false when no price exists.
-func (h *Handler) latestAnyBase(ctx context.Context, assetID string) (string, decimal.Decimal, bool, error) {
+// asset ID, the real-unit value and the price row it came from. ok is false when no
+// price exists.
+func (h *Handler) latestAnyBase(ctx context.Context, assetID string) (string, decimal.Decimal, *apiv1.Price, bool, error) {
 	resp, err := h.mdClient.GetLatestPrice(ctx, connect.NewRequest(&apiv1.GetLatestPriceRequest{
 		AssetId: assetID, // BaseAssetId omitted → latest in any base
 	}))
 	if err != nil {
 		if connect.CodeOf(err) == connect.CodeNotFound {
-			return "", decimal.Zero, false, nil
+			return "", decimal.Zero, nil, false, nil
 		}
-		return "", decimal.Zero, false, err
+		return "", decimal.Zero, nil, false, err
 	}
 	last, err := decimal.NewFromString(resp.Msg.Last)
 	if err != nil {
 		h.log.Warn("skip price with unparseable last",
 			"asset_id", assetID, "base_asset_id", resp.Msg.BaseAssetId, "last", resp.Msg.Last, "error", err)
-		return "", decimal.Zero, false, nil
+		return "", decimal.Zero, nil, false, nil
 	}
-	return resp.Msg.BaseAssetId, last.Shift(-decI32(resp.Msg.Decimals)), true, nil
+	return resp.Msg.BaseAssetId, last.Shift(-decI32(resp.Msg.Decimals)), resp.Msg, true, nil
 }
 
 // realPrice returns the latest price of assetID in baseID as a real-unit decimal
-// (value = last / 10^decimals). ok is false when no price exists (NotFound) or the
-// stored value is unparseable; a non-nil error is returned only for unexpected failures.
-func (h *Handler) realPrice(ctx context.Context, assetID, baseID string) (decimal.Decimal, bool, error) {
+// (value = last / 10^decimals), together with the price row it was read from — the
+// caller needs the market context on it, not just the number. ok is false when no
+// price exists (NotFound) or the stored value is unparseable; a non-nil error is
+// returned only for unexpected failures.
+func (h *Handler) realPrice(ctx context.Context, assetID, baseID string) (decimal.Decimal, *apiv1.Price, bool, error) {
 	resp, err := h.mdClient.GetLatestPrice(ctx, connect.NewRequest(&apiv1.GetLatestPriceRequest{
 		AssetId: assetID, BaseAssetId: baseID,
 	}))
 	if err != nil {
 		if connect.CodeOf(err) == connect.CodeNotFound {
-			return decimal.Zero, false, nil
+			return decimal.Zero, nil, false, nil
 		}
-		return decimal.Zero, false, err
+		return decimal.Zero, nil, false, err
 	}
 	last, err := decimal.NewFromString(resp.Msg.Last)
 	if err != nil {
 		h.log.Warn("skip price with unparseable last",
 			"asset_id", assetID, "base_asset_id", baseID, "last", resp.Msg.Last, "error", err)
-		return decimal.Zero, false, nil
+		return decimal.Zero, nil, false, nil
 	}
-	return last.Shift(-decI32(resp.Msg.Decimals)), true, nil
+	return last.Shift(-decI32(resp.Msg.Decimals)), resp.Msg, true, nil
 }
 
 // GetPortfolioPerformance calculates return over a time range using stored price history.

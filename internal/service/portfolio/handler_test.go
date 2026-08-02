@@ -1023,6 +1023,68 @@ func TestCalculatePortfolioValue_ReportsUnpricedCoverage(t *testing.T) {
 	assert.Equal(t, "h2", cov.Unpriced[0].HoldingId)
 	assert.Equal(t, unpricedAsset, cov.Unpriced[0].AssetId)
 	assert.Equal(t, "FXUS", cov.Unpriced[0].Symbol)
+	assert.Equal(t, apiv1.UnpricedReason_UNPRICED_REASON_NO_QUOTE, cov.Unpriced[0].Reason,
+		"nothing quoted this asset at all — distinct from a quote we refuse to trust")
+}
+
+// TestCalculatePortfolioValue_GatesThinMarket: the MNEP case. A price with no
+// market behind it is not a valuation, so the holding leaves the total the same
+// way an unquoted one does — disclosed, not written down to zero.
+//
+// The second half matters as much as the first: an asset the source reports NO
+// volume for stays priced. The 11 such assets on dev are mostly Aave receipt
+// tokens, real money with no market of their own.
+func TestCalculatePortfolioValue_GatesThinMarket(t *testing.T) {
+	const (
+		liquidAsset  = "00000000-0000-0000-0000-0000000000a1"
+		receiptAsset = "00000000-0000-0000-0000-0000000000a2"
+		thinAsset    = "00000000-0000-0000-0000-0000000000a3"
+	)
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
+		{ID: "h1", AssetID: liquidAsset, Amount: decimal.NewFromInt(100000000), Decimals: 8},    // 1.0
+		{ID: "h2", AssetID: receiptAsset, Amount: decimal.NewFromInt(200000000), Decimals: 8},   // 2.0
+		{ID: "h3", AssetID: thinAsset, Amount: decimal.NewFromInt(30000000000000), Decimals: 8}, // 300,000 units
+	}, "", nil)
+
+	bigVolume := "1500000000000000000" // $15bn — the healthy mode
+	thinVolume := "4065500000000"      // $40,655 — MNEP's real 24h volume
+
+	md := &mockMDClient{}
+	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
+		return r.Msg.AssetId == liquidAsset && r.Msg.BaseAssetId == "USD"
+	})).Return(connect.NewResponse(&apiv1.Price{Last: "300000000", Decimals: 8, BaseAssetId: "USD", Volume: &bigVolume}), nil) // 3.0
+	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
+		return r.Msg.AssetId == receiptAsset && r.Msg.BaseAssetId == "USD"
+	})).Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 1.0, no volume reported
+	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
+		return r.Msg.AssetId == thinAsset && r.Msg.BaseAssetId == "USD"
+	})).Return(connect.NewResponse(&apiv1.Price{Last: "1391886", Decimals: 8, BaseAssetId: "USD", Volume: &thinVolume}), nil) // $0.01391886
+	symbol := "MNEP"
+	md.On("GetAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetAssetRequest]) bool {
+		return r.Msg.Id == thinAsset
+	})).Return(connect.NewResponse(&apiv1.Asset{Id: thinAsset, Symbol: &symbol}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+	resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
+		PortfolioId: testPortfolioID,
+	}))
+	require.NoError(t, err)
+
+	// 1.0 × 3.0 + 2.0 × 1.0 = 5.00. The 300,000 units × $0.01391886 = $4,175 the
+	// gate exists for do not appear anywhere in the total.
+	assert.Equal(t, "500", resp.Msg.TotalValueAmount)
+
+	cov := resp.Msg.Coverage
+	require.NotNil(t, cov)
+	assert.Equal(t, uint32(2), cov.PricedCount, "the no-volume receipt token still counts")
+	assert.Equal(t, uint32(1), cov.UnpricedCount)
+	require.Len(t, cov.Unpriced, 1)
+	assert.Equal(t, "h3", cov.Unpriced[0].HoldingId)
+	assert.Equal(t, "MNEP", cov.Unpriced[0].Symbol)
+	assert.Equal(t, apiv1.UnpricedReason_UNPRICED_REASON_THIN_MARKET, cov.Unpriced[0].Reason,
+		"the quote existed; what it lacked was a market")
 }
 
 // TestCalculatePortfolioValue_UnpricedListIsCapped: the count stays exact while

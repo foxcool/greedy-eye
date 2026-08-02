@@ -269,6 +269,61 @@ func TestGetHeatmap_SkipsUnpricedAndExcluded(t *testing.T) {
 	assert.InDelta(t, 4000, resp.Msg.Nodes[1].Size, 1e-9) // still 2 ETH, not 3
 }
 
+// TestGetHeatmap_SkipsThinMarket: a quote with no market behind it does not draw a
+// node. MNEP would otherwise render as the second-largest tile on the dev map,
+// $4,175 of area over a market that turns over $40k a day.
+//
+// The map has no coverage block yet (personal-saw), so the omission is silent —
+// which is still better than a tile made of nothing.
+func TestGetHeatmap_SkipsThinMarket(t *testing.T) {
+	st, md := fixture()
+	st.holdings = append(st.holdings, &entity.Holding{
+		ID: "h3", AssetID: "mnep", AccountID: "a1", PortfolioID: "p1",
+		Amount: dec("30000000000000"), Decimals: 8, // 300,000 units
+	})
+	md.assets["mnep"] = &apiv1.Asset{Id: "mnep", Name: "Minereum Polygon", Symbol: strPtr("MNEP")}
+	thin := price("mnep", "USD", "1391886", 8) // $0.01391886
+	thin.Volume = strPtr("4065500000000")      // $40,655 of 24h volume
+	md.latest["mnep|USD"] = thin
+
+	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+
+	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Nodes, 2, "the thin asset draws no tile")
+	for _, n := range resp.Msg.Nodes {
+		assert.NotEqual(t, "mnep", n.Id)
+	}
+}
+
+// TestGetHeatmap_KeepsAssetWithoutReportedVolume: the mirror case. A source that
+// reports no volume says nothing about the market, and Aave receipt tokens (real
+// money, no market of their own) must keep their tile.
+func TestGetHeatmap_KeepsAssetWithoutReportedVolume(t *testing.T) {
+	st, md := fixture()
+	st.holdings = append(st.holdings, &entity.Holding{
+		ID: "h3", AssetID: "ausdc", AccountID: "a1", PortfolioID: "p1",
+		Amount: dec("63500000000"), Decimals: 8, // 635 units
+	})
+	md.assets["ausdc"] = &apiv1.Asset{Id: "ausdc", Name: "Aave USDC", Symbol: strPtr("aUSDC")}
+	md.latest["ausdc|USD"] = price("ausdc", "USD", "100000000", 8) // $1.00, no volume field
+
+	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+
+	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Nodes, 3)
+
+	var found bool
+	for _, n := range resp.Msg.Nodes {
+		if n.Id == "ausdc" {
+			found = true
+			assert.InDelta(t, 635, n.Size, 1e-9)
+		}
+	}
+	assert.True(t, found, "an unreported volume is not a reason to drop the position")
+}
+
 func TestGetHeatmap_MissingHistoryMeansNeutralColor(t *testing.T) {
 	st, md := fixture()
 	delete(md.hist, "eth|USD")

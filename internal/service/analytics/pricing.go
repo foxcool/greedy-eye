@@ -7,6 +7,7 @@ import (
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
+	"github.com/foxcool/greedy-eye/internal/marketdepth"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -14,7 +15,7 @@ import (
 // assetPricing is everything the heatmap needs to know about one asset.
 type assetPricing struct {
 	unit      decimal.Decimal // current per-token price in the quote asset
-	priced    bool            // false when no price path exists → asset is skipped
+	priced    bool            // false when there is no usable price → asset is skipped
 	changePct float64         // signed % change over the window; 0 when history is missing
 	label     string          // asset symbol, falling back to name, then ID
 }
@@ -36,9 +37,12 @@ func (h *Handler) assetPricing(ctx context.Context, cache map[string]*assetPrici
 	}
 
 	// Direct price in the quote asset: value and change come from the same pair.
-	if unit, ok, err := h.realPrice(ctx, assetID, quoteAssetID); err != nil {
+	if unit, price, ok, err := h.realPrice(ctx, assetID, quoteAssetID); err != nil {
 		return nil, err
 	} else if ok {
+		if h.markThin(ctx, ap, assetID, price, decimal.NewFromInt(1)) {
+			return ap, nil
+		}
 		ap.unit, ap.priced = unit, true
 		then, ok, err := h.histPrice(ctx, assetID, quoteAssetID, from)
 		if err != nil {
@@ -53,13 +57,17 @@ func (h *Handler) assetPricing(ctx context.Context, cache map[string]*assetPrici
 	// Cross price: latest in the asset's own traded base, converted to quote.
 	// Change is computed in base terms (the conversion rate cancels out only
 	// approximately, but it is the pair the asset actually trades in).
-	baseID, nowBase, ok, err := h.latestAnyBase(ctx, assetID)
+	baseID, nowBase, price, ok, err := h.latestAnyBase(ctx, assetID)
 	if err != nil || !ok {
 		return ap, err
 	}
 	rate, ok, err := h.crossRate(ctx, baseID, quoteAssetID)
 	if err != nil || !ok {
 		return ap, err
+	}
+	// Volume is denominated in the traded base, so it converts with the same rate.
+	if h.markThin(ctx, ap, assetID, price, rate) {
+		return ap, nil
 	}
 	ap.unit, ap.priced = nowBase.Mul(rate), true
 	thenBase, ok, err := h.histPrice(ctx, assetID, baseID, from)
@@ -70,6 +78,22 @@ func (h *Handler) assetPricing(ctx context.Context, cache map[string]*assetPrici
 		ap.changePct = changePct(nowBase, thenBase)
 	}
 	return ap, nil
+}
+
+// markThin applies the market-depth gate to the asset's own price row and reports
+// whether it fired. A thin quote leaves the asset unpriced, so it drops off the map
+// rather than drawing a node out of a market that cannot absorb the position — the
+// MNEP case that opened personal-6ae.
+//
+// The map has no coverage block to disclose this in yet (personal-saw); until it
+// does, the omission is silent, which is still the lesser of the two lies.
+func (h *Handler) markThin(ctx context.Context, ap *assetPricing, assetID string, price *apiv1.Price, rate decimal.Decimal) bool {
+	if !marketdepth.Thin(price, rate) {
+		return false
+	}
+	h.log.DebugContext(ctx, "heatmap: skipping asset with no market behind its quote",
+		"asset_id", assetID, "label", ap.label)
+	return true
 }
 
 func (h *Handler) resolveLabel(ctx context.Context, ap *assetPricing, assetID string) error {
@@ -117,47 +141,53 @@ func (h *Handler) histPrice(ctx context.Context, assetID, baseID string, from ti
 }
 
 // realPrice returns the latest price of assetID in baseID as a real-unit decimal
-// (value = last / 10^decimals). ok is false when no price exists (NotFound) or the
-// stored value is unparseable; a non-nil error is returned only for unexpected failures.
-func (h *Handler) realPrice(ctx context.Context, assetID, baseID string) (decimal.Decimal, bool, error) {
+// (value = last / 10^decimals), together with the price row it came from — callers
+// need the market context on it, not just the number. ok is false when no price
+// exists (NotFound) or the stored value is unparseable; a non-nil error is returned
+// only for unexpected failures.
+func (h *Handler) realPrice(ctx context.Context, assetID, baseID string) (decimal.Decimal, *apiv1.Price, bool, error) {
 	resp, err := h.mdClient.GetLatestPrice(ctx, connect.NewRequest(&apiv1.GetLatestPriceRequest{
 		AssetId: assetID, BaseAssetId: baseID,
 	}))
 	if err != nil {
 		if connect.CodeOf(err) == connect.CodeNotFound {
-			return decimal.Zero, false, nil
+			return decimal.Zero, nil, false, nil
 		}
-		return decimal.Zero, false, err
+		return decimal.Zero, nil, false, err
 	}
-	return realUnit(resp.Msg, h, assetID)
+	value, ok, err := realUnit(resp.Msg, h, assetID)
+	return value, resp.Msg, ok, err
 }
 
 // latestAnyBase returns the asset's most recent price regardless of base, as the base
-// asset ID and the real-unit value. ok is false when no price exists.
-func (h *Handler) latestAnyBase(ctx context.Context, assetID string) (string, decimal.Decimal, bool, error) {
+// asset ID, the real-unit value and the price row. ok is false when no price exists.
+func (h *Handler) latestAnyBase(ctx context.Context, assetID string) (string, decimal.Decimal, *apiv1.Price, bool, error) {
 	resp, err := h.mdClient.GetLatestPrice(ctx, connect.NewRequest(&apiv1.GetLatestPriceRequest{
 		AssetId: assetID, // BaseAssetId omitted → latest in any base
 	}))
 	if err != nil {
 		if connect.CodeOf(err) == connect.CodeNotFound {
-			return "", decimal.Zero, false, nil
+			return "", decimal.Zero, nil, false, nil
 		}
-		return "", decimal.Zero, false, err
+		return "", decimal.Zero, nil, false, err
 	}
 	value, ok, err := realUnit(resp.Msg, h, assetID)
 	if err != nil || !ok {
-		return "", decimal.Zero, false, err
+		return "", decimal.Zero, nil, false, err
 	}
-	return resp.Msg.BaseAssetId, value, true, nil
+	return resp.Msg.BaseAssetId, value, resp.Msg, true, nil
 }
 
 // crossRate returns how many units of quoteID one unit of baseID is worth, using a
 // direct baseID/quoteID price or, failing that, the inverse quoteID/baseID price.
+//
+// The price rows are discarded on purpose: a currency pair is not subject to the
+// market-depth gate, which applies to the asset's own quote (see markThin).
 func (h *Handler) crossRate(ctx context.Context, baseID, quoteID string) (decimal.Decimal, bool, error) {
-	if r, ok, err := h.realPrice(ctx, baseID, quoteID); err != nil || ok {
+	if r, _, ok, err := h.realPrice(ctx, baseID, quoteID); err != nil || ok {
 		return r, ok, err
 	}
-	inv, ok, err := h.realPrice(ctx, quoteID, baseID)
+	inv, _, ok, err := h.realPrice(ctx, quoteID, baseID)
 	if err != nil || !ok || inv.IsZero() {
 		return decimal.Zero, false, err
 	}

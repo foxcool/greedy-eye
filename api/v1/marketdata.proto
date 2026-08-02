@@ -87,12 +87,25 @@ message Price {
 message ValuationCoverage {
   // Holdings that entered the total.
   uint32 priced_count = 1;
-  // Holdings left out of the total because no price path exists for the asset.
+  // Holdings left out of the total: no price path exists, or the quote found had
+  // no market behind it. `UnpricedReason` on each entry says which.
   uint32 unpriced_count = 2;
   // Identifies the unpriced holdings, capped for read size.
   repeated UnpricedHolding unpriced = 3;
   // True when unpriced_count exceeds the cap and `unpriced` lists only a prefix.
   bool unpriced_truncated = 4;
+}
+
+// UnpricedReason says why a holding stayed out of the total. The distinction is
+// actionable: a missing quote is a coverage gap to close upstream, while a thin
+// market is a property of the asset its owner has to make a decision about.
+enum UnpricedReason {
+  UNPRICED_REASON_UNSPECIFIED = 0;
+  // No price row for the asset, or no path from its traded base to the quote.
+  UNPRICED_REASON_NO_QUOTE = 1;
+  // A quote exists but the market behind it is too small to realise the position
+  // at that price. See ADR-009 for the threshold and the distribution it came from.
+  UNPRICED_REASON_THIN_MARKET = 2;
 }
 
 // UnpricedHolding names one position that could not be valued. There is no
@@ -102,6 +115,7 @@ message UnpricedHolding {
   string asset_id = 2;
   // Best-effort label for display; empty when the asset lookup failed.
   string symbol = 3;
+  UnpricedReason reason = 4;
 }
 
 // =============================================================================
