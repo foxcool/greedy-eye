@@ -9,8 +9,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/foxcool/greedy-eye/internal/entity"
 )
 
 // newTestSyncer points a syncer at a stub Subscan serving the given body.
@@ -60,11 +63,34 @@ func TestSyncWallet_HydrationControllerAnchor(t *testing.T) {
 
 	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", []string{"hydration"})
 	require.NoError(t, err)
-	require.Len(t, balances, 1, "only the native token is read; builtin assets are personal-feb.10")
+	require.Len(t, balances, 2, "only the native token is read; builtin assets are personal-feb.10")
 
-	assert.Equal(t, "HDX", balances[0].Symbol)
-	assert.Equal(t, 12, balances[0].Decimals)
-	assert.Equal(t, "34644639967302550", balances[0].Amount)
+	// The anchor is now the SUM: the position is split by liquidity, and the
+	// total it adds up to is the figure verified against the manual baseline.
+	assert.Equal(t, "34644639967302550", sumAmounts(t, balances))
+
+	for _, b := range balances {
+		assert.Equal(t, "HDX", b.Symbol)
+		assert.Equal(t, 12, b.Decimals)
+	}
+	assert.Equal(t, entity.LiquidityLiquid, balances[0].Liquidity)
+	assert.Equal(t, "628942544130414", balances[0].Amount, "34644.639967302550 - 34015.697423172136")
+	assert.Equal(t, entity.LiquidityStaked, balances[1].Liquidity)
+	assert.Equal(t, "34015697423172136", balances[1].Amount)
+}
+
+// sumAmounts adds the raw amounts of a split position back up. Every liquidity
+// test checks this: a partition may move value between states, never create or
+// destroy it.
+func sumAmounts(t *testing.T, balances []entity.WalletBalance) string {
+	t.Helper()
+	sum := decimal.Zero
+	for _, b := range balances {
+		d, err := decimal.NewFromString(b.Amount)
+		require.NoError(t, err)
+		sum = sum.Add(d)
+	}
+	return sum.String()
 }
 
 // TestSyncWallet_ReservedIsInsideBalance is the guard for the bug that made
@@ -91,11 +117,127 @@ func TestSyncWallet_ReservedIsInsideBalance(t *testing.T) {
 
 	balances, err := syncer.SyncWallet(context.Background(), "EEg3jY", []string{"assethub-kusama"})
 	require.NoError(t, err)
-	require.Len(t, balances, 1)
+	require.Len(t, balances, 2)
 
-	assert.Equal(t, "6016092032275", balances[0].Amount,
+	assert.Equal(t, "6016092032275", sumAmounts(t, balances),
 		"balance already contains the staking hold; adding reserved double-counts it")
 	assert.Equal(t, 12, balances[0].Decimals)
+
+	// The spendable remainder is not inferred — Subscan's own v2 endpoint
+	// reports transferable_balance = 394224319384 for this exact account, which
+	// is what balance minus the hold has to come out as.
+	assert.Equal(t, entity.LiquidityLiquid, balances[0].Liquidity)
+	assert.Equal(t, "394224319384", balances[0].Amount)
+	assert.Equal(t, entity.LiquidityStaked, balances[1].Liquidity)
+	assert.Equal(t, "5621867712891", balances[1].Amount)
+}
+
+// TestSyncWallet_ReservedAndBondedAreTheSamePlanck is the measurement that
+// settled personal-3h4w, kept as a fixture.
+//
+// Live Kusama Asset Hub, 2026-08-02: balance 6.031593575767 KSM with reserved,
+// bonded AND lock each reporting 5.637369256383 — one hold, stated three times.
+// Subtracting reserved and bonded both would take 11.27 KSM out of 6.03 and
+// drive the position negative, which is the amount corruption personal-qi0 was
+// about. The split counts the hold once.
+func TestSyncWallet_ReservedAndBondedAreTheSamePlanck(t *testing.T) {
+	syncer := newTestSyncer(t, respondJSON(`{
+		"code": 0, "message": "Success",
+		"data": {"native": [{
+			"symbol": "KSM", "unique_id": "KSM", "decimals": 12,
+			"balance": "6031593575767",
+			"lock": "5637369256383",
+			"reserved": "5637369256383",
+			"bonded": "5637369256383",
+			"unbonding": "0"
+		}]}
+	}`))
+
+	balances, err := syncer.SyncWallet(context.Background(), "EEg3jY", []string{"assethub-kusama"})
+	require.NoError(t, err)
+	require.Len(t, balances, 2)
+
+	assert.Equal(t, "6031593575767", sumAmounts(t, balances), "the hold is counted once, not twice")
+	assert.Equal(t, entity.LiquidityLiquid, balances[0].Liquidity)
+	assert.Equal(t, "394224319384", balances[0].Amount)
+	assert.Equal(t, entity.LiquidityStaked, balances[1].Liquidity)
+	assert.Equal(t, "5637369256383", balances[1].Amount)
+}
+
+// TestSyncWallet_UnreconcilableReserveStaysUnclassified: a reserve that is
+// neither zero nor equal to bonded cannot be placed. It may be a deposit
+// disjoint from the staking lock, or the same planck seen through another
+// field, and the two answers differ in the direction that matters — guessing
+// wrong overstates what can be spent. One unclassified row is the honest answer.
+func TestSyncWallet_UnreconcilableReserveStaysUnclassified(t *testing.T) {
+	syncer := newTestSyncer(t, respondJSON(`{
+		"code": 0, "message": "Success",
+		"data": {"native": [{
+			"symbol": "DOT", "unique_id": "DOT", "decimals": 10,
+			"balance": "1000000000000",
+			"reserved": "10000000000",
+			"bonded": "600000000000",
+			"unbonding": "0"
+		}]}
+	}`))
+
+	balances, err := syncer.SyncWallet(context.Background(), "16RUKR", []string{"polkadot"})
+	require.NoError(t, err)
+	require.Len(t, balances, 1)
+
+	assert.Equal(t, "1000000000000", balances[0].Amount)
+	assert.Equal(t, entity.LiquidityUnknown, balances[0].Liquidity,
+		"an unknown liquidity is a gap; a wrong one is a false claim about available money")
+}
+
+// TestSyncWallet_FrozenPartsExceedingBalanceStayUnclassified: the same guard tzkt
+// has. If bonded and unbonding overlap each other, the reconciliation above
+// cannot see it, so the subtraction is what catches it.
+func TestSyncWallet_FrozenPartsExceedingBalanceStayUnclassified(t *testing.T) {
+	syncer := newTestSyncer(t, respondJSON(`{
+		"code": 0, "message": "Success",
+		"data": {"native": [{
+			"symbol": "DOT", "unique_id": "DOT", "decimals": 10,
+			"balance": "1000000000000",
+			"reserved": "0",
+			"bonded": "900000000000",
+			"unbonding": "800000000000"
+		}]}
+	}`))
+
+	balances, err := syncer.SyncWallet(context.Background(), "16RUKR", []string{"polkadot"})
+	require.NoError(t, err)
+	require.Len(t, balances, 1)
+
+	assert.Equal(t, "1000000000000", balances[0].Amount)
+	assert.Equal(t, entity.LiquidityUnknown, balances[0].Liquidity)
+}
+
+// TestSyncWallet_UnbondingIsItsOwnState: value on its way out of staking is not
+// locked — it becomes spendable when the era ends, with no further decision.
+func TestSyncWallet_UnbondingIsItsOwnState(t *testing.T) {
+	syncer := newTestSyncer(t, respondJSON(`{
+		"code": 0, "message": "Success",
+		"data": {"native": [{
+			"symbol": "DOT", "unique_id": "DOT", "decimals": 10,
+			"balance": "1000000000000",
+			"reserved": "0",
+			"bonded": "600000000000",
+			"unbonding": "150000000000"
+		}]}
+	}`))
+
+	balances, err := syncer.SyncWallet(context.Background(), "16RUKR", []string{"polkadot"})
+	require.NoError(t, err)
+	require.Len(t, balances, 3)
+
+	assert.Equal(t, "1000000000000", sumAmounts(t, balances))
+	assert.Equal(t, entity.LiquidityLiquid, balances[0].Liquidity)
+	assert.Equal(t, "250000000000", balances[0].Amount)
+	assert.Equal(t, entity.LiquidityStaked, balances[1].Liquidity)
+	assert.Equal(t, "600000000000", balances[1].Amount)
+	assert.Equal(t, entity.LiquidityUnbonding, balances[2].Liquidity)
+	assert.Equal(t, "150000000000", balances[2].Amount)
 }
 
 // TestSyncWallet_DecimalsComeFromResponse pins the rule that replaced the

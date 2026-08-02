@@ -35,8 +35,9 @@ type Client struct {
 	baseURLOverride string
 }
 
-// NewClient creates a Subscan client. A key is required for anything beyond
-// trivial rate limits; the free tier is enough for periodic balance polling.
+// NewClient creates a Subscan client. A key is mandatory: as of 2026-08-02 an
+// unauthenticated request is answered "Subscan API strictly requires an API key.
+// Unauthenticated access is disabled", whatever the endpoint.
 func NewClient(cfg Config) *Client {
 	return &Client{
 		apiKey:     cfg.APIKey,
@@ -66,8 +67,11 @@ type Account struct {
 	// Symbol is the chain's native token as the API names it.
 	Symbol string
 
-	// Reserved, Bonded and Unbonding are subsets of Balance, kept for
-	// observability and never added to it.
+	// Reserved, Bonded and Unbonding are subsets of Balance, never added to it.
+	// They are also not disjoint from EACH OTHER: measured on 2026-08-02, Kusama
+	// Asset Hub reports the same 5.637369256383 KSM as reserved, as bonded and
+	// as lock against a balance of 6.031593575767. splitLiquidity reconciles
+	// them before partitioning and declines to split when it cannot.
 	Reserved  decimal.Decimal
 	Bonded    decimal.Decimal
 	Unbonding decimal.Decimal
