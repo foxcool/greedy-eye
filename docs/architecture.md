@@ -391,7 +391,7 @@ per-account clients from stored credentials, falling back to env-configured clie
   | Package | Covers | Notes |
   |---|---|---|
   | `moralis` | EVM: eth, base, arbitrum, optimism, linea, polygon, bsc, avalanche | native + ERC-20; reports `possible_spam`/`verified` as signals |
-  | `subscan` | Substrate: Polkadot, Kusama, Hydration, Astar, Moonbeam + Asset Hub | position = `free + reserved`; whole units scaled to raw by chain decimals |
+  | `subscan` | Substrate: Polkadot, Kusama, Hydration, Astar, Moonbeam + Asset Hub | position = `balance` (raw planck, precision from the response); split into liquid/staked/unbonding when the parts reconcile |
   | `tonapi` | TON + jettons | |
   | `solana` | Solana via Helius | both token programs, DAS symbols, batched asset lookups |
   | `esplora` | Bitcoin | confirmed balances only |
@@ -438,11 +438,28 @@ covering *every* requested chain.
 - Adding an ecosystem: implement `entity.WalletSyncer` in `internal/adapter/<name>/`, expose a
   `SupportedChains()`, register it in `cmd/eye/main.go`. Test pattern: golden fixtures of provider
   responses driven through an `httptest` server (see `internal/adapter/moralis`, `internal/adapter/subscan`).
-- **Substrate balance model** (`internal/adapter/subscan/`): a position is `free + reserved`.
-  Locks — staking bonds, governance, vesting — restrict the free balance rather than sitting
-  beside it, so adding `bonded` would double-count the largest holding on a staking-heavy
-  account. Subscan reports whole token units; the adapter scales them to raw integers by the
-  chain's decimals. SS58 re-encodes one public key per network (generic `5…`, Polkadot `1…`,
+- **Substrate balance model** (`internal/adapter/subscan/`): a position is `balance` alone.
+  Reserved, bonded and unbonding are each a subset of it — locks and holds restrict the balance
+  rather than sitting beside it — so adding any of them double-counts the largest holding on a
+  staking-heavy account.
+
+  They are also not disjoint from **each other**, which is what makes the liquidity split
+  delicate. Measured on the live accounts 2026-08-02: Kusama Asset Hub reports the same
+  5.637369256383 KSM as `reserved`, as `bonded` and as `lock` against a balance of
+  6.031593575767 — one staking hold stated three times. Subtracting reserved and bonded both
+  would take 11.27 KSM out of 6.03. So the adapter splits only where the parts reconcile —
+  `reserved == bonded` (the hold reported twice) or `reserved == 0` (a lock on free balance) —
+  and reports one unclassified row otherwise. Guessing between "a deposit disjoint from the
+  lock" and "the same planck through another field" would overstate what can be spent, and the
+  runway figure is the one consumer that must never be told that lie.
+
+  The `/api/scan/account/tokens` endpoint carries no `transferable_balance`; the v2 search
+  endpoint that does is unusable because it mixes whole tokens and planck in one object with no
+  precision field. The subtraction is checked against it instead: for the Asset Hub account
+  above, balance minus the hold comes out at exactly the 0.394224319384 that endpoint reports.
+
+  Amounts arrive as raw planck at the precision the response states — no table lookup.
+  SS58 re-encodes one public key per network (generic `5…`, Polkadot `1…`,
   Kusama `C…`), so a single account covers the ecosystem: discovery sweeps every Substrate
   network the adapter knows. Moonbeam is the exception — EVM H160 addresses, so it must be
   named explicitly.
