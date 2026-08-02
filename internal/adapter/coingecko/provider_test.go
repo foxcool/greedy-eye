@@ -169,3 +169,15 @@ func TestStoredPrice_UnreportedFieldsStayNull(t *testing.T) {
 	assert.False(t, sp.MarketCap.Valid)
 	assert.Equal(t, now, sp.Timestamp)
 }
+
+// TestStoredPrice_NegativeValuesAreNotReported: BTL comes back from CoinGecko with
+// market_cap = -1. That used to read as a reported value and got scaled into the
+// database as a real number, which the confidence gate would then have to reason
+// about. A capitalisation below zero is the source failing to say, not a fact.
+func TestStoredPrice_NegativeValuesAreNotReported(t *testing.T) {
+	sp := storedPrice("btl", &PriceData{Price: 0.5, MarketCap: -1, Volume24h: -1}, time.Now())
+
+	assert.Equal(t, "50000000", sp.Last.String(), "the price itself is untouched")
+	assert.False(t, sp.MarketCap.Valid, "market_cap = -1 is not a capitalisation")
+	assert.False(t, sp.Volume.Valid)
+}
