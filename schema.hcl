@@ -433,6 +433,14 @@ table "holdings" {
     null    = false
     default = ""
   }
+  # How soon the amount can be spent: liquid | staked | unbonding | locked |
+  # vesting. Empty means the source could not partition the balance — it is NOT
+  # a synonym for liquid, and a runway figure must not read it as one.
+  column "liquidity" {
+    type    = character_varying
+    null    = false
+    default = ""
+  }
   column "import_id" {
     type = uuid
     null = true
@@ -447,12 +455,12 @@ table "holdings" {
     where   = "import_id IS NOT NULL"
   }
 
-  # Sync keys positions by (account, asset, chain). No unique constraint is
+  # Sync keys positions by (account, asset, chain, liquidity). No unique constraint is
   # declared: the table has never had one, manual and synced rows for the same
   # asset legitimately coexist, and adding one now would fail an apply on any
   # instance already carrying such a pair.
-  index "holding_account_asset_chain" {
-    columns = [column.account_id, column.asset_id, column.chain]
+  index "holding_account_asset_chain_liquidity" {
+    columns = [column.account_id, column.asset_id, column.chain, column.liquidity]
   }
 
   foreign_key "holdings_accounts_holdings" {

@@ -810,6 +810,12 @@ func (s *PortfolioStore) CreateHolding(ctx context.Context, h *entity.Holding) (
 	if !h.Source.Valid() {
 		return nil, fmt.Errorf("%w: unknown provenance source %q", store.ErrInvalidArgument, h.Source)
 	}
+	// Unknown ("") is allowed and is the default; a misspelled state is not.
+	// The column is a vocabulary, and a typo in it would read as a fifth
+	// liquidity class that nothing aggregates.
+	if !h.Liquidity.Valid() {
+		return nil, fmt.Errorf("%w: unknown liquidity %q", store.ErrInvalidArgument, h.Liquidity)
+	}
 
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -827,8 +833,8 @@ func (s *PortfolioStore) CreateHolding(ctx context.Context, h *entity.Holding) (
 	}
 
 	query := `
-		INSERT INTO holdings (id, amount, decimals, asset_id, account_id, portfolio_id, chain, excluded, source, import_id, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+		INSERT INTO holdings (id, amount, decimals, asset_id, account_id, portfolio_id, chain, liquidity, excluded, source, import_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
 		RETURNING created_at, updated_at`
 
 	err = s.pool.QueryRow(ctx, query,
@@ -839,6 +845,7 @@ func (s *PortfolioStore) CreateHolding(ctx context.Context, h *entity.Holding) (
 		h.AccountID,
 		portfolioID,
 		h.Chain,
+		string(h.Liquidity),
 		h.Excluded,
 		string(h.Source),
 		importID,
@@ -862,7 +869,7 @@ func (s *PortfolioStore) GetHolding(ctx context.Context, id string) (*entity.Hol
 	}
 
 	query := `
-		SELECT id, amount, decimals, asset_id, account_id, portfolio_id, chain, excluded, source, import_id, created_at, updated_at
+		SELECT id, amount, decimals, asset_id, account_id, portfolio_id, chain, liquidity, excluded, source, import_id, created_at, updated_at
 		FROM holdings
 		WHERE id = $1`
 
@@ -877,6 +884,7 @@ func (s *PortfolioStore) GetHolding(ctx context.Context, id string) (*entity.Hol
 		&h.AccountID,
 		&portfolioID,
 		&h.Chain,
+		&h.Liquidity,
 		&h.Excluded,
 		&h.Source,
 		&importID,
@@ -937,6 +945,10 @@ func (s *PortfolioStore) UpdateHolding(ctx context.Context, h *entity.Holding, f
 		case "chain":
 			setClauses = append(setClauses, fmt.Sprintf("chain = $%d", argIdx))
 			args = append(args, h.Chain)
+			argIdx++
+		case "liquidity":
+			setClauses = append(setClauses, fmt.Sprintf("liquidity = $%d", argIdx))
+			args = append(args, string(h.Liquidity))
 			argIdx++
 		}
 	}
@@ -1038,7 +1050,7 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 	}
 
 	query := fmt.Sprintf(`
-		SELECT h.id, h.amount, h.decimals, h.asset_id, h.account_id, h.portfolio_id, h.chain, h.excluded, h.source, h.import_id, h.created_at, h.updated_at
+		SELECT h.id, h.amount, h.decimals, h.asset_id, h.account_id, h.portfolio_id, h.chain, h.liquidity, h.excluded, h.source, h.import_id, h.created_at, h.updated_at
 		FROM holdings h
 		LEFT JOIN accounts a ON a.id = h.account_id
 		LEFT JOIN portfolios p ON p.id = COALESCE(h.portfolio_id, a.portfolio_id)
@@ -1067,6 +1079,7 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 			&h.AccountID,
 			&portfolioID,
 			&h.Chain,
+			&h.Liquidity,
 			&h.Excluded,
 			&h.Source,
 			&importID,

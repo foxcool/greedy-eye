@@ -139,6 +139,42 @@ func (s ProvenanceSource) Valid() bool {
 	}
 }
 
+// Liquidity says how soon a position can be spent. It is the axis the runway
+// question needs — "how much can I use, and when" — and it lives on the row
+// rather than on the asset: the same ATOM is liquid in the bank pool and staked
+// with a validator at the same instant.
+//
+// Empty is a real value and the default: "the source did not say". It is not a
+// synonym for liquid — reading an unclassified balance as spendable is the same
+// class of lie as reading an unpriced holding as zero.
+type Liquidity string
+
+const (
+	LiquidityUnknown Liquidity = "" // the adapter cannot partition this balance
+	LiquidityLiquid  Liquidity = "liquid"
+	LiquidityStaked  Liquidity = "staked"
+	// LiquidityUnbonding is staked value already in exit: it becomes liquid on
+	// a known date without any further decision, which is exactly what a runway
+	// projection needs to distinguish from open-ended staking.
+	LiquidityUnbonding Liquidity = "unbonding"
+	// LiquidityLocked is held by a contract or a venue with no exit schedule of
+	// its own (protocol lock-ups, a frozen withdrawal).
+	LiquidityLocked Liquidity = "locked"
+	// LiquidityVesting unlocks on a schedule the holder does not control.
+	LiquidityVesting Liquidity = "vesting"
+)
+
+// Valid reports whether l is one of the known liquidity states. Unknown ("") is
+// valid: an adapter that cannot partition a balance must be able to say so.
+func (l Liquidity) Valid() bool {
+	switch l {
+	case LiquidityUnknown, LiquidityLiquid, LiquidityStaked, LiquidityUnbonding, LiquidityLocked, LiquidityVesting:
+		return true
+	default:
+		return false
+	}
+}
+
 // Holding represents a specific quantity of an Asset held within an Account.
 type Holding struct {
 	ID          string
@@ -152,7 +188,11 @@ type Holding struct {
 	// entry) or was written before positions carried a chain — never "assume
 	// Ethereum". Sync keys positions by (account, asset, chain), so the same
 	// token on three chains is three rows.
-	Chain     string
+	Chain string
+	// Liquidity says how soon this amount can be spent. Sync keys positions by
+	// (account, asset, chain, liquidity), so staked and liquid ATOM on one chain
+	// are two rows. Empty means the source could not say — never "liquid".
+	Liquidity Liquidity
 	Excluded  bool             // If true, holding is explicitly excluded from all portfolio calculations
 	Source    ProvenanceSource // Creation provenance; immutable after create
 	ImportID  string           // Optional batch id linking rows created by one import

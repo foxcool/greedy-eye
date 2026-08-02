@@ -87,6 +87,11 @@ message Holding {
   // never means Ethereum. Sync writes one row per (account, asset, chain), so
   // the same token held on three chains is three holdings, not one sum.
   string chain = 12;
+  // How soon this amount can be spent: "liquid", "staked", "unbonding",
+  // "locked", "vesting". Empty means the source could not partition the
+  // balance — it is NOT a synonym for liquid, and a runway figure must not
+  // read it as one. Sync writes one row per (account, asset, chain, liquidity).
+  string liquidity = 13;
 }
 
 // Account represents a user's connection to an external financial entity.

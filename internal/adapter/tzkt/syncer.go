@@ -6,6 +6,7 @@ import (
 	"regexp"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/shopspring/decimal"
 )
 
 // SupportedChains returns the chains this adapter serves, for registration in
@@ -57,11 +58,39 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 	}
 
 	// TzKT reports mutez, which is already the raw integer form.
-	return []entity.WalletBalance{{
-		Symbol:   nativeSymbol,
-		Name:     nativeName,
-		Amount:   total.BigInt().String(),
-		Decimals: nativeDecimals,
-		Chain:    Chain,
-	}}, nil
+	balance := func(amount decimal.Decimal, liquidity entity.Liquidity) entity.WalletBalance {
+		return entity.WalletBalance{
+			Symbol:    nativeSymbol,
+			Name:      nativeName,
+			Amount:    amount.BigInt().String(),
+			Decimals:  nativeDecimals,
+			Chain:     Chain,
+			Liquidity: liquidity,
+		}
+	}
+
+	// Staked and Unstaked sit INSIDE Balance (see the Account doc), so the
+	// spendable part is what remains after both are taken out — never a sum.
+	spendable := total.Sub(account.Staked).Sub(account.Unstaked)
+	if spendable.IsNegative() {
+		// The two frozen figures overlap, which contradicts what TzKT
+		// documents. Rather than invent a split, report the position whole and
+		// unclassified: an unknown liquidity is a gap, a wrong one is a lie
+		// about how much can be spent.
+		return []entity.WalletBalance{balance(total, entity.LiquidityUnknown)}, nil
+	}
+
+	var out []entity.WalletBalance
+	if !spendable.IsZero() {
+		out = append(out, balance(spendable, entity.LiquidityLiquid))
+	}
+	if !account.Staked.IsZero() {
+		out = append(out, balance(account.Staked, entity.LiquidityStaked))
+	}
+	// Unstaked is frozen until finalization, then spendable without any further
+	// decision — the unbonding state, not an open-ended lock.
+	if !account.Unstaked.IsZero() {
+		out = append(out, balance(account.Unstaked, entity.LiquidityUnbonding))
+	}
+	return out, nil
 }

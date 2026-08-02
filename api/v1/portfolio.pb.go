@@ -431,7 +431,12 @@ type Holding struct {
 	// position is not chain-scoped (an exchange balance, a manual entry) — it
 	// never means Ethereum. Sync writes one row per (account, asset, chain), so
 	// the same token held on three chains is three holdings, not one sum.
-	Chain         string `protobuf:"bytes,12,opt,name=chain,proto3" json:"chain,omitempty"`
+	Chain string `protobuf:"bytes,12,opt,name=chain,proto3" json:"chain,omitempty"`
+	// How soon this amount can be spent: "liquid", "staked", "unbonding",
+	// "locked", "vesting". Empty means the source could not partition the
+	// balance — it is NOT a synonym for liquid, and a runway figure must not
+	// read it as one. Sync writes one row per (account, asset, chain, liquidity).
+	Liquidity     string `protobuf:"bytes,13,opt,name=liquidity,proto3" json:"liquidity,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -546,6 +551,13 @@ func (x *Holding) GetImportId() string {
 func (x *Holding) GetChain() string {
 	if x != nil {
 		return x.Chain
+	}
+	return ""
+}
+
+func (x *Holding) GetLiquidity() string {
+	if x != nil {
+		return x.Liquidity
 	}
 	return ""
 }
@@ -3161,7 +3173,7 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\tDataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12*\n" +
 	"\x05value\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\x05value:\x028\x01B\x0e\n" +
-	"\f_description\"\xca\x03\n" +
+	"\f_description\"\xe8\x03\n" +
 	"\aHolding\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06amount\x18\x02 \x01(\tR\x06amount\x12\x1a\n" +
@@ -3178,7 +3190,8 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x06source\x18\n" +
 	" \x01(\x0e2\x18.eye.v1.ProvenanceSourceR\x06source\x12 \n" +
 	"\timport_id\x18\v \x01(\tH\x01R\bimportId\x88\x01\x01\x12\x14\n" +
-	"\x05chain\x18\f \x01(\tR\x05chainB\x0f\n" +
+	"\x05chain\x18\f \x01(\tR\x05chain\x12\x1c\n" +
+	"\tliquidity\x18\r \x01(\tR\tliquidityB\x0f\n" +
 	"\r_portfolio_idB\f\n" +
 	"\n" +
 	"_import_id\"\x86\x04\n" +

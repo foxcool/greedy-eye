@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -45,11 +47,21 @@ func TestSyncWallet_StakedBalanceNotDoubleCounted(t *testing.T) {
 
 	balances, err := syncer.SyncWallet(context.Background(), testAddress, []string{Chain})
 	require.NoError(t, err)
-	require.Len(t, balances, 1)
+	require.Len(t, balances, 2, "spendable and staked are separate positions")
 
-	assert.Equal(t, "XTZ", balances[0].Symbol)
-	assert.Equal(t, 6, balances[0].Decimals)
-	assert.Equal(t, "20694662386884", balances[0].Amount)
+	byLiquidity := map[entity.Liquidity]entity.WalletBalance{}
+	sum := decimal.Zero
+	for _, b := range balances {
+		assert.Equal(t, "XTZ", b.Symbol)
+		assert.Equal(t, 6, b.Decimals)
+		byLiquidity[b.Liquidity] = b
+		sum = sum.Add(decimal.RequireFromString(b.Amount))
+	}
+	// 20694662386884 - 20687806127523 = 6856259361, the baker's own delegated
+	// balance — the arithmetic that proves the staked part is inside balance.
+	assert.Equal(t, "6856259361", byLiquidity[entity.LiquidityLiquid].Amount)
+	assert.Equal(t, "20687806127523", byLiquidity[entity.LiquidityStaked].Amount)
+	assert.Equal(t, "20694662386884", sum.String(), "the split must preserve the total")
 }
 
 // TestSyncWallet_UnstakingNotDoubleCounted: tokens mid-unstake are still frozen
@@ -64,8 +76,16 @@ func TestSyncWallet_UnstakingNotDoubleCounted(t *testing.T) {
 
 	balances, err := syncer.SyncWallet(context.Background(), testAddress, nil)
 	require.NoError(t, err)
-	require.Len(t, balances, 1)
-	assert.Equal(t, "36355630031", balances[0].Amount)
+	require.Len(t, balances, 2)
+
+	byLiquidity := map[entity.Liquidity]entity.WalletBalance{}
+	for _, b := range balances {
+		byLiquidity[b.Liquidity] = b
+	}
+	// Unstaking value is frozen now and spendable on a known date, which is a
+	// different answer to "how much can I use" than open-ended staking.
+	assert.Equal(t, "36349561940", byLiquidity[entity.LiquidityUnbonding].Amount)
+	assert.Equal(t, "6068091", byLiquidity[entity.LiquidityLiquid].Amount)
 }
 
 // TestSyncWallet_EmptyAndUnknown covers the two quiet cases: an address the
@@ -92,6 +112,27 @@ func TestSyncWallet_MissingStakingFields(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, balances, 1)
 	assert.Equal(t, "341345", balances[0].Amount)
+	assert.Equal(t, entity.LiquidityLiquid, balances[0].Liquidity,
+		"nothing is frozen, so the whole balance is spendable")
+}
+
+// TestSyncWallet_OverlappingFrozenFieldsStayUnclassified: TzKT documents staked
+// and unstaked as subsets of balance, so their sum cannot exceed it. If it ever
+// does, the split would take the same mutez out twice — report the position
+// whole and unclassified instead of inventing a breakdown. An unknown liquidity
+// is a gap; a wrong one is a lie about how much can be spent.
+func TestSyncWallet_OverlappingFrozenFieldsStayUnclassified(t *testing.T) {
+	syncer := newTestSyncer(t, respondJSON(`{
+		"balance": 1000000,
+		"stakedBalance": 900000,
+		"unstakedBalance": 800000
+	}`))
+
+	balances, err := syncer.SyncWallet(context.Background(), testAddress, nil)
+	require.NoError(t, err)
+	require.Len(t, balances, 1)
+	assert.Equal(t, "1000000", balances[0].Amount, "the total is never altered")
+	assert.Equal(t, entity.LiquidityUnknown, balances[0].Liquidity)
 }
 
 func TestSyncWallet_HTTPError(t *testing.T) {

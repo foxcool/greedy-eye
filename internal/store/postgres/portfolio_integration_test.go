@@ -462,6 +462,39 @@ func TestHoldingProvenanceRoundtrip(t *testing.T) {
 		assert.Equal(t, "arbitrum", updated.Chain)
 	})
 
+	// Liquidity is a vocabulary column: unknown ("") is a legitimate state and
+	// the default, a typo is not — it would read as a class nothing aggregates.
+	t.Run("liquidity round-trip and vocabulary guard", func(t *testing.T) {
+		for _, liquidity := range []entity.Liquidity{
+			entity.LiquidityLiquid, entity.LiquidityStaked, entity.LiquidityUnbonding,
+			entity.LiquidityLocked, entity.LiquidityVesting, entity.LiquidityUnknown,
+		} {
+			created, err := s.CreateHolding(ctx, &entity.Holding{
+				AssetID:   asset.ID,
+				AccountID: account.ID,
+				Amount:    decimal.RequireFromString("100"),
+				Decimals:  8,
+				Chain:     "cosmos",
+				Liquidity: liquidity,
+				Source:    entity.SourceSync,
+			})
+			require.NoError(t, err, "liquidity %q", liquidity)
+
+			got, err := s.GetHolding(ctx, created.ID)
+			require.NoError(t, err)
+			assert.Equal(t, liquidity, got.Liquidity)
+		}
+
+		_, err := s.CreateHolding(ctx, &entity.Holding{
+			AssetID:   asset.ID,
+			AccountID: account.ID,
+			Decimals:  8,
+			Liquidity: "mostly-liquid",
+			Source:    entity.SourceSync,
+		})
+		require.ErrorIs(t, err, store.ErrInvalidArgument)
+	})
+
 	t.Run("delete holding", func(t *testing.T) {
 		created, err := s.CreateHolding(ctx, &entity.Holding{
 			AssetID:   asset.ID,

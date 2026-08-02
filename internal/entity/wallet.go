@@ -15,6 +15,13 @@ type WalletBalance struct {
 	// contract identity (OnchainSource) so the same address on two chains
 	// resolves to two distinct assets.
 	Chain string
+	// Liquidity says how reachable this part of the balance is. Empty means the
+	// adapter cannot state it, which is different from "liquid": a chain that
+	// reports one opaque total must not have it read as spendable. An adapter
+	// that CAN partition emits one WalletBalance per pool, and the pools must
+	// not overlap — double-counting a staked position is the trap both the
+	// Substrate and Tezos clients document.
+	Liquidity Liquidity
 	// ProviderSpam is a source's own spam flag where reported (moralis
 	// possible_spam); nil when the provider does not report it. Fed to the
 	// identity scorer at sync intake.
