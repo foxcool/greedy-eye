@@ -15,6 +15,7 @@ import (
 	storecrypto "github.com/foxcool/greedy-eye/internal/store/crypto"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -917,7 +918,62 @@ func (s *PortfolioStore) listAccountsByCapabilityColumn(ctx context.Context, col
 
 // --- Holding methods ---
 
+// holdingExecutor is the slice of pgx that both a pool and a transaction
+// satisfy, so one holding write works the same standing alone or inside a
+// sync's snapshot transaction.
+type holdingExecutor interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// holdingTx is the transactional face of the holdings writes: it runs the same
+// statements as the store, against one transaction rather than the pool.
+type holdingTx struct{ tx pgx.Tx }
+
+var _ portfolio.HoldingWriter = (*holdingTx)(nil)
+
+func (t *holdingTx) CreateHolding(ctx context.Context, h *entity.Holding) (*entity.Holding, error) {
+	return createHolding(ctx, t.tx, h)
+}
+
+// UpdateHolding returns the row as written rather than re-read: inside a
+// transaction the read would see only the uncommitted state anyway, and the
+// sync that uses this path discards the result.
+func (t *holdingTx) UpdateHolding(ctx context.Context, h *entity.Holding, fields []string) (*entity.Holding, error) {
+	if err := updateHolding(ctx, t.tx, h, fields); err != nil {
+		return nil, err
+	}
+	return h, nil
+}
+
+// InHoldingsTx runs fn against a transactional holdings writer. A sync rewrites
+// a snapshot of an account's positions, and it is a long enough operation to be
+// interrupted in the middle: prod 2026-07-25 logged SyncAccount dying at the
+// caller's 10s deadline with assets already created and holdings half written,
+// which reads as a complete portfolio that is quietly wrong. Either the whole
+// set lands or the account keeps the snapshot it had.
+func (s *PortfolioStore) InHoldingsTx(ctx context.Context, fn func(portfolio.HoldingWriter) error) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // no-op once committed
+
+	if err := fn(&holdingTx{tx: tx}); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
 func (s *PortfolioStore) CreateHolding(ctx context.Context, h *entity.Holding) (*entity.Holding, error) {
+	return createHolding(ctx, s.pool, h)
+}
+
+func createHolding(ctx context.Context, q holdingExecutor, h *entity.Holding) (*entity.Holding, error) {
 	if h == nil {
 		return nil, fmt.Errorf("%w: holding is required", store.ErrInvalidArgument)
 	}
@@ -957,7 +1013,7 @@ func (s *PortfolioStore) CreateHolding(ctx context.Context, h *entity.Holding) (
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
 		RETURNING created_at, updated_at`
 
-	err = s.pool.QueryRow(ctx, query,
+	err = q.QueryRow(ctx, query,
 		h.ID,
 		h.Amount,
 		h.Decimals,
@@ -1029,11 +1085,18 @@ func (s *PortfolioStore) GetHolding(ctx context.Context, id string) (*entity.Hol
 }
 
 func (s *PortfolioStore) UpdateHolding(ctx context.Context, h *entity.Holding, fields []string) (*entity.Holding, error) {
+	if err := updateHolding(ctx, s.pool, h, fields); err != nil {
+		return nil, err
+	}
+	return s.GetHolding(ctx, h.ID)
+}
+
+func updateHolding(ctx context.Context, q holdingExecutor, h *entity.Holding, fields []string) error {
 	if h == nil || h.ID == "" {
-		return nil, fmt.Errorf("%w: holding with ID is required", store.ErrInvalidArgument)
+		return fmt.Errorf("%w: holding with ID is required", store.ErrInvalidArgument)
 	}
 	if !isValidUUID(h.ID) {
-		return nil, fmt.Errorf("%w: invalid holding ID format", store.ErrInvalidArgument)
+		return fmt.Errorf("%w: invalid holding ID format", store.ErrInvalidArgument)
 	}
 
 	setClauses := []string{"updated_at = NOW()"}
@@ -1079,16 +1142,16 @@ func (s *PortfolioStore) UpdateHolding(ctx context.Context, h *entity.Holding, f
 		WHERE id = $1`,
 		strings.Join(setClauses, ", "))
 
-	result, err := s.pool.Exec(ctx, query, args...)
+	result, err := q.Exec(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to update holding: %w", err)
+		return fmt.Errorf("failed to update holding: %w", err)
 	}
 
 	if result.RowsAffected() == 0 {
-		return nil, fmt.Errorf("%w: holding with ID %s", store.ErrNotFound, h.ID)
+		return fmt.Errorf("%w: holding with ID %s", store.ErrNotFound, h.ID)
 	}
 
-	return s.GetHolding(ctx, h.ID)
+	return nil
 }
 
 func (s *PortfolioStore) DeleteHolding(ctx context.Context, id string) error {

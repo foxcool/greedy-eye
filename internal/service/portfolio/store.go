@@ -21,6 +21,14 @@ type MarketDataClient interface {
 	FetchExternalPrices(context.Context, *connect.Request[apiv1.FetchExternalPricesRequest]) (*connect.Response[apiv1.FetchExternalPricesResponse], error)
 }
 
+// HoldingWriter is the subset of holdings writes a sync performs. It exists so
+// the whole set can be handed to one transaction: a sync rewrites a snapshot,
+// and half a snapshot is not a smaller truth, it is a wrong one.
+type HoldingWriter interface {
+	CreateHolding(ctx context.Context, h *entity.Holding) (*entity.Holding, error)
+	UpdateHolding(ctx context.Context, h *entity.Holding, fields []string) (*entity.Holding, error)
+}
+
 // Store defines the data access contract for PortfolioService.
 type Store interface {
 	// Portfolios
@@ -46,6 +54,10 @@ type Store interface {
 	UpdateHolding(ctx context.Context, h *entity.Holding, fields []string) (*entity.Holding, error)
 	DeleteHolding(ctx context.Context, id string) error
 	ListHoldings(ctx context.Context, opts ListHoldingsOpts) ([]*entity.Holding, string, error)
+	// InHoldingsTx runs fn against a transactional holdings writer: every write
+	// inside lands together or none does. Returning an error from fn rolls the
+	// whole set back.
+	InHoldingsTx(ctx context.Context, fn func(HoldingWriter) error) error
 
 	// Transactions
 	CreateTransaction(ctx context.Context, t *entity.Transaction) (*entity.Transaction, error)

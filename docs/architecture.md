@@ -552,9 +552,24 @@ API Client → PortfolioService/SyncAccount → resolver → syncer → upsert h
      - exchange → ExchangeSyncer (Binance) via the account's own API key
   3. Each balance resolves to an asset: contract ref first, confirmed symbol second
   4. New or unscored assets are scored by scamfilter; the verdict lands on the asset
-  5. Holdings upserted; scam/impersonation verdicts derive holdings.excluded
+  5. Holdings upserted in ONE transaction; scam/impersonation verdicts derive holdings.excluded
   6. Response: SyncAccountResponse{assets_upserted, holdings_upserted, errors}
 ```
+
+**Deadline and atomicity.** A sync is a long operation: ~22s measured for a heavy
+multi-chain EVM wallet, of which the last ~9s are asset resolution and the write.
+It runs on its own server-side bound (`syncTimeout`, 3 min in
+`internal/service/portfolio/handler.go`) and is detached from the caller's
+cancellation — a client hanging up stops nothing already underway. Before that it
+inherited whatever deadline the caller sent, which was the frontend's blanket 10s
+fetch timeout, and prod 2026-07-25 logged three syncs dying at exactly 10.005s
+mid-write. The holdings write is one transaction (`Store.InHoldingsTx`), so a
+failing row aborts the set instead of leaving the account carrying rows from two
+different syncs; assets, resolved through MarketData before the transaction
+opens, stay outside it — a catalogue entry with no holding is inert, half a
+snapshot is not. Callers that are themselves long (the frontend's `syncAccount`)
+set a client timeout above the server's and do not auto-retry: a retried sync
+would point a second writer at the same rows.
 
 #### Scenario 2c: Value a Portfolio
 

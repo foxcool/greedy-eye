@@ -5,6 +5,7 @@ package postgres
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
@@ -694,4 +695,101 @@ func TestTransactionProvenanceRoundtrip(t *testing.T) {
 		Type:      entity.TransactionTypeDeposit,
 	})
 	require.ErrorIs(t, err, store.ErrInvalidArgument)
+}
+
+// TestInHoldingsTxRollsBackTheWholeSnapshot: a sync rewrites the picture of an
+// account, so a run that dies halfway must leave the previous picture intact.
+// Prod 2026-07-25 had the opposite: SyncAccount aborted at the caller's 10s
+// deadline mid-write, and the account was left carrying rows from two different
+// syncs, which reads as a complete portfolio and is not one.
+func TestInHoldingsTxRollsBackTheWholeSnapshot(t *testing.T) {
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	s := NewPortfolioStore(pool)
+	assets := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	user := createTestUser(t, users)
+	account, err := s.CreateAccount(ctx, &entity.Account{
+		UserID:       user.ID,
+		Name:         "tx wallet",
+		Type:         entity.AccountTypeWallet,
+		Capabilities: []entity.AccountCapability{entity.CapabilityPortfolioSync},
+	})
+	require.NoError(t, err)
+
+	asset, err := assets.CreateAsset(ctx, &entity.Asset{
+		Symbol: "TXATOM",
+		Name:   "Transaction ATOM",
+		Type:   entity.AssetTypeCryptocurrency,
+	})
+	require.NoError(t, err)
+
+	// The snapshot the account already has: one row the next sync will refresh.
+	existing, err := s.CreateHolding(ctx, &entity.Holding{
+		AssetID:   asset.ID,
+		AccountID: account.ID,
+		Amount:    decimal.RequireFromString("100"),
+		Decimals:  6,
+		Liquidity: entity.LiquidityLiquid,
+		Source:    entity.SourceSync,
+	})
+	require.NoError(t, err)
+
+	t.Run("a failed write undoes the ones before it", func(t *testing.T) {
+		wantErr := errors.New("provider row rejected")
+		err := s.InHoldingsTx(ctx, func(w portfolio.HoldingWriter) error {
+			existing.Amount = decimal.RequireFromString("999")
+			if _, err := w.UpdateHolding(ctx, existing, []string{"amount"}); err != nil {
+				return err
+			}
+			if _, err := w.CreateHolding(ctx, &entity.Holding{
+				AssetID:   asset.ID,
+				AccountID: account.ID,
+				Amount:    decimal.RequireFromString("42"),
+				Decimals:  6,
+				Liquidity: entity.LiquidityStaked,
+				Source:    entity.SourceSync,
+			}); err != nil {
+				return err
+			}
+			return wantErr // the sync gave up here — nothing above may survive
+		})
+		require.ErrorIs(t, err, wantErr)
+
+		got, err := s.GetHolding(ctx, existing.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "100", got.Amount.String(), "the update rolled back with the set")
+
+		rows, _, err := s.ListHoldings(ctx, portfolio.ListHoldingsOpts{AccountID: account.ID, PageSize: 100})
+		require.NoError(t, err)
+		assert.Len(t, rows, 1, "the staked row created before the failure rolled back too")
+	})
+
+	t.Run("a clean run commits every row", func(t *testing.T) {
+		err := s.InHoldingsTx(ctx, func(w portfolio.HoldingWriter) error {
+			existing.Amount = decimal.RequireFromString("250")
+			if _, err := w.UpdateHolding(ctx, existing, []string{"amount"}); err != nil {
+				return err
+			}
+			_, err := w.CreateHolding(ctx, &entity.Holding{
+				AssetID:   asset.ID,
+				AccountID: account.ID,
+				Amount:    decimal.RequireFromString("42"),
+				Decimals:  6,
+				Liquidity: entity.LiquidityStaked,
+				Source:    entity.SourceSync,
+			})
+			return err
+		})
+		require.NoError(t, err)
+
+		got, err := s.GetHolding(ctx, existing.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "250", got.Amount.String())
+
+		rows, _, err := s.ListHoldings(ctx, portfolio.ListHoldingsOpts{AccountID: account.ID, PageSize: 100})
+		require.NoError(t, err)
+		assert.Len(t, rows, 2)
+	})
 }
