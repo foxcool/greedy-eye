@@ -963,13 +963,13 @@ System Quality
 #### Debt 2: A quote is trusted without a market behind it
 
 - Description: A price is accepted at face value regardless of whether anything trades at it.
-  The provider returns `market_cap` and `total_volume` on the by-id path and both are discarded
-  when the price is stored; the by-contract path does not even ask for them. Every token that
-  entered the catalogue by contract therefore has no market context at all.
+  Market context is now collected — `prices.volume` and `prices.market_cap` are populated on both
+  the by-id and the by-contract path — but nothing reads them yet: the sum still counts every
+  quote equally.
 - Impact: An illiquid airdrop can dominate a portfolio total. On the dev instance one such token
   accounted for 99% of the value of its price path.
-- Resolution Plan: collect volume and market cap on both paths first and look at the actual
-  distribution before choosing any threshold; then gate the sum through the existing
+- Resolution Plan: read the distribution of volume across the real catalogue, pick the threshold
+  from those numbers rather than in advance, then gate the sum through the existing
   `ValuationCoverage` — "unknown", not "zero".
 
 #### Debt 3: Price freshness is not checked

@@ -1074,6 +1074,10 @@ func priceFromProto(p *apiv1.Price) (*entity.StoredPrice, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid volume: %w", err)
 	}
+	marketCap, err := parseNullDecimal(p.MarketCap)
+	if err != nil {
+		return nil, fmt.Errorf("invalid market_cap: %w", err)
+	}
 
 	price := &entity.StoredPrice{
 		ID:          p.Id,
@@ -1088,6 +1092,7 @@ func priceFromProto(p *apiv1.Price) (*entity.StoredPrice, error) {
 		Low:         low,
 		Close:       closeVal,
 		Volume:      volume,
+		MarketCap:   marketCap,
 	}
 	if p.Timestamp != nil {
 		price.Timestamp = p.Timestamp.AsTime()
@@ -1109,6 +1114,7 @@ func priceToProto(e *entity.StoredPrice) *apiv1.Price {
 		Low:         nullDecimalToProto(e.Low),
 		Close:       nullDecimalToProto(e.Close),
 		Volume:      nullDecimalToProto(e.Volume),
+		MarketCap:   nullDecimalToProto(e.MarketCap),
 		Timestamp:   timestamppb.New(e.Timestamp),
 	}
 }

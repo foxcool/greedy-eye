@@ -237,12 +237,17 @@ type Price struct {
 	// Prices are raw integers scaled by `decimals`, sent as decimal strings (precision-safe).
 	Last string `protobuf:"bytes,7,opt,name=last,proto3" json:"last,omitempty"`
 	// OHLCV data - applicable when 'interval' represents a standard candle type.
-	Open          *string                `protobuf:"bytes,8,opt,name=open,proto3,oneof" json:"open,omitempty"`
-	High          *string                `protobuf:"bytes,9,opt,name=high,proto3,oneof" json:"high,omitempty"`
-	Low           *string                `protobuf:"bytes,10,opt,name=low,proto3,oneof" json:"low,omitempty"`
-	Close         *string                `protobuf:"bytes,11,opt,name=close,proto3,oneof" json:"close,omitempty"`
-	Volume        *string                `protobuf:"bytes,12,opt,name=volume,proto3,oneof" json:"volume,omitempty"`
-	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Open      *string                `protobuf:"bytes,8,opt,name=open,proto3,oneof" json:"open,omitempty"`
+	High      *string                `protobuf:"bytes,9,opt,name=high,proto3,oneof" json:"high,omitempty"`
+	Low       *string                `protobuf:"bytes,10,opt,name=low,proto3,oneof" json:"low,omitempty"`
+	Close     *string                `protobuf:"bytes,11,opt,name=close,proto3,oneof" json:"close,omitempty"`
+	Volume    *string                `protobuf:"bytes,12,opt,name=volume,proto3,oneof" json:"volume,omitempty"`
+	Timestamp *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	// Market capitalisation observed with this quote, scaled by `decimals` like
+	// the amounts above. Absent means the source reported none — which is not the
+	// same statement as a capitalisation of zero. It travels with the price, not
+	// with the asset: a quote is only as good as the market standing behind it.
+	MarketCap     *string `protobuf:"bytes,14,opt,name=market_cap,json=marketCap,proto3,oneof" json:"market_cap,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -366,6 +371,13 @@ func (x *Price) GetTimestamp() *timestamppb.Timestamp {
 		return x.Timestamp
 	}
 	return nil
+}
+
+func (x *Price) GetMarketCap() string {
+	if x != nil && x.MarketCap != nil {
+		return *x.MarketCap
+	}
+	return ""
 }
 
 // ValuationCoverage reports how much of a computed value actually had prices
@@ -1853,7 +1865,7 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\a_marketB\b\n" +
 	"\x06_quoteB\x13\n" +
 	"\x11_identity_verdictB\x11\n" +
-	"\x0f_verdict_source\"\xa9\x03\n" +
+	"\x0f_verdict_source\"\xdc\x03\n" +
 	"\x05Price\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tsource_id\x18\x02 \x01(\tR\bsourceId\x12\x19\n" +
@@ -1868,12 +1880,15 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	" \x01(\tH\x02R\x03low\x88\x01\x01\x12\x19\n" +
 	"\x05close\x18\v \x01(\tH\x03R\x05close\x88\x01\x01\x12\x1b\n" +
 	"\x06volume\x18\f \x01(\tH\x04R\x06volume\x88\x01\x01\x128\n" +
-	"\ttimestamp\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\ttimestampB\a\n" +
+	"\ttimestamp\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12\"\n" +
+	"\n" +
+	"market_cap\x18\x0e \x01(\tH\x05R\tmarketCap\x88\x01\x01B\a\n" +
 	"\x05_openB\a\n" +
 	"\x05_highB\x06\n" +
 	"\x04_lowB\b\n" +
 	"\x06_closeB\t\n" +
-	"\a_volume\"\xc1\x01\n" +
+	"\a_volumeB\r\n" +
+	"\v_market_cap\"\xc1\x01\n" +
 	"\x11ValuationCoverage\x12!\n" +
 	"\fpriced_count\x18\x01 \x01(\rR\vpricedCount\x12%\n" +
 	"\x0eunpriced_count\x18\x02 \x01(\rR\runpricedCount\x123\n" +
