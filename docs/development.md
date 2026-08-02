@@ -273,6 +273,9 @@ EYE_LOG_LEVEL=INFO            # DEBUG, INFO, WARN, ERROR
 # Secrets: accounts.data encryption (ADR-005). base64 of 32 random bytes.
 # Empty = plaintext mode with a startup warning (dev only).
 EYE_SECURITY_MASTERKEY=...    # openssl rand -base64 32
+# Set only while rotating: the key being retired. Reads fall back to it, writes
+# never use it. See "Rotating the master key" below.
+EYE_SECURITY_PREVIOUSMASTERKEY=
 
 # External API keys (env fallback — deprecated, prefer system accounts)
 EYE_MORALIS_APIKEY=your_key
@@ -334,6 +337,36 @@ services:
   - portfolio
   - automation
 ```
+
+### Rotating the master key
+
+`accounts.data` is sealed per row under a key derived from `EYE_SECURITY_MASTERKEY`
+(ADR-005). Replacing that value **does not** re-encrypt anything: every existing row stays
+sealed under the old key, and the store fails the whole account row when it cannot decrypt —
+so wallet addresses stop being readable along with the credentials. Rotation is therefore two
+steps, and the order is what keeps the data reachable:
+
+```bash
+# 1. new key current, old key kept for reads
+EYE_SECURITY_MASTERKEY=<new>            # openssl rand -base64 32
+EYE_SECURITY_PREVIOUSMASTERKEY=<old>
+
+# 2. restart: the instance now writes with the new key and reads with either
+
+# 3. re-encrypt every row under the current key (idempotent, safe to repeat)
+eye rewrap-secrets
+#   docker compose -p eye -f deploy/compose.yaml run --rm eye rewrap-secrets
+
+# 4. drop EYE_SECURITY_PREVIOUSMASTERKEY and restart again
+```
+
+Between steps 1 and 3 the instance runs normally; step 4 is what actually retires the old key.
+Going straight to it is what makes the data unrecoverable. `rewrap-secrets` stops on the first
+row no configured key can open rather than skipping it — a pass that reported success having
+silently left a row behind would be worse than no pass at all.
+
+The same command converges the pre-ADR-005 plaintext rows, which until now were only sealed
+if something happened to update them.
 
 ### Money Precision and Decimal Handling
 All monetary amounts use decimal precision to avoid floating-point errors:

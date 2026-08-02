@@ -357,6 +357,94 @@ func (s *PortfolioStore) unmarshalAccountData(accountID string, raw []byte) (map
 	return data, nil
 }
 
+// RewrapResult reports what a rewrap pass did.
+type RewrapResult struct {
+	// Scanned is every account row read.
+	Scanned int
+	// Rewritten is the rows whose data was re-sealed under the current key.
+	Rewritten int
+	// Skipped is rows with nothing to seal — an empty data map.
+	Skipped int
+}
+
+// RewrapAccountData re-encrypts every accounts.data row under the CURRENT master
+// key, reading each one through whatever key still opens it.
+//
+// This is what makes a master key rotation survivable. The encryptor writes with
+// the current key and reads with the current or the previous one, so a rotation
+// leaves the instance working but half its rows sealed under a key the operator
+// intends to retire; this pass finishes the job. It also converges the legacy
+// plaintext rows ADR-005 left readable, which until now were only re-sealed if
+// something happened to update them.
+//
+// Idempotent by construction: re-sealing a row already under the current key
+// just gives it a fresh nonce, so the pass can be repeated or interrupted. It is
+// not run automatically at startup — re-encrypting every credential in the
+// database is an operator's decision, not a side effect of a deploy.
+//
+// Refuses to run in plaintext mode: without an encryptor there is nothing to
+// rewrap to, and silently doing nothing would look like success.
+func (s *PortfolioStore) RewrapAccountData(ctx context.Context) (RewrapResult, error) {
+	var res RewrapResult
+	if s.encryptor == nil {
+		return res, fmt.Errorf("%w: rewrap needs a master key; the store is in plaintext mode", store.ErrInvalidArgument)
+	}
+
+	rows, err := s.pool.Query(ctx, `SELECT id, data FROM accounts ORDER BY id`)
+	if err != nil {
+		return res, fmt.Errorf("failed to list accounts for rewrap: %w", err)
+	}
+
+	type pending struct {
+		id   string
+		data map[string]string
+	}
+	var todo []pending
+
+	for rows.Next() {
+		var id string
+		var raw []byte
+		if err := rows.Scan(&id, &raw); err != nil {
+			rows.Close()
+			return res, fmt.Errorf("failed to scan account for rewrap: %w", err)
+		}
+		res.Scanned++
+
+		data, err := s.unmarshalAccountData(id, raw)
+		if err != nil {
+			// Stop rather than skip. A row no configured key can open is the
+			// one thing an operator has to know about before the old key is
+			// discarded, and a pass that reports success having silently left
+			// it behind is worse than no pass at all.
+			rows.Close()
+			return res, fmt.Errorf("account %s cannot be read with the configured keys: %w", id, err)
+		}
+		if len(data) == 0 {
+			res.Skipped++
+			continue
+		}
+		todo = append(todo, pending{id: id, data: data})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return res, fmt.Errorf("failed to read accounts for rewrap: %w", err)
+	}
+	rows.Close()
+
+	for _, p := range todo {
+		sealed, err := s.marshalAccountData(p.id, p.data)
+		if err != nil {
+			return res, fmt.Errorf("failed to seal account %s: %w", p.id, err)
+		}
+		if _, err := s.pool.Exec(ctx, `UPDATE accounts SET data = $2 WHERE id = $1`, p.id, sealed); err != nil {
+			return res, fmt.Errorf("failed to write account %s: %w", p.id, err)
+		}
+		res.Rewritten++
+	}
+
+	return res, nil
+}
+
 // scanAccount reads one account row in accountColumns order.
 func (s *PortfolioStore) scanAccount(row interface{ Scan(dest ...any) error }) (*entity.Account, error) {
 	var a entity.Account

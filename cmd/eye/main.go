@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -33,7 +32,6 @@ import (
 	"github.com/foxcool/greedy-eye/internal/service/credentials"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
-	storecrypto "github.com/foxcool/greedy-eye/internal/store/crypto"
 	"github.com/foxcool/greedy-eye/internal/store/postgres"
 	"github.com/getsentry/sentry-go"
 	"github.com/robfig/cron/v3"
@@ -42,10 +40,24 @@ import (
 const ServiceName = "EYE"
 
 func main() {
-	if err := run(); err != nil {
+	if err := dispatch(); err != nil {
 		fmt.Fprintf(os.Stderr, "fatal error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// dispatch routes the one-shot maintenance commands before falling through to
+// the server. Kept to a bare argument check rather than a CLI framework: there
+// is exactly one such command, and it is an operator action, not a UI.
+func dispatch() error {
+	if len(os.Args) > 1 && os.Args[1] == "rewrap-secrets" {
+		config, err := getConfig()
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		return rewrapSecrets(context.Background(), config, createLogger(config.Logger.Level))
+	}
+	return run()
 }
 
 func run() error {
@@ -147,19 +159,9 @@ func run() error {
 	}
 
 	// Initialize accounts.data encryption at rest (ADR-005)
-	var portfolioStoreOpts []postgres.PortfolioStoreOption
-	if config.Security.MasterKey != "" {
-		masterKey, err := base64.StdEncoding.DecodeString(config.Security.MasterKey)
-		if err != nil {
-			return fmt.Errorf("decode security master key: %w", err)
-		}
-		encryptor, err := storecrypto.NewEncryptor(masterKey)
-		if err != nil {
-			return fmt.Errorf("init encryptor: %w", err)
-		}
-		portfolioStoreOpts = append(portfolioStoreOpts, postgres.WithEncryptor(encryptor))
-	} else {
-		log.Warn("SECURITY_MASTERKEY is not set: accounts.data is stored in plaintext")
+	portfolioStoreOpts, err := encryptionOpts(config, log)
+	if err != nil {
+		return err
 	}
 
 	portfolioStore := postgres.NewPortfolioStore(pool, portfolioStoreOpts...)

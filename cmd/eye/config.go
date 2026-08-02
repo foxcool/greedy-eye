@@ -47,6 +47,11 @@ type Config struct {
 		// MasterKey is a base64-encoded 32-byte key for accounts.data
 		// encryption at rest (ADR-005). Empty = plaintext mode.
 		MasterKey string `koanf:"masterKey"`
+		// PreviousMasterKey is the key the instance is rotating away from,
+		// base64 as above. Reads fall back to it so a rotation does not have to
+		// be simultaneous with re-encrypting every row; writes never use it.
+		// Set it, restart, run `eye rewrap-secrets`, then remove it.
+		PreviousMasterKey string `koanf:"previousMasterKey"`
 	} `koanf:"security"`
 	// RateLimit lets an operator override the built-in per-provider request
 	// budget, keyed by provider slug (subscan, coingecko, ...). Useful on a

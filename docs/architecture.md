@@ -800,13 +800,25 @@ returned by the provider and currently discarded — is the prerequisite for clo
   Read path: a map with the single `enc` key is decrypted; any other shape is a legacy plaintext
   row, returned as is and re-encrypted on its next update. Empty key = plaintext mode with a
   startup warning (dev); production must set the key.
+
+  **Rotation** (added later; the original decision left it as a follow-up). An optional
+  `EYE_SECURITY_PREVIOUSMASTERKEY` widens the read path by one generation: writes always use the
+  current key, reads try the current one and then the previous. That turns a rotation into two
+  steps instead of one atomic act, and `eye rewrap-secrets` finishes it by re-sealing every row
+  under the current key — the same pass that converges the legacy plaintext rows. Without the
+  fallback, changing the key makes every row unreadable at once, and because the store fails the
+  entire account row on a decryption error, that takes wallet addresses down with the
+  credentials. The procedure is in `docs/development.md`.
 - **Consequences**:
   - ➕ Key never reaches the DB process, SQL statements, or server logs; unit-testable
   - ➕ No schema migration; legacy rows stay readable; format versioned (`v1:`) for rotation
   - ➕ Encrypted values can't be swapped between rows (fails GCM authentication)
+  - ➕ A key can be retired without downtime, and the rewrap pass is idempotent and resumable
   - ➖ Wallet addresses no longer visible in raw SQL
-  - ➖ Losing the master key loses all encrypted `accounts.data`; key rotation and legacy backfill
-    are follow-ups
+  - ➖ Losing the master key still loses all encrypted `accounts.data`: the fallback covers a
+    planned rotation, not a lost key
+  - ➖ One generation of history only, and retiring the previous key is a manual step nothing
+    verifies — an operator who forgets step 4 leaves the old key load bearing
 - **Rejected**: pgcrypto (key surfaces in `pg_stat_statements`/server logs, PG-coupled);
   per-field encryption (needs a secret-field classification, mixed-plaintext states);
   single static key without HKDF (swappable ciphertexts, shared nonce space)
