@@ -762,8 +762,8 @@ func (s *MarketDataStore) CreatePrice(ctx context.Context, price *entity.StoredP
 	}
 
 	query := `
-		INSERT INTO prices (id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, timestamp)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		INSERT INTO prices (id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, market_cap, timestamp)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING timestamp`
 
 	err = s.pool.QueryRow(ctx, query,
@@ -779,6 +779,7 @@ func (s *MarketDataStore) CreatePrice(ctx context.Context, price *entity.StoredP
 		price.Low,
 		price.Close,
 		price.Volume,
+		price.MarketCap,
 		price.Timestamp,
 	).Scan(&price.Timestamp)
 	if err != nil {
@@ -831,7 +832,7 @@ func (s *MarketDataStore) GetLatestPrice(ctx context.Context, assetID, baseAsset
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, timestamp
+		SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, market_cap, timestamp
 		FROM prices
 		WHERE asset_id = $1%s
 		ORDER BY timestamp DESC
@@ -851,6 +852,7 @@ func (s *MarketDataStore) GetLatestPrice(ctx context.Context, assetID, baseAsset
 		&price.Low,
 		&price.Close,
 		&price.Volume,
+		&price.MarketCap,
 		&price.Timestamp,
 	)
 	if err != nil {
@@ -870,7 +872,7 @@ func (s *MarketDataStore) GetFirstPriceAfter(ctx context.Context, assetID, baseA
 	}
 
 	query := `
-		SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, timestamp
+		SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, market_cap, timestamp
 		FROM prices
 		WHERE asset_id = $1 AND base_asset_id = $2 AND timestamp >= $3
 		ORDER BY timestamp ASC
@@ -890,6 +892,7 @@ func (s *MarketDataStore) GetFirstPriceAfter(ctx context.Context, assetID, baseA
 		&price.Low,
 		&price.Close,
 		&price.Volume,
+		&price.MarketCap,
 		&price.Timestamp,
 	)
 	if err != nil {
@@ -948,7 +951,7 @@ func (s *MarketDataStore) ListPriceHistory(ctx context.Context, opts marketdata.
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, timestamp
+		SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, market_cap, timestamp
 		FROM prices
 		WHERE %s
 		ORDER BY timestamp
@@ -978,6 +981,7 @@ func (s *MarketDataStore) ListPriceHistory(ctx context.Context, opts marketdata.
 			&price.Low,
 			&price.Close,
 			&price.Volume,
+			&price.MarketCap,
 			&price.Timestamp,
 		); err != nil {
 			return nil, "", fmt.Errorf("failed to scan price: %w", err)

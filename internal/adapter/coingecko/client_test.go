@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -120,7 +121,7 @@ func TestCoinGeckoClient_GetTokenPricesByContract_KeylessSingleAddressMode(t *te
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		_, _ = fmt.Fprintf(w, `{"%s": {"usd": 1.23, "usd_24h_high": 1.30, "usd_24h_low": 1.10}}`, goodAddr)
+		_, _ = fmt.Fprintf(w, `{"%s": {"usd": 1.23, "usd_market_cap": 4000000, "usd_24h_vol": 125000}}`, goodAddr)
 	}))
 	defer srv.Close()
 
@@ -238,4 +239,40 @@ func TestGetMultiplePrices_ChunksBeyondPageSize(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, pages, "the tail past per_page needs its own request")
 	assert.Len(t, got, 2, "both pages contribute")
+}
+
+// TestGetTokenPricesByContract_AsksForMarketContext: /simple/token_price
+// silently ignores include_24hr_high/low — it never supported them — so asking
+// bought nothing and the response carried no market context at all. The
+// parameters this endpoint does honour are market cap, 24h volume and change.
+func TestGetTokenPricesByContract_AsksForMarketContext(t *testing.T) {
+	addr := "0x" + strings.Repeat("ab", 20)
+
+	var query url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.Query()
+		_, _ = fmt.Fprintf(w, `{"%s": {"usd": 1.5, "usd_market_cap": 3000000, `+
+			`"usd_24h_vol": 90000, "usd_24h_change": -4.25}}`, addr)
+	}))
+	defer srv.Close()
+
+	client := NewClient(Config{APIKey: "demo-key"})
+	client.baseURL = srv.URL
+	client.httpClient = srv.Client()
+
+	result, err := client.GetTokenPricesByContract(context.Background(), "ethereum", []string{addr}, "usd")
+	require.NoError(t, err)
+
+	assert.Equal(t, "true", query.Get("include_market_cap"))
+	assert.Equal(t, "true", query.Get("include_24hr_vol"))
+	assert.Equal(t, "true", query.Get("include_24hr_change"))
+	assert.Empty(t, query.Get("include_24hr_high"), "the endpoint ignores it; asking only misleads the reader")
+	assert.Empty(t, query.Get("include_24hr_low"))
+
+	pd := result[addr]
+	require.NotNil(t, pd)
+	assert.InDelta(t, 1.5, pd.Price, 1e-9)
+	assert.InDelta(t, 3000000.0, pd.MarketCap, 1e-9)
+	assert.InDelta(t, 90000.0, pd.Volume24h, 1e-9)
+	assert.InDelta(t, -4.25, pd.ChangePercent, 1e-9)
 }

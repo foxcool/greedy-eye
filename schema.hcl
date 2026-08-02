@@ -502,6 +502,12 @@ table "prices" {
     type = numeric
     null = true
   }
+  column "market_cap" {
+    # Market context of this quote, scaled by decimals like every other amount
+    # in the row. NULL means the source reported none — not a cap of zero.
+    type = numeric
+    null = true
+  }
   column "timestamp" {
     type = timestamptz
     null = false

@@ -69,6 +69,11 @@ message Price {
   optional string close = 11;
   optional string volume = 12;
   google.protobuf.Timestamp timestamp = 13;
+  // Market capitalisation observed with this quote, scaled by `decimals` like
+  // the amounts above. Absent means the source reported none — which is not the
+  // same statement as a capitalisation of zero. It travels with the price, not
+  // with the asset: a quote is only as good as the market standing behind it.
+  optional string market_cap = 14;
 }
 
 // ValuationCoverage reports how much of a computed value actually had prices

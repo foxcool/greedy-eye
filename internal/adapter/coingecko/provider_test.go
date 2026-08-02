@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/stretchr/testify/assert"
@@ -102,4 +103,69 @@ func TestBudgetExemptSymbols(t *testing.T) {
 
 	assert.Len(t, got, len(nativeCoinID))
 	assert.Contains(t, got, "BTC", "symbols are upper-cased to match the catalogue")
+}
+
+// TestFetchPrices_CarriesMarketContext: both price paths report volume and
+// market cap, and both used to throw them away — prices.volume was NULL for
+// every asset in the database, ETH included. Without them a print is all the
+// system knows about a token, which is how an airdrop with no market stood
+// second in the dev portfolio (personal-6ae).
+func TestFetchPrices_CarriesMarketContext(t *testing.T) {
+	addr := "0x" + strings.Repeat("a1", 20)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/coins/markets") {
+			_, _ = fmt.Fprint(w, `[{"id":"ethereum","symbol":"eth","current_price":2000,`+
+				`"market_cap":240000000000,"total_volume":15000000000}]`)
+			return
+		}
+		_, _ = fmt.Fprintf(w, `{"%s": {"usd": 2.5, "usd_market_cap": 4000000, "usd_24h_vol": 125000}}`, addr)
+	}))
+	defer srv.Close()
+
+	client := NewClient(Config{APIKey: "demo-key"})
+	client.baseURL = srv.URL
+	client.httpClient = srv.Client()
+	p := NewProvider(client)
+
+	got, err := p.FetchPrices(context.Background(), []*entity.Asset{
+		{ID: "eth-1", Symbol: "ETH", Market: entity.MarketCrypto},
+		contractAssetOn("tkn-1", "eth", addr),
+	})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+
+	byAsset := map[string]entity.StoredPrice{}
+	for _, sp := range got {
+		byAsset[sp.AssetID] = sp
+	}
+
+	native := byAsset["eth-1"]
+	require.True(t, native.Volume.Valid, "the by-id path reports total_volume")
+	assert.Equal(t, "1500000000000000000", native.Volume.Decimal.String())
+	require.True(t, native.MarketCap.Valid)
+	assert.Equal(t, "24000000000000000000", native.MarketCap.Decimal.String())
+
+	token := byAsset["tkn-1"]
+	require.True(t, token.Volume.Valid, "the by-contract path reports 24h volume too")
+	assert.Equal(t, "12500000000000", token.Volume.Decimal.String())
+	require.True(t, token.MarketCap.Valid)
+	assert.Equal(t, "400000000000000", token.MarketCap.Decimal.String())
+}
+
+// TestStoredPrice_UnreportedFieldsStayNull: an absent number is not a zero one.
+// The contract path used to ask for high/low that endpoint ignores and store
+// the resulting 0 as a fact, which is how every contract-priced asset in the
+// dev catalogue ended up claiming high = low = 0.
+func TestStoredPrice_UnreportedFieldsStayNull(t *testing.T) {
+	now := time.Now()
+
+	sp := storedPrice("tkn-1", &PriceData{Price: 2.5}, now)
+
+	assert.Equal(t, "250000000", sp.Last.String())
+	assert.False(t, sp.High.Valid, "a high nobody reported is unknown, not zero")
+	assert.False(t, sp.Low.Valid)
+	assert.False(t, sp.Volume.Valid, "no volume means no market context, not an empty market")
+	assert.False(t, sp.MarketCap.Valid)
+	assert.Equal(t, now, sp.Timestamp)
 }

@@ -287,8 +287,15 @@ func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, 
 		end := min(i+batchSize, len(valid))
 		batch := valid[i:end]
 
+		// token_price supports market cap, volume and change — not high/low.
+		// It used to be asked for include_24hr_high/low, which this endpoint
+		// ignores without complaint: every contract-priced asset in the
+		// catalogue ended up with high = low = 0, and none of them carried any
+		// market context at all. A price with no volume behind it is what let
+		// MNEP stand second in the dev portfolio (personal-6ae).
 		url := fmt.Sprintf(
-			"%s/simple/token_price/%s?contract_addresses=%s&vs_currencies=%s&include_24hr_high=true&include_24hr_low=true",
+			"%s/simple/token_price/%s?contract_addresses=%s&vs_currencies=%s"+
+				"&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true",
 			c.baseURL,
 			platform,
 			strings.Join(batch, ","),
@@ -320,7 +327,7 @@ func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, 
 			continue
 		}
 
-		// Response: { "0x...": { "usd": 1.23, "usd_24h_high": 1.30, "usd_24h_low": 1.10 }, ... }
+		// Response: { "0x...": { "usd": 1.23, "usd_market_cap": 4e6, "usd_24h_vol": 1.2e5, "usd_24h_change": -3.4 }, ... }
 		var raw map[string]map[string]float64
 		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 			_ = resp.Body.Close()
@@ -336,10 +343,11 @@ func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, 
 				continue
 			}
 			result[addr] = &PriceData{
-				Price:     price,
-				High24h:   prices[currency+"_24h_high"],
-				Low24h:    prices[currency+"_24h_low"],
-				Timestamp: now,
+				Price:         price,
+				MarketCap:     prices[currency+"_market_cap"],
+				Volume24h:     prices[currency+"_24h_vol"],
+				ChangePercent: prices[currency+"_24h_change"],
+				Timestamp:     now,
 			}
 		}
 	}

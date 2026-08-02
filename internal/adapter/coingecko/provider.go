@@ -327,6 +327,18 @@ func scaled(v float64) decimal.Decimal {
 	return decimal.NewFromFloat(v).Shift(int32(priceDecimals)).Round(0)
 }
 
+// reported carries a value only when the source actually reported one. Zero and
+// absent are different claims: a token the API returns no volume for has an
+// unknown market, while a genuine zero says the market is there and empty. The
+// contract path used to store 0 for high and low it never asked for, which read
+// as the former and meant neither.
+func reported(v float64) decimal.NullDecimal {
+	if v == 0 {
+		return decimal.NullDecimal{}
+	}
+	return decimal.NullDecimal{Decimal: scaled(v), Valid: true}
+}
+
 func storedPrice(assetID string, pd *PriceData, now time.Time) entity.StoredPrice {
 	ts := pd.Timestamp
 	if ts.IsZero() {
@@ -336,11 +348,16 @@ func storedPrice(assetID string, pd *PriceData, now time.Time) entity.StoredPric
 		SourceID: sourceID,
 		AssetID:  assetID,
 		// BaseAssetID is intentionally empty — resolved by FetchExternalPrices handler.
-		Interval:  interval,
-		Decimals:  priceDecimals,
-		Last:      scaled(pd.Price),
-		High:      decimal.NullDecimal{Decimal: scaled(pd.High24h), Valid: true},
-		Low:       decimal.NullDecimal{Decimal: scaled(pd.Low24h), Valid: true},
+		Interval: interval,
+		Decimals: priceDecimals,
+		Last:     scaled(pd.Price),
+		High:     reported(pd.High24h),
+		Low:      reported(pd.Low24h),
+		// Volume and market cap are the market behind the print. Both endpoints
+		// report them and both used to drop them on the floor, which is why
+		// prices.volume was NULL across the whole database, ETH included.
+		Volume:    reported(pd.Volume24h),
+		MarketCap: reported(pd.MarketCap),
 		Timestamp: ts,
 	}
 }

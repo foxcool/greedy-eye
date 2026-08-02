@@ -38,5 +38,10 @@ type StoredPrice struct {
 	Low         decimal.NullDecimal
 	Close       decimal.NullDecimal
 	Volume      decimal.NullDecimal
-	Timestamp   time.Time
+	// MarketCap is the quote's market context, not a property of the asset: the
+	// same asset carries a different cap at every instant, so it belongs to the
+	// price row that observed it. Null means the source did not report one —
+	// which is a different statement from a cap of zero.
+	MarketCap decimal.NullDecimal
+	Timestamp time.Time
 }
