@@ -146,12 +146,18 @@ type Holding struct {
 	Decimals    uint32
 	AssetID     string
 	AccountID   string
-	PortfolioID string           // Optional; empty = inherit from account's portfolio_id
-	Excluded    bool             // If true, holding is explicitly excluded from all portfolio calculations
-	Source      ProvenanceSource // Creation provenance; immutable after create
-	ImportID    string           // Optional batch id linking rows created by one import
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	PortfolioID string // Optional; empty = inherit from account's portfolio_id
+	// Chain names the network this amount sits on ("eth", "base", "solana").
+	// Empty means the position is not chain-scoped (exchange balance, manual
+	// entry) or was written before positions carried a chain — never "assume
+	// Ethereum". Sync keys positions by (account, asset, chain), so the same
+	// token on three chains is three rows.
+	Chain     string
+	Excluded  bool             // If true, holding is explicitly excluded from all portfolio calculations
+	Source    ProvenanceSource // Creation provenance; immutable after create
+	ImportID  string           // Optional batch id linking rows created by one import
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // TransactionType represents the type of financial transaction.

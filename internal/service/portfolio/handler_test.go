@@ -1976,3 +1976,120 @@ func TestImportPositions_FullSnapshotSuppressedOnFailure(t *testing.T) {
 	assert.Equal(t, int32(0), resp.Msg.Deleted)
 	s.AssertNotCalled(t, "DeleteHolding")
 }
+
+// TestSyncAccount_SplitsPositionsByChain: the same token on two chains is two
+// positions. Collapsing them by asset_id destroyed the only record of where an
+// amount sits, and summed quantities across mismatched decimals on the way —
+// USDC is 6 decimals on Ethereum and 18 on BSC, and the merged row was stored
+// at whichever scale happened to be larger. Two addresses on the SAME chain
+// still merge: that is one place.
+func TestSyncAccount_SplitsPositionsByChain(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth,base"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+
+	created := map[string]*entity.Holding{}
+	s.On("CreateHolding", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			h := args.Get(1).(*entity.Holding)
+			created[h.Chain] = h
+		}).
+		Return(&entity.Holding{ID: "h-1"}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth", "base"}).Return([]entity.WalletBalance{
+		{Symbol: "USDC", Amount: "1000000", Decimals: 6, ContractAddress: "0xusdc", Chain: "eth"},
+		{Symbol: "USDC", Amount: "3000000", Decimals: 6, ContractAddress: "0xusdc", Chain: "eth"},
+		{Symbol: "USDC", Amount: "7000000000000000000", Decimals: 18, ContractAddress: "0xusdc", Chain: "base"},
+	}, nil)
+
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.Errors)
+	assert.Equal(t, int32(2), resp.Msg.HoldingsUpserted, "one row per chain, not one summed row")
+
+	require.Contains(t, created, "eth")
+	require.Contains(t, created, "base")
+	assert.Equal(t, "4000000", created["eth"].Amount.String(), "same chain, two addresses: merged")
+	assert.Equal(t, uint32(6), created["eth"].Decimals)
+	assert.Equal(t, "7000000000000000000", created["base"].Amount.String(), "the 18-decimal chain keeps its own scale")
+	assert.Equal(t, uint32(18), created["base"].Decimals)
+}
+
+// TestSyncAccount_AdoptsPreChainHolding: rows written before positions carried a
+// chain are one summed row per asset with an empty chain. The first chain seen
+// adopts that row — keeping its id, portfolio and manual excluded override —
+// instead of leaving it beside the new per-chain rows, where it would double the
+// position until someone deleted it by hand.
+func TestSyncAccount_AdoptsPreChainHolding(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth,base"}
+
+	legacy := &entity.Holding{
+		ID:        "h-legacy",
+		AssetID:   "asset-USDC", // what the auto-resolving market-data mock returns
+		AccountID: testAccountID,
+		Amount:    decimal.RequireFromString("4000000"),
+		Decimals:  6,
+		Source:    entity.SourceSync,
+	}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{legacy}, "", nil)
+
+	var updated *entity.Holding
+	var updatedFields []string
+	s.On("UpdateHolding", mock.Anything, mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			updated = args.Get(1).(*entity.Holding)
+			updatedFields = args.Get(2).([]string)
+		}).
+		Return(&entity.Holding{ID: "h-legacy"}, nil)
+
+	var createdChains []string
+	s.On("CreateHolding", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			createdChains = append(createdChains, args.Get(1).(*entity.Holding).Chain)
+		}).
+		Return(&entity.Holding{ID: "h-new"}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth", "base"}).Return([]entity.WalletBalance{
+		{Symbol: "USDC", Amount: "1000000", Decimals: 6, ContractAddress: "0xusdc", Chain: "eth"},
+		{Symbol: "USDC", Amount: "3000000", Decimals: 6, ContractAddress: "0xusdc", Chain: "base"},
+	}, nil)
+
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.Errors)
+	assert.Equal(t, int32(2), resp.Msg.HoldingsUpserted)
+
+	require.NotNil(t, updated, "the pre-chain row must be reused, not orphaned")
+	assert.Equal(t, "h-legacy", updated.ID)
+	assert.Equal(t, "eth", updated.Chain, "the first chain seen adopts the row")
+	assert.Contains(t, updatedFields, "chain")
+	assert.Equal(t, "1000000", updated.Amount.String())
+	assert.Equal(t, []string{"base"}, createdChains, "only the remaining chain becomes a new row")
+}

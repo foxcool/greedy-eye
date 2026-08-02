@@ -82,6 +82,11 @@ message Holding {
   ProvenanceSource source = 10;
   // Output only. Batch id linking rows created by one import; stamped by the server.
   optional string import_id = 11;
+  // Network this amount sits on ("eth", "base", "solana"). Empty means the
+  // position is not chain-scoped (an exchange balance, a manual entry) — it
+  // never means Ethereum. Sync writes one row per (account, asset, chain), so
+  // the same token held on three chains is three holdings, not one sum.
+  string chain = 12;
 }
 
 // Account represents a user's connection to an external financial entity.

@@ -422,6 +422,17 @@ table "holdings" {
     null    = false
     default = "sync"
   }
+  # Network this amount sits on ("eth", "base", "solana"). Empty means the
+  # position is not chain-scoped (an exchange balance, a manual entry) or
+  # predates the column — not "Ethereum". It belongs on the row and not on the
+  # asset: the same USDC on Base and on Arbitrum is one asset in two places,
+  # and summing the two into one row is what made "how much on which chain"
+  # unanswerable.
+  column "chain" {
+    type    = character_varying
+    null    = false
+    default = ""
+  }
   column "import_id" {
     type = uuid
     null = true
@@ -434,6 +445,14 @@ table "holdings" {
   index "holding_import_id" {
     columns = [column.import_id]
     where   = "import_id IS NOT NULL"
+  }
+
+  # Sync keys positions by (account, asset, chain). No unique constraint is
+  # declared: the table has never had one, manual and synced rows for the same
+  # asset legitimately coexist, and adding one now would fail an apply on any
+  # instance already carrying such a pair.
+  index "holding_account_asset_chain" {
+    columns = [column.account_id, column.asset_id, column.chain]
   }
 
   foreign_key "holdings_accounts_holdings" {

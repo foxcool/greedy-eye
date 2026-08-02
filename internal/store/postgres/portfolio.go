@@ -827,8 +827,8 @@ func (s *PortfolioStore) CreateHolding(ctx context.Context, h *entity.Holding) (
 	}
 
 	query := `
-		INSERT INTO holdings (id, amount, decimals, asset_id, account_id, portfolio_id, excluded, source, import_id, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+		INSERT INTO holdings (id, amount, decimals, asset_id, account_id, portfolio_id, chain, excluded, source, import_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
 		RETURNING created_at, updated_at`
 
 	err = s.pool.QueryRow(ctx, query,
@@ -838,6 +838,7 @@ func (s *PortfolioStore) CreateHolding(ctx context.Context, h *entity.Holding) (
 		h.AssetID,
 		h.AccountID,
 		portfolioID,
+		h.Chain,
 		h.Excluded,
 		string(h.Source),
 		importID,
@@ -861,7 +862,7 @@ func (s *PortfolioStore) GetHolding(ctx context.Context, id string) (*entity.Hol
 	}
 
 	query := `
-		SELECT id, amount, decimals, asset_id, account_id, portfolio_id, excluded, source, import_id, created_at, updated_at
+		SELECT id, amount, decimals, asset_id, account_id, portfolio_id, chain, excluded, source, import_id, created_at, updated_at
 		FROM holdings
 		WHERE id = $1`
 
@@ -875,6 +876,7 @@ func (s *PortfolioStore) GetHolding(ctx context.Context, id string) (*entity.Hol
 		&h.AssetID,
 		&h.AccountID,
 		&portfolioID,
+		&h.Chain,
 		&h.Excluded,
 		&h.Source,
 		&importID,
@@ -931,6 +933,10 @@ func (s *PortfolioStore) UpdateHolding(ctx context.Context, h *entity.Holding, f
 		case "excluded":
 			setClauses = append(setClauses, fmt.Sprintf("excluded = $%d", argIdx))
 			args = append(args, h.Excluded)
+			argIdx++
+		case "chain":
+			setClauses = append(setClauses, fmt.Sprintf("chain = $%d", argIdx))
+			args = append(args, h.Chain)
 			argIdx++
 		}
 	}
@@ -1032,7 +1038,7 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 	}
 
 	query := fmt.Sprintf(`
-		SELECT h.id, h.amount, h.decimals, h.asset_id, h.account_id, h.portfolio_id, h.excluded, h.source, h.import_id, h.created_at, h.updated_at
+		SELECT h.id, h.amount, h.decimals, h.asset_id, h.account_id, h.portfolio_id, h.chain, h.excluded, h.source, h.import_id, h.created_at, h.updated_at
 		FROM holdings h
 		LEFT JOIN accounts a ON a.id = h.account_id
 		LEFT JOIN portfolios p ON p.id = COALESCE(h.portfolio_id, a.portfolio_id)
@@ -1060,6 +1066,7 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 			&h.AssetID,
 			&h.AccountID,
 			&portfolioID,
+			&h.Chain,
 			&h.Excluded,
 			&h.Source,
 			&importID,

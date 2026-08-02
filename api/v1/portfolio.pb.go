@@ -426,7 +426,12 @@ type Holding struct {
 	// Output only. Creation provenance, stamped by the server; values sent by clients are ignored.
 	Source ProvenanceSource `protobuf:"varint,10,opt,name=source,proto3,enum=eye.v1.ProvenanceSource" json:"source,omitempty"`
 	// Output only. Batch id linking rows created by one import; stamped by the server.
-	ImportId      *string `protobuf:"bytes,11,opt,name=import_id,json=importId,proto3,oneof" json:"import_id,omitempty"`
+	ImportId *string `protobuf:"bytes,11,opt,name=import_id,json=importId,proto3,oneof" json:"import_id,omitempty"`
+	// Network this amount sits on ("eth", "base", "solana"). Empty means the
+	// position is not chain-scoped (an exchange balance, a manual entry) — it
+	// never means Ethereum. Sync writes one row per (account, asset, chain), so
+	// the same token held on three chains is three holdings, not one sum.
+	Chain         string `protobuf:"bytes,12,opt,name=chain,proto3" json:"chain,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -534,6 +539,13 @@ func (x *Holding) GetSource() ProvenanceSource {
 func (x *Holding) GetImportId() string {
 	if x != nil && x.ImportId != nil {
 		return *x.ImportId
+	}
+	return ""
+}
+
+func (x *Holding) GetChain() string {
+	if x != nil {
+		return x.Chain
 	}
 	return ""
 }
@@ -3149,7 +3161,7 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\tDataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12*\n" +
 	"\x05value\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\x05value:\x028\x01B\x0e\n" +
-	"\f_description\"\xb4\x03\n" +
+	"\f_description\"\xca\x03\n" +
 	"\aHolding\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06amount\x18\x02 \x01(\tR\x06amount\x12\x1a\n" +
@@ -3165,7 +3177,8 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\bexcluded\x18\t \x01(\bR\bexcluded\x120\n" +
 	"\x06source\x18\n" +
 	" \x01(\x0e2\x18.eye.v1.ProvenanceSourceR\x06source\x12 \n" +
-	"\timport_id\x18\v \x01(\tH\x01R\bimportId\x88\x01\x01B\x0f\n" +
+	"\timport_id\x18\v \x01(\tH\x01R\bimportId\x88\x01\x01\x12\x14\n" +
+	"\x05chain\x18\f \x01(\tR\x05chainB\x0f\n" +
 	"\r_portfolio_idB\f\n" +
 	"\n" +
 	"_import_id\"\x86\x04\n" +
