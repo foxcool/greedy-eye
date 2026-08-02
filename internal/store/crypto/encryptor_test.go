@@ -71,74 +71,106 @@ func TestDecryptFailsForWrongKey(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidCiphertext)
 }
 
-// TestPreviousKeyReadsRowsSealedBeforeRotation is the whole point of the
-// fallback: without it, changing the master key makes every encrypted row
-// unreadable at once — and the store fails the entire account row on a
-// decryption error, so wallet addresses go down with the credentials.
-func TestPreviousKeyReadsRowsSealedBeforeRotation(t *testing.T) {
-	old, err := NewEncryptor(testKey(1))
-	require.NoError(t, err)
+// TestStaleKeysReadRowsSealedBeforeRotation is the whole point of the key list:
+// without it, changing the master key makes every encrypted row unreadable at
+// once — and the store fails the entire account row on a decryption error, so
+// wallet addresses go down with the credentials.
+func TestStaleKeysReadRowsSealedBeforeRotation(t *testing.T) {
+	old := mustEncryptor(t, testKey(1))
 	sealedUnderOld, err := old.Encrypt("record-1", []byte(`{"api_key":"secret"}`))
 	require.NoError(t, err)
 
-	rotated, err := NewEncryptor(testKey(2))
-	require.NoError(t, err)
-	rotated, err = rotated.WithPreviousKey(testKey(1))
-	require.NoError(t, err)
+	rotated := mustEncryptor(t, testKey(2), testKey(1))
 
 	got, err := rotated.Decrypt("record-1", sealedUnderOld)
 	require.NoError(t, err)
 	assert.Equal(t, []byte(`{"api_key":"secret"}`), got)
-	assert.True(t, rotated.HasPreviousKey())
+	assert.Equal(t, 1, rotated.StaleKeys())
 }
 
-// TestPreviousKeyIsNeverWrittenWith: the fallback widens reads only. A value
-// written after the rotation must not be openable by the retired key, or
-// dropping that key later would lose data written after it was retired.
-func TestPreviousKeyIsNeverWrittenWith(t *testing.T) {
-	rotated, err := NewEncryptor(testKey(2))
+// TestReadsReachEveryGenerationInTheList: more than one rotation can be in
+// flight, and a row from two keys ago must not become unreadable because a third
+// was prepended.
+func TestReadsReachEveryGenerationInTheList(t *testing.T) {
+	oldest, err := mustEncryptor(t, testKey(1)).Encrypt("record-1", []byte("ancient"))
 	require.NoError(t, err)
-	rotated, err = rotated.WithPreviousKey(testKey(1))
+	middle, err := mustEncryptor(t, testKey(2)).Encrypt("record-1", []byte("recent"))
 	require.NoError(t, err)
+
+	e := mustEncryptor(t, testKey(3), testKey(2), testKey(1))
+	assert.Equal(t, 2, e.StaleKeys())
+
+	got, err := e.Decrypt("record-1", oldest)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("ancient"), got)
+	got, err = e.Decrypt("record-1", middle)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("recent"), got)
+}
+
+// TestOnlyTheFirstKeyIsWrittenWith: the list widens reads only. A value written
+// after the rotation must not be openable by a retired key, or dropping that key
+// later would lose data written after it was retired.
+func TestOnlyTheFirstKeyIsWrittenWith(t *testing.T) {
+	rotated := mustEncryptor(t, testKey(2), testKey(1))
 
 	encoded, err := rotated.Encrypt("record-1", []byte("payload"))
 	require.NoError(t, err)
 
-	retired, err := NewEncryptor(testKey(1))
-	require.NoError(t, err)
-	_, err = retired.Decrypt("record-1", encoded)
-	assert.ErrorIs(t, err, ErrInvalidCiphertext, "new writes must not be readable by the old key")
+	_, err = mustEncryptor(t, testKey(1)).Decrypt("record-1", encoded)
+	assert.ErrorIs(t, err, ErrInvalidCiphertext, "new writes must not be readable by a retired key")
 
-	// And the current key alone still opens it once the fallback is dropped.
-	current, err := NewEncryptor(testKey(2))
-	require.NoError(t, err)
-	got, err := current.Decrypt("record-1", encoded)
+	// And the current key alone still opens it once the tail is dropped.
+	got, err := rotated.Current().Decrypt("record-1", encoded)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("payload"), got)
+}
+
+// TestCurrentDropsTheStaleKeys: the rekey job uses Current() to answer the
+// question counters cannot — is every row readable without the stale keys?
+func TestCurrentDropsTheStaleKeys(t *testing.T) {
+	sealedUnderOld, err := mustEncryptor(t, testKey(1)).Encrypt("record-1", []byte("payload"))
+	require.NoError(t, err)
+
+	rotated := mustEncryptor(t, testKey(2), testKey(1))
+	current := rotated.Current()
+
+	assert.Equal(t, 0, current.StaleKeys())
+	_, err = current.Decrypt("record-1", sealedUnderOld)
+	assert.ErrorIs(t, err, ErrInvalidCiphertext, "a row still under the old key must fail the check")
 }
 
 func TestDecryptFailsWhenNoConfiguredKeyOpensTheValue(t *testing.T) {
 	sealed, err := mustEncryptor(t, testKey(9)).Encrypt("record-1", []byte("payload"))
 	require.NoError(t, err)
 
-	rotated, err := mustEncryptor(t, testKey(2)).WithPreviousKey(testKey(1))
-	require.NoError(t, err)
-
-	_, err = rotated.Decrypt("record-1", sealed)
+	_, err = mustEncryptor(t, testKey(2), testKey(1)).Decrypt("record-1", sealed)
 	assert.ErrorIs(t, err, ErrInvalidCiphertext)
 }
 
-func TestWithPreviousKeyRejectsBadKeySize(t *testing.T) {
-	e := mustEncryptor(t, testKey(1))
+// TestNewEncryptorRejectsDuplicateKeys: the same key twice is not a rotation in
+// progress, it is a config edit gone wrong — and it would make the rekey job
+// claim a stale key exists when none does.
+func TestNewEncryptorRejectsDuplicateKeys(t *testing.T) {
+	_, err := NewEncryptor(testKey(1), testKey(1))
+	assert.Error(t, err)
+}
+
+func TestNewEncryptorRejectsEmptyKeyList(t *testing.T) {
+	_, err := NewEncryptor()
+	assert.Error(t, err)
+}
+
+func TestNewEncryptorRejectsBadStaleKeySize(t *testing.T) {
 	for _, size := range []int{0, 16, 31, 33} {
-		_, err := e.WithPreviousKey(make([]byte, size))
+		_, err := NewEncryptor(testKey(1), make([]byte, size))
 		assert.Error(t, err, "size %d", size)
 	}
 }
 
-func mustEncryptor(t *testing.T, key []byte) *Encryptor {
+func mustEncryptor(t *testing.T, keys ...[]byte) *Encryptor {
 	t.Helper()
-	e, err := NewEncryptor(key)
+	e, err := NewEncryptor(keys...)
 	require.NoError(t, err)
 	return e
 }

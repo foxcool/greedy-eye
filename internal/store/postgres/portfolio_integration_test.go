@@ -261,19 +261,15 @@ func TestRewrapAccountDataCompletesARotation(t *testing.T) {
 
 	oldKey := bytes.Repeat([]byte{7}, 32)
 	newKey := bytes.Repeat([]byte{9}, 32)
-	encFor := func(t *testing.T, key []byte, previous []byte) *storecrypto.Encryptor {
+	encFor := func(t *testing.T, keys ...[]byte) *storecrypto.Encryptor {
 		t.Helper()
-		e, err := storecrypto.NewEncryptor(key)
+		e, err := storecrypto.NewEncryptor(keys...)
 		require.NoError(t, err)
-		if previous != nil {
-			e, err = e.WithPreviousKey(previous)
-			require.NoError(t, err)
-		}
 		return e
 	}
 
 	data := map[string]string{"api_key": "top-secret", "address": "0xabc"}
-	created, err := NewPortfolioStore(pool, WithEncryptor(encFor(t, oldKey, nil))).
+	created, err := NewPortfolioStore(pool, WithEncryptor(encFor(t, oldKey))).
 		CreateAccount(ctx, &entity.Account{
 			UserID: user.ID,
 			Name:   "sealed before rotation",
@@ -284,7 +280,7 @@ func TestRewrapAccountDataCompletesARotation(t *testing.T) {
 
 	// The new key alone cannot read it — this is the state a careless rotation
 	// leaves the whole table in.
-	_, err = NewPortfolioStore(pool, WithEncryptor(encFor(t, newKey, nil))).GetAccount(ctx, created.ID)
+	_, err = NewPortfolioStore(pool, WithEncryptor(encFor(t, newKey))).GetAccount(ctx, created.ID)
 	require.Error(t, err)
 
 	// Configured with both, the instance keeps working while it is half rotated.
@@ -299,7 +295,7 @@ func TestRewrapAccountDataCompletesARotation(t *testing.T) {
 	assert.GreaterOrEqual(t, res.Rewritten, 1)
 
 	// After the pass the previous key is no longer load bearing.
-	afterward, err := NewPortfolioStore(pool, WithEncryptor(encFor(t, newKey, nil))).GetAccount(ctx, created.ID)
+	afterward, err := NewPortfolioStore(pool, WithEncryptor(encFor(t, newKey))).GetAccount(ctx, created.ID)
 	require.NoError(t, err)
 	assert.Equal(t, data, afterward.Data,
 		"the row must open under the current key alone once it has been rewrapped")
@@ -307,6 +303,55 @@ func TestRewrapAccountDataCompletesARotation(t *testing.T) {
 	var rawData []byte
 	require.NoError(t, pool.QueryRow(ctx, "SELECT data FROM accounts WHERE id = $1", created.ID).Scan(&rawData))
 	assert.NotContains(t, string(rawData), "top-secret")
+}
+
+// TestRewrapAccountDataRewrapsEncryptedEmptyData is the regression for a pass
+// that reported success and still left a row sealed under the retired key.
+//
+// An account with no data at all is still stored as a sealed blob — a manual
+// account carries an encrypted `{}`. The first version of this pass treated an
+// empty decrypted map as "nothing to seal" and skipped the row, so it was never
+// re-sealed; dropping the previous key then made it unreadable, and with it the
+// whole account. Emptiness of the plaintext says nothing about which key the
+// ciphertext is under. Caught on the dev stand's gate.io account.
+func TestRewrapAccountDataRewrapsEncryptedEmptyData(t *testing.T) {
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	ctx := context.Background()
+	user := createTestUser(t, users)
+
+	oldKey := bytes.Repeat([]byte{7}, 32)
+	newKey := bytes.Repeat([]byte{9}, 32)
+	oldEnc, err := storecrypto.NewEncryptor(oldKey)
+	require.NoError(t, err)
+
+	created, err := NewPortfolioStore(pool, WithEncryptor(oldEnc)).CreateAccount(ctx, &entity.Account{
+		UserID: user.ID,
+		Name:   "no data at all",
+		Type:   entity.AccountTypeManual,
+		Data:   map[string]string{},
+	})
+	require.NoError(t, err)
+
+	rotatingEnc, err := storecrypto.NewEncryptor(newKey, oldKey)
+	require.NoError(t, err)
+
+	res, err := NewPortfolioStore(pool, WithEncryptor(rotatingEnc)).RewrapAccountData(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, res.Scanned, res.Rewritten, "every scanned row must be re-sealed, empty data included")
+
+	// The point: with the stale key gone, the row still opens. This is exactly
+	// what VerifyAccountDataReadable checks after the rekey job's pass.
+	checked, err := NewPortfolioStore(pool, WithEncryptor(rotatingEnc.Current())).
+		VerifyAccountDataReadable(ctx)
+	require.NoError(t, err, "an empty-data row left under the old key would surface here")
+	assert.Equal(t, res.Scanned, checked)
+
+	currentOnly, err := storecrypto.NewEncryptor(newKey)
+	require.NoError(t, err)
+	got, err := NewPortfolioStore(pool, WithEncryptor(currentOnly)).GetAccount(ctx, created.ID)
+	require.NoError(t, err, "an empty-data row left under the old key takes the whole account down")
+	assert.Empty(t, got.Data)
 }
 
 // TestRewrapAccountDataConvergesLegacyPlaintext: ADR-005 left pre-encryption

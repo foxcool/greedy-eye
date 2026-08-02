@@ -270,12 +270,12 @@ EYE_SERVER_PORT=8080
 # Logging
 EYE_LOG_LEVEL=INFO            # DEBUG, INFO, WARN, ERROR
 
-# Secrets: accounts.data encryption (ADR-005). base64 of 32 random bytes.
+# Secrets: accounts.data encryption (ADR-005). base64 of 32 random bytes each,
+# comma-separated. The FIRST key is current and the only one written with; any
+# others are read-only, for rows sealed before a rotation.
 # Empty = plaintext mode with a startup warning (dev only).
 EYE_SECURITY_MASTERKEY=...    # openssl rand -base64 32
-# Set only while rotating: the key being retired. Reads fall back to it, writes
-# never use it. See "Rotating the master key" below.
-EYE_SECURITY_PREVIOUSMASTERKEY=
+# mid-rotation it looks like: EYE_SECURITY_MASTERKEY=<new>,<old>
 
 # External API keys (env fallback — deprecated, prefer system accounts)
 EYE_MORALIS_APIKEY=your_key
@@ -341,32 +341,42 @@ services:
 ### Rotating the master key
 
 `accounts.data` is sealed per row under a key derived from `EYE_SECURITY_MASTERKEY`
-(ADR-005). Replacing that value **does not** re-encrypt anything: every existing row stays
-sealed under the old key, and the store fails the whole account row when it cannot decrypt —
-so wallet addresses stop being readable along with the credentials. Rotation is therefore two
-steps, and the order is what keeps the data reachable:
+(ADR-005). **Replacing** that value re-encrypts nothing: every existing row stays sealed under
+the old key, and the store fails the whole account row when it cannot decrypt — so wallet
+addresses stop being readable along with the credentials. So you prepend rather than replace:
 
 ```bash
-# 1. new key current, old key kept for reads
-EYE_SECURITY_MASTERKEY=<new>            # openssl rand -base64 32
-EYE_SECURITY_PREVIOUSMASTERKEY=<old>
+# 1. prepend the new key; the old one stays for reads
+EYE_SECURITY_MASTERKEY=<new>,<old>      # openssl rand -base64 32
 
-# 2. restart: the instance now writes with the new key and reads with either
+# 2. restart. The instance writes with <new>, reads with either, and starts a
+#    background rekey job because more than one key is configured.
 
-# 3. re-encrypt every row under the current key (idempotent, safe to repeat)
-eye rewrap-secrets
-#   docker compose -p eye -f deploy/compose.yaml run --rm eye rewrap-secrets
+# 3. wait for the log line:
+#    "rekey: finished — every row is sealed under the current key, stale keys can be removed"
 
-# 4. drop EYE_SECURITY_PREVIOUSMASTERKEY and restart again
+# 4. drop the tail: EYE_SECURITY_MASTERKEY=<new>, restart
 ```
 
-Between steps 1 and 3 the instance runs normally; step 4 is what actually retires the old key.
-Going straight to it is what makes the data unrecoverable. `rewrap-secrets` stops on the first
-row no configured key can open rather than skipping it — a pass that reported success having
-silently left a row behind would be worse than no pass at all.
+The instance is fully functional between steps 1 and 4; step 4 is what actually retires the old
+key. Going straight to it is what makes the data unrecoverable.
 
-The same command converges the pre-ADR-005 plaintext rows, which until now were only sealed
-if something happened to update them.
+Do not skip step 3. The job does not just re-seal, it then re-reads every row with the current
+key **alone** and only claims completion if all of them open — counters alone cannot tell you
+whether a stale key is still load bearing. On failure it logs at ERROR and reports to Sentry;
+if you see no completion line, the old key is still needed.
+
+Notes on how it behaves:
+
+- One key configured: the job does not run. Nothing to converge, and rewriting every credential
+  on every deploy is not free.
+- Several instances: a Postgres advisory lock keeps the pass to one of them.
+- Interrupted or repeated runs are safe — re-sealing a row already current just gives it a fresh
+  nonce.
+- The same pass converges the pre-ADR-005 plaintext rows, which were previously sealed only if
+  something happened to update them.
+- Rolling back to a binary that does not know `<new>` after a partial pass will fail to read the
+  rows already re-sealed. Roll the key list back too, or roll forward.
 
 ### Money Precision and Decimal Handling
 All monetary amounts use decimal precision to avoid floating-point errors:

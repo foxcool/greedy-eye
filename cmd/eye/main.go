@@ -40,24 +40,10 @@ import (
 const ServiceName = "EYE"
 
 func main() {
-	if err := dispatch(); err != nil {
+	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "fatal error: %v\n", err)
 		os.Exit(1)
 	}
-}
-
-// dispatch routes the one-shot maintenance commands before falling through to
-// the server. Kept to a bare argument check rather than a CLI framework: there
-// is exactly one such command, and it is an operator action, not a UI.
-func dispatch() error {
-	if len(os.Args) > 1 && os.Args[1] == "rewrap-secrets" {
-		config, err := getConfig()
-		if err != nil {
-			return fmt.Errorf("load config: %w", err)
-		}
-		return rewrapSecrets(context.Background(), config, createLogger(config.Logger.Level))
-	}
-	return run()
 }
 
 func run() error {
@@ -159,12 +145,19 @@ func run() error {
 	}
 
 	// Initialize accounts.data encryption at rest (ADR-005)
-	portfolioStoreOpts, err := encryptionOpts(config, log)
+	encryptor, err := buildEncryptor(config, log)
 	if err != nil {
 		return err
 	}
+	var portfolioStoreOpts []postgres.PortfolioStoreOption
+	if encryptor != nil {
+		portfolioStoreOpts = append(portfolioStoreOpts, postgres.WithEncryptor(encryptor))
+	}
 
 	portfolioStore := postgres.NewPortfolioStore(pool, portfolioStoreOpts...)
+
+	// Converge rows sealed under a key being rotated out. No-op with one key.
+	startRekey(context.Background(), pool, encryptor, log)
 
 	// Env-configured price providers stay the fallback registry; the resolver
 	// overlays them with credentials stored in accounts (system → user).

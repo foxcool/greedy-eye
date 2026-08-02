@@ -361,26 +361,62 @@ func (s *PortfolioStore) unmarshalAccountData(accountID string, raw []byte) (map
 type RewrapResult struct {
 	// Scanned is every account row read.
 	Scanned int
-	// Rewritten is the rows whose data was re-sealed under the current key.
+	// Rewritten is the rows re-sealed under the current key. After a successful
+	// pass this equals Scanned: every row is re-sealed, including the ones whose
+	// data is empty. An earlier version skipped those as "nothing to seal" and
+	// left them sealed under the RETIRED key while reporting success — the dev
+	// stand's gate.io account, an encrypted empty map, was unreadable the moment
+	// the previous key was dropped. Emptiness of the plaintext says nothing
+	// about which key the ciphertext is under.
 	Rewritten int
-	// Skipped is rows with nothing to seal — an empty data map.
-	Skipped int
+}
+
+// VerifyAccountDataReadable reads every accounts.data row and reports the first
+// one it cannot open, without writing anything.
+//
+// Run with a current-key-only encryptor, it answers the question a rewrap's
+// counters cannot: is every row now readable WITHOUT the stale keys, so they
+// can be dropped from the configuration? That question needs its own pass
+// because a rewrap can report success and still leave a row behind — an earlier
+// version skipped rows with empty data as "nothing to seal", and the dev
+// stand's gate.io account, an encrypted empty map, stayed under the retired key.
+func (s *PortfolioStore) VerifyAccountDataReadable(ctx context.Context) (int, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id, data FROM accounts ORDER BY id`)
+	if err != nil {
+		return 0, fmt.Errorf("failed to list accounts for verification: %w", err)
+	}
+	defer rows.Close()
+
+	var checked int
+	for rows.Next() {
+		var id string
+		var raw []byte
+		if err := rows.Scan(&id, &raw); err != nil {
+			return checked, fmt.Errorf("failed to scan account for verification: %w", err)
+		}
+		if _, err := s.unmarshalAccountData(id, raw); err != nil {
+			return checked, fmt.Errorf("account %s is not readable: %w", id, err)
+		}
+		checked++
+	}
+	if err := rows.Err(); err != nil {
+		return checked, fmt.Errorf("failed to read accounts for verification: %w", err)
+	}
+	return checked, nil
 }
 
 // RewrapAccountData re-encrypts every accounts.data row under the CURRENT master
-// key, reading each one through whatever key still opens it.
+// key, reading each one through whatever configured key still opens it.
 //
 // This is what makes a master key rotation survivable. The encryptor writes with
-// the current key and reads with the current or the previous one, so a rotation
-// leaves the instance working but half its rows sealed under a key the operator
-// intends to retire; this pass finishes the job. It also converges the legacy
-// plaintext rows ADR-005 left readable, which until now were only re-sealed if
-// something happened to update them.
+// the first key and reads with any of them, so a rotation leaves the instance
+// working but half its rows sealed under a key the operator intends to retire;
+// this pass finishes the job. It also converges the legacy plaintext rows
+// ADR-005 left readable, which until now were only re-sealed if something
+// happened to update them.
 //
 // Idempotent by construction: re-sealing a row already under the current key
-// just gives it a fresh nonce, so the pass can be repeated or interrupted. It is
-// not run automatically at startup — re-encrypting every credential in the
-// database is an operator's decision, not a side effect of a deploy.
+// just gives it a fresh nonce, so the pass can be repeated or interrupted.
 //
 // Refuses to run in plaintext mode: without an encryptor there is nothing to
 // rewrap to, and silently doing nothing would look like success.
@@ -418,10 +454,6 @@ func (s *PortfolioStore) RewrapAccountData(ctx context.Context) (RewrapResult, e
 			// it behind is worse than no pass at all.
 			rows.Close()
 			return res, fmt.Errorf("account %s cannot be read with the configured keys: %w", id, err)
-		}
-		if len(data) == 0 {
-			res.Skipped++
-			continue
 		}
 		todo = append(todo, pending{id: id, data: data})
 	}
