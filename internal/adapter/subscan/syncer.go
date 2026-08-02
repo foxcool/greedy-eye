@@ -60,6 +60,14 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 			continue // nothing held here; not an error
 		}
 
+		// Liquidity is deliberately left unset. Reserved, Bonded and Unbonding
+		// are each documented as subsets of Balance, but not as disjoint from
+		// one another: on Kusama Asset Hub the staking hold shows up in
+		// reserved, so subtracting both bonded and reserved would take the same
+		// planck out twice. Splitting on a guess would corrupt the amount,
+		// which is the failure this dimension exists to avoid — see
+		// personal-732 follow-up.
+		//
 		// Already raw planck at the precision the API stated — no shift, and
 		// no table lookup. The chain's decimals are a display detail here;
 		// the response is the authority on how to read its own number.

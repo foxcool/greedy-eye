@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/shopspring/decimal"
 )
 
 // HandlesAddress reports whether an address belongs to a Cosmos zone this
@@ -72,19 +73,38 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 			continue
 		}
 
-		total := balance.Total()
-		if total.IsZero() {
+		if balance.Total().IsZero() {
 			continue // nothing held here; not an error
 		}
 
+		// One row per pool instead of one summed row. The four pools are
+		// disjoint by construction — the bank module, the staking module and
+		// the distribution module each answer for their own — so emitting them
+		// separately neither double-counts nor loses the total.
+		//
+		// Rewards ride with the liquid pool: they are one claim transaction
+		// away from spendable, which is what the liquidity axis is about, and
+		// they are NOT in the bank balance, which is why they arrive apart.
+		// The sync merges same-key rows, so bank + rewards land as one liquid
+		// position.
+		//
 		// The LCD reports micro-units, which is already the raw integer form.
-		balances = append(balances, entity.WalletBalance{
-			Symbol:   net.symbol,
-			Name:     net.name,
-			Amount:   total.BigInt().String(),
-			Decimals: net.decimals,
-			Chain:    chain,
-		})
+		emit := func(amount decimal.Decimal, liquidity entity.Liquidity) {
+			if amount.IsZero() {
+				return
+			}
+			balances = append(balances, entity.WalletBalance{
+				Symbol:    net.symbol,
+				Name:      net.name,
+				Amount:    amount.BigInt().String(),
+				Decimals:  net.decimals,
+				Chain:     chain,
+				Liquidity: liquidity,
+			})
+		}
+		emit(balance.Liquid.Add(balance.Rewards), entity.LiquidityLiquid)
+		emit(balance.Delegated, entity.LiquidityStaked)
+		emit(balance.Unbonding, entity.LiquidityUnbonding)
 	}
 
 	return balances, errors.Join(errs...)

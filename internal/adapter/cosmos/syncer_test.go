@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -60,23 +62,53 @@ var allFourPools = map[string]string{
 	]}`,
 }
 
-// TestSyncWallet_AllFourPoolsSummed is the correctness guard for this adapter,
-// and it runs opposite to the Substrate one. There, bonded tokens sit inside
-// the free balance and adding them double-counts. Here delegated, unbonding and
-// reward tokens have all left the bank balance, so omitting any of them reports
-// a fraction of what the account holds.
-func TestSyncWallet_AllFourPoolsSummed(t *testing.T) {
+// TestSyncWallet_AllFourPoolsReported is the correctness guard for this
+// adapter, and it runs opposite to the Substrate one. There, bonded tokens sit
+// inside the free balance and adding them double-counts. Here delegated,
+// unbonding and reward tokens have all left the bank balance, so omitting any
+// of them reports a fraction of what the account holds.
+//
+// The pools are now reported separately rather than as one number: staked ATOM
+// cannot be spent this month and bank ATOM can, which is the whole point of the
+// liquidity axis. Nothing is lost and nothing is counted twice — the rows still
+// add up to the same total.
+func TestSyncWallet_AllFourPoolsReported(t *testing.T) {
 	syncer := newTestSyncer(t, allFourPools)
 
 	balances, err := syncer.SyncWallet(context.Background(), cosmosAddress, []string{"cosmos"})
 	require.NoError(t, err)
-	require.Len(t, balances, 1)
+	require.Len(t, balances, 3)
 
-	assert.Equal(t, "ATOM", balances[0].Symbol)
-	assert.Equal(t, 6, balances[0].Decimals)
-	// 1000000 liquid + 7000000 delegated + 500000 unbonding + 123456 rewards.
-	// The reward fraction is truncated: uatom is the finest unit that settles.
-	assert.Equal(t, "8623456", balances[0].Amount)
+	byLiquidity := map[entity.Liquidity]entity.WalletBalance{}
+	sum := decimal.Zero
+	for _, b := range balances {
+		assert.Equal(t, "ATOM", b.Symbol)
+		assert.Equal(t, 6, b.Decimals)
+		byLiquidity[b.Liquidity] = b
+		sum = sum.Add(decimal.RequireFromString(b.Amount))
+	}
+
+	// 1000000 bank + 123456 rewards. The reward fraction is truncated: uatom is
+	// the finest unit that settles. Rewards ride with the liquid pool — one
+	// claim transaction away from spendable.
+	assert.Equal(t, "1123456", byLiquidity[entity.LiquidityLiquid].Amount)
+	assert.Equal(t, "7000000", byLiquidity[entity.LiquidityStaked].Amount)
+	assert.Equal(t, "500000", byLiquidity[entity.LiquidityUnbonding].Amount)
+	assert.Equal(t, "8623456", sum.String(), "the split must preserve the total")
+}
+
+// TestSyncWallet_EmptyPoolsAreNotRows: an account that only holds a bank
+// balance reports one position, not three zero ones.
+func TestSyncWallet_EmptyPoolsAreNotRows(t *testing.T) {
+	syncer := newTestSyncer(t, map[string]string{
+		"/bank/v1beta1/balances/": `{"balances":[{"denom":"uatom","amount":"4000000"}]}`,
+	})
+
+	balances, err := syncer.SyncWallet(context.Background(), cosmosAddress, []string{"cosmos"})
+	require.NoError(t, err)
+	require.Len(t, balances, 1)
+	assert.Equal(t, entity.LiquidityLiquid, balances[0].Liquidity)
+	assert.Equal(t, "4000000", balances[0].Amount)
 }
 
 // TestSyncWallet_IgnoresForeignDenoms: a bank balance also carries IBC vouchers

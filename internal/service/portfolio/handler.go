@@ -888,8 +888,9 @@ type syncedBalance struct {
 	name            string
 	amount          string // raw integer string scaled by decimals
 	decimals        int
-	contractAddress string // token contract/mint; empty for exchange/native
-	chain           string // network the balance is on; empty for exchange
+	contractAddress string           // token contract/mint; empty for exchange/native
+	chain           string           // network the balance is on; empty for exchange
+	liquidity       entity.Liquidity // how reachable it is; empty when the source cannot say
 	// providerSpam / contractVerified carry a source's identity signals for scam
 	// scoring at intake; nil when the source does not report them.
 	providerSpam     *bool
@@ -1007,8 +1008,10 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 
 	// The syncer owns all provider mechanics (discovery, fan-out, native vs token).
 	// Partial failures arrive as a joined error alongside the balances gathered so far.
-	// Balances from several addresses are concatenated here and merged by symbol
-	// downstream, so a wallet split across addresses reports one holding per asset.
+	// Balances from several addresses are concatenated here and merged
+	// downstream per (asset, chain), so a wallet split across addresses reports
+	// one holding per asset per chain — several addresses on one chain are one
+	// place, two chains are not.
 	var (
 		syncErrors []string
 		balances   []entity.WalletBalance
@@ -1036,6 +1039,7 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 			decimals:         b.Decimals,
 			contractAddress:  b.ContractAddress,
 			chain:            b.Chain,
+			liquidity:        b.Liquidity,
 			providerSpam:     b.ProviderSpam,
 			contractVerified: b.ContractVerified,
 		})
@@ -1078,22 +1082,41 @@ func (h *Handler) syncExchangeBalances(ctx context.Context, account *entity.Acco
 // upsertSyncedBalances resolves each balance to an asset and upserts holdings
 // for the account. Resolution is by contract identity (external ref) first and
 // by symbol otherwise, so a scam clone of a real ticker resolves to its own
-// asset while cross-chain instances of the same asset collapse onto one asset_id
-// and sum into one holding. The same asset can carry different decimals per
-// chain (USDC is 6 on Ethereum, 18 on BSC), so quantities are summed as real
-// amounts (raw / 10^decimals) and stored at the largest decimals seen — summing
-// raw integers across mismatched scales would corrupt the total.
+// asset while cross-chain instances of the same asset collapse onto one
+// asset_id.
+//
+// Positions are keyed by (asset, chain, liquidity), not by asset alone.
+// Collapsing chains destroyed the only copy of where an amount sits: USDC on
+// Base and USDC on Arbitrum became one row, summed across mismatched decimals
+// (USDC is 6 on Ethereum and 18 on BSC) and stored at the largest scale seen.
+// Liquidity is the same argument in time rather than space: staked ATOM and
+// bank-balance ATOM are one asset on one chain, but only one of them can be
+// spent today. Within one chain and one liquidity state, several addresses of
+// the same wallet still merge — that is the same place, so quantities are
+// summed as real amounts (raw / 10^decimals).
+//
 // syncedAssetIDs lists the assets whose holdings this sync actually wrote. It
 // is what the caller prices afterwards: a provider quota is monthly, and
 // re-pricing the whole catalogue on every sync spends it on data the sync did
 // not touch.
 func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Account, balances []syncedBalance) (assetsUpserted, holdingsUpserted int32, syncedAssetIDs []string, syncErrors []string, err error) {
+	type positionKey struct {
+		assetID string
+		chain   string // empty for venues with no chain of their own (exchanges)
+		// liquidity is empty unless the adapter partitioned the balance. Staked
+		// and liquid value on one chain are different money — one is spendable
+		// today and the other is not — so they are different rows.
+		liquidity entity.Liquidity
+	}
 	type accumulated struct {
 		qty      decimal.Decimal // real token quantity, decimals applied
-		decimals int             // max decimals seen → stored holding scale
+		decimals int             // max decimals seen on this chain → stored scale
 		excluded bool            // derived from a scam/impersonation verdict
 	}
-	byAssetID := make(map[string]*accumulated)
+	byPosition := make(map[positionKey]*accumulated)
+	// Insertion order, so a resync writes rows in a stable order and the legacy
+	// row below is adopted by the first chain seen rather than by map luck.
+	var order []positionKey
 
 	for _, b := range balances {
 		amt, ok := new(big.Int).SetString(strings.TrimSpace(b.amount), 10)
@@ -1115,18 +1138,20 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 		}
 
 		qty := decimal.NewFromBigInt(amt, -intToI32(b.decimals)) // raw / 10^decimals
-		if entry, ok := byAssetID[assetID]; ok {
+		key := positionKey{assetID: assetID, chain: b.chain, liquidity: b.liquidity}
+		if entry, ok := byPosition[key]; ok {
 			entry.qty = entry.qty.Add(qty)
 			if b.decimals > entry.decimals {
 				entry.decimals = b.decimals
 			}
 			entry.excluded = entry.excluded || isQuarantineVerdict(verdict)
 		} else {
-			byAssetID[assetID] = &accumulated{
+			byPosition[key] = &accumulated{
 				qty:      qty,
 				decimals: b.decimals,
 				excluded: isQuarantineVerdict(verdict),
 			}
+			order = append(order, key)
 		}
 	}
 
@@ -1135,24 +1160,58 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 	if err != nil {
 		return 0, 0, nil, nil, toConnectError(err)
 	}
-	holdingByAssetID := make(map[string]*entity.Holding, len(existingHoldings))
+	holdingByPosition := make(map[positionKey]*entity.Holding, len(existingHoldings))
+	// Rows written before positions carried a chain or a liquidity state: one
+	// summed row per asset, both fields empty. The first position of that asset
+	// adopts the row instead of leaving it beside the new ones, where it would
+	// double the holding until someone deleted it by hand. Adoption keeps the
+	// row's id, provenance, portfolio assignment and manual excluded override.
+	//
+	// Provenance is deliberately NOT a filter here. Before positions had
+	// dimensions, sync updated whatever row it found for the asset — including
+	// an imported one — so an imported ATOM position was refreshed in place.
+	// Adopting only sync-written rows looked tidier and doubled that position on
+	// the first resync: caught on dev, where an llm_import row of 66.54 ATOM sat
+	// beside a freshly synced 21.84 liquid + 45.00 staked.
+	legacyByAsset := make(map[string][]*entity.Holding)
 	for _, hld := range existingHoldings {
-		holdingByAssetID[hld.AssetID] = hld
+		holdingByPosition[positionKey{assetID: hld.AssetID, chain: hld.Chain, liquidity: hld.Liquidity}] = hld
+		if hld.Chain == "" && hld.Liquidity == "" {
+			legacyByAsset[hld.AssetID] = append(legacyByAsset[hld.AssetID], hld)
+		}
 	}
 
 	defaultPortfolioID := account.PortfolioID
 
-	for assetID, entry := range byAssetID {
+	for _, key := range order {
+		entry := byPosition[key]
+		assetID := key.assetID
 		decimals := intToU32(entry.decimals)
 		// holdings.amount is NUMERIC: store the merged quantity as a raw integer at the
 		// holding's decimals scale (exact — qty has at most `decimals` fractional digits).
 		amount := entry.qty.Shift(intToI32(entry.decimals))
 
-		if existing, ok := holdingByAssetID[assetID]; ok {
-			// Update existing holding: only refresh amount/decimals; never touch portfolio assignment
+		existing, ok := holdingByPosition[key]
+		adopted := false
+		if !ok && (key.chain != "" || key.liquidity != "") {
+			if legacy := legacyByAsset[assetID]; len(legacy) > 0 {
+				existing, ok, adopted = legacy[0], true, true
+				legacyByAsset[assetID] = legacy[1:]
+			}
+		}
+
+		if ok {
+			// Update existing holding: only refresh amount/decimals (and the
+			// chain when adopting a pre-chain row); never touch portfolio assignment.
 			existing.Amount = amount
 			existing.Decimals = decimals
-			if _, err := h.store.UpdateHolding(ctx, existing, []string{"amount", "decimals"}); err != nil {
+			fields := []string{"amount", "decimals"}
+			if adopted {
+				existing.Chain = key.chain
+				existing.Liquidity = key.liquidity
+				fields = append(fields, "chain", "liquidity")
+			}
+			if _, err := h.store.UpdateHolding(ctx, existing, fields); err != nil {
 				syncErrors = append(syncErrors, fmt.Sprintf("update holding for asset %s: %v", assetID, err))
 				continue
 			}
@@ -1168,6 +1227,8 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 				PortfolioID: defaultPortfolioID,
 				Amount:      amount,
 				Decimals:    decimals,
+				Chain:       key.chain,
+				Liquidity:   key.liquidity,
 				Source:      entity.SourceSync,
 				Excluded:    entry.excluded,
 			})
@@ -1398,6 +1459,8 @@ func holdingFromProto(h *apiv1.Holding) (*entity.Holding, error) {
 		Decimals:  h.Decimals,
 		AssetID:   h.AssetId,
 		AccountID: h.AccountId,
+		Chain:     h.Chain,
+		Liquidity: entity.Liquidity(h.Liquidity),
 		Excluded:  h.Excluded,
 	}
 	if h.PortfolioId != nil {
@@ -1413,6 +1476,8 @@ func holdingToProto(h *entity.Holding) *apiv1.Holding {
 		Decimals:  h.Decimals,
 		AssetId:   h.AssetID,
 		AccountId: h.AccountID,
+		Chain:     h.Chain,
+		Liquidity: string(h.Liquidity),
 		Excluded:  h.Excluded,
 		Source:    provenanceToProto(h.Source),
 		CreatedAt: timestamppb.New(h.CreatedAt),

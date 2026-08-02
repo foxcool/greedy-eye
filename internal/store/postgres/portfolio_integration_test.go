@@ -12,6 +12,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/store"
 	storecrypto "github.com/foxcool/greedy-eye/internal/store/crypto"
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -418,6 +419,80 @@ func TestHoldingProvenanceRoundtrip(t *testing.T) {
 		require.NotNil(t, found, "imported holding missing from list")
 		assert.Equal(t, entity.SourceLLMImport, found.Source)
 		assert.Equal(t, importID, found.ImportID)
+	})
+
+	// Two rows for one (account, asset) pair that differ only by chain: the row
+	// is the position, and the chain is part of what identifies it. A pre-chain
+	// row reads back as empty — never as "eth".
+	t.Run("chain round-trip and per-chain rows", func(t *testing.T) {
+		var ids []string
+		for _, chain := range []string{"eth", "base", ""} {
+			created, err := s.CreateHolding(ctx, &entity.Holding{
+				AssetID:   asset.ID,
+				AccountID: account.ID,
+				Amount:    decimal.RequireFromString("100"),
+				Decimals:  8,
+				Chain:     chain,
+				Source:    entity.SourceSync,
+			})
+			require.NoError(t, err, "chain %q", chain)
+			ids = append(ids, created.ID)
+
+			got, err := s.GetHolding(ctx, created.ID)
+			require.NoError(t, err)
+			assert.Equal(t, chain, got.Chain)
+		}
+
+		listed, _, err := s.ListHoldings(ctx, portfolio.ListHoldingsOpts{AccountID: account.ID, PageSize: 100})
+		require.NoError(t, err)
+		byID := map[string]*entity.Holding{}
+		for _, h := range listed {
+			byID[h.ID] = h
+		}
+		require.Len(t, byID, len(listed))
+		assert.Equal(t, "eth", byID[ids[0]].Chain)
+		assert.Equal(t, "base", byID[ids[1]].Chain)
+		assert.Empty(t, byID[ids[2]].Chain)
+
+		// Adoption of a pre-chain row is an update of the chain field alone.
+		adopting := byID[ids[2]]
+		adopting.Chain = "arbitrum"
+		updated, err := s.UpdateHolding(ctx, adopting, []string{"chain"})
+		require.NoError(t, err)
+		assert.Equal(t, "arbitrum", updated.Chain)
+	})
+
+	// Liquidity is a vocabulary column: unknown ("") is a legitimate state and
+	// the default, a typo is not — it would read as a class nothing aggregates.
+	t.Run("liquidity round-trip and vocabulary guard", func(t *testing.T) {
+		for _, liquidity := range []entity.Liquidity{
+			entity.LiquidityLiquid, entity.LiquidityStaked, entity.LiquidityUnbonding,
+			entity.LiquidityLocked, entity.LiquidityVesting, entity.LiquidityUnknown,
+		} {
+			created, err := s.CreateHolding(ctx, &entity.Holding{
+				AssetID:   asset.ID,
+				AccountID: account.ID,
+				Amount:    decimal.RequireFromString("100"),
+				Decimals:  8,
+				Chain:     "cosmos",
+				Liquidity: liquidity,
+				Source:    entity.SourceSync,
+			})
+			require.NoError(t, err, "liquidity %q", liquidity)
+
+			got, err := s.GetHolding(ctx, created.ID)
+			require.NoError(t, err)
+			assert.Equal(t, liquidity, got.Liquidity)
+		}
+
+		_, err := s.CreateHolding(ctx, &entity.Holding{
+			AssetID:   asset.ID,
+			AccountID: account.ID,
+			Decimals:  8,
+			Liquidity: "mostly-liquid",
+			Source:    entity.SourceSync,
+		})
+		require.ErrorIs(t, err, store.ErrInvalidArgument)
 	})
 
 	t.Run("delete holding", func(t *testing.T) {
