@@ -140,6 +140,15 @@ func (m *mockStore) ListHoldings(ctx context.Context, opts ListHoldingsOpts) ([]
 	return nil, args.String(1), args.Error(2)
 }
 
+// InHoldingsTx runs fn against the mock itself, so a test's CreateHolding and
+// UpdateHolding expectations hold whether the write goes through the store
+// directly or through the sync's snapshot transaction. Rollback is what the
+// integration test covers; here the contract under test is that a failing write
+// aborts the set.
+func (m *mockStore) InHoldingsTx(_ context.Context, fn func(HoldingWriter) error) error {
+	return fn(m)
+}
+
 func (m *mockStore) CreateTransaction(ctx context.Context, t *entity.Transaction) (*entity.Transaction, error) {
 	args := m.Called(ctx, t)
 	if v := args.Get(0); v != nil {
@@ -2317,4 +2326,106 @@ func TestSyncAccount_AdoptsImportedPreDimensionHolding(t *testing.T) {
 	assert.Equal(t, entity.SourceLLMImport, updated.Source, "provenance is not rewritten")
 	assert.Equal(t, "21835346", updated.Amount.String())
 	assert.Equal(t, 1, createdCount, "only the second state becomes a new row")
+}
+
+// TestSyncAccount_FailedRowAbortsTheSnapshot: a holding that will not write used
+// to be collected into Errors while the rows around it were committed, so the
+// account ended up carrying part of one sync and part of another. A snapshot is
+// written whole or not at all — the previous one is at least coherent.
+func TestSyncAccount_FailedRowAbortsTheSnapshot(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		return h.AssetID == "asset-ok"
+	})).Return(&entity.Holding{ID: "h-ok"}, nil)
+	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		return h.AssetID == "asset-bad"
+	})).Return(nil, errors.New("numeric field overflow"))
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{
+		{Symbol: "DAI", Amount: "100", Decimals: 18, ContractAddress: "0xdai", Chain: "eth"},
+		{Symbol: "WETH", Amount: "100", Decimals: 18, ContractAddress: "0xweth", Chain: "eth"},
+	}, nil)
+
+	md := &mockMDClient{}
+	md.On("FindOrCreateAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.FindOrCreateAssetRequest]) bool {
+		return r.Msg.Symbol == "DAI"
+	})).Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{
+		Asset: &apiv1.Asset{Id: "asset-ok"}, Created: true,
+	}), nil)
+	md.On("FindOrCreateAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.FindOrCreateAssetRequest]) bool {
+		return r.Msg.Symbol == "WETH"
+	})).Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{
+		Asset: &apiv1.Asset{Id: "asset-bad"}, Created: true,
+	}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	_, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.Error(t, err, "the sync fails rather than reporting a partial success")
+	assert.Contains(t, err.Error(), "create holding for asset asset-bad")
+
+	// No price fetch: there is no committed snapshot to price, and the provider
+	// quota is monthly.
+	md.AssertNotCalled(t, "FetchExternalPrices", mock.Anything, mock.Anything)
+}
+
+// TestSyncAccount_SurvivesCallerCancellation: the caller's deadline is not the
+// operation's. The browser sends a blanket 10s fetch timeout while a heavy sync
+// takes ~22s, and prod 2026-07-25 shows what inheriting it costs — cancellation
+// landing inside the write. The sync now runs on syncTimeout, so a client
+// hanging up stops nothing that is already underway.
+func TestSyncAccount_SurvivesCallerCancellation(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: "h-1"}, nil)
+
+	// Every leg of the sync asserts it was handed a live context.
+	var seen []string
+	requireLive := func(stage string) func(mock.Arguments) {
+		return func(args mock.Arguments) {
+			seen = append(seen, stage)
+			assert.NoError(t, args.Get(0).(context.Context).Err(), "%s ran on a dead context", stage)
+		}
+	}
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).
+		Run(requireLive("fetch")).
+		Return([]entity.WalletBalance{
+			{Symbol: "DAI", Amount: "100", Decimals: 18, ContractAddress: "0xdai", Chain: "eth"},
+		}, nil)
+
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Run(requireLive("price")).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	// The caller is already gone when the handler starts, which is the worst
+	// case of the browser hanging up mid-call.
+	ctx, cancel := context.WithCancel(ctxWithUser(testUserID))
+	cancel()
+
+	resp, err := h.SyncAccount(ctx, connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), resp.Msg.HoldingsUpserted)
+	assert.Equal(t, []string{"fetch", "price"}, seen)
+	s.AssertExpectations(t)
 }

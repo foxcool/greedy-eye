@@ -946,6 +946,40 @@ type syncedBalance struct {
 	contractVerified *bool
 }
 
+// positionKey identifies one row of an account's snapshot.
+type positionKey struct {
+	assetID string
+	chain   string // empty for venues with no chain of their own (exchanges)
+	// liquidity is empty unless the adapter partitioned the balance. Staked
+	// and liquid value on one chain are different money — one is spendable
+	// today and the other is not — so they are different rows.
+	liquidity entity.Liquidity
+}
+
+// accumulated is the quantity merged onto one positionKey across the addresses
+// of a wallet.
+type accumulated struct {
+	qty      decimal.Decimal // real token quantity, decimals applied
+	decimals int             // max decimals seen on this chain → stored scale
+	excluded bool            // derived from a scam/impersonation verdict
+}
+
+// syncTimeout bounds one SyncAccount call server-side.
+//
+// A sync is a long operation by nature — it fans out to a provider per chain,
+// resolves every balance through MarketData and then rewrites the account's
+// positions. Measured on dev 2026-08-02, a heavy EVM account takes ~22s end to
+// end, of which the last ~9s are asset resolution and the holdings write.
+//
+// Until now the handler simply inherited whatever deadline the caller sent.
+// That was the browser's blanket 10s fetch timeout, so prod 2026-07-25 logged
+// three syncs dying at exactly 10.005s with 'failed to list holdings: context
+// canceled' — cancellation landing inside the write, leaving assets created and
+// holdings half refreshed. The deadline belongs to the operation, not to
+// whoever asked for it; the value is deliberately far above the measurement,
+// because what it exists to stop is a provider retry storm, not a slow sync.
+const syncTimeout = 3 * time.Minute
+
 // SyncAccount fetches external holdings for a wallet or exchange account and
 // upserts assets+holdings.
 func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.SyncAccountRequest]) (*connect.Response[apiv1.SyncAccountResponse], error) {
@@ -960,6 +994,11 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	if err != nil {
 		return nil, err
 	}
+
+	// From here on the sync runs on the server's clock, not the caller's. See
+	// syncTimeout: a client hanging up must not tear a write in progress.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), syncTimeout)
+	defer cancel()
 
 	var balances []syncedBalance
 	var syncErrors []string
@@ -1149,19 +1188,6 @@ func (h *Handler) syncExchangeBalances(ctx context.Context, account *entity.Acco
 // re-pricing the whole catalogue on every sync spends it on data the sync did
 // not touch.
 func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Account, balances []syncedBalance) (assetsUpserted, holdingsUpserted int32, syncedAssetIDs []string, syncErrors []string, err error) {
-	type positionKey struct {
-		assetID string
-		chain   string // empty for venues with no chain of their own (exchanges)
-		// liquidity is empty unless the adapter partitioned the balance. Staked
-		// and liquid value on one chain are different money — one is spendable
-		// today and the other is not — so they are different rows.
-		liquidity entity.Liquidity
-	}
-	type accumulated struct {
-		qty      decimal.Decimal // real token quantity, decimals applied
-		decimals int             // max decimals seen on this chain → stored scale
-		excluded bool            // derived from a scam/impersonation verdict
-	}
 	byPosition := make(map[positionKey]*accumulated)
 	// Insertion order, so a resync writes rows in a stable order and the legacy
 	// row below is adopted by the first chain seen rather than by map luck.
@@ -1230,17 +1256,64 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 		}
 	}
 
-	defaultPortfolioID := account.PortfolioID
+	// Every row of the new snapshot is written in one transaction. A sync does
+	// not add positions, it replaces the picture of an account, and half a
+	// picture is not a smaller truth — it is a total that looks whole and is
+	// wrong. A row that fails therefore aborts the set instead of being
+	// collected into syncErrors: the account keeps the snapshot it had, which
+	// is coherent, rather than a mix of two syncs.
+	plan := writePlan{
+		order:              order,
+		byPosition:         byPosition,
+		holdingByPosition:  holdingByPosition,
+		legacyByAsset:      legacyByAsset,
+		accountID:          account.ID,
+		defaultPortfolioID: account.PortfolioID,
+	}
+	err = h.store.InHoldingsTx(ctx, func(w HoldingWriter) error {
+		var werr error
+		holdingsUpserted, syncedAssetIDs, werr = h.writeSyncedHoldings(ctx, w, plan)
+		return werr
+	})
+	if err != nil {
+		return 0, 0, nil, nil, toConnectError(err)
+	}
 
-	for _, key := range order {
-		entry := byPosition[key]
+	return assetsUpserted, holdingsUpserted, syncedAssetIDs, syncErrors, nil
+}
+
+// writePlan is what upsertSyncedBalances resolved before touching the database:
+// the positions to write, in insertion order, and the rows already on the
+// account that they map onto.
+type writePlan struct {
+	order              []positionKey
+	byPosition         map[positionKey]*accumulated
+	holdingByPosition  map[positionKey]*entity.Holding
+	legacyByAsset      map[string][]*entity.Holding
+	accountID          string
+	defaultPortfolioID string
+}
+
+// writeSyncedHoldings applies the plan through w, which is transactional: it
+// runs whole or not at all. A retried transaction re-runs it from the plan, so
+// it must not mutate one.
+func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan writePlan) (holdingsUpserted int32, syncedAssetIDs []string, err error) {
+	// Adoption consumes from legacyByAsset, so a retried transaction must start
+	// from the same list rather than one the previous attempt already drained.
+	legacyByAsset := make(map[string][]*entity.Holding, len(plan.legacyByAsset))
+	for assetID, rows := range plan.legacyByAsset {
+		legacyByAsset[assetID] = slices.Clone(rows)
+	}
+
+	for _, key := range plan.order {
+		entry := plan.byPosition[key]
 		assetID := key.assetID
 		decimals := intToU32(entry.decimals)
 		// holdings.amount is NUMERIC: store the merged quantity as a raw integer at the
 		// holding's decimals scale (exact — qty has at most `decimals` fractional digits).
 		amount := entry.qty.Shift(intToI32(entry.decimals))
 
-		existing, ok := holdingByPosition[key]
+		existing, ok := plan.holdingByPosition[key]
 		adopted := false
 		if !ok && (key.chain != "" || key.liquidity != "") {
 			if legacy := legacyByAsset[assetID]; len(legacy) > 0 {
@@ -1260,9 +1333,8 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 				existing.Liquidity = key.liquidity
 				fields = append(fields, "chain", "liquidity")
 			}
-			if _, err := h.store.UpdateHolding(ctx, existing, fields); err != nil {
-				syncErrors = append(syncErrors, fmt.Sprintf("update holding for asset %s: %v", assetID, err))
-				continue
+			if _, err := w.UpdateHolding(ctx, existing, fields); err != nil {
+				return 0, nil, fmt.Errorf("update holding for asset %s: %w", assetID, err)
 			}
 		} else {
 			// Create new holding; inherit account's default portfolio if configured.
@@ -1270,10 +1342,10 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 			// from the sums; the position still syncs (no frozen holding), it is
 			// just quarantined. An existing holding's excluded flag is left alone
 			// on update so a user's manual override survives resync.
-			_, err := h.store.CreateHolding(ctx, &entity.Holding{
+			_, err := w.CreateHolding(ctx, &entity.Holding{
 				AssetID:     assetID,
-				AccountID:   account.ID,
-				PortfolioID: defaultPortfolioID,
+				AccountID:   plan.accountID,
+				PortfolioID: plan.defaultPortfolioID,
 				Amount:      amount,
 				Decimals:    decimals,
 				Chain:       key.chain,
@@ -1282,15 +1354,14 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 				Excluded:    entry.excluded,
 			})
 			if err != nil {
-				syncErrors = append(syncErrors, fmt.Sprintf("create holding for asset %s: %v", assetID, err))
-				continue
+				return 0, nil, fmt.Errorf("create holding for asset %s: %w", assetID, err)
 			}
 		}
 		holdingsUpserted++
 		syncedAssetIDs = append(syncedAssetIDs, assetID)
 	}
 
-	return assetsUpserted, holdingsUpserted, syncedAssetIDs, syncErrors, nil
+	return holdingsUpserted, syncedAssetIDs, nil
 }
 
 // resolveSyncedAsset resolves (creating when needed) the asset for one synced
