@@ -18,6 +18,10 @@ type assetPricing struct {
 	priced    bool            // false when there is no usable price → asset is skipped
 	changePct float64         // signed % change over the window; 0 when history is missing
 	label     string          // asset symbol, falling back to name, then ID
+	// reason says why an unpriced asset stayed off the map; meaningless when
+	// priced. NO_QUOTE is the default because "no price row anywhere" is the
+	// outcome of every path that simply fails to find one.
+	reason apiv1.UnpricedReason
 }
 
 // assetPricing resolves (and caches in `cache`) price, change and label for assetID.
@@ -29,7 +33,7 @@ func (h *Handler) assetPricing(ctx context.Context, cache map[string]*assetPrici
 	if ap, ok := cache[assetID]; ok {
 		return ap, nil
 	}
-	ap := &assetPricing{label: assetID}
+	ap := &assetPricing{label: assetID, reason: apiv1.UnpricedReason_UNPRICED_REASON_NO_QUOTE}
 	cache[assetID] = ap
 
 	if err := h.resolveLabel(ctx, ap, assetID); err != nil {
@@ -85,12 +89,15 @@ func (h *Handler) assetPricing(ctx context.Context, cache map[string]*assetPrici
 // rather than drawing a node out of a market that cannot absorb the position — the
 // MNEP case that opened personal-6ae.
 //
-// The map has no coverage block to disclose this in yet (personal-saw); until it
-// does, the omission is silent, which is still the lesser of the two lies.
+// It records which of the two absences this is: a quote that exists but has no
+// market behind it is a decision about the asset, while no quote at all is a
+// coverage gap to close upstream. The response's coverage block carries the
+// distinction to the caller.
 func (h *Handler) markThin(ctx context.Context, ap *assetPricing, assetID string, price *apiv1.Price, rate decimal.Decimal) bool {
 	if !marketdepth.Thin(price, rate) {
 		return false
 	}
+	ap.reason = apiv1.UnpricedReason_UNPRICED_REASON_THIN_MARKET
 	h.log.DebugContext(ctx, "heatmap: skipping asset with no market behind its quote",
 		"asset_id", assetID, "label", ap.label)
 	return true

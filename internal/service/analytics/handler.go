@@ -142,14 +142,34 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 	assets := map[string]*assetPricing{}       // assetID → resolved price/change/label
 	accountPortfolios := map[string]string{}   // accountID → its portfolio id (for group_by=portfolio)
 
+	coverage := &apiv1.ValuationCoverage{}
+	var unpriced []*apiv1.UnpricedHolding
+
 	for _, hld := range holdings {
 		ap, err := h.assetPricing(ctx, assets, hld.AssetID, quoteAssetID, from)
 		if err != nil {
 			return nil, err
 		}
 		if !ap.priced {
-			continue // no price path for this asset → skip, same as CalculatePortfolioValue
+			// No usable price: the holding draws no node at all, so say so. On a
+			// map an omission is invisible in a way it is not in a total — there
+			// is no zero-sized rectangle to notice.
+			coverage.UnpricedCount++
+			if len(unpriced) >= maxUnpricedDisclosed {
+				coverage.UnpricedTruncated = true
+			} else {
+				unpriced = append(unpriced, &apiv1.UnpricedHolding{
+					HoldingId: hld.ID,
+					AssetId:   hld.AssetID,
+					// The label is already resolved for the map; when the asset
+					// lookup failed it is the id, which still identifies the row.
+					Symbol: ap.label,
+					Reason: ap.reason,
+				})
+			}
+			continue
 		}
+		coverage.PricedCount++
 		key := leafKey{assetID: hld.AssetID}
 		if grouped {
 			key.groupID, err = h.groupID(ctx, msg.GroupBy, hld, accountPortfolios)
@@ -190,12 +210,20 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 		nodes = append(groups, nodes...)
 	}
 
+	coverage.Unpriced = unpriced
+
 	return connect.NewResponse(&apiv1.GetHeatmapResponse{
 		Nodes:        nodes,
 		QuoteAssetId: quoteAssetID,
 		CalculatedAt: timestamppb.New(time.Now()),
+		Coverage:     coverage,
 	}), nil
 }
+
+// maxUnpricedDisclosed caps the per-holding detail in a coverage block: the count
+// is always exact, the list is a sample bounded by read size. Same cap and same
+// reasoning as portfolio's; the two will share code on the third consumer.
+const maxUnpricedDisclosed = 50
 
 // groupID resolves which group a holding belongs to for the given axis.
 // For portfolio grouping a holding without its own portfolio inherits the

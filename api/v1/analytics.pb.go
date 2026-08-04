@@ -488,10 +488,15 @@ func (x *GetHeatmapRequest) GetQuoteAssetId() string {
 }
 
 type GetHeatmapResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Nodes         []*HeatmapNode         `protobuf:"bytes,1,rep,name=nodes,proto3" json:"nodes,omitempty"`
-	QuoteAssetId  string                 `protobuf:"bytes,2,opt,name=quote_asset_id,json=quoteAssetId,proto3" json:"quote_asset_id,omitempty"`
-	CalculatedAt  *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=calculated_at,json=calculatedAt,proto3" json:"calculated_at,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Nodes        []*HeatmapNode         `protobuf:"bytes,1,rep,name=nodes,proto3" json:"nodes,omitempty"`
+	QuoteAssetId string                 `protobuf:"bytes,2,opt,name=quote_asset_id,json=quoteAssetId,proto3" json:"quote_asset_id,omitempty"`
+	CalculatedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=calculated_at,json=calculatedAt,proto3" json:"calculated_at,omitempty"`
+	// What the map does not draw. A holding with no usable price produces no node
+	// at all — not a small one — so on a map the omission is invisible in a way it
+	// is not in a total. Same message CalculatePortfolioValue returns: one shape
+	// for the same statement, on every surface.
+	Coverage      *ValuationCoverage `protobuf:"bytes,4,opt,name=coverage,proto3" json:"coverage,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -547,11 +552,18 @@ func (x *GetHeatmapResponse) GetCalculatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *GetHeatmapResponse) GetCoverage() *ValuationCoverage {
+	if x != nil {
+		return x.Coverage
+	}
+	return nil
+}
+
 var File_v1_analytics_proto protoreflect.FileDescriptor
 
 const file_v1_analytics_proto_rawDesc = "" +
 	"\n" +
-	"\x12v1/analytics.proto\x12\x06eye.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc5\x01\n" +
+	"\x12v1/analytics.proto\x12\x06eye.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x13v1/marketdata.proto\"\xc5\x01\n" +
 	"\vHeatmapNode\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x1b\n" +
@@ -570,11 +582,12 @@ const file_v1_analytics_proto_rawDesc = "" +
 	"\vsize_metric\x18\x05 \x01(\x0e2\x19.eye.v1.HeatmapSizeMetricR\n" +
 	"sizeMetric\x12=\n" +
 	"\fcolor_metric\x18\x06 \x01(\x0e2\x1a.eye.v1.HeatmapColorMetricR\vcolorMetric\x12$\n" +
-	"\x0equote_asset_id\x18\a \x01(\tR\fquoteAssetId\"\xa6\x01\n" +
+	"\x0equote_asset_id\x18\a \x01(\tR\fquoteAssetId\"\xdd\x01\n" +
 	"\x12GetHeatmapResponse\x12)\n" +
 	"\x05nodes\x18\x01 \x03(\v2\x13.eye.v1.HeatmapNodeR\x05nodes\x12$\n" +
 	"\x0equote_asset_id\x18\x02 \x01(\tR\fquoteAssetId\x12?\n" +
-	"\rcalculated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\fcalculatedAt*\x99\x01\n" +
+	"\rcalculated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\fcalculatedAt\x125\n" +
+	"\bcoverage\x18\x04 \x01(\v2\x19.eye.v1.ValuationCoverageR\bcoverage*\x99\x01\n" +
 	"\fHeatmapScope\x12\x1d\n" +
 	"\x19HEATMAP_SCOPE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17HEATMAP_SCOPE_PORTFOLIO\x10\x01\x12\x19\n" +
@@ -633,6 +646,7 @@ var file_v1_analytics_proto_goTypes = []any{
 	(*GetHeatmapRequest)(nil),     // 6: eye.v1.GetHeatmapRequest
 	(*GetHeatmapResponse)(nil),    // 7: eye.v1.GetHeatmapResponse
 	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
+	(*ValuationCoverage)(nil),     // 9: eye.v1.ValuationCoverage
 }
 var file_v1_analytics_proto_depIdxs = []int32{
 	0, // 0: eye.v1.GetHeatmapRequest.scope:type_name -> eye.v1.HeatmapScope
@@ -642,13 +656,14 @@ var file_v1_analytics_proto_depIdxs = []int32{
 	4, // 4: eye.v1.GetHeatmapRequest.color_metric:type_name -> eye.v1.HeatmapColorMetric
 	5, // 5: eye.v1.GetHeatmapResponse.nodes:type_name -> eye.v1.HeatmapNode
 	8, // 6: eye.v1.GetHeatmapResponse.calculated_at:type_name -> google.protobuf.Timestamp
-	6, // 7: eye.v1.AnalyticsService.GetHeatmap:input_type -> eye.v1.GetHeatmapRequest
-	7, // 8: eye.v1.AnalyticsService.GetHeatmap:output_type -> eye.v1.GetHeatmapResponse
-	8, // [8:9] is the sub-list for method output_type
-	7, // [7:8] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	9, // 7: eye.v1.GetHeatmapResponse.coverage:type_name -> eye.v1.ValuationCoverage
+	6, // 8: eye.v1.AnalyticsService.GetHeatmap:input_type -> eye.v1.GetHeatmapRequest
+	7, // 9: eye.v1.AnalyticsService.GetHeatmap:output_type -> eye.v1.GetHeatmapResponse
+	9, // [9:10] is the sub-list for method output_type
+	8, // [8:9] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_v1_analytics_proto_init() }
@@ -656,6 +671,7 @@ func file_v1_analytics_proto_init() {
 	if File_v1_analytics_proto != nil {
 		return
 	}
+	file_v1_marketdata_proto_init()
 	file_v1_analytics_proto_msgTypes[0].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
