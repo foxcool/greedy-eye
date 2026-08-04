@@ -828,3 +828,90 @@ func TestListAssetExternalRefs(t *testing.T) {
 		assert.Empty(t, rows)
 	})
 }
+
+// TestFindTickerIncumbent covers the shape personal-go65 is about: 1.89M "USDT"
+// off a contract that is not Tether's, on the chain where Tether's is known.
+// Every negative case here is a real one from the dev catalogue, where a naive
+// "two assets share a symbol" rule would have quarantined live positions.
+func TestFindTickerIncumbent(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	usd := createTestAsset(t, s, "IncumbentBase")
+
+	// mint creates one asset with a symbol and market of its own choosing;
+	// identity is (symbol, market, type), so same-ticker assets need distinct
+	// markets — exactly how the catalogue stores an isolated contract.
+	mint := func(symbol, name, market string) *entity.Asset {
+		a, err := s.CreateAsset(ctx, &entity.Asset{
+			Symbol: symbol, Name: name, Market: market, Type: entity.AssetTypeCryptocurrency,
+		})
+		require.NoError(t, err)
+		return a
+	}
+	bind := func(assetID, chain, contract string) {
+		_, err := s.CreateAssetExternalRef(ctx, &entity.AssetExternalRef{
+			AssetID: assetID, Source: entity.OnchainSource(chain), Ref: contract,
+		})
+		require.NoError(t, err)
+	}
+
+	tether := mint("TCOL", "Tether", "crypto")
+	bind(tether.ID, "eth", "0xdac17f958d2ee523a2206206994597c13d831ec7")
+	bind(tether.ID, "bsc", "0x55d398326f99059ff775485246999027b3197955")
+	createTestPrice(t, s, tether.ID, usd.ID, "coingecko")
+
+	impostor := mint("TCOL", "TCOL", "onchain:eth/0x7f1ffe636a11d92f31b2874b574cff2a565569a8")
+	bind(impostor.ID, "eth", "0x7f1ffe636a11d92f31b2874b574cff2a565569a8")
+
+	t.Run("newcomer on a held chain is judged", func(t *testing.T) {
+		got, err := s.FindTickerIncumbent(ctx, impostor.ID)
+		require.NoError(t, err)
+		assert.Equal(t, tether.ID, got)
+	})
+
+	t.Run("the incumbent is not judged by its own impostor", func(t *testing.T) {
+		_, err := s.FindTickerIncumbent(ctx, tether.ID)
+		assert.ErrorIs(t, err, store.ErrNotFound, "seniority has to be asymmetric or both sides condemn each other")
+	})
+
+	t.Run("same asset on another chain is not a collision", func(t *testing.T) {
+		// Tether's own bsc contract: same ticker, different chain, one asset.
+		multichain := mint("MCOL", "Multichain", "crypto")
+		bind(multichain.ID, "eth", "0xaaa1")
+		bind(multichain.ID, "polygon", "0xbbb1")
+		createTestPrice(t, s, multichain.ID, usd.ID, "coingecko")
+
+		other := mint("MCOL", "Multichain on arbitrum", "onchain:arbitrum/0xccc1")
+		bind(other.ID, "arbitrum", "0xccc1")
+
+		_, err := s.FindTickerIncumbent(ctx, other.ID)
+		assert.ErrorIs(t, err, store.ErrNotFound)
+	})
+
+	t.Run("an unlisted incumbent condemns nobody", func(t *testing.T) {
+		// The catalogue's ordinary duplicate: a legacy row and its on-chain twin,
+		// neither of which any provider prices. Judging on symbol alone would
+		// quarantine a live position (AETHUSDC, PDEX, PF on dev).
+		legacy := mint("UCOL", "Unlisted", "crypto")
+		bind(legacy.ID, "eth", "0xddd1")
+
+		twin := mint("UCOL", "Unlisted", "onchain:eth/0xeee1")
+		bind(twin.ID, "eth", "0xeee1")
+
+		_, err := s.FindTickerIncumbent(ctx, twin.ID)
+		assert.ErrorIs(t, err, store.ErrNotFound)
+	})
+
+	t.Run("an asset with no chain of its own is never a claimant", func(t *testing.T) {
+		bare := mint("TCOL", "Bare", "manual")
+		_, err := s.FindTickerIncumbent(ctx, bare.ID)
+		assert.ErrorIs(t, err, store.ErrNotFound)
+	})
+
+	t.Run("rejects a malformed id", func(t *testing.T) {
+		_, err := s.FindTickerIncumbent(ctx, "not-a-uuid")
+		assert.ErrorIs(t, err, store.ErrInvalidArgument)
+	})
+}

@@ -479,11 +479,23 @@ per-adapter drops (Moralis `possible_spam`, Solana `isJunk`), which silently del
   `identity_signals` (jsonb, `{signal: weight}`) are kept for UI explainability and weight tuning
 - **`holdings.excluded` is derived, not authored**: a `scam` or `impersonation` verdict excludes
   the holding from sums. The position keeps syncing and stays visible in quarantine — dropping it
-  would make a real balance disappear with no trace
+  would make a real balance disappear with no trace. A sync **raises** the flag on rows that
+  already exist and never lowers it: an impostor is usually unmasked long after its position
+  started syncing, while nothing in the row distinguishes a user's own exclusion from a derived
+  one, so clearing it would silently undo a human decision
 - **A user verdict is terminal.** `verdict_source` records provenance (`heuristic`,
   `provider:<name>`, `curated`, `user:<id>`); the rescore job never overwrites a user's judgement
-- **Hard signals bypass the score**: invisible Unicode in a ticker (`UNILP.NET` with U+2063) and
-  mixed-script confusables are impersonation on sight, not a weighted sum
+- **Hard signals bypass the score**: invisible Unicode in a ticker (`UNILP.NET` with U+2063),
+  mixed-script confusables, and a **ticker collision** are impersonation on sight, not a weighted
+  sum. The collision is the only signal the text cannot see — a good lookalike spells its symbol
+  exactly right, so `USDT` off a foreign contract scored 0.2 (`legit`) and could never have been
+  condemned by accumulation: even with `no_listing` it tops out at 0.5, below the 0.8 threshold.
+  The catalogue answers it instead (`FindTickerIncumbent`): a chain cannot carry two contracts of
+  one asset, so a second contract claiming a ticker an **older, price-listed** asset already binds
+  on that chain is not an accident. Seniority is asymmetric on purpose — without the age condition
+  a real asset would be condemned by its own impostor at the next rescore, and without the listing
+  condition two unlisted duplicates would condemn each other. Known false positive, accepted: LP
+  tokens (`UNI-V2`, `SLP`) give every pool the same ticker on one chain by construction
 - Weights and thresholds live in `Weights` so they can be tuned from config without a release
 - The scheduler runs a periodic rescore (`internal/scheduler/rescore.go`)
 

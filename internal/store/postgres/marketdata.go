@@ -484,6 +484,60 @@ func (s *MarketDataStore) ListAssetExternalRefs(ctx context.Context, assetIDs []
 	return out, nil
 }
 
+// FindTickerIncumbent reports whether this asset's ticker is already held, on
+// one of its own chains, by an older asset bound to a different contract.
+//
+// The shape it looks for is the one thing a lookalike cannot fake away: a chain
+// cannot carry two contracts of the same asset. Symbol, name and amount are all
+// copyable, so "two assets share a ticker" says nothing on its own — cross-chain
+// instances and catalogue duplicates share tickers constantly. What does not
+// happen by accident is a second contract on the SAME chain claiming a ticker
+// that an established asset already binds there.
+//
+// Seniority is deliberate and asymmetric, so the newcomer is judged and the
+// incumbent is not: the incumbent must be older AND carry a price history, which
+// is the catalogue's cheapest proof that the outside world agrees this ticker
+// belongs to it. Without the price condition, two unlisted duplicates would
+// condemn each other; without the age condition, the real asset would be
+// condemned by its own impostor on a rescore.
+//
+// Known false positive, accepted: LP tokens (UNI-V2, SLP, CAKE-LP) give every
+// pool the same ticker on one chain by construction, so a listed pool makes the
+// next pool look like an impostor.
+func (s *MarketDataStore) FindTickerIncumbent(ctx context.Context, assetID string) (string, error) {
+	if assetID == "" {
+		return "", fmt.Errorf("%w: asset ID is required", store.ErrInvalidArgument)
+	}
+	if !isValidUUID(assetID) {
+		return "", fmt.Errorf("%w: invalid asset ID format", store.ErrInvalidArgument)
+	}
+
+	var incumbentID string
+	err := s.pool.QueryRow(ctx, `
+		SELECT inc.id
+		FROM assets claim
+		JOIN asset_external_refs cr
+		  ON cr.asset_id = claim.id AND cr.source LIKE 'onchain:%'
+		JOIN asset_external_refs ir
+		  ON ir.source = cr.source AND lower(ir.ref) <> lower(cr.ref)
+		JOIN assets inc
+		  ON inc.id = ir.asset_id
+		WHERE claim.id = $1
+		  AND inc.id <> claim.id
+		  AND upper(inc.symbol) = upper(claim.symbol)
+		  AND inc.created_at < claim.created_at
+		  AND EXISTS (SELECT 1 FROM prices p WHERE p.asset_id = inc.id)
+		ORDER BY inc.created_at
+		LIMIT 1`, assetID).Scan(&incumbentID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("%w: no ticker incumbent for asset %s", store.ErrNotFound, assetID)
+		}
+		return "", fmt.Errorf("failed to find ticker incumbent: %w", err)
+	}
+	return incumbentID, nil
+}
+
 // DeleteAsset deletes an asset by ID.
 func (s *MarketDataStore) DeleteAsset(ctx context.Context, id string) error {
 	if id == "" {

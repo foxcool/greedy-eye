@@ -1294,6 +1294,107 @@ func TestSyncAccount_ScamVerdictExcludesHolding(t *testing.T) {
 	s.AssertExpectations(t)
 }
 
+// TestSyncAccount_LateVerdictExcludesExistingHolding: an impostor is usually
+// unmasked long after its position started syncing — the ticker collision of
+// personal-go65 only becomes visible once the genuine asset is listed. Deriving
+// excluded on create alone left that row counted forever. The flag is raised,
+// never lowered, so a user's own exclusion still survives a resync.
+func TestSyncAccount_LateVerdictExcludesExistingHolding(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
+
+	impostor := &entity.Holding{
+		ID:        "h-fake",
+		AssetID:   "asset-fake",
+		AccountID: testAccountID,
+		Amount:    decimal.RequireFromString("1894544900000"),
+		Decimals:  6,
+		Chain:     "eth",
+		Source:    entity.SourceSync,
+		Excluded:  false,
+	}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{impostor}, "", nil)
+
+	var updatedFields []string
+	s.On("UpdateHolding", mock.Anything, mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { updatedFields = args.Get(2).([]string) }).
+		Return(&entity.Holding{}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{
+		{Symbol: "USDT", Name: "USDT", Amount: "1894544900000", Decimals: 6, ContractAddress: "0x7f1ffe63", Chain: "eth"},
+	}, nil)
+
+	md := &mockMDClient{}
+	impersonation := "impersonation"
+	md.On("FindOrCreateAsset", mock.Anything, mock.Anything).Return(
+		connect.NewResponse(&apiv1.FindOrCreateAssetResponse{
+			Asset: &apiv1.Asset{Id: "asset-fake", IdentityVerdict: &impersonation},
+		}), nil)
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	_, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.True(t, impostor.Excluded, "a quarantine verdict must reach a row that already exists")
+	assert.Contains(t, updatedFields, "excluded")
+}
+
+// TestSyncAccount_ExclusionIsNotLowered: the same write must never clear a flag.
+// Nothing distinguishes a user's manual exclusion from a derived one in the row,
+// so lowering it on a legit verdict would silently undo the user's decision.
+func TestSyncAccount_ExclusionIsNotLowered(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
+
+	userExcluded := &entity.Holding{
+		ID:        "h-dai",
+		AssetID:   "asset-DAI",
+		AccountID: testAccountID,
+		Amount:    decimal.RequireFromString("100"),
+		Decimals:  18,
+		Chain:     "eth",
+		Source:    entity.SourceSync,
+		Excluded:  true,
+	}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{userExcluded}, "", nil)
+
+	var updatedFields []string
+	s.On("UpdateHolding", mock.Anything, mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { updatedFields = args.Get(2).([]string) }).
+		Return(&entity.Holding{}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{
+		{Symbol: "DAI", Amount: "200", Decimals: 18, ContractAddress: "0xdai", Chain: "eth"},
+	}, nil)
+
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	_, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.True(t, userExcluded.Excluded)
+	assert.NotContains(t, updatedFields, "excluded", "a legit verdict does not write the flag at all")
+}
+
 // TestSyncAccount_PricesOnlySyncedAssets: the post-sync price fetch names the
 // assets this sync wrote. An unfiltered request would re-price the entire
 // catalogue on every sync, which is what exhausted the provider's monthly quota.

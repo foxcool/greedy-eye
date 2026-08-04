@@ -566,6 +566,7 @@ func (h *Handler) scoreAndPersistVerdict(ctx context.Context, a *entity.Asset, r
 		Name:             a.Name,
 		ProviderSpam:     req.ProviderSpam,
 		ContractVerified: req.ContractVerified,
+		ClaimsHeldTicker: h.claimsHeldTicker(ctx, a.ID),
 	}
 	res := scamfilter.Score(in, scamfilter.DefaultWeights())
 	score := res.Score
@@ -581,6 +582,29 @@ func (h *Handler) scoreAndPersistVerdict(ctx context.Context, a *entity.Asset, r
 		return a.IdentityVerdict
 	}
 	return string(res.Verdict)
+}
+
+// claimsHeldTicker asks the catalogue whether this asset's ticker is already
+// held on one of its own chains by an older listed asset with a different
+// contract. A lookup error answers false and logs: the signal is terminal, and
+// condemning an asset because a query failed would be a worse failure than
+// missing one impostor until the next rescore.
+func (h *Handler) claimsHeldTicker(ctx context.Context, assetID string) bool {
+	if assetID == "" {
+		return false
+	}
+	incumbent, err := h.store.FindTickerIncumbent(ctx, assetID)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) && h.log != nil {
+			h.log.Warn("ticker incumbent lookup failed", "asset_id", assetID, "error", err)
+		}
+		return false
+	}
+	if h.log != nil {
+		h.log.Warn("ticker already held on this chain by another contract",
+			"asset_id", assetID, "incumbent_asset_id", incumbent)
+	}
+	return true
 }
 
 // settableVerdicts are the identity verdicts a human may assign. "unknown" is

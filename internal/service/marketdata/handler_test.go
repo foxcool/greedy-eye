@@ -12,6 +12,7 @@ import (
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
+	"github.com/foxcool/greedy-eye/internal/scamfilter"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
@@ -90,6 +91,15 @@ func (m *mockStore) SetAssetVerdict(ctx context.Context, assetID, verdict string
 func expectVerdict(s *mockStore) {
 	s.On("SetAssetVerdict", mock.Anything, mock.Anything, mock.Anything,
 		mock.Anything, mock.Anything, mock.Anything).Return(true, nil).Maybe()
+	// Scoring asks the catalogue whether the ticker is already held; an
+	// unclaimed ticker is the uninteresting default for these tests.
+	s.On("FindTickerIncumbent", mock.Anything, mock.Anything).
+		Return("", store.ErrNotFound).Maybe()
+}
+
+func (m *mockStore) FindTickerIncumbent(ctx context.Context, assetID string) (string, error) {
+	args := m.Called(ctx, assetID)
+	return args.String(0), args.Error(1)
 }
 
 func (m *mockStore) FindAssetIDByExternalRef(ctx context.Context, source, ref string) (string, error) {
@@ -589,6 +599,64 @@ func TestFindOrCreateAsset_ResolvesByExternalRef(t *testing.T) {
 	assert.Equal(t, "id-9", resp.Msg.Asset.Id)
 	s.AssertNotCalled(t, "FindAssetByIdentity")
 	s.AssertNotCalled(t, "CreateAsset")
+}
+
+// TestFindOrCreateAsset_TickerCollisionScoresImpersonation: the catalogue, not
+// the text, is what unmasks a lookalike. When the ticker is already held on this
+// chain by an older listed asset with another contract, the verdict is
+// impersonation and the sync path derives holdings.excluded from it.
+func TestFindOrCreateAsset_TickerCollisionScoresImpersonation(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetIDByExternalRef", mock.Anything, "onchain:eth", "0x7f1ffe63").Return("id-fake", nil)
+	s.On("GetAsset", mock.Anything, "id-fake").Return(testAsset("id-fake"), nil)
+	s.On("FindTickerIncumbent", mock.Anything, "id-fake").Return("id-tether", nil)
+
+	var gotVerdict string
+	var gotSignals map[string]float64
+	s.On("SetAssetVerdict", mock.Anything, "id-fake", mock.Anything, mock.Anything, mock.Anything, rescoreVerdictSource).
+		Run(func(args mock.Arguments) {
+			gotVerdict = args.String(2)
+			gotSignals = args.Get(4).(map[string]float64)
+		}).
+		Return(true, nil)
+	h := newHandler(s)
+
+	source, ref := "onchain:eth", "0x7f1ffe63"
+	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol:            "USDT",
+		ExternalRefSource: &source,
+		ExternalRef:       &ref,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, string(scamfilter.VerdictImpersonation), gotVerdict)
+	assert.Contains(t, gotSignals, scamfilter.SignalTickerCollision)
+	assert.Equal(t, string(scamfilter.VerdictImpersonation), resp.Msg.Asset.GetIdentityVerdict(),
+		"the sync path reads the verdict off the response to quarantine the holding")
+}
+
+// TestFindOrCreateAsset_TickerIncumbentLookupFailureIsNotAVerdict: the signal is
+// terminal, so a failed query must not condemn. Missing one impostor until the
+// next rescore is the cheaper error.
+func TestFindOrCreateAsset_TickerIncumbentLookupFailureIsNotAVerdict(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetIDByExternalRef", mock.Anything, "onchain:eth", "0xCAFE").Return("id-9", nil)
+	s.On("GetAsset", mock.Anything, "id-9").Return(testAsset("id-9"), nil)
+	s.On("FindTickerIncumbent", mock.Anything, "id-9").Return("", errors.New("connection reset"))
+
+	var gotVerdict string
+	s.On("SetAssetVerdict", mock.Anything, "id-9", mock.Anything, mock.Anything, mock.Anything, rescoreVerdictSource).
+		Run(func(args mock.Arguments) { gotVerdict = args.String(2) }).
+		Return(true, nil)
+	h := newHandler(s)
+
+	source, ref := "onchain:eth", "0xCAFE"
+	_, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol:            "USDT",
+		ExternalRefSource: &source,
+		ExternalRef:       &ref,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, string(scamfilter.VerdictLegit), gotVerdict)
 }
 
 // TestFindOrCreateAsset_RefResolvesWithoutSymbol: a provider that reports a
