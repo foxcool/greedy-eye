@@ -454,8 +454,16 @@ type ValuationCoverage struct {
 	Unpriced []*UnpricedHolding `protobuf:"bytes,3,rep,name=unpriced,proto3" json:"unpriced,omitempty"`
 	// True when unpriced_count exceeds the cap and `unpriced` lists only a prefix.
 	UnpricedTruncated bool `protobuf:"varint,4,opt,name=unpriced_truncated,json=unpricedTruncated,proto3" json:"unpriced_truncated,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// When the amounts behind this result were last confirmed: the oldest
+	// update time among the holdings that entered it.
+	//
+	// A price and an amount go stale independently, and only the price has a
+	// sweep watching it. Re-pricing week-old quantities produces a total that
+	// moves every hour and stays wrong — a number that moves reads as a number
+	// that is current. Unset when nothing was counted.
+	AmountsAsOf   *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=amounts_as_of,json=amountsAsOf,proto3" json:"amounts_as_of,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ValuationCoverage) Reset() {
@@ -514,6 +522,13 @@ func (x *ValuationCoverage) GetUnpricedTruncated() bool {
 		return x.UnpricedTruncated
 	}
 	return false
+}
+
+func (x *ValuationCoverage) GetAmountsAsOf() *timestamppb.Timestamp {
+	if x != nil {
+		return x.AmountsAsOf
+	}
+	return nil
 }
 
 // UnpricedHolding names one position that could not be valued. There is no
@@ -1952,12 +1967,13 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\x04_lowB\b\n" +
 	"\x06_closeB\t\n" +
 	"\a_volumeB\r\n" +
-	"\v_market_cap\"\xc1\x01\n" +
+	"\v_market_cap\"\x81\x02\n" +
 	"\x11ValuationCoverage\x12!\n" +
 	"\fpriced_count\x18\x01 \x01(\rR\vpricedCount\x12%\n" +
 	"\x0eunpriced_count\x18\x02 \x01(\rR\runpricedCount\x123\n" +
 	"\bunpriced\x18\x03 \x03(\v2\x17.eye.v1.UnpricedHoldingR\bunpriced\x12-\n" +
-	"\x12unpriced_truncated\x18\x04 \x01(\bR\x11unpricedTruncated\"\x93\x01\n" +
+	"\x12unpriced_truncated\x18\x04 \x01(\bR\x11unpricedTruncated\x12>\n" +
+	"\ramounts_as_of\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\vamountsAsOf\"\x93\x01\n" +
 	"\x0fUnpricedHolding\x12\x1d\n" +
 	"\n" +
 	"holding_id\x18\x01 \x01(\tR\tholdingId\x12\x19\n" +
@@ -2172,61 +2188,62 @@ var file_v1_marketdata_proto_depIdxs = []int32{
 	28, // 2: eye.v1.Asset.updated_at:type_name -> google.protobuf.Timestamp
 	28, // 3: eye.v1.Price.timestamp:type_name -> google.protobuf.Timestamp
 	5,  // 4: eye.v1.ValuationCoverage.unpriced:type_name -> eye.v1.UnpricedHolding
-	1,  // 5: eye.v1.UnpricedHolding.reason:type_name -> eye.v1.UnpricedReason
-	2,  // 6: eye.v1.CreateAssetRequest.asset:type_name -> eye.v1.Asset
-	2,  // 7: eye.v1.UpdateAssetRequest.asset:type_name -> eye.v1.Asset
-	29, // 8: eye.v1.UpdateAssetRequest.update_mask:type_name -> google.protobuf.FieldMask
-	2,  // 9: eye.v1.ListAssetsResponse.assets:type_name -> eye.v1.Asset
-	0,  // 10: eye.v1.FindOrCreateAssetRequest.type:type_name -> eye.v1.AssetType
-	2,  // 11: eye.v1.FindOrCreateAssetResponse.asset:type_name -> eye.v1.Asset
-	3,  // 12: eye.v1.CreatePriceRequest.price:type_name -> eye.v1.Price
-	3,  // 13: eye.v1.CreatePricesRequest.prices:type_name -> eye.v1.Price
-	28, // 14: eye.v1.ListPriceHistoryRequest.from:type_name -> google.protobuf.Timestamp
-	28, // 15: eye.v1.ListPriceHistoryRequest.to:type_name -> google.protobuf.Timestamp
-	3,  // 16: eye.v1.ListPriceHistoryResponse.prices:type_name -> eye.v1.Price
-	28, // 17: eye.v1.ListPricesByIntervalRequest.from:type_name -> google.protobuf.Timestamp
-	28, // 18: eye.v1.ListPricesByIntervalRequest.to:type_name -> google.protobuf.Timestamp
-	28, // 19: eye.v1.DeletePricesRequest.from:type_name -> google.protobuf.Timestamp
-	28, // 20: eye.v1.DeletePricesRequest.to:type_name -> google.protobuf.Timestamp
-	6,  // 21: eye.v1.MarketDataService.CreateAsset:input_type -> eye.v1.CreateAssetRequest
-	7,  // 22: eye.v1.MarketDataService.GetAsset:input_type -> eye.v1.GetAssetRequest
-	8,  // 23: eye.v1.MarketDataService.UpdateAsset:input_type -> eye.v1.UpdateAssetRequest
-	9,  // 24: eye.v1.MarketDataService.DeleteAsset:input_type -> eye.v1.DeleteAssetRequest
-	10, // 25: eye.v1.MarketDataService.ListAssets:input_type -> eye.v1.ListAssetsRequest
-	12, // 26: eye.v1.MarketDataService.EnrichAssetData:input_type -> eye.v1.EnrichAssetDataRequest
-	13, // 27: eye.v1.MarketDataService.FindSimilarAssets:input_type -> eye.v1.FindSimilarAssetsRequest
-	14, // 28: eye.v1.MarketDataService.FindOrCreateAsset:input_type -> eye.v1.FindOrCreateAssetRequest
-	16, // 29: eye.v1.MarketDataService.SetAssetVerdict:input_type -> eye.v1.SetAssetVerdictRequest
-	17, // 30: eye.v1.MarketDataService.CreatePrice:input_type -> eye.v1.CreatePriceRequest
-	18, // 31: eye.v1.MarketDataService.CreatePrices:input_type -> eye.v1.CreatePricesRequest
-	20, // 32: eye.v1.MarketDataService.GetLatestPrice:input_type -> eye.v1.GetLatestPriceRequest
-	21, // 33: eye.v1.MarketDataService.ListPriceHistory:input_type -> eye.v1.ListPriceHistoryRequest
-	23, // 34: eye.v1.MarketDataService.ListPricesByInterval:input_type -> eye.v1.ListPricesByIntervalRequest
-	24, // 35: eye.v1.MarketDataService.DeletePrice:input_type -> eye.v1.DeletePriceRequest
-	25, // 36: eye.v1.MarketDataService.DeletePrices:input_type -> eye.v1.DeletePricesRequest
-	26, // 37: eye.v1.MarketDataService.FetchExternalPrices:input_type -> eye.v1.FetchExternalPricesRequest
-	2,  // 38: eye.v1.MarketDataService.CreateAsset:output_type -> eye.v1.Asset
-	2,  // 39: eye.v1.MarketDataService.GetAsset:output_type -> eye.v1.Asset
-	2,  // 40: eye.v1.MarketDataService.UpdateAsset:output_type -> eye.v1.Asset
-	30, // 41: eye.v1.MarketDataService.DeleteAsset:output_type -> google.protobuf.Empty
-	11, // 42: eye.v1.MarketDataService.ListAssets:output_type -> eye.v1.ListAssetsResponse
-	2,  // 43: eye.v1.MarketDataService.EnrichAssetData:output_type -> eye.v1.Asset
-	11, // 44: eye.v1.MarketDataService.FindSimilarAssets:output_type -> eye.v1.ListAssetsResponse
-	15, // 45: eye.v1.MarketDataService.FindOrCreateAsset:output_type -> eye.v1.FindOrCreateAssetResponse
-	2,  // 46: eye.v1.MarketDataService.SetAssetVerdict:output_type -> eye.v1.Asset
-	3,  // 47: eye.v1.MarketDataService.CreatePrice:output_type -> eye.v1.Price
-	19, // 48: eye.v1.MarketDataService.CreatePrices:output_type -> eye.v1.CreatePricesResponse
-	3,  // 49: eye.v1.MarketDataService.GetLatestPrice:output_type -> eye.v1.Price
-	22, // 50: eye.v1.MarketDataService.ListPriceHistory:output_type -> eye.v1.ListPriceHistoryResponse
-	22, // 51: eye.v1.MarketDataService.ListPricesByInterval:output_type -> eye.v1.ListPriceHistoryResponse
-	30, // 52: eye.v1.MarketDataService.DeletePrice:output_type -> google.protobuf.Empty
-	30, // 53: eye.v1.MarketDataService.DeletePrices:output_type -> google.protobuf.Empty
-	27, // 54: eye.v1.MarketDataService.FetchExternalPrices:output_type -> eye.v1.FetchExternalPricesResponse
-	38, // [38:55] is the sub-list for method output_type
-	21, // [21:38] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	28, // 5: eye.v1.ValuationCoverage.amounts_as_of:type_name -> google.protobuf.Timestamp
+	1,  // 6: eye.v1.UnpricedHolding.reason:type_name -> eye.v1.UnpricedReason
+	2,  // 7: eye.v1.CreateAssetRequest.asset:type_name -> eye.v1.Asset
+	2,  // 8: eye.v1.UpdateAssetRequest.asset:type_name -> eye.v1.Asset
+	29, // 9: eye.v1.UpdateAssetRequest.update_mask:type_name -> google.protobuf.FieldMask
+	2,  // 10: eye.v1.ListAssetsResponse.assets:type_name -> eye.v1.Asset
+	0,  // 11: eye.v1.FindOrCreateAssetRequest.type:type_name -> eye.v1.AssetType
+	2,  // 12: eye.v1.FindOrCreateAssetResponse.asset:type_name -> eye.v1.Asset
+	3,  // 13: eye.v1.CreatePriceRequest.price:type_name -> eye.v1.Price
+	3,  // 14: eye.v1.CreatePricesRequest.prices:type_name -> eye.v1.Price
+	28, // 15: eye.v1.ListPriceHistoryRequest.from:type_name -> google.protobuf.Timestamp
+	28, // 16: eye.v1.ListPriceHistoryRequest.to:type_name -> google.protobuf.Timestamp
+	3,  // 17: eye.v1.ListPriceHistoryResponse.prices:type_name -> eye.v1.Price
+	28, // 18: eye.v1.ListPricesByIntervalRequest.from:type_name -> google.protobuf.Timestamp
+	28, // 19: eye.v1.ListPricesByIntervalRequest.to:type_name -> google.protobuf.Timestamp
+	28, // 20: eye.v1.DeletePricesRequest.from:type_name -> google.protobuf.Timestamp
+	28, // 21: eye.v1.DeletePricesRequest.to:type_name -> google.protobuf.Timestamp
+	6,  // 22: eye.v1.MarketDataService.CreateAsset:input_type -> eye.v1.CreateAssetRequest
+	7,  // 23: eye.v1.MarketDataService.GetAsset:input_type -> eye.v1.GetAssetRequest
+	8,  // 24: eye.v1.MarketDataService.UpdateAsset:input_type -> eye.v1.UpdateAssetRequest
+	9,  // 25: eye.v1.MarketDataService.DeleteAsset:input_type -> eye.v1.DeleteAssetRequest
+	10, // 26: eye.v1.MarketDataService.ListAssets:input_type -> eye.v1.ListAssetsRequest
+	12, // 27: eye.v1.MarketDataService.EnrichAssetData:input_type -> eye.v1.EnrichAssetDataRequest
+	13, // 28: eye.v1.MarketDataService.FindSimilarAssets:input_type -> eye.v1.FindSimilarAssetsRequest
+	14, // 29: eye.v1.MarketDataService.FindOrCreateAsset:input_type -> eye.v1.FindOrCreateAssetRequest
+	16, // 30: eye.v1.MarketDataService.SetAssetVerdict:input_type -> eye.v1.SetAssetVerdictRequest
+	17, // 31: eye.v1.MarketDataService.CreatePrice:input_type -> eye.v1.CreatePriceRequest
+	18, // 32: eye.v1.MarketDataService.CreatePrices:input_type -> eye.v1.CreatePricesRequest
+	20, // 33: eye.v1.MarketDataService.GetLatestPrice:input_type -> eye.v1.GetLatestPriceRequest
+	21, // 34: eye.v1.MarketDataService.ListPriceHistory:input_type -> eye.v1.ListPriceHistoryRequest
+	23, // 35: eye.v1.MarketDataService.ListPricesByInterval:input_type -> eye.v1.ListPricesByIntervalRequest
+	24, // 36: eye.v1.MarketDataService.DeletePrice:input_type -> eye.v1.DeletePriceRequest
+	25, // 37: eye.v1.MarketDataService.DeletePrices:input_type -> eye.v1.DeletePricesRequest
+	26, // 38: eye.v1.MarketDataService.FetchExternalPrices:input_type -> eye.v1.FetchExternalPricesRequest
+	2,  // 39: eye.v1.MarketDataService.CreateAsset:output_type -> eye.v1.Asset
+	2,  // 40: eye.v1.MarketDataService.GetAsset:output_type -> eye.v1.Asset
+	2,  // 41: eye.v1.MarketDataService.UpdateAsset:output_type -> eye.v1.Asset
+	30, // 42: eye.v1.MarketDataService.DeleteAsset:output_type -> google.protobuf.Empty
+	11, // 43: eye.v1.MarketDataService.ListAssets:output_type -> eye.v1.ListAssetsResponse
+	2,  // 44: eye.v1.MarketDataService.EnrichAssetData:output_type -> eye.v1.Asset
+	11, // 45: eye.v1.MarketDataService.FindSimilarAssets:output_type -> eye.v1.ListAssetsResponse
+	15, // 46: eye.v1.MarketDataService.FindOrCreateAsset:output_type -> eye.v1.FindOrCreateAssetResponse
+	2,  // 47: eye.v1.MarketDataService.SetAssetVerdict:output_type -> eye.v1.Asset
+	3,  // 48: eye.v1.MarketDataService.CreatePrice:output_type -> eye.v1.Price
+	19, // 49: eye.v1.MarketDataService.CreatePrices:output_type -> eye.v1.CreatePricesResponse
+	3,  // 50: eye.v1.MarketDataService.GetLatestPrice:output_type -> eye.v1.Price
+	22, // 51: eye.v1.MarketDataService.ListPriceHistory:output_type -> eye.v1.ListPriceHistoryResponse
+	22, // 52: eye.v1.MarketDataService.ListPricesByInterval:output_type -> eye.v1.ListPriceHistoryResponse
+	30, // 53: eye.v1.MarketDataService.DeletePrice:output_type -> google.protobuf.Empty
+	30, // 54: eye.v1.MarketDataService.DeletePrices:output_type -> google.protobuf.Empty
+	27, // 55: eye.v1.MarketDataService.FetchExternalPrices:output_type -> eye.v1.FetchExternalPricesResponse
+	39, // [39:56] is the sub-list for method output_type
+	22, // [22:39] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_v1_marketdata_proto_init() }

@@ -339,6 +339,10 @@ func run() error {
 		WithRefreshWindow(sweepWindow(config.Scheduler.PriceFetchCron))
 	automationStore := postgres.NewAutomationStore(pool)
 	automationHandler := automation.NewHandler(automationStore, log)
+	// The balance sweep runs against the portfolio service in this process.
+	// A deployment without one has no balances of its own to refresh, so the
+	// job stays unregistered rather than reaching across the network for them.
+	var balanceSweeper scheduler.BalanceSweeper
 	for _, svc := range config.Services {
 		switch svc.Type {
 		case ServiceConfigTypeMarketData:
@@ -352,6 +356,7 @@ func run() error {
 				WithExchangeSyncerSource(credResolver)
 			path, handler := apiv1connect.NewPortfolioServiceHandler(pHandler, interceptor)
 			mux.Handle(path, handler)
+			balanceSweeper = pHandler
 		case ServiceConfigTypeAutomation:
 			path, handler := apiv1connect.NewAutomationServiceHandler(automationHandler, interceptor)
 			mux.Handle(path, handler)
@@ -371,19 +376,28 @@ func run() error {
 	var sched *scheduler.Scheduler
 	if config.Scheduler.Enabled {
 		sched, err = scheduler.New(scheduler.Config{
-			PriceFetchCron: config.Scheduler.PriceFetchCron,
-			RescoreCron:    config.Scheduler.RescoreCron,
+			PriceFetchCron:  config.Scheduler.PriceFetchCron,
+			RescoreCron:     config.Scheduler.RescoreCron,
+			BalanceSyncCron: config.Scheduler.BalanceSyncCron,
 		}, automationStore, automationHandler, mdHandler, mdHandler, log)
 		if err != nil {
 			return fmt.Errorf("init scheduler: %w", err)
 		}
 		sched = sched.WithUsageReporter(rateLimits)
+		if balanceSweeper != nil {
+			sched = sched.WithBalanceSweeper(balanceSweeper, portfolio.SweepOpts{
+				MaxAge: config.Scheduler.BalanceMaxAge,
+				Limit:  config.Scheduler.BalanceAccountsPerSweep,
+			})
+		}
 		if err := sched.Start(); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}
 		log.Info("scheduler started",
 			slog.String("price_fetch_cron", config.Scheduler.PriceFetchCron),
-			slog.String("rescore_cron", config.Scheduler.RescoreCron))
+			slog.String("rescore_cron", config.Scheduler.RescoreCron),
+			slog.String("balance_sync_cron", config.Scheduler.BalanceSyncCron),
+			slog.Bool("balance_sweep_wired", balanceSweeper != nil))
 	}
 
 	// Serve HTTP/1.1 and cleartext HTTP/2 (h2c) for Connect. Since Go 1.24 this

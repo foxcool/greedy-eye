@@ -12,9 +12,11 @@ import (
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
+	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
+	"github.com/foxcool/greedy-eye/internal/service/portfolio"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -259,4 +261,78 @@ func TestStartStop(t *testing.T) {
 	defer cancel()
 	s.Stop(ctx)
 	store.AssertExpectations(t)
+}
+
+// --- balance sweep ---
+
+type fakeSweeper struct {
+	report  portfolio.SweepReport
+	err     error
+	calls   []portfolio.SweepOpts
+	classes []ratelimit.Class
+	logged  int
+}
+
+func (f *fakeSweeper) SyncDueAccounts(ctx context.Context, opts portfolio.SweepOpts) (portfolio.SweepReport, error) {
+	f.calls = append(f.calls, opts)
+	f.classes = append(f.classes, ratelimit.ClassFromContext(ctx))
+	return f.report, f.err
+}
+
+func (f *fakeSweeper) LogSweepReport(portfolio.SweepReport, time.Duration) { f.logged++ }
+
+// TestSyncBalances_RunsAsBackgroundAndReports: the sweep competes with whoever
+// presses Sync for the same metered plan, so it goes out in the background
+// class, and its report has to be logged — on a schedule nobody reads a return
+// value.
+func TestSyncBalances_RunsAsBackgroundAndReports(t *testing.T) {
+	sweeper := &fakeSweeper{report: portfolio.SweepReport{Due: 2, Synced: 2}}
+	s := newTestScheduler(t, Config{}, &mockRuleStore{}, &fakeExecutor{}, &fakeFetcher{}).
+		WithBalanceSweeper(sweeper, portfolio.SweepOpts{MaxAge: 6 * time.Hour, Limit: 3})
+
+	s.syncBalances()
+
+	require.Len(t, sweeper.calls, 1)
+	assert.Equal(t, 6*time.Hour, sweeper.calls[0].MaxAge)
+	assert.Equal(t, 3, sweeper.calls[0].Limit)
+	assert.Equal(t, ratelimit.ClassBackground, sweeper.classes[0])
+	assert.Equal(t, 1, sweeper.logged)
+}
+
+// TestSyncBalances_ErrorIsNotAPanic: a failed sweep leaves the next fire to try
+// again rather than taking the scheduler down.
+func TestSyncBalances_ErrorIsNotAPanic(t *testing.T) {
+	sweeper := &fakeSweeper{err: errors.New("db down")}
+	s := newTestScheduler(t, Config{}, &mockRuleStore{}, &fakeExecutor{}, &fakeFetcher{}).
+		WithBalanceSweeper(sweeper, portfolio.SweepOpts{})
+
+	assert.NotPanics(t, func() { s.syncBalances() })
+	assert.Zero(t, sweeper.logged, "there is no report to log when the sweep never ran")
+}
+
+// TestStart_BalanceSyncNeedsBothCronAndSweeper: a cron spec without a portfolio
+// service in this process would schedule a job with nothing to sweep.
+func TestStart_BalanceSyncNeedsBothCronAndSweeper(t *testing.T) {
+	store := &mockRuleStore{}
+	expectRulesPage(store, "", nil, "")
+	s := newTestScheduler(t, Config{BalanceSyncCron: "30 * * * *"}, store, &fakeExecutor{}, &fakeFetcher{})
+	require.NoError(t, s.Start())
+	assert.Len(t, s.cron.Entries(), 1, "rule reload only: no sweeper wired")
+
+	store2 := &mockRuleStore{}
+	expectRulesPage(store2, "", nil, "")
+	s2 := newTestScheduler(t, Config{BalanceSyncCron: "30 * * * *"}, store2, &fakeExecutor{}, &fakeFetcher{}).
+		WithBalanceSweeper(&fakeSweeper{}, portfolio.SweepOpts{})
+	require.NoError(t, s2.Start())
+	assert.Len(t, s2.cron.Entries(), 2)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	s.Stop(ctx)
+	s2.Stop(ctx)
+}
+
+func TestNew_InvalidBalanceSyncCron(t *testing.T) {
+	_, err := New(Config{BalanceSyncCron: "not a cron"}, &mockRuleStore{}, &fakeExecutor{}, &fakeFetcher{}, nil, testLogger())
+	assert.Error(t, err)
 }

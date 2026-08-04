@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
@@ -792,4 +793,91 @@ func TestInHoldingsTxRollsBackTheWholeSnapshot(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, rows, 2)
 	})
+}
+
+// TestListStaleSyncTargets covers the selection the balance sweep runs on: which
+// accounts are due, in what order, and which are never swept at all.
+func TestListStaleSyncTargets(t *testing.T) {
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	s := NewPortfolioStore(pool)
+	assets := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	user := createTestUser(t, users)
+	asset, err := assets.CreateAsset(ctx, &entity.Asset{
+		Symbol: "STALEBTC", Name: "Stale BTC", Type: entity.AssetTypeCryptocurrency,
+	})
+	require.NoError(t, err)
+
+	account := func(name string, typ entity.AccountType) *entity.Account {
+		a, err := s.CreateAccount(ctx, &entity.Account{UserID: user.ID, Name: name, Type: typ})
+		require.NoError(t, err)
+		return a
+	}
+	// holdingAt writes a holding and backdates it: updated_at is set by the
+	// store, and the whole question here is how old that timestamp is.
+	holdingAt := func(accountID string, updatedAt time.Time) {
+		h, err := s.CreateHolding(ctx, &entity.Holding{
+			AssetID: asset.ID, AccountID: accountID, Decimals: 8, Source: entity.SourceSync,
+		})
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, "UPDATE holdings SET updated_at = $1 WHERE id = $2", updatedAt, h.ID)
+		require.NoError(t, err)
+	}
+
+	now := time.Now()
+	fresh := account("fresh wallet", entity.AccountTypeWallet)
+	holdingAt(fresh.ID, now.Add(-1*time.Hour))
+
+	stale := account("stale wallet", entity.AccountTypeWallet)
+	holdingAt(stale.ID, now.Add(-30*time.Hour))
+
+	stalest := account("stalest exchange", entity.AccountTypeExchange)
+	holdingAt(stalest.ID, now.Add(-200*time.Hour))
+
+	neverSynced := account("never synced wallet", entity.AccountTypeWallet)
+
+	manual := account("manual stash", entity.AccountTypeManual)
+	holdingAt(manual.ID, now.Add(-500*time.Hour))
+
+	got, err := s.ListStaleSyncTargets(ctx, now.Add(-12*time.Hour), 10)
+	require.NoError(t, err)
+
+	ids := make([]string, 0, len(got))
+	for _, a := range got {
+		ids = append(ids, a.ID)
+	}
+	assert.NotContains(t, ids, fresh.ID, "an account synced within the window is not due")
+	assert.NotContains(t, ids, manual.ID, "a manual account has no provider to refresh it")
+	require.Contains(t, ids, neverSynced.ID)
+	require.Contains(t, ids, stalest.ID)
+	require.Contains(t, ids, stale.ID)
+
+	// Never synced sorts first — it is the stalest state there is, not a fresh
+	// one — then oldest confirmation first.
+	assert.Equal(t, neverSynced.ID, ids[0])
+	assert.Less(t, indexOf(ids, stalest.ID), indexOf(ids, stale.ID),
+		"the account confirmed longest ago comes first")
+
+	t.Run("limit is the provider budget", func(t *testing.T) {
+		limited, err := s.ListStaleSyncTargets(ctx, now.Add(-12*time.Hour), 2)
+		require.NoError(t, err)
+		require.Len(t, limited, 2, "a sweep takes what it can afford, the rest stays due")
+		assert.Equal(t, neverSynced.ID, limited[0].ID)
+	})
+
+	t.Run("rejects a non-positive limit", func(t *testing.T) {
+		_, err := s.ListStaleSyncTargets(ctx, now, 0)
+		assert.ErrorIs(t, err, store.ErrInvalidArgument)
+	})
+}
+
+func indexOf(ids []string, id string) int {
+	for i, v := range ids {
+		if v == id {
+			return i
+		}
+	}
+	return -1
 }

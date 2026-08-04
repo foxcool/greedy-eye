@@ -19,6 +19,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
+	"github.com/foxcool/greedy-eye/internal/service/portfolio"
 )
 
 const (
@@ -28,6 +29,13 @@ const (
 	ruleReloadSpec = "@every 1m"
 	// jobTimeout bounds a single job fire (rule execution or price fetch).
 	jobTimeout = 5 * time.Minute
+	// balanceSyncTimeout bounds one balance sweep. A heavy multi-chain wallet
+	// takes ~22s on its own (see portfolio.syncTimeout), and the sweep runs
+	// several accounts in sequence, so it needs a longer leash than a price
+	// fetch. Whatever it does not reach stays stale and is picked first next
+	// fire — the bound exists to stop a wedged provider from holding the job
+	// open until the following one, not to cut the work short.
+	balanceSyncTimeout = 15 * time.Minute
 	// rulePageSize is the page size used when listing active rules.
 	rulePageSize = 200
 )
@@ -60,6 +68,14 @@ type UsageReporter interface {
 	Snapshot() []ratelimit.Usage
 }
 
+// BalanceSweeper re-reads the balances of accounts that went stale and reports
+// what one run did. Satisfied by *portfolio.Handler; the report is logged
+// through the sweeper itself so every caller reports a sweep identically.
+type BalanceSweeper interface {
+	SyncDueAccounts(ctx context.Context, opts portfolio.SweepOpts) (portfolio.SweepReport, error)
+	LogSweepReport(report portfolio.SweepReport, elapsed time.Duration)
+}
+
 // Config holds scheduler settings.
 type Config struct {
 	// PriceFetchCron is the cron spec for the external price fetch job.
@@ -68,6 +84,10 @@ type Config struct {
 	// RescoreCron is the cron spec for the catalogue identity-rescore job.
 	// Empty disables the job.
 	RescoreCron string
+	// BalanceSyncCron is the cron spec for the balance sweep: re-reading the
+	// holdings of accounts nobody synced lately. Empty disables the job, which
+	// leaves amounts to be refreshed by hand.
+	BalanceSyncCron string
 }
 
 // ruleEntry tracks a scheduled rule so reloads can diff instead of rebuild.
@@ -80,12 +100,14 @@ type ruleEntry struct {
 type Scheduler struct {
 	cfg    Config
 	cron   *cron.Cron
-	rules    RuleStore
-	exec     RuleExecutor
-	prices   PriceFetcher
-	rescorer AssetRescorer
-	usage    UsageReporter
-	log      *slog.Logger
+	rules     RuleStore
+	exec      RuleExecutor
+	prices    PriceFetcher
+	rescorer  AssetRescorer
+	usage     UsageReporter
+	balances  BalanceSweeper
+	sweepOpts portfolio.SweepOpts
+	log       *slog.Logger
 
 	mu      sync.Mutex
 	entries map[string]ruleEntry // rule ID -> scheduled entry
@@ -101,6 +123,11 @@ func New(cfg Config, rules RuleStore, exec RuleExecutor, prices PriceFetcher, re
 	if cfg.RescoreCron != "" {
 		if _, err := cron.ParseStandard(cfg.RescoreCron); err != nil {
 			return nil, fmt.Errorf("invalid rescoreCron %q: %w", cfg.RescoreCron, err)
+		}
+	}
+	if cfg.BalanceSyncCron != "" {
+		if _, err := cron.ParseStandard(cfg.BalanceSyncCron); err != nil {
+			return nil, fmt.Errorf("invalid balanceSyncCron %q: %w", cfg.BalanceSyncCron, err)
 		}
 	}
 	cl := &cronLogger{log: log}
@@ -124,6 +151,15 @@ func (s *Scheduler) WithUsageReporter(u UsageReporter) *Scheduler {
 	return s
 }
 
+// WithBalanceSweeper enables the balance sweep. Without it BalanceSyncCron is
+// inert: a deployment that runs no portfolio service has no balances to refresh.
+// Zero opts mean the sweep's own defaults for staleness and per-fire budget.
+func (s *Scheduler) WithBalanceSweeper(b BalanceSweeper, opts portfolio.SweepOpts) *Scheduler {
+	s.balances = b
+	s.sweepOpts = opts
+	return s
+}
+
 // Start registers the static jobs, performs the initial rule load and starts
 // the cron loop. Missed fires during downtime are skipped, never caught up:
 // a stale trade plan is worse than no trade.
@@ -136,6 +172,11 @@ func (s *Scheduler) Start() error {
 	if s.cfg.RescoreCron != "" && s.rescorer != nil {
 		if _, err := s.cron.AddFunc(s.cfg.RescoreCron, s.rescoreAssets); err != nil {
 			return fmt.Errorf("register asset rescore job: %w", err)
+		}
+	}
+	if s.cfg.BalanceSyncCron != "" && s.balances != nil {
+		if _, err := s.cron.AddFunc(s.cfg.BalanceSyncCron, s.syncBalances); err != nil {
+			return fmt.Errorf("register balance sync job: %w", err)
 		}
 	}
 	if _, err := s.cron.AddFunc(ruleReloadSpec, func() { s.reloadRules(context.Background()) }); err != nil {

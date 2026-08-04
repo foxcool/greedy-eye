@@ -2,6 +2,7 @@ package portfolio
 
 import (
 	"context"
+	"time"
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
@@ -47,6 +48,11 @@ type Store interface {
 	// atomically. Transaction history is never removed this way.
 	DeleteAccountWithHoldings(ctx context.Context, id string) error
 	ListAccounts(ctx context.Context, opts ListAccountsOpts) ([]*entity.Account, string, error)
+	// ListStaleSyncTargets returns syncable accounts whose balances were last
+	// confirmed before `olderThan`, stalest first, capped at `limit`. Freshness
+	// comes from the account's own holdings, so it cannot claim a sync that
+	// never landed; an account with no holdings sorts first.
+	ListStaleSyncTargets(ctx context.Context, olderThan time.Time, limit int) ([]*entity.Account, error)
 
 	// Holdings
 	CreateHolding(ctx context.Context, h *entity.Holding) (*entity.Holding, error)
