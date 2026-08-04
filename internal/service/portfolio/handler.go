@@ -1018,11 +1018,15 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 		return nil, err
 	}
 
-	assetsUpserted, holdingsUpserted, syncedAssetIDs, upsertErrors, err := h.upsertSyncedBalances(ctx, account, balances)
+	// Whether the fetch stage came back whole decides if this snapshot may
+	// remove positions: a chain that failed reports no balances, which is
+	// indistinguishable from a chain whose balances are gone.
+	result, err := h.upsertSyncedBalances(ctx, account, balances, len(syncErrors) == 0)
 	if err != nil {
 		return nil, err
 	}
-	syncErrors = append(syncErrors, upsertErrors...)
+	syncErrors = append(syncErrors, result.syncErrors...)
+	syncedAssetIDs := result.syncedAssetIDs
 
 	// Price what this sync touched, so CalculatePortfolioValue returns current
 	// values. Naming the assets matters: an unfiltered request re-prices the
@@ -1038,8 +1042,9 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 
 	return connect.NewResponse(&apiv1.SyncAccountResponse{
 		AccountId:        req.Msg.AccountId,
-		AssetsUpserted:   assetsUpserted,
-		HoldingsUpserted: holdingsUpserted,
+		AssetsUpserted:   result.assetsUpserted,
+		HoldingsUpserted: result.holdingsUpserted,
+		HoldingsZeroed:   result.holdingsZeroed,
 		Errors:           syncErrors,
 	}), nil
 }
@@ -1187,7 +1192,15 @@ func (h *Handler) syncExchangeBalances(ctx context.Context, account *entity.Acco
 // is what the caller prices afterwards: a provider quota is monthly, and
 // re-pricing the whole catalogue on every sync spends it on data the sync did
 // not touch.
-func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Account, balances []syncedBalance) (assetsUpserted, holdingsUpserted int32, syncedAssetIDs []string, syncErrors []string, err error) {
+//
+// complete says the fetch stage returned the whole account: every address and
+// every chain answered. Only a complete snapshot may zero the positions it no
+// longer contains — see writeSyncedHoldings.
+func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Account, balances []syncedBalance, complete bool) (syncResult, error) {
+	var (
+		assetsUpserted int32
+		syncErrors     []string
+	)
 	byPosition := make(map[positionKey]*accumulated)
 	// Insertion order, so a resync writes rows in a stable order and the legacy
 	// row below is adopted by the first chain seen rather than by map luck.
@@ -1230,10 +1243,14 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 		}
 	}
 
+	// A balance that failed to parse or to resolve is a position this snapshot
+	// cannot speak for, so the snapshot is no longer whole.
+	complete = complete && len(syncErrors) == 0
+
 	// Build existing holdings map for this account
 	existingHoldings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{AccountID: account.ID, PageSize: 1000})
 	if err != nil {
-		return 0, 0, nil, nil, toConnectError(err)
+		return syncResult{}, toConnectError(err)
 	}
 	holdingByPosition := make(map[positionKey]*entity.Holding, len(existingHoldings))
 	// Rows written before positions carried a chain or a liquidity state: one
@@ -1256,6 +1273,18 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 		}
 	}
 
+	// An empty result from a provider that reported no error is the one case
+	// where "gone" and "not answered" are impossible to tell apart, and reading
+	// it as an emptied account would wipe the whole snapshot in one sync. Say so
+	// instead: the rows survive, and the caller learns why they were left alone.
+	if complete && len(order) == 0 {
+		if untouched := countSyncWritten(existingHoldings); untouched > 0 {
+			complete = false
+			syncErrors = append(syncErrors, fmt.Sprintf(
+				"provider returned no positions: %d synced holding(s) left untouched rather than zeroed", untouched))
+		}
+	}
+
 	// Every row of the new snapshot is written in one transaction. A sync does
 	// not add positions, it replaces the picture of an account, and half a
 	// picture is not a smaller truth — it is a total that looks whole and is
@@ -1267,43 +1296,90 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 		byPosition:         byPosition,
 		holdingByPosition:  holdingByPosition,
 		legacyByAsset:      legacyByAsset,
+		existing:           existingHoldings,
+		zeroVanished:       complete,
 		accountID:          account.ID,
 		defaultPortfolioID: account.PortfolioID,
 	}
+	result := syncResult{assetsUpserted: assetsUpserted, syncErrors: syncErrors}
 	err = h.store.InHoldingsTx(ctx, func(w HoldingWriter) error {
-		var werr error
-		holdingsUpserted, syncedAssetIDs, werr = h.writeSyncedHoldings(ctx, w, plan)
+		written, werr := h.writeSyncedHoldings(ctx, w, plan)
+		result.holdingsUpserted = written.holdingsUpserted
+		result.holdingsZeroed = written.holdingsZeroed
+		result.syncedAssetIDs = written.syncedAssetIDs
 		return werr
 	})
 	if err != nil {
-		return 0, 0, nil, nil, toConnectError(err)
+		return syncResult{}, toConnectError(err)
 	}
 
-	return assetsUpserted, holdingsUpserted, syncedAssetIDs, syncErrors, nil
+	return result, nil
+}
+
+// syncResult is what one SyncAccount write produced, reported back to the
+// caller: positions written, positions zeroed because the provider no longer
+// reports them, the assets to re-price, and the non-fatal errors met on the way.
+type syncResult struct {
+	assetsUpserted   int32
+	holdingsUpserted int32
+	holdingsZeroed   int32
+	syncedAssetIDs   []string
+	syncErrors       []string
+}
+
+// countSyncWritten counts the rows a sync is allowed to zero: the ones a sync
+// wrote in the first place.
+func countSyncWritten(holdings []*entity.Holding) int {
+	n := 0
+	for _, hld := range holdings {
+		if hld.Source == entity.SourceSync && !hld.Amount.IsZero() {
+			n++
+		}
+	}
+	return n
 }
 
 // writePlan is what upsertSyncedBalances resolved before touching the database:
 // the positions to write, in insertion order, and the rows already on the
 // account that they map onto.
 type writePlan struct {
-	order              []positionKey
-	byPosition         map[positionKey]*accumulated
-	holdingByPosition  map[positionKey]*entity.Holding
-	legacyByAsset      map[string][]*entity.Holding
+	order             []positionKey
+	byPosition        map[positionKey]*accumulated
+	holdingByPosition map[positionKey]*entity.Holding
+	legacyByAsset     map[string][]*entity.Holding
+	// existing is every row the account already had, needed whole because the
+	// rows this snapshot does NOT contain are as much a part of it as the ones
+	// it does.
+	existing []*entity.Holding
+	// zeroVanished says the snapshot is trustworthy enough to remove with: a
+	// complete fetch, no unresolved balance, not empty. See writeSyncedHoldings.
+	zeroVanished       bool
 	accountID          string
 	defaultPortfolioID string
+}
+
+// writtenSnapshot is what one transactional write of a snapshot produced.
+type writtenSnapshot struct {
+	holdingsUpserted int32
+	holdingsZeroed   int32
+	syncedAssetIDs   []string
 }
 
 // writeSyncedHoldings applies the plan through w, which is transactional: it
 // runs whole or not at all. A retried transaction re-runs it from the plan, so
 // it must not mutate one.
-func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan writePlan) (holdingsUpserted int32, syncedAssetIDs []string, err error) {
+func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan writePlan) (written writtenSnapshot, err error) {
 	// Adoption consumes from legacyByAsset, so a retried transaction must start
 	// from the same list rather than one the previous attempt already drained.
 	legacyByAsset := make(map[string][]*entity.Holding, len(plan.legacyByAsset))
 	for assetID, rows := range plan.legacyByAsset {
 		legacyByAsset[assetID] = slices.Clone(rows)
 	}
+
+	// Which existing rows this snapshot spoke for. Adoption decides some of them
+	// here rather than in the plan, so the vanished set can only be known after
+	// the write loop has run.
+	refreshed := make(map[string]struct{}, len(plan.existing))
 
 	for _, key := range plan.order {
 		entry := plan.byPosition[key]
@@ -1334,8 +1410,9 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 				fields = append(fields, "chain", "liquidity")
 			}
 			if _, err := w.UpdateHolding(ctx, existing, fields); err != nil {
-				return 0, nil, fmt.Errorf("update holding for asset %s: %w", assetID, err)
+				return writtenSnapshot{}, fmt.Errorf("update holding for asset %s: %w", assetID, err)
 			}
+			refreshed[existing.ID] = struct{}{}
 		} else {
 			// Create new holding; inherit account's default portfolio if configured.
 			// A scam/impersonation verdict on the asset excludes the new holding
@@ -1354,14 +1431,48 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 				Excluded:    entry.excluded,
 			})
 			if err != nil {
-				return 0, nil, fmt.Errorf("create holding for asset %s: %w", assetID, err)
+				return writtenSnapshot{}, fmt.Errorf("create holding for asset %s: %w", assetID, err)
 			}
 		}
-		holdingsUpserted++
-		syncedAssetIDs = append(syncedAssetIDs, assetID)
+		written.holdingsUpserted++
+		written.syncedAssetIDs = append(written.syncedAssetIDs, assetID)
 	}
 
-	return holdingsUpserted, syncedAssetIDs, nil
+	// A sync is a snapshot, not an append. Until now it only ever wrote the rows
+	// the provider returned, so a position that stopped being returned — sold,
+	// moved out, or newly rejected by a spam filter — kept its last amount
+	// forever. That is worse than never filtering it: an untouched row looks like
+	// a live position that merely stopped moving, and nothing distinguishes the
+	// two. Observed on dev 2026-08-02: 563.99 USDT sold on 2026-07-07 still
+	// counted as $564 of a $6917 portfolio, and no amount of resyncing removed it.
+	//
+	// Zero rather than delete: the row keeps its id, provenance and history, falls
+	// out of every sum, and a later sync that sees the position again refreshes it
+	// in place. Only rows this sync's own kind wrote are eligible — an imported or
+	// manual position is the user's claim, not the provider's to erase.
+	//
+	// plan.zeroVanished is the guard the whole pass hangs on: a failed chain, an
+	// unresolved balance or an empty result must never be read as an emptied
+	// wallet. See upsertSyncedBalances.
+	if plan.zeroVanished {
+		for _, hld := range plan.existing {
+			if _, ok := refreshed[hld.ID]; ok {
+				continue
+			}
+			if hld.Source != entity.SourceSync || hld.Amount.IsZero() {
+				continue
+			}
+			hld.Amount = decimal.Zero
+			if _, err := w.UpdateHolding(ctx, hld, []string{"amount"}); err != nil {
+				return writtenSnapshot{}, fmt.Errorf("zero vanished holding %s: %w", hld.ID, err)
+			}
+			// Deliberately not added to syncedAssetIDs: a zero position needs no
+			// price, and the provider quota is monthly.
+			written.holdingsZeroed++
+		}
+	}
+
+	return written, nil
 }
 
 // resolveSyncedAsset resolves (creating when needed) the asset for one synced

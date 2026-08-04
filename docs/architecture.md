@@ -553,7 +553,9 @@ API Client → PortfolioService/SyncAccount → resolver → syncer → upsert h
   3. Each balance resolves to an asset: contract ref first, confirmed symbol second
   4. New or unscored assets are scored by scamfilter; the verdict lands on the asset
   5. Holdings upserted in ONE transaction; scam/impersonation verdicts derive holdings.excluded
-  6. Response: SyncAccountResponse{assets_upserted, holdings_upserted, errors}
+  6. Sync-written positions the provider no longer reports are zeroed in the same
+     transaction — but only when the snapshot came back whole (see below)
+  7. Response: SyncAccountResponse{assets_upserted, holdings_upserted, holdings_zeroed, errors}
 ```
 
 **Deadline and atomicity.** A sync is a long operation: ~22s measured for a heavy
@@ -570,6 +572,21 @@ opens, stay outside it — a catalogue entry with no holding is inert, half a
 snapshot is not. Callers that are themselves long (the frontend's `syncAccount`)
 set a client timeout above the server's and do not auto-retry: a retried sync
 would point a second writer at the same rows.
+
+**A snapshot removes, not only adds.** A sync used to write only the positions
+the provider returned, so one that stopped being returned — sold, moved out, or
+newly rejected by a spam filter — kept its last amount forever and read as a live
+holding that had merely stopped moving. Rows absent from a snapshot are therefore
+zeroed in the same transaction: the row keeps its id, provenance and history,
+drops out of every sum, and a later sync that sees the position again refreshes
+it in place. Three guards decide whether removal runs at all, because a wallet
+that answered nothing looks exactly like a wallet that holds nothing: every
+address and chain must have answered without error, every returned balance must
+have resolved to an asset, and the snapshot must not be empty while the account
+still carries synced rows. When a guard blocks removal the reason goes into
+`errors` — a skipped removal that says nothing is the failure this replaces.
+Only rows with `source = sync` are eligible: an imported or manual position is
+the user's claim about the account, not the provider's to erase.
 
 #### Scenario 2c: Value a Portfolio
 

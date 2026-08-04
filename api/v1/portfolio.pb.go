@@ -3093,8 +3093,12 @@ type SyncAccountResponse struct {
 	AssetsUpserted   int32                  `protobuf:"varint,2,opt,name=assets_upserted,json=assetsUpserted,proto3" json:"assets_upserted,omitempty"`
 	HoldingsUpserted int32                  `protobuf:"varint,3,opt,name=holdings_upserted,json=holdingsUpserted,proto3" json:"holdings_upserted,omitempty"`
 	Errors           []string               `protobuf:"bytes,4,rep,name=errors,proto3" json:"errors,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Positions the provider no longer reports, set to zero by this sync: sold,
+	// moved out, or newly rejected by a filter. Removal only happens on a
+	// complete snapshot; when it is skipped, the reason is in errors.
+	HoldingsZeroed int32 `protobuf:"varint,5,opt,name=holdings_zeroed,json=holdingsZeroed,proto3" json:"holdings_zeroed,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *SyncAccountResponse) Reset() {
@@ -3153,6 +3157,13 @@ func (x *SyncAccountResponse) GetErrors() []string {
 		return x.Errors
 	}
 	return nil
+}
+
+func (x *SyncAccountResponse) GetHoldingsZeroed() int32 {
+	if x != nil {
+		return x.HoldingsZeroed
+	}
+	return 0
 }
 
 var File_v1_portfolio_proto protoreflect.FileDescriptor
@@ -3448,13 +3459,14 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"3\n" +
 	"\x12SyncAccountRequest\x12\x1d\n" +
 	"\n" +
-	"account_id\x18\x01 \x01(\tR\taccountId\"\xa2\x01\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\"\xcb\x01\n" +
 	"\x13SyncAccountResponse\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12'\n" +
 	"\x0fassets_upserted\x18\x02 \x01(\x05R\x0eassetsUpserted\x12+\n" +
 	"\x11holdings_upserted\x18\x03 \x01(\x05R\x10holdingsUpserted\x12\x16\n" +
-	"\x06errors\x18\x04 \x03(\tR\x06errors*\xc2\x01\n" +
+	"\x06errors\x18\x04 \x03(\tR\x06errors\x12'\n" +
+	"\x0fholdings_zeroed\x18\x05 \x01(\x05R\x0eholdingsZeroed*\xc2\x01\n" +
 	"\vAccountType\x12\x1c\n" +
 	"\x18ACCOUNT_TYPE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13ACCOUNT_TYPE_WALLET\x10\x01\x12\x19\n" +
