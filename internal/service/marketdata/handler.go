@@ -429,9 +429,6 @@ func (h *Handler) FindSimilarAssets(ctx context.Context, req *connect.Request[ap
 // Find-first keeps batch imports from polluting the catalog with duplicates.
 func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[apiv1.FindOrCreateAssetRequest]) (*connect.Response[apiv1.FindOrCreateAssetResponse], error) {
 	symbol := entity.NormalizeSymbol(req.Msg.Symbol)
-	if symbol == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("symbol is required"))
-	}
 
 	typ := entity.AssetType(req.Msg.Type)
 	if typ == entity.AssetTypeUnspecified {
@@ -466,6 +463,18 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 		} else if !errors.Is(ferr, store.ErrNotFound) {
 			return nil, toConnectError(ferr)
 		}
+	}
+
+	// Past the ref lookup, identity has nothing left to match on but the symbol.
+	// The check sits here rather than at the top because a contract that the
+	// catalogue already knows IS an identity: a provider that reports a balance
+	// with an empty symbol still names the token by address, and refusing it made
+	// the caller lose a position it could resolve. Sync pays for that twice — the
+	// balance is dropped AND the account's snapshot counts as incomplete, which
+	// keeps it from removing positions that really are gone.
+	if symbol == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("symbol is required unless the external ref resolves a known asset"))
 	}
 
 	// An unbound contract may only claim the global market once its identity is

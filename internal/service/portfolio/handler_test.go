@@ -2494,6 +2494,54 @@ func TestSyncAccount_ZeroesVanishedHolding(t *testing.T) {
 	assert.True(t, updated["h-usdt"].IsZero(), "a position the provider no longer reports is gone, not unchanged")
 }
 
+// TestSyncAccount_UnstorableBalanceDoesNotBlockRemoval: a balance with neither a
+// symbol nor a contract cannot be stored and cannot be an existing row either, so
+// dropping it is a filter rather than a failed observation. It used to fail
+// resolution instead, and one such balance on dev's 'hot' wallet kept the whole
+// account from ever shedding a position sold in July (personal-bjvc).
+func TestSyncAccount_UnstorableBalanceDoesNotBlockRemoval(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
+
+	sold := &entity.Holding{
+		ID:        "h-usdt",
+		AssetID:   "asset-USDT",
+		AccountID: testAccountID,
+		Amount:    decimal.RequireFromString("563993463"),
+		Decimals:  6,
+		Chain:     "eth",
+		Source:    entity.SourceSync,
+	}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{sold}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: "h-dai"}, nil)
+	s.On("UpdateHolding", mock.Anything, mock.Anything, mock.Anything).Return(&entity.Holding{}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{
+		{Symbol: "DAI", Amount: "100", Decimals: 18, ContractAddress: "0xdai", Chain: "eth"},
+		{Symbol: "", Amount: "42", Decimals: 18, Chain: "eth"},
+	}, nil)
+
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.Errors, "an unstorable balance is filtered, not failed")
+	assert.Equal(t, int32(1), resp.Msg.HoldingsUpserted)
+	assert.Equal(t, int32(1), resp.Msg.HoldingsZeroed, "the sold position still goes")
+	assert.True(t, sold.Amount.IsZero())
+}
+
 // TestSyncAccount_PartialFetchKeepsVanishedHoldings: a chain that failed reports
 // no balances, which looks exactly like a chain whose balances are gone. Removal
 // is only allowed on a snapshot that came back whole.

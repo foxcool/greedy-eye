@@ -1215,9 +1215,30 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 		if amt.Sign() == 0 {
 			continue
 		}
+		// A balance with no symbol at all is unidentifiable: the catalogue is
+		// still asked, because a contract it already knows names the token on its
+		// own, but if that lookup fails there is nothing left to call the position
+		// and nothing to key it by. Dropping it is a filter, not a failed
+		// observation — it costs the snapshot no right to remove positions.
+		// Counting it as a failure did, and one such balance on dev's 'hot' wallet
+		// kept the account from ever shedding a position sold in July.
+		unnamed := strings.TrimSpace(b.symbol) == ""
+		if unnamed && strings.TrimSpace(b.contractAddress) == "" {
+			h.log.Warn("skipping unidentifiable balance", "chain", b.chain, "amount", b.amount)
+			continue
+		}
 
 		assetID, created, verdict, rerr := h.resolveSyncedAsset(ctx, b)
 		if rerr != nil {
+			if unnamed {
+				// Named by neither symbol nor a contract the catalogue knows. The
+				// residual risk is a pre-external-ref asset whose token stopped
+				// reporting its symbol: it would resolve by symbol and no longer
+				// can, so its row may be zeroed while still held.
+				h.log.Warn("skipping unidentifiable balance",
+					"chain", b.chain, "contract", b.contractAddress, "amount", b.amount, "error", rerr)
+				continue
+			}
 			syncErrors = append(syncErrors, fmt.Sprintf("resolve asset %s: %v", b.symbol, rerr))
 			continue
 		}
