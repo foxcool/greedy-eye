@@ -144,6 +144,9 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 
 	coverage := &apiv1.ValuationCoverage{}
 	var unpriced []*apiv1.UnpricedHolding
+	// The oldest amount behind a tile dates the whole map, the same way it dates
+	// a total: fresh prices over week-old quantities still draw last week.
+	var oldestAmount time.Time
 
 	for _, hld := range holdings {
 		ap, err := h.assetPricing(ctx, assets, hld.AssetID, quoteAssetID, from)
@@ -170,6 +173,7 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 			continue
 		}
 		coverage.PricedCount++
+		oldestAmount = olderOf(oldestAmount, hld.UpdatedAt)
 		key := leafKey{assetID: hld.AssetID}
 		if grouped {
 			key.groupID, err = h.groupID(ctx, msg.GroupBy, hld, accountPortfolios)
@@ -211,6 +215,9 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 	}
 
 	coverage.Unpriced = unpriced
+	if !oldestAmount.IsZero() {
+		coverage.AmountsAsOf = timestamppb.New(oldestAmount)
+	}
 
 	return connect.NewResponse(&apiv1.GetHeatmapResponse{
 		Nodes:        nodes,
@@ -224,6 +231,18 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 // is always exact, the list is a sample bounded by read size. Same cap and same
 // reasoning as portfolio's; the two will share code on the third consumer.
 const maxUnpricedDisclosed = 50
+
+// olderOf keeps the earlier of two timestamps, treating a zero value as "no
+// observation yet" rather than as the year 1.
+func olderOf(current, candidate time.Time) time.Time {
+	if candidate.IsZero() {
+		return current
+	}
+	if current.IsZero() || candidate.Before(current) {
+		return candidate
+	}
+	return current
+}
 
 // groupID resolves which group a holding belongs to for the given axis.
 // For portfolio grouping a holding without its own portfolio inherits the

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
@@ -853,6 +854,67 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 	}
 
 	return accounts, nextPageToken, nil
+}
+
+// ListStaleSyncTargets returns syncable accounts whose balances are older than
+// `olderThan`, the ones least recently confirmed first, capped at `limit`.
+//
+// Freshness is read off the account's own rows rather than a column on the
+// account: `holdings.updated_at` is written by the sync that produced them, so
+// it cannot claim a sync that did not land. An account with no holdings at all
+// sorts first — never synced is the stalest state there is, not a fresh one.
+//
+// Only wallet and exchange accounts can be swept; a manual account's positions
+// come from a human and no provider can refresh them.
+func (s *PortfolioStore) ListStaleSyncTargets(ctx context.Context, olderThan time.Time, limit int) ([]*entity.Account, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("%w: limit must be positive", store.ErrInvalidArgument)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT %s
+		FROM accounts a
+		LEFT JOIN (
+			SELECT account_id, max(updated_at) AS synced_at
+			FROM holdings
+			GROUP BY account_id
+		) h ON h.account_id = a.id
+		WHERE a.type IN ($1, $2)
+		  AND (h.synced_at IS NULL OR h.synced_at < $3)
+		ORDER BY h.synced_at ASC NULLS FIRST, a.id
+		LIMIT $4`, prefixedAccountColumns("a"))
+
+	rows, err := s.pool.Query(ctx, query,
+		accountTypeToString(entity.AccountTypeWallet),
+		accountTypeToString(entity.AccountTypeExchange),
+		olderThan, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list stale sync targets: %w", err)
+	}
+	defer rows.Close()
+
+	accounts := make([]*entity.Account, 0, limit)
+	for rows.Next() {
+		a, err := s.scanAccount(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan stale sync target: %w", err)
+		}
+		accounts = append(accounts, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate stale sync targets: %w", err)
+	}
+	return accounts, nil
+}
+
+// prefixedAccountColumns qualifies the account column list with a table alias,
+// so a join can select it without ambiguity.
+func prefixedAccountColumns(alias string) string {
+	cols := strings.Split(accountColumns, ", ")
+	for i, c := range cols {
+		cols[i] = alias + "." + c
+	}
+	return strings.Join(cols, ", ")
 }
 
 // ListSystemAccountsByCapability returns accounts whose admin-granted system

@@ -759,6 +759,9 @@ Rules that follow from this:
 
 - An absent quote and a zero valuation are **different statements**. Nothing may turn the first
   into the second
+- A price and an amount go stale **independently**. `ValuationCoverage.amounts_as_of` carries the
+  oldest confirmation time among the holdings counted, so an hourly re-price cannot present
+  week-old quantities as a current total
 - A new consumer of a valuation (heatmap, MCP, a future report) **embeds the existing coverage
   message** instead of growing its own coverage fields
 - Filtering a position out of a sum without saying so is a bug, whatever the reason for filtering
@@ -809,8 +812,29 @@ returned by the provider and currently discarded — is the prerequisite for clo
 **Background Scheduler (`internal/scheduler`):**
 - Single cron scheduler (robfig/cron/v3) inside the `eye` binary, gated by `scheduler.enabled`
 - Consumers: periodic automation rules (`RuleSchedule.CronExpression` + `Timezone`), external
-  price fetching (`scheduler.priceFetchCron`), and the asset rescore pass that re-applies
-  scam-filter verdicts to the catalogue (`internal/scheduler/rescore.go`)
+  price fetching (`scheduler.priceFetchCron`), the asset rescore pass that re-applies
+  scam-filter verdicts to the catalogue (`internal/scheduler/rescore.go`), and the balance sweep
+  (`scheduler.balanceSyncCron`)
+- **The balance sweep re-reads amounts, not prices.** Without it nothing refreshed quantities on
+  a schedule while the hourly price sweep kept re-pricing them, so a total moved every hour and
+  stayed wrong — prod 2026-08-02 carried holdings whose `updated_at` was a week old. A number
+  that moves is read as a number that is current
+  - Selection is staleness-driven, not a flat pass: `ListStaleSyncTargets` returns syncable
+    accounts whose newest holding is older than `scheduler.balanceMaxAge` (12h default), stalest
+    first, capped by `scheduler.balanceAccountsPerSweep` (2). Freshness comes from the holdings
+    themselves, so it cannot claim a sync that never landed, and an account with no holdings sorts
+    first. The cron interval is not the refresh rate — it is how often the system gets a chance
+    to catch up, and what one fire does not reach stays due
+  - The cap is the provider budget: one heavy multi-chain sync costs far more than one price call,
+    and both sweeps draw on the same per-credential allowance (ADR: `personal-a3v`). The job runs
+    in the background rate-limit class, so it yields the tail of a metered plan to whoever presses
+    Sync
+  - Each account syncs **under its own owner's identity**. Ownership is attributed, not bypassed:
+    `SyncAccount` resolves wallet syncers and exchange credentials per user, so a user-agnostic
+    sweep would reach only what an admin shared system-wide
+  - Every run reports itself — accounts due, synced, failed, holdings written and zeroed, plus a
+    line per account that failed or synced with per-item errors. Nobody reads a scheduled job's
+    return value, so a silent failure would be indistinguishable from an account that was not due
 - The price sweep is budgeted, not exhaustive: it asks each source only for assets whose next attempt is due (`price_fetch_attempts`), oldest first, capped by the share of the credential's remaining plan allowance that one interval affords. Naming `asset_ids` on the RPC makes it a deliberate reconciliation and bypasses both
 - Active rule schedules are fully reloaded every minute — rule CRUD needs no hooks, mutations take effect within a minute
 - Missed fires during downtime are **skipped, never caught up**: executing a stale trade plan is worse than skipping it

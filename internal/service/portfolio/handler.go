@@ -284,6 +284,10 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 	var excludedCount uint32
 	coverage := &apiv1.ValuationCoverage{}
 	var unpriced []unpricedHolding
+	// The oldest amount in the total is what the total can honestly claim to be
+	// as of: one week-old position dates the whole number, however fresh the
+	// prices under it are.
+	var oldestAmount time.Time
 
 	for _, hld := range holdings {
 		unit, outcome, err := h.unitPrice(ctx, hld.AssetID, quoteAssetID)
@@ -309,10 +313,14 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 			continue
 		}
 		coverage.PricedCount++
+		oldestAmount = olderOf(oldestAmount, hld.UpdatedAt)
 
 		// value = (amount / 10^holding.Decimals) * unitPrice
 		holdingValue := hld.Amount.Shift(-decI32(hld.Decimals)).Mul(unit)
 		total = total.Add(holdingValue)
+	}
+	if !oldestAmount.IsZero() {
+		coverage.AmountsAsOf = timestamppb.New(oldestAmount)
 	}
 
 	coverage.Unpriced, coverage.UnpricedTruncated = h.describeUnpriced(ctx, unpriced)
@@ -337,6 +345,18 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 // maxUnpricedDisclosed caps the per-holding detail in a coverage block: the
 // count is always exact, the list is a sample bounded by read size.
 const maxUnpricedDisclosed = 50
+
+// olderOf keeps the earlier of two timestamps, treating a zero value as "no
+// observation yet" rather than as the year 1.
+func olderOf(current, candidate time.Time) time.Time {
+	if candidate.IsZero() {
+		return current
+	}
+	if current.IsZero() || candidate.Before(current) {
+		return candidate
+	}
+	return current
+}
 
 // unpricedHolding pairs a position left out of the total with the reason it was.
 type unpricedHolding struct {

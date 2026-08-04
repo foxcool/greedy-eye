@@ -104,6 +104,14 @@ func (m *mockStore) ListAccounts(ctx context.Context, opts ListAccountsOpts) ([]
 	return nil, args.String(1), args.Error(2)
 }
 
+func (m *mockStore) ListStaleSyncTargets(ctx context.Context, olderThan time.Time, limit int) ([]*entity.Account, error) {
+	args := m.Called(ctx, olderThan, limit)
+	if v := args.Get(0); v != nil {
+		return v.([]*entity.Account), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockStore) CreateHolding(ctx context.Context, h *entity.Holding) (*entity.Holding, error) {
 	args := m.Called(ctx, h)
 	if v := args.Get(0); v != nil {

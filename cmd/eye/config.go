@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/knadh/koanf"
 	"github.com/knadh/koanf/parsers/json"
@@ -71,6 +72,20 @@ type Config struct {
 		// (scam-filtering). Empty disables it. Lowercase key for the same
 		// env-override reason as pricefetchcron.
 		RescoreCron string `koanf:"rescorecron"`
+		// BalanceSyncCron is the cron spec for the balance sweep: re-reading
+		// the holdings of accounts nobody synced lately. Empty disables it,
+		// which leaves amounts to be refreshed by hand while the price sweep
+		// keeps re-pricing them hourly.
+		BalanceSyncCron string `koanf:"balancesynccron"`
+		// BalanceMaxAge is how old an account's newest holding may be before
+		// the sweep re-reads it. Zero uses the service default (12h): an
+		// amount changes when its owner moves money, not when a market ticks.
+		BalanceMaxAge time.Duration `koanf:"balancemaxage"`
+		// BalanceAccountsPerSweep caps how many accounts one fire syncs, which
+		// is what keeps the sweep inside a metered provider plan. Zero uses the
+		// service default (2). Accounts it skips stay stale and sort first next
+		// fire.
+		BalanceAccountsPerSweep int `koanf:"balanceaccountspersweep"`
 	} `koanf:"scheduler"`
 }
 
@@ -113,6 +128,12 @@ func getConfig() (*Config, error) {
 		"scheduler.pricefetchcron": "0 * * * *",
 		// Daily at 03:00; catalogue identity rescore is cheap and idempotent.
 		"scheduler.rescorecron": "0 3 * * *",
+		// Hourly, offset from the price sweep so the two do not contend for the
+		// same provider allowance in the same minute. The interval is not the
+		// refresh rate: each fire takes the two stalest accounts, and an account
+		// is due only once its balances are older than balancemaxage (12h). What
+		// the cron sets is how often the system gets a chance to catch up.
+		"scheduler.balancesynccron": "30 * * * *",
 		"services": []any{
 			map[string]any{"type": ServiceConfigTypeMarketData},
 			map[string]any{"type": ServiceConfigTypePortfolio},
