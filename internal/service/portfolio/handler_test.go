@@ -2429,3 +2429,243 @@ func TestSyncAccount_SurvivesCallerCancellation(t *testing.T) {
 	assert.Equal(t, []string{"fetch", "price"}, seen)
 	s.AssertExpectations(t)
 }
+
+// TestSyncAccount_ZeroesVanishedHolding: sync used to only ever write the rows
+// the provider returned, so a sold position kept its last amount forever and
+// read as a live holding that merely stopped moving. Dev 2026-08-02: 563.99 USDT
+// sold on 07-07 still counted as $564 of a $6917 portfolio.
+func TestSyncAccount_ZeroesVanishedHolding(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
+
+	kept := &entity.Holding{
+		ID:        "h-dai",
+		AssetID:   "asset-DAI",
+		AccountID: testAccountID,
+		Amount:    decimal.RequireFromString("100"),
+		Decimals:  18,
+		Chain:     "eth",
+		Source:    entity.SourceSync,
+	}
+	sold := &entity.Holding{
+		ID:        "h-usdt",
+		AssetID:   "asset-USDT",
+		AccountID: testAccountID,
+		Amount:    decimal.RequireFromString("563993463"),
+		Decimals:  6,
+		Chain:     "eth",
+		Source:    entity.SourceSync,
+	}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{kept, sold}, "", nil)
+
+	updated := map[string]decimal.Decimal{}
+	s.On("UpdateHolding", mock.Anything, mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			hld := args.Get(1).(*entity.Holding)
+			updated[hld.ID] = hld.Amount
+		}).
+		Return(&entity.Holding{}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{
+		{Symbol: "DAI", Amount: "200", Decimals: 18, ContractAddress: "0xdai", Chain: "eth"},
+	}, nil)
+
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.Errors)
+	assert.Equal(t, int32(1), resp.Msg.HoldingsUpserted)
+	assert.Equal(t, int32(1), resp.Msg.HoldingsZeroed)
+
+	assert.Equal(t, "200", updated["h-dai"].String(), "the returned position is refreshed")
+	require.Contains(t, updated, "h-usdt", "the vanished position must be written, not skipped")
+	assert.True(t, updated["h-usdt"].IsZero(), "a position the provider no longer reports is gone, not unchanged")
+}
+
+// TestSyncAccount_PartialFetchKeepsVanishedHoldings: a chain that failed reports
+// no balances, which looks exactly like a chain whose balances are gone. Removal
+// is only allowed on a snapshot that came back whole.
+func TestSyncAccount_PartialFetchKeepsVanishedHoldings(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"addresses": "bc1good bc1bad", "chain": "bitcoin"}
+
+	stale := &entity.Holding{
+		ID:        "h-ltc",
+		AssetID:   "asset-LTC",
+		AccountID: testAccountID,
+		Amount:    decimal.RequireFromString("100000000"),
+		Decimals:  8,
+		Source:    entity.SourceSync,
+	}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{stale}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: "h-btc"}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "bc1good", []string{"bitcoin"}).Return([]entity.WalletBalance{
+		{Symbol: "BTC", Amount: "50000000", Decimals: 8},
+	}, nil)
+	ws.On("SyncWallet", mock.Anything, "bc1bad", []string{"bitcoin"}).
+		Return([]entity.WalletBalance{}, errors.New("esplora status 503"))
+
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Errors, 1)
+	assert.Equal(t, int32(0), resp.Msg.HoldingsZeroed)
+	s.AssertNotCalled(t, "UpdateHolding", mock.Anything, mock.Anything, mock.Anything)
+	assert.Equal(t, "100000000", stale.Amount.String(), "an unreachable address is not an emptied wallet")
+}
+
+// TestSyncAccount_EmptySnapshotKeepsHoldings: an adapter that returns nothing
+// and reports no error is the one case where "gone" and "not answered" cannot be
+// told apart. Reading it as an emptied account would wipe the whole snapshot in
+// one sync, so the rows survive and the caller is told why.
+func TestSyncAccount_EmptySnapshotKeepsHoldings(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
+
+	existing := &entity.Holding{
+		ID:        "h-dai",
+		AssetID:   "asset-DAI",
+		AccountID: testAccountID,
+		Amount:    decimal.RequireFromString("100"),
+		Decimals:  18,
+		Chain:     "eth",
+		Source:    entity.SourceSync,
+	}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{existing}, "", nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{}, nil)
+
+	md := &mockMDClient{autoAsset: true}
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), resp.Msg.HoldingsZeroed)
+	require.Len(t, resp.Msg.Errors, 1, "silence about a skipped removal is the bug this replaces")
+	assert.Contains(t, resp.Msg.Errors[0], "no positions")
+	s.AssertNotCalled(t, "UpdateHolding", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestSyncAccount_LeavesForeignProvenanceAlone: an imported or manually entered
+// position is the user's own claim about the account. A provider that does not
+// report it is not evidence it is gone — it may be something the provider never
+// covered.
+func TestSyncAccount_LeavesForeignProvenanceAlone(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
+
+	manual := &entity.Holding{
+		ID:        "h-manual",
+		AssetID:   "asset-XMR",
+		AccountID: testAccountID,
+		Amount:    decimal.RequireFromString("500"),
+		Decimals:  12,
+		Source:    entity.SourceManual,
+	}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{manual}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: "h-dai"}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{
+		{Symbol: "DAI", Amount: "100", Decimals: 18, ContractAddress: "0xdai", Chain: "eth"},
+	}, nil)
+
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), resp.Msg.HoldingsZeroed)
+	assert.Equal(t, "500", manual.Amount.String(), "sync does not erase what it did not write")
+}
+
+// TestSyncAccount_AdoptedRowIsNotZeroed: adoption of a pre-chain row happens
+// inside the write, not in the plan, so the vanished set can only be taken after
+// the loop has run. Taking it before would zero the very row just refreshed.
+func TestSyncAccount_AdoptedRowIsNotZeroed(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
+
+	legacy := &entity.Holding{
+		ID:        "h-legacy",
+		AssetID:   "asset-USDC",
+		AccountID: testAccountID,
+		Amount:    decimal.RequireFromString("4000000"),
+		Decimals:  6,
+		Source:    entity.SourceSync,
+	}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{legacy}, "", nil)
+
+	var updates []decimal.Decimal
+	s.On("UpdateHolding", mock.Anything, mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			updates = append(updates, args.Get(1).(*entity.Holding).Amount)
+		}).
+		Return(&entity.Holding{ID: "h-legacy"}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{
+		{Symbol: "USDC", Amount: "1000000", Decimals: 6, ContractAddress: "0xusdc", Chain: "eth"},
+	}, nil)
+
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), resp.Msg.HoldingsUpserted)
+	assert.Equal(t, int32(0), resp.Msg.HoldingsZeroed)
+	require.Len(t, updates, 1, "the adopted row is written once, as an update")
+	assert.Equal(t, "1000000", updates[0].String())
+}

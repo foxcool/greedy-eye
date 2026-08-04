@@ -617,4 +617,8 @@ message SyncAccountResponse {
   int32 assets_upserted = 2;
   int32 holdings_upserted = 3;
   repeated string errors = 4;
+  // Positions the provider no longer reports, set to zero by this sync: sold,
+  // moved out, or newly rejected by a filter. Removal only happens on a
+  // complete snapshot; when it is skipped, the reason is in errors.
+  int32 holdings_zeroed = 5;
 }
