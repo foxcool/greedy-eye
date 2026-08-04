@@ -72,6 +72,11 @@ func (h *Handler) RescoreAssets(ctx context.Context) (RescoreReport, error) {
 				Symbol:          a.Symbol,
 				Name:            a.Name,
 				HasPriceListing: h.hasPriceListing(ctx, a.ID),
+				// The catalogue changes under an asset: a ticker unclaimed when
+				// the asset was first seen may be held by the time the real one
+				// is listed, so the collision is re-asked here rather than
+				// frozen at intake.
+				ClaimsHeldTicker: h.claimsHeldTicker(ctx, a.ID),
 			}, weights)
 
 			report.Scored++

@@ -53,6 +53,7 @@ const (
 	SignalProviderSpam     = "provider_spam"
 	SignalUnverified       = "unverified_contract"
 	SignalNoListing        = "no_listing"
+	SignalTickerCollision  = "ticker_collision"
 )
 
 // Weights sets each signal's contribution to the score and the verdict cutoffs.
@@ -102,6 +103,12 @@ type Input struct {
 	// asset; a reported false (no listing after N fetches) is a weak scam
 	// signal, an unset does not judge a freshly-seen asset.
 	HasPriceListing *bool
+	// ClaimsHeldTicker is whether this asset's ticker is already held, on one of
+	// its own chains, by an older price-listed asset bound to a different
+	// contract. The catalogue answers it; the scorer only judges it. Text cannot
+	// see this shape at all — the whole point of a lookalike is that its symbol
+	// is spelled exactly right.
+	ClaimsHeldTicker bool
 }
 
 // Result is the scored outcome. Signals maps each contributing signal to its
@@ -131,6 +138,18 @@ func Score(in Input, w Weights) Result {
 	}
 	if hasMixedScript(in.Symbol) || hasMixedScript(in.Name) {
 		signals[SignalMixedScript] = 1
+		return Result{Score: 1, Verdict: VerdictImpersonation, Signals: signals}
+	}
+	// A ticker already held on this chain by an older, listed asset with another
+	// contract. Hard for the same reason as mixed script: minting a second
+	// contract under a taken ticker on the same chain is not something a real
+	// project does by accident. It has to be hard rather than weighted, because
+	// the text of a good lookalike fires nothing — a plain ASCII "USDT" of normal
+	// length reaches 0.2, and even with no_listing it tops out at 0.5, under the
+	// 0.8 that would condemn it. No accumulation of weak signals can ever judge
+	// this shape (personal-go65).
+	if in.ClaimsHeldTicker {
+		signals[SignalTickerCollision] = 1
 		return Result{Score: 1, Verdict: VerdictImpersonation, Signals: signals}
 	}
 

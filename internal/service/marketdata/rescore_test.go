@@ -25,6 +25,7 @@ func TestRescoreAssets(t *testing.T) {
 
 	s := &mockStore{}
 	s.On("ListAssets", ctx, mock.Anything).Return(assets, "", nil).Once()
+	s.On("FindTickerIncumbent", ctx, mock.Anything).Return("", store.ErrNotFound).Maybe()
 
 	// BTC resolves a price (listed); the scam does not (unlisted signal).
 	s.On("GetLatestPrice", ctx, assets[0].ID, "", "").Return(&entity.StoredPrice{}, nil).Once()
@@ -62,6 +63,7 @@ func TestRescoreAssets_WrittenCountReflectsStore(t *testing.T) {
 	s := &mockStore{}
 	s.On("ListAssets", ctx, mock.Anything).Return(assets, "", nil).Once()
 	s.On("GetLatestPrice", ctx, assets[0].ID, "", "").Return(&entity.StoredPrice{}, nil).Once()
+	s.On("FindTickerIncumbent", ctx, mock.Anything).Return("", store.ErrNotFound).Maybe()
 	s.On("SetAssetVerdict", ctx, assets[0].ID, "legit", mock.Anything, mock.Anything, rescoreVerdictSource).Return(false, nil).Once()
 
 	h := NewHandler(s, slog.Default())

@@ -39,6 +39,16 @@ func TestScore_Fixtures(t *testing.T) {
 			wantVerdict: VerdictImpersonation,
 			wantSignal:  SignalMixedScript,
 		},
+		{
+			// The dev catalogue's 1.89M "USDT" off 0x7f1ffe63 (personal-go65):
+			// plain ASCII, right length, nothing in the text to catch. Before the
+			// collision signal it scored 0.2 — legit — while the catalogue knew
+			// Tether holds that ticker on eth from another contract.
+			name:        "exact ticker off a foreign contract",
+			in:          Input{Symbol: "USDT", Name: "USDT", ClaimsHeldTicker: true},
+			wantVerdict: VerdictImpersonation,
+			wantSignal:  SignalTickerCollision,
+		},
 
 		// --- Airdrop lures: accumulate to scam ---
 		{
@@ -133,6 +143,27 @@ func TestScore_HardSignalBeatsCleanContext(t *testing.T) {
 	}, DefaultWeights())
 	require.Equal(t, VerdictScam, got.Verdict)
 	assert.Contains(t, got.Signals, SignalInvisibleUnicode)
+}
+
+// TestScore_TickerCollisionBeatsCleanContext: the shape a lookalike is built to
+// have — verified contract, listed, provider says nothing — must not reprieve it.
+// The real Tether, whose ticker nobody else holds, stays legit under the same
+// context.
+func TestScore_TickerCollisionBeatsCleanContext(t *testing.T) {
+	clean := Input{
+		Symbol:           "USDT",
+		Name:             "Tether",
+		ProviderSpam:     ptr(false),
+		ContractVerified: ptr(true),
+		HasPriceListing:  ptr(true),
+	}
+	assert.Equal(t, VerdictLegit, Score(clean, DefaultWeights()).Verdict)
+
+	claiming := clean
+	claiming.ClaimsHeldTicker = true
+	got := Score(claiming, DefaultWeights())
+	require.Equal(t, VerdictImpersonation, got.Verdict)
+	assert.Contains(t, got.Signals, SignalTickerCollision)
 }
 
 // TestScore_ClampsAtOne verifies a pile of soft signals cannot exceed 1.

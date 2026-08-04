@@ -1430,6 +1430,16 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 				existing.Liquidity = key.liquidity
 				fields = append(fields, "chain", "liquidity")
 			}
+			// A verdict that quarantines reaches rows that already exist, not
+			// only new ones: an impostor is usually unmasked after its position
+			// has been syncing for a while (personal-go65 — the ticker collision
+			// is only visible once the real asset is listed). The flag is raised,
+			// never lowered, so a user's own exclusion survives a resync just as
+			// it did before.
+			if entry.excluded && !existing.Excluded {
+				existing.Excluded = true
+				fields = append(fields, "excluded")
+			}
 			if _, err := w.UpdateHolding(ctx, existing, fields); err != nil {
 				return writtenSnapshot{}, fmt.Errorf("update holding for asset %s: %w", assetID, err)
 			}
