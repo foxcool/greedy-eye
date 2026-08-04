@@ -591,6 +591,46 @@ func TestFindOrCreateAsset_ResolvesByExternalRef(t *testing.T) {
 	s.AssertNotCalled(t, "CreateAsset")
 }
 
+// TestFindOrCreateAsset_RefResolvesWithoutSymbol: a provider that reports a
+// balance with an empty symbol still names the token by address, and the
+// catalogue already knows that address. Refusing it cost the caller twice — the
+// position was dropped, and its account's snapshot counted as incomplete, which
+// kept a sync from removing positions that really were gone (personal-bjvc).
+func TestFindOrCreateAsset_RefResolvesWithoutSymbol(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetIDByExternalRef", mock.Anything, "onchain:eth", "0xCAFE").Return("id-9", nil)
+	s.On("GetAsset", mock.Anything, "id-9").Return(testAsset("id-9"), nil)
+	expectVerdict(s)
+	h := newHandler(s)
+
+	source, ref := "onchain:eth", "0xCAFE"
+	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		ExternalRefSource: &source,
+		ExternalRef:       &ref,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "id-9", resp.Msg.Asset.Id)
+	s.AssertNotCalled(t, "CreateAsset")
+}
+
+// TestFindOrCreateAsset_UnknownRefStillNeedsSymbol: past the ref lookup there is
+// nothing left to identify the token with. Inventing an asset from an address
+// alone would put a nameless row in the catalogue and in the portfolio.
+func TestFindOrCreateAsset_UnknownRefStillNeedsSymbol(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetIDByExternalRef", mock.Anything, "onchain:eth", "0xNEW").Return("", store.ErrNotFound)
+	h := newHandler(s)
+
+	source, ref := "onchain:eth", "0xNEW"
+	_, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		ExternalRefSource: &source,
+		ExternalRef:       &ref,
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	s.AssertNotCalled(t, "CreateAsset")
+}
+
 // TestFindOrCreateAsset_BindsRefOnIdentityMatch: an unbound contract the
 // provider lists under the same ticker is the real token on another chain, so it
 // resolves by symbol and gets bound — the next sync short-circuits on the ref

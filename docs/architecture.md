@@ -588,6 +588,18 @@ still carries synced rows. When a guard blocks removal the reason goes into
 Only rows with `source = sync` are eligible: an imported or manual position is
 the user's claim about the account, not the provider's to erase.
 
+A balance with no symbol is the exception to the second guard. The catalogue is
+still asked, because `FindOrCreateAsset` resolves a known contract by its
+external ref alone — an address the catalogue knows names the token. When that
+lookup also fails, the balance is unidentifiable: nothing can name the position
+or key a holding by it, so it is dropped as a filter rather than counted as a
+failed observation, and logged at WARN with its chain and contract. Counting it
+as a failure is what dev's `hot` wallet showed the cost of: one nameless token
+(`eth:0xf08fc026…`) kept the whole account from ever shedding a position sold in
+July. The residual risk is narrow and deliberate — a pre-external-ref asset whose
+token stops reporting its symbol resolves by neither path, so its row may be
+zeroed while still held.
+
 #### Scenario 2c: Value a Portfolio
 
 ```text
