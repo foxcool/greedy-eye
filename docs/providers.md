@@ -76,6 +76,7 @@ config, not in user data.
 |---|---|---|---|
 | `coingecko` | optional | `api_key`, `tier`, `pro` | The keyless tier accepts exactly one contract address per request and about 30 requests a minute. A free demo key raises this to batches of 30 and allows 10 000 calls a month. Name a paid plan with `tier: pro` — one name picks the API host, the auth header and the allowance, which have to agree. `pro: "true"` is the old spelling of the same thing and still works |
 | `binance` | required | `api_key`, `api_secret` | Also serves as an exchange syncer |
+| `cbr` | none | — | Bank of Russia daily rates. Registered unconditionally, account or not, because nothing about it is per-user. Quotes every currency in the published set in USD, including the rouble, and prices only assets typed `forex` — a token that copied a currency's ticker gets no rate. Prices carry the set's own business day, not the fetch time: a Friday set read on Sunday is two days old and says so |
 
 ## Exchange accounts (`exchange` + `portfolio_sync`)
 
