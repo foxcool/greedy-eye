@@ -15,6 +15,7 @@ import (
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	binanceadapter "github.com/foxcool/greedy-eye/internal/adapter/binance"
 	blockchairadapter "github.com/foxcool/greedy-eye/internal/adapter/blockchair"
+	cbradapter "github.com/foxcool/greedy-eye/internal/adapter/cbr"
 	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
 	cosmosadapter "github.com/foxcool/greedy-eye/internal/adapter/cosmos"
 	esploraadapter "github.com/foxcool/greedy-eye/internal/adapter/esplora"
@@ -173,6 +174,12 @@ func run() error {
 				}, nil),
 			}),
 		),
+		// Keyless and free, so it is registered unconditionally: without a
+		// RUB/USD rate a rouble-quoted instrument has a price and still
+		// contributes nothing to a USD total.
+		cbradapter.ProviderName: cbradapter.NewProvider(cbradapter.NewClient(cbradapter.Config{
+			Transport: rateLimits.Transport(ratelimit.Credential{Provider: cbradapter.ProviderName}, nil),
+		})),
 	}
 	credResolver := credentials.NewResolver(credentials.Config{
 		Source: portfolioStore,
@@ -312,6 +319,15 @@ func run() error {
 					Transport: rateLimits.Transport(accountCred(binanceadapter.ProviderName, a), nil),
 				})), nil
 			},
+			// The feed needs no credential, but an account is still how a
+			// provider becomes visible in the registry (docs/providers.md).
+			// Registering the factory means seeding one later (personal-s05.2)
+			// silences the env-fallback warning instead of adding a provider.
+			cbradapter.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return cbradapter.NewProvider(cbradapter.NewClient(cbradapter.Config{
+					Transport: rateLimits.Transport(accountCred(cbradapter.ProviderName, a), nil),
+				})), nil
+			},
 		},
 		// The env syncer is Moralis too (deprecated path, g27), so it carries
 		// the same chain coverage — without it a Substrate account would fall
@@ -332,6 +348,7 @@ func run() error {
 	mdHandler := marketdata.NewHandler(mdStore, log).
 		WithProvider(coingecko.ProviderName, envPriceProviders[coingecko.ProviderName]).
 		WithProvider(binanceadapter.ProviderName, envPriceProviders[binanceadapter.ProviderName]).
+		WithProvider(cbradapter.ProviderName, envPriceProviders[cbradapter.ProviderName]).
 		WithProviderSource(credResolver).
 		// The sweep interval is what a provider divides its remaining plan
 		// allowance by, so it comes from the cron spec rather than a second
