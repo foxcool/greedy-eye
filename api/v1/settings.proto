@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package eye.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/foxcool/greedy-eye/api/v1;apiv1";
+
+// =============================================================================
+// TYPES
+// =============================================================================
+
+// Setting is one stored preference of the calling user.
+message Setting {
+  // key names the setting and its schema version, e.g. "dashboard.v1".
+  string key = 1;
+  // value is the setting itself, carried as JSON text.
+  //
+  // Text rather than google.protobuf.Struct on purpose: Struct types every
+  // number as a double, so an integer written by the client comes back as a
+  // float, and the service has no way to notice. Amounts elsewhere in this API
+  // are strings for the same reason.
+  //
+  // What round-trips is the JSON document, not the byte string: storage is a
+  // jsonb column, which normalizes whitespace and does not preserve object key
+  // order. Values are equal by JSON semantics, and number types survive. Do not
+  // hash or diff this field as text.
+  //
+  // The service does not own the shape of a value — only its size and that it
+  // parses as JSON.
+  string value = 2;
+  google.protobuf.Timestamp updated_at = 3;
+}
+
+// =============================================================================
+// SERVICE
+// =============================================================================
+
+// SettingsService stores per-user preferences that must follow the user across
+// devices — dashboard layout first, appearance and the like later.
+//
+// A caller reaches only its own settings: the owner comes from the request
+// context, never from the request body, so there is no field to forge and no
+// admin override to get wrong.
+service SettingsService {
+  rpc GetSetting(GetSettingRequest) returns (GetSettingResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/settings/{key}"
+    };
+  }
+
+  rpc SetSetting(SetSettingRequest) returns (SetSettingResponse) {
+    option (google.api.http) = {
+      put: "/api/v1/settings/{key}"
+      body: "*"
+    };
+  }
+}
+
+message GetSettingRequest {
+  string key = 1;
+}
+
+message GetSettingResponse {
+  Setting setting = 1;
+}
+
+message SetSettingRequest {
+  string key = 1;
+  // JSON text; see Setting.value.
+  string value = 2;
+}
+
+message SetSettingResponse {
+  Setting setting = 1;
+}

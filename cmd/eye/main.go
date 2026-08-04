@@ -33,6 +33,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/service/credentials"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
+	"github.com/foxcool/greedy-eye/internal/service/settings"
 	"github.com/foxcool/greedy-eye/internal/store/postgres"
 	"github.com/getsentry/sentry-go"
 	"github.com/robfig/cron/v3"
@@ -381,6 +382,10 @@ func run() error {
 			aHandler := analytics.NewHandler(portfolioStore, log).
 				WithMarketDataClient(mdHandler)
 			path, handler := apiv1connect.NewAnalyticsServiceHandler(aHandler, interceptor)
+			mux.Handle(path, handler)
+		case ServiceConfigTypeSettings:
+			sHandler := settings.NewHandler(postgres.NewSettingsStore(pool), log)
+			path, handler := apiv1connect.NewSettingsServiceHandler(sHandler, interceptor)
 			mux.Handle(path, handler)
 		default:
 			log.Warn("unknown service type, skipping", slog.String("type", svc.Type))

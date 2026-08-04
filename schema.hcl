@@ -38,6 +38,47 @@ table "users" {
   }
 }
 
+// user_settings is a generic per-user key-value store, not a dashboard table.
+// The first consumer is the dashboard layout ("dashboard.v1"), but appearance
+// and other cross-device preferences land here too — a table per preference
+// would mean a migration per preference. users.preferences already exists and
+// is deliberately left alone: it is a single blob rewritten as a whole, which
+// makes two independent settings a lost-update race against each other.
+table "user_settings" {
+  schema = schema.public
+
+  column "user_id" {
+    type = uuid
+    null = false
+  }
+  // key names the setting and its schema version ("dashboard.v1"). Versioning
+  // in the key rather than inside the value means an incompatible layout is a
+  // new row the old client never reads, instead of a value it misparses.
+  column "key" {
+    type = character_varying
+    null = false
+  }
+  column "value" {
+    type = jsonb
+    null = false
+  }
+  column "updated_at" {
+    type = timestamptz
+    null = false
+  }
+
+  primary_key {
+    columns = [column.user_id, column.key]
+  }
+
+  foreign_key "user_settings_users" {
+    columns     = [column.user_id]
+    ref_columns = [table.users.column.id]
+    on_update   = NO_ACTION
+    on_delete   = CASCADE
+  }
+}
+
 table "accounts" {
   schema = schema.public
 
