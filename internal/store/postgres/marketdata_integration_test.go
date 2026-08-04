@@ -915,3 +915,49 @@ func TestFindTickerIncumbent(t *testing.T) {
 		assert.ErrorIs(t, err, store.ErrInvalidArgument)
 	})
 }
+
+// TestGetAssetBySymbol_ContractMarketDoesNotShadowATicker: a contract is minted
+// by whoever pays the gas, so it must not contend for a ticker that a named
+// market already carries. Dev 2026-08-04: two junk tokens calling themselves USD
+// arrived with a whale wallet and every valuation on the instance started
+// failing on "symbol USD is ambiguous", which reads as $0 on screen.
+func TestGetAssetBySymbol_ContractMarketDoesNotShadowATicker(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	mint := func(symbol, name, market string, typ entity.AssetType) *entity.Asset {
+		a, err := s.CreateAsset(ctx, &entity.Asset{Symbol: symbol, Name: name, Market: market, Type: typ})
+		require.NoError(t, err)
+		return a
+	}
+
+	quote := mint("SHDW", "Shadow Dollar", "forex", entity.AssetTypeForex)
+	mint("SHDW", "Shadow Shitcoin", "onchain:base/0x306fb9107924a5e1ce254ef4522f6085d903e784", entity.AssetTypeCryptocurrency)
+	mint("SHDW", "Shadow Tether", "onchain:bsc/0x037499ebb453c6c84f1888c783ef8b75a257bd29", entity.AssetTypeCryptocurrency)
+
+	got, err := s.GetAssetBySymbol(ctx, "shdw")
+	require.NoError(t, err, "two minted lookalikes must not take the ticker offline")
+	assert.Equal(t, quote.ID, got.ID)
+
+	t.Run("a symbol only a contract carries still resolves", func(t *testing.T) {
+		only := mint("ONLYC", "Only Contract", "onchain:eth/0xabc123", entity.AssetTypeCryptocurrency)
+		got, err := s.GetAssetBySymbol(ctx, "ONLYC")
+		require.NoError(t, err)
+		assert.Equal(t, only.ID, got.ID)
+	})
+
+	t.Run("two contracts on one ticker are still ambiguous", func(t *testing.T) {
+		mint("TWOC", "Two Contracts A", "onchain:eth/0xaaa111", entity.AssetTypeCryptocurrency)
+		mint("TWOC", "Two Contracts B", "onchain:bsc/0xbbb222", entity.AssetTypeCryptocurrency)
+		_, err := s.GetAssetBySymbol(ctx, "TWOC")
+		assert.ErrorIs(t, err, store.ErrInvalidArgument)
+	})
+
+	t.Run("two named markets are still ambiguous", func(t *testing.T) {
+		mint("DUAL", "Dual on nasdaq", "nasdaq", entity.AssetTypeStock)
+		mint("DUAL", "Dual on moex", "moex", entity.AssetTypeStock)
+		_, err := s.GetAssetBySymbol(ctx, "DUAL")
+		assert.ErrorIs(t, err, store.ErrInvalidArgument)
+	})
+}

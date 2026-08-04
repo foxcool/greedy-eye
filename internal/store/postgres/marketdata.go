@@ -211,18 +211,33 @@ func (s *MarketDataStore) GetOrCreateAssetBySymbol(ctx context.Context, symbol, 
 // (symbol, market, type): a symbol-only lookup succeeds only while the symbol
 // is unambiguous; with matches on several markets it fails explicitly rather
 // than silently picking one.
+//
+// Assets isolated on their own contract market do not take part in that
+// ambiguity. A contract is minted by whoever pays the gas, so letting one
+// contend for a ticker hands anybody a switch for every lookup that resolves by
+// symbol — and the quote currency is resolved on every valuation. Dev
+// 2026-08-04 is the proof: syncing a whale wallet pulled in "US Dollar
+// Shitcoin" (base) and a counterfeit "Tether" (bsc), both calling themselves
+// USD, and the portfolio total went to an error — $0 on screen — for the whole
+// instance. The isolation that keeps such a token out of the sum
+// (marketForContract) has to keep it out of the name resolution too.
+//
+// The contract market is not ignored, only outranked: a symbol that ONLY an
+// isolated contract carries still resolves, and two of them still collide.
 func (s *MarketDataStore) GetAssetBySymbol(ctx context.Context, symbol string) (*entity.Asset, error) {
 	symbol = entity.NormalizeSymbol(symbol)
 	if symbol == "" {
 		return nil, fmt.Errorf("%w: symbol is required", store.ErrInvalidArgument)
 	}
 
-	// LIMIT 2: one row past the unique match is enough to detect ambiguity.
+	// Ordered so the preferred tier comes first; the cap is a sanity bound, the
+	// tiers are counted in Go.
 	query := `
 		SELECT ` + assetColumns + `
 		FROM assets
 		WHERE symbol = $1
-		LIMIT 2`
+		ORDER BY (market LIKE 'onchain:%') ASC, created_at ASC
+		LIMIT 50`
 
 	rows, err := s.pool.Query(ctx, query, symbol)
 	if err != nil {
@@ -230,27 +245,39 @@ func (s *MarketDataStore) GetAssetBySymbol(ctx context.Context, symbol string) (
 	}
 	defer rows.Close()
 
-	var assets []*entity.Asset
+	var named, isolated []*entity.Asset
 	for rows.Next() {
 		asset, err := scanAsset(rows)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan asset: %w", err)
 		}
-		assets = append(assets, asset)
+		if strings.HasPrefix(asset.Market, onchainMarketPrefix) {
+			isolated = append(isolated, asset)
+			continue
+		}
+		named = append(named, asset)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to get asset by symbol: %w", err)
 	}
 
-	switch len(assets) {
+	candidates := named
+	if len(candidates) == 0 {
+		candidates = isolated
+	}
+	switch len(candidates) {
 	case 0:
 		return nil, fmt.Errorf("%w: asset with symbol %s", store.ErrNotFound, symbol)
 	case 1:
-		return assets[0], nil
+		return candidates[0], nil
 	default:
 		return nil, fmt.Errorf("%w: symbol %s is ambiguous across markets, look up by ID or specify market", store.ErrInvalidArgument, symbol)
 	}
 }
+
+// onchainMarketPrefix marks a market minted from a contract address rather than
+// assigned by an authority. See entity.ContractMarket.
+const onchainMarketPrefix = "onchain:"
 
 // FindAssetByIdentity looks up an asset by its exact composite identity
 // (symbol, market, type). Inputs are normalized the same way CreateAsset
