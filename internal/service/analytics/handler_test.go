@@ -267,14 +267,68 @@ func TestGetHeatmap_SkipsUnpricedAndExcluded(t *testing.T) {
 	require.Len(t, resp.Msg.Nodes, 2) // mystery skipped, excluded ETH not counted
 
 	assert.InDelta(t, 4000, resp.Msg.Nodes[1].Size, 1e-9) // still 2 ETH, not 3
+
+	// Skipped is not the same as absent: the map has to say what it did not draw.
+	cov := resp.Msg.Coverage
+	require.NotNil(t, cov)
+	assert.Equal(t, uint32(2), cov.PricedCount)
+	assert.Equal(t, uint32(1), cov.UnpricedCount, "the excluded holding is quarantined, not unpriced")
+	require.Len(t, cov.Unpriced, 1)
+	assert.Equal(t, "h3", cov.Unpriced[0].HoldingId)
+	assert.Equal(t, "mystery", cov.Unpriced[0].AssetId)
+	assert.Equal(t, apiv1.UnpricedReason_UNPRICED_REASON_NO_QUOTE, cov.Unpriced[0].Reason)
+	assert.False(t, cov.UnpricedTruncated)
+}
+
+// TestGetHeatmap_CoverageCapsTheList: the count stays exact while the list is a
+// bounded sample — a poisoned wallet can hold hundreds of unpriceable tokens, and
+// the response is read by a browser.
+func TestGetHeatmap_CoverageCapsTheList(t *testing.T) {
+	st, md := fixture()
+	for i := range maxUnpricedDisclosed + 7 {
+		st.holdings = append(st.holdings, &entity.Holding{
+			ID:      fmt.Sprintf("h-junk-%d", i),
+			AssetID: fmt.Sprintf("junk-%d", i),
+			// No price and no asset row: the label degrades to the id.
+			AccountID: "a1", PortfolioID: "p1", Amount: dec("1"), Decimals: 0,
+		})
+	}
+
+	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+
+	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
+	require.NoError(t, err)
+
+	cov := resp.Msg.Coverage
+	require.NotNil(t, cov)
+	assert.Equal(t, uint32(maxUnpricedDisclosed+7), cov.UnpricedCount, "the count is never a sample")
+	assert.Len(t, cov.Unpriced, maxUnpricedDisclosed)
+	assert.True(t, cov.UnpricedTruncated)
+}
+
+// TestGetHeatmap_FullCoverageReportsNothingMissing: a map that drew everything
+// says so with counts, not with silence.
+func TestGetHeatmap_FullCoverageReportsNothingMissing(t *testing.T) {
+	st, md := fixture()
+	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+
+	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
+	require.NoError(t, err)
+
+	cov := resp.Msg.Coverage
+	require.NotNil(t, cov)
+	assert.Equal(t, uint32(2), cov.PricedCount)
+	assert.Zero(t, cov.UnpricedCount)
+	assert.Empty(t, cov.Unpriced)
+	assert.False(t, cov.UnpricedTruncated)
 }
 
 // TestGetHeatmap_SkipsThinMarket: a quote with no market behind it does not draw a
 // node. MNEP would otherwise render as the second-largest tile on the dev map,
 // $4,175 of area over a market that turns over $40k a day.
 //
-// The map has no coverage block yet (personal-saw), so the omission is silent —
-// which is still better than a tile made of nothing.
+// The coverage block distinguishes it from a position with no quote at all: one
+// is a decision about the asset, the other a gap to close upstream.
 func TestGetHeatmap_SkipsThinMarket(t *testing.T) {
 	st, md := fixture()
 	st.holdings = append(st.holdings, &entity.Holding{
@@ -294,6 +348,11 @@ func TestGetHeatmap_SkipsThinMarket(t *testing.T) {
 	for _, n := range resp.Msg.Nodes {
 		assert.NotEqual(t, "mnep", n.Id)
 	}
+
+	require.Len(t, resp.Msg.Coverage.Unpriced, 1)
+	assert.Equal(t, apiv1.UnpricedReason_UNPRICED_REASON_THIN_MARKET, resp.Msg.Coverage.Unpriced[0].Reason,
+		"a quote with no market behind it is not the same absence as no quote")
+	assert.Equal(t, "MNEP", resp.Msg.Coverage.Unpriced[0].Symbol, "the label the map already resolved")
 }
 
 // TestGetHeatmap_KeepsAssetWithoutReportedVolume: the mirror case. A source that

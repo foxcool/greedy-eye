@@ -4,6 +4,7 @@ package eye.v1;
 
 import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
+import "v1/marketdata.proto";
 
 option go_package = "github.com/foxcool/greedy-eye/api/v1;apiv1";
 
@@ -98,4 +99,9 @@ message GetHeatmapResponse {
   repeated HeatmapNode nodes = 1;
   string quote_asset_id = 2;
   google.protobuf.Timestamp calculated_at = 3;
+  // What the map does not draw. A holding with no usable price produces no node
+  // at all — not a small one — so on a map the omission is invisible in a way it
+  // is not in a total. Same message CalculatePortfolioValue returns: one shape
+  // for the same statement, on every surface.
+  ValuationCoverage coverage = 4;
 }

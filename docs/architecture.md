@@ -359,7 +359,10 @@ graph TB
 
 **AnalyticsService** (`internal/service/analytics/`):
 - RPCs implemented: GetHeatmap — treemap nodes; tile size = holding value in the quote asset,
-  tile color = price change % over a 24h/7d/30d window
+  tile color = price change % over a 24h/7d/30d window; `coverage` (the same `ValuationCoverage`
+  the portfolio total returns) reports the holdings that drew no tile. On a map the omission is
+  invisible in a way it is not in a total — an unpriced position produces no node at all, not a
+  small one
 - Scopes: PORTFOLIO (one portfolio; flat or grouped by account) and BALANCE (all caller's
   holdings across portfolios; flat, by account, or by portfolio — holdings inherit the account's
   portfolio, accounts outside any portfolio land in an "unassigned" group)
@@ -1022,8 +1025,8 @@ returned by the provider and currently discarded — is the prerequisite for clo
     `personal-tlz` will add `STALE` to the same enum rather than inventing a third state
   - ➖ The gate is only as good as the volume the provider reports — an asset whose source
     reports none is not gated at all
-  - ➖ The heatmap drops thin assets without saying so until it carries a coverage block
-    (`personal-saw`)
+  - ➕ The heatmap discloses what it dropped: `GetHeatmapResponse.coverage` carries the same
+    `ValuationCoverage`, so a thin quote is reported as `THIN_MARKET` rather than vanishing
   - ➖ One global threshold for every asset class; a thinly-traded bond will need its own rule
 - **Rejected**: a `volume > 0` floor (does not catch MNEP, which reports real volume);
   gating on a missing market cap (the 11 no-volume assets on dev are mostly Aave receipt
