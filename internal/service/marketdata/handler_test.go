@@ -3,6 +3,7 @@ package marketdata
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -121,6 +122,11 @@ func (m *mockStore) ListAssets(ctx context.Context, opts ListAssetsOpts) ([]*ent
 		return v.([]*entity.Asset), args.String(1), args.Error(2)
 	}
 	return nil, args.String(1), args.Error(2)
+}
+
+func (m *mockStore) DeleteAssetExternalRef(ctx context.Context, assetID, id string) error {
+	args := m.Called(ctx, assetID, id)
+	return args.Error(0)
 }
 
 func (m *mockStore) ListAssetExternalRefs(ctx context.Context, assetIDs []string) ([]*entity.AssetExternalRef, error) {
@@ -284,11 +290,45 @@ func TestGetAsset_NotFound(t *testing.T) {
 func TestGetAsset_OK(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
+	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return(nil, nil)
 	h := newHandler(s)
 
 	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "id-1"}))
 	require.NoError(t, err)
 	assert.Equal(t, "id-1", resp.Msg.Id)
+}
+
+// TestGetAsset_CarriesTheBindings is the whole point of loading refs here: a
+// card that shows a verdict without showing what the asset was bound through
+// states a suspicion it cannot explain. It is also how a collapse is seen — two
+// chains on one asset, which is what the AAVE row on prod looked like.
+func TestGetAsset_CarriesTheBindings(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
+	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return([]*entity.AssetExternalRef{
+		{ID: "ref-eth", AssetID: "id-1", Source: "onchain:ethereum", Ref: "0xreal", Origin: entity.RefOriginAuto},
+		{ID: "ref-poly", AssetID: "id-1", Source: "onchain:polygon", Ref: "0xfake", Origin: entity.RefOriginAuto},
+	}, nil)
+	h := newHandler(s)
+
+	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "id-1"}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.ExternalRefs, 2)
+	assert.Equal(t, "onchain:ethereum", resp.Msg.ExternalRefs[0].Source)
+	assert.Equal(t, "0xfake", resp.Msg.ExternalRefs[1].Ref)
+	assert.Equal(t, "ref-poly", resp.Msg.ExternalRefs[1].Id, "the id is what DeleteAssetExternalRef needs")
+}
+
+// TestGetAsset_SurvivesUnreadableBindings: the refs are context, not the asset.
+func TestGetAsset_SurvivesUnreadableBindings(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
+	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return(nil, assert.AnError)
+	h := newHandler(s)
+
+	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "id-1"}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.ExternalRefs)
 }
 
 // --- Tests: DeleteAsset ---
@@ -1110,4 +1150,70 @@ func TestFetchExternalPrices_QuarantinedExcluded(t *testing.T) {
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	require.NoError(t, err)
 	s.AssertExpectations(t)
+}
+
+// --- Tests: DeleteAssetExternalRef ---
+
+func adminCtx() context.Context {
+	return middleware.ContextWithUser(context.Background(), &entity.User{ID: "admin-1", Roles: []string{"admin"}})
+}
+
+func unbind(t *testing.T, h *Handler, ctx context.Context, assetID, id string) error {
+	t.Helper()
+	_, err := h.DeleteAssetExternalRef(ctx, connect.NewRequest(&apiv1.DeleteAssetExternalRefRequest{
+		AssetId: assetID, Id: id,
+	}))
+	return err
+}
+
+func TestDeleteAssetExternalRef_AdminRemovesTheBinding(t *testing.T) {
+	s := &mockStore{}
+	s.On("DeleteAssetExternalRef", mock.Anything, "asset-1", "ref-poly").Return(nil)
+	h := newHandler(s)
+
+	require.NoError(t, unbind(t, h, adminCtx(), "asset-1", "ref-poly"))
+	s.AssertExpectations(t)
+}
+
+func TestDeleteAssetExternalRef_IsAdminOnly(t *testing.T) {
+	s := &mockStore{}
+	h := newHandler(s)
+
+	// A binding is catalogue identity, shared by everyone — undoing one is not
+	// a personal preference.
+	plain := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	err := unbind(t, h, plain, "asset-1", "ref-poly")
+	require.Error(t, err)
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+	err = unbind(t, h, context.Background(), "asset-1", "ref-poly")
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+
+	s.AssertNotCalled(t, "DeleteAssetExternalRef", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestDeleteAssetExternalRef_NeedsBothSides(t *testing.T) {
+	s := &mockStore{}
+	h := newHandler(s)
+
+	// The ref id alone would let a mistyped id detach a contract from an
+	// unrelated asset, and this RPC exists to repair identity, not move it.
+	for _, c := range []struct{ assetID, id string }{{"", "ref-1"}, {"asset-1", ""}, {"", ""}} {
+		err := unbind(t, h, adminCtx(), c.assetID, c.id)
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	}
+	s.AssertNotCalled(t, "DeleteAssetExternalRef", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestDeleteAssetExternalRef_UnknownBindingIsNotFound(t *testing.T) {
+	s := &mockStore{}
+	s.On("DeleteAssetExternalRef", mock.Anything, "asset-1", "ref-x").
+		Return(fmt.Errorf("%w: external ref", store.ErrNotFound))
+	h := newHandler(s)
+
+	err := unbind(t, h, adminCtx(), "asset-1", "ref-x")
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 }

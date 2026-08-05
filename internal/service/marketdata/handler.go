@@ -150,6 +150,12 @@ func (h *Handler) GetAsset(ctx context.Context, req *connect.Request[apiv1.GetAs
 		return nil, toConnectError(err)
 	}
 
+	// The single-asset read is where the bindings belong: this is the call
+	// behind an asset card, and a card that shows a verdict without showing
+	// what the asset was bound through can state a suspicion it cannot explain.
+	// Best-effort — a failure to load them must not cost the caller the asset.
+	h.attachExternalRefs(ctx, []*entity.Asset{asset})
+
 	return connect.NewResponse(assetToProto(asset)), nil
 }
 
@@ -647,6 +653,45 @@ func (h *Handler) SetAssetVerdict(ctx context.Context, req *connect.Request[apiv
 	return connect.NewResponse(assetToProto(updated)), nil
 }
 
+// DeleteAssetExternalRef removes one binding between an asset and an external
+// identifier.
+//
+// Admin-only, like setting a verdict: a binding is catalogue identity and is
+// shared by every user, so undoing one is not a personal preference.
+//
+// What happens next is deliberately left to the sync rather than done here. Once
+// the ref is gone, FindOrCreateAsset stops short-circuiting on it, marketForContract
+// judges the contract on its own merits, and a contract that cannot confirm the
+// ticker it claims gets a market of its own. The old holding then falls out of the
+// account snapshot and is zeroed by the ordinary path. Reassigning holdings from
+// here would mean this RPC deciding what the balance IS, which is exactly the
+// judgement that produced the wrong binding in the first place.
+func (h *Handler) DeleteAssetExternalRef(ctx context.Context, req *connect.Request[apiv1.DeleteAssetExternalRefRequest]) (*connect.Response[emptypb.Empty], error) {
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
+	}
+	if !user.IsAdmin() {
+		return nil, connect.NewError(connect.CodePermissionDenied,
+			errors.New("removing an asset external ref is admin-only"))
+	}
+	if req.Msg.AssetId == "" || req.Msg.Id == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("asset_id and id are both required"))
+	}
+
+	if err := h.store.DeleteAssetExternalRef(ctx, req.Msg.AssetId, req.Msg.Id); err != nil {
+		return nil, toConnectError(err)
+	}
+	if h.log != nil {
+		// An identity change with no trace is how the next investigation starts
+		// from nothing.
+		h.log.Info("asset external ref removed",
+			"asset_id", req.Msg.AssetId, "ref_id", req.Msg.Id, "by", user.ID)
+	}
+	return connect.NewResponse(&emptypb.Empty{}), nil
+}
+
 // bindExternalRef maps a contract identity to an asset, best-effort: a conflict
 // means the ref is already bound (identity is stable), which is not an error for
 // the sync path. Other failures are logged, not surfaced — a missing mapping
@@ -1028,7 +1073,7 @@ func assetFromProto(p *apiv1.Asset) *entity.Asset {
 }
 
 func assetToProto(e *entity.Asset) *apiv1.Asset {
-	return &apiv1.Asset{
+	out := &apiv1.Asset{
 		Id:              e.ID,
 		Name:            e.Name,
 		Symbol:          optionalString(e.Symbol),
@@ -1038,9 +1083,28 @@ func assetToProto(e *entity.Asset) *apiv1.Asset {
 		Tags:            e.Tags,
 		IdentityVerdict: optionalString(e.IdentityVerdict),
 		VerdictSource:   optionalString(e.VerdictSource),
+		IdentityScore:   e.IdentityScore,
+		IdentitySignals: e.IdentitySignals,
 		CreatedAt:       timestamppb.New(e.CreatedAt),
 		UpdatedAt:       timestamppb.New(e.UpdatedAt),
 	}
+	if e.VerdictSetAt != nil {
+		out.VerdictSetAt = timestamppb.New(*e.VerdictSetAt)
+	}
+	// Nil means "not loaded" on every path but GetAsset, and an empty list on
+	// the wire cannot say which it is — so an unloaded field stays absent
+	// rather than becoming a claim that the asset has no bindings.
+	for _, ref := range e.ExternalRefs {
+		out.ExternalRefs = append(out.ExternalRefs, &apiv1.AssetExternalRef{
+			Id:        ref.ID,
+			AssetId:   ref.AssetID,
+			Source:    ref.Source,
+			Ref:       ref.Ref,
+			Origin:    ref.Origin,
+			CreatedAt: timestamppb.New(ref.CreatedAt),
+		})
+	}
+	return out
 }
 
 // optionalString maps "" to an absent proto optional field.
