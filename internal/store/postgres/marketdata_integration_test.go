@@ -961,3 +961,65 @@ func TestGetAssetBySymbol_ContractMarketDoesNotShadowATicker(t *testing.T) {
 		assert.ErrorIs(t, err, store.ErrInvalidArgument)
 	})
 }
+
+func TestDeleteAssetExternalRef(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	real := createTestAsset(t, s, "Aave Token")
+	other := createTestAsset(t, s, "Other Token")
+
+	bind := func(asset *entity.Asset, source, ref string) *entity.AssetExternalRef {
+		t.Helper()
+		created, err := s.CreateAssetExternalRef(ctx, &entity.AssetExternalRef{
+			AssetID: asset.ID, Source: source, Ref: ref, Origin: entity.RefOriginAuto,
+		})
+		require.NoError(t, err)
+		return created
+	}
+
+	eth := bind(real, "onchain:ethereum", "0xreal")
+	poly := bind(real, "onchain:polygon", "0xfake")
+
+	t.Run("a ref of another asset is not this asset's to remove", func(t *testing.T) {
+		// The asset id is part of the WHERE clause, so a mistyped ref id cannot
+		// detach a binding from an unrelated asset.
+		err := s.DeleteAssetExternalRef(ctx, other.ID, poly.ID)
+		require.ErrorIs(t, err, store.ErrNotFound)
+
+		refs, err := s.ListAssetExternalRefs(ctx, []string{real.ID})
+		require.NoError(t, err)
+		assert.Len(t, refs, 2, "nothing was removed")
+	})
+
+	t.Run("removing the wrong binding leaves the right one", func(t *testing.T) {
+		require.NoError(t, s.DeleteAssetExternalRef(ctx, real.ID, poly.ID))
+
+		refs, err := s.ListAssetExternalRefs(ctx, []string{real.ID})
+		require.NoError(t, err)
+		require.Len(t, refs, 1)
+		assert.Equal(t, eth.ID, refs[0].ID)
+
+		// And the contract is free to be resolved on its own merits again.
+		_, err = s.FindAssetIDByExternalRef(ctx, "onchain:polygon", "0xfake")
+		require.ErrorIs(t, err, store.ErrNotFound)
+	})
+
+	t.Run("removing it twice is not found, not a silent success", func(t *testing.T) {
+		err := s.DeleteAssetExternalRef(ctx, real.ID, poly.ID)
+		require.ErrorIs(t, err, store.ErrNotFound)
+	})
+
+	t.Run("bad input is refused before the query", func(t *testing.T) {
+		require.ErrorIs(t, s.DeleteAssetExternalRef(ctx, "not-a-uuid", eth.ID), store.ErrInvalidArgument)
+		require.ErrorIs(t, s.DeleteAssetExternalRef(ctx, real.ID, "not-a-uuid"), store.ErrInvalidArgument)
+	})
+
+	t.Run("the contract can be rebound after the mistake is undone", func(t *testing.T) {
+		// The repair has to leave the namespace usable: UNIQUE(source, ref)
+		// would otherwise keep the slot occupied by a row that no longer exists.
+		rebound := bind(other, "onchain:polygon", "0xfake")
+		assert.Equal(t, other.ID, rebound.AssetID)
+	})
+}

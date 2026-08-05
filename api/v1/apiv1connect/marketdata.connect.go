@@ -61,6 +61,9 @@ const (
 	// MarketDataServiceSetAssetVerdictProcedure is the fully-qualified name of the MarketDataService's
 	// SetAssetVerdict RPC.
 	MarketDataServiceSetAssetVerdictProcedure = "/eye.v1.MarketDataService/SetAssetVerdict"
+	// MarketDataServiceDeleteAssetExternalRefProcedure is the fully-qualified name of the
+	// MarketDataService's DeleteAssetExternalRef RPC.
+	MarketDataServiceDeleteAssetExternalRefProcedure = "/eye.v1.MarketDataService/DeleteAssetExternalRef"
 	// MarketDataServiceCreatePriceProcedure is the fully-qualified name of the MarketDataService's
 	// CreatePrice RPC.
 	MarketDataServiceCreatePriceProcedure = "/eye.v1.MarketDataService/CreatePrice"
@@ -105,6 +108,16 @@ type MarketDataServiceClient interface {
 	// is terminal: the automated scorer never overwrites it. Admin-only until
 	// per-asset RBAC lands (personal-rme).
 	SetAssetVerdict(context.Context, *connect.Request[v1.SetAssetVerdictRequest]) (*connect.Response[v1.Asset], error)
+	// DeleteAssetExternalRef removes one binding between an asset and an external
+	// identifier. Admin-only: a binding is catalogue identity, shared by everyone.
+	//
+	// Bindings are otherwise immutable on purpose — identity must be stable — so
+	// this exists for the one case where the binding itself was the error: an
+	// unknown contract bound to a real ticker before that was refused, which then
+	// routes every later sync to the wrong asset and lends it a price it has no
+	// claim to. Removing the ref lets the next sync resolve the contract on its
+	// own merits and isolate it.
+	DeleteAssetExternalRef(context.Context, *connect.Request[v1.DeleteAssetExternalRefRequest]) (*connect.Response[emptypb.Empty], error)
 	// --- Price CRUD ---
 	CreatePrice(context.Context, *connect.Request[v1.CreatePriceRequest]) (*connect.Response[v1.Price], error)
 	CreatePrices(context.Context, *connect.Request[v1.CreatePricesRequest]) (*connect.Response[v1.CreatePricesResponse], error)
@@ -182,6 +195,12 @@ func NewMarketDataServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(marketDataServiceMethods.ByName("SetAssetVerdict")),
 			connect.WithClientOptions(opts...),
 		),
+		deleteAssetExternalRef: connect.NewClient[v1.DeleteAssetExternalRefRequest, emptypb.Empty](
+			httpClient,
+			baseURL+MarketDataServiceDeleteAssetExternalRefProcedure,
+			connect.WithSchema(marketDataServiceMethods.ByName("DeleteAssetExternalRef")),
+			connect.WithClientOptions(opts...),
+		),
 		createPrice: connect.NewClient[v1.CreatePriceRequest, v1.Price](
 			httpClient,
 			baseURL+MarketDataServiceCreatePriceProcedure,
@@ -235,23 +254,24 @@ func NewMarketDataServiceClient(httpClient connect.HTTPClient, baseURL string, o
 
 // marketDataServiceClient implements MarketDataServiceClient.
 type marketDataServiceClient struct {
-	createAsset          *connect.Client[v1.CreateAssetRequest, v1.Asset]
-	getAsset             *connect.Client[v1.GetAssetRequest, v1.Asset]
-	updateAsset          *connect.Client[v1.UpdateAssetRequest, v1.Asset]
-	deleteAsset          *connect.Client[v1.DeleteAssetRequest, emptypb.Empty]
-	listAssets           *connect.Client[v1.ListAssetsRequest, v1.ListAssetsResponse]
-	enrichAssetData      *connect.Client[v1.EnrichAssetDataRequest, v1.Asset]
-	findSimilarAssets    *connect.Client[v1.FindSimilarAssetsRequest, v1.ListAssetsResponse]
-	findOrCreateAsset    *connect.Client[v1.FindOrCreateAssetRequest, v1.FindOrCreateAssetResponse]
-	setAssetVerdict      *connect.Client[v1.SetAssetVerdictRequest, v1.Asset]
-	createPrice          *connect.Client[v1.CreatePriceRequest, v1.Price]
-	createPrices         *connect.Client[v1.CreatePricesRequest, v1.CreatePricesResponse]
-	getLatestPrice       *connect.Client[v1.GetLatestPriceRequest, v1.Price]
-	listPriceHistory     *connect.Client[v1.ListPriceHistoryRequest, v1.ListPriceHistoryResponse]
-	listPricesByInterval *connect.Client[v1.ListPricesByIntervalRequest, v1.ListPriceHistoryResponse]
-	deletePrice          *connect.Client[v1.DeletePriceRequest, emptypb.Empty]
-	deletePrices         *connect.Client[v1.DeletePricesRequest, emptypb.Empty]
-	fetchExternalPrices  *connect.Client[v1.FetchExternalPricesRequest, v1.FetchExternalPricesResponse]
+	createAsset            *connect.Client[v1.CreateAssetRequest, v1.Asset]
+	getAsset               *connect.Client[v1.GetAssetRequest, v1.Asset]
+	updateAsset            *connect.Client[v1.UpdateAssetRequest, v1.Asset]
+	deleteAsset            *connect.Client[v1.DeleteAssetRequest, emptypb.Empty]
+	listAssets             *connect.Client[v1.ListAssetsRequest, v1.ListAssetsResponse]
+	enrichAssetData        *connect.Client[v1.EnrichAssetDataRequest, v1.Asset]
+	findSimilarAssets      *connect.Client[v1.FindSimilarAssetsRequest, v1.ListAssetsResponse]
+	findOrCreateAsset      *connect.Client[v1.FindOrCreateAssetRequest, v1.FindOrCreateAssetResponse]
+	setAssetVerdict        *connect.Client[v1.SetAssetVerdictRequest, v1.Asset]
+	deleteAssetExternalRef *connect.Client[v1.DeleteAssetExternalRefRequest, emptypb.Empty]
+	createPrice            *connect.Client[v1.CreatePriceRequest, v1.Price]
+	createPrices           *connect.Client[v1.CreatePricesRequest, v1.CreatePricesResponse]
+	getLatestPrice         *connect.Client[v1.GetLatestPriceRequest, v1.Price]
+	listPriceHistory       *connect.Client[v1.ListPriceHistoryRequest, v1.ListPriceHistoryResponse]
+	listPricesByInterval   *connect.Client[v1.ListPricesByIntervalRequest, v1.ListPriceHistoryResponse]
+	deletePrice            *connect.Client[v1.DeletePriceRequest, emptypb.Empty]
+	deletePrices           *connect.Client[v1.DeletePricesRequest, emptypb.Empty]
+	fetchExternalPrices    *connect.Client[v1.FetchExternalPricesRequest, v1.FetchExternalPricesResponse]
 }
 
 // CreateAsset calls eye.v1.MarketDataService.CreateAsset.
@@ -297,6 +317,11 @@ func (c *marketDataServiceClient) FindOrCreateAsset(ctx context.Context, req *co
 // SetAssetVerdict calls eye.v1.MarketDataService.SetAssetVerdict.
 func (c *marketDataServiceClient) SetAssetVerdict(ctx context.Context, req *connect.Request[v1.SetAssetVerdictRequest]) (*connect.Response[v1.Asset], error) {
 	return c.setAssetVerdict.CallUnary(ctx, req)
+}
+
+// DeleteAssetExternalRef calls eye.v1.MarketDataService.DeleteAssetExternalRef.
+func (c *marketDataServiceClient) DeleteAssetExternalRef(ctx context.Context, req *connect.Request[v1.DeleteAssetExternalRefRequest]) (*connect.Response[emptypb.Empty], error) {
+	return c.deleteAssetExternalRef.CallUnary(ctx, req)
 }
 
 // CreatePrice calls eye.v1.MarketDataService.CreatePrice.
@@ -357,6 +382,16 @@ type MarketDataServiceHandler interface {
 	// is terminal: the automated scorer never overwrites it. Admin-only until
 	// per-asset RBAC lands (personal-rme).
 	SetAssetVerdict(context.Context, *connect.Request[v1.SetAssetVerdictRequest]) (*connect.Response[v1.Asset], error)
+	// DeleteAssetExternalRef removes one binding between an asset and an external
+	// identifier. Admin-only: a binding is catalogue identity, shared by everyone.
+	//
+	// Bindings are otherwise immutable on purpose — identity must be stable — so
+	// this exists for the one case where the binding itself was the error: an
+	// unknown contract bound to a real ticker before that was refused, which then
+	// routes every later sync to the wrong asset and lends it a price it has no
+	// claim to. Removing the ref lets the next sync resolve the contract on its
+	// own merits and isolate it.
+	DeleteAssetExternalRef(context.Context, *connect.Request[v1.DeleteAssetExternalRefRequest]) (*connect.Response[emptypb.Empty], error)
 	// --- Price CRUD ---
 	CreatePrice(context.Context, *connect.Request[v1.CreatePriceRequest]) (*connect.Response[v1.Price], error)
 	CreatePrices(context.Context, *connect.Request[v1.CreatePricesRequest]) (*connect.Response[v1.CreatePricesResponse], error)
@@ -430,6 +465,12 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 		connect.WithSchema(marketDataServiceMethods.ByName("SetAssetVerdict")),
 		connect.WithHandlerOptions(opts...),
 	)
+	marketDataServiceDeleteAssetExternalRefHandler := connect.NewUnaryHandler(
+		MarketDataServiceDeleteAssetExternalRefProcedure,
+		svc.DeleteAssetExternalRef,
+		connect.WithSchema(marketDataServiceMethods.ByName("DeleteAssetExternalRef")),
+		connect.WithHandlerOptions(opts...),
+	)
 	marketDataServiceCreatePriceHandler := connect.NewUnaryHandler(
 		MarketDataServiceCreatePriceProcedure,
 		svc.CreatePrice,
@@ -498,6 +539,8 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 			marketDataServiceFindOrCreateAssetHandler.ServeHTTP(w, r)
 		case MarketDataServiceSetAssetVerdictProcedure:
 			marketDataServiceSetAssetVerdictHandler.ServeHTTP(w, r)
+		case MarketDataServiceDeleteAssetExternalRefProcedure:
+			marketDataServiceDeleteAssetExternalRefHandler.ServeHTTP(w, r)
 		case MarketDataServiceCreatePriceProcedure:
 			marketDataServiceCreatePriceHandler.ServeHTTP(w, r)
 		case MarketDataServiceCreatePricesProcedure:
@@ -557,6 +600,10 @@ func (UnimplementedMarketDataServiceHandler) FindOrCreateAsset(context.Context, 
 
 func (UnimplementedMarketDataServiceHandler) SetAssetVerdict(context.Context, *connect.Request[v1.SetAssetVerdictRequest]) (*connect.Response[v1.Asset], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.SetAssetVerdict is not implemented"))
+}
+
+func (UnimplementedMarketDataServiceHandler) DeleteAssetExternalRef(context.Context, *connect.Request[v1.DeleteAssetExternalRefRequest]) (*connect.Response[emptypb.Empty], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.DeleteAssetExternalRef is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) CreatePrice(context.Context, *connect.Request[v1.CreatePriceRequest]) (*connect.Response[v1.Price], error) {

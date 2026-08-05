@@ -478,6 +478,35 @@ func (s *MarketDataStore) CreateAssetExternalRef(ctx context.Context, ref *entit
 	return ref, nil
 }
 
+// DeleteAssetExternalRef removes one binding, refusing to touch a ref that
+// belongs to a different asset.
+//
+// The asset id is part of the WHERE clause rather than checked beforehand: a
+// read-then-delete would let a concurrent rebind slip between the two, and the
+// whole point of this call is that identity does not move by accident.
+// ErrNotFound covers both "no such ref" and "not this asset's ref" — the caller
+// is repairing one known binding, and telling the two apart would only confirm
+// the existence of somebody else's row.
+func (s *MarketDataStore) DeleteAssetExternalRef(ctx context.Context, assetID, id string) error {
+	if !isValidUUID(assetID) {
+		return fmt.Errorf("%w: invalid asset ID format", store.ErrInvalidArgument)
+	}
+	if !isValidUUID(id) {
+		return fmt.Errorf("%w: invalid external ref ID format", store.ErrInvalidArgument)
+	}
+
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM asset_external_refs
+		WHERE id = $1 AND asset_id = $2`, id, assetID)
+	if err != nil {
+		return fmt.Errorf("failed to delete asset external ref: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: external ref %s on asset %s", store.ErrNotFound, id, assetID)
+	}
+	return nil
+}
+
 // ListAssetExternalRefs returns the external refs of several assets at once.
 // The pricing path needs the reverse of FindAssetIDByExternalRef — which chain
 // a contract lives on — for every asset in a sweep, and asking per asset would

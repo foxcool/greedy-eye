@@ -47,6 +47,40 @@ message Asset {
   // Provenance of the verdict: "heuristic" | "provider:<name>" | "curated" |
   // "user:<id>". A user verdict is terminal — rescoring never overwrites it.
   optional string verdict_source = 11;
+  // The last automated score in [0,1]; absent for a user verdict and for an
+  // asset that has never been scored. Output-only.
+  optional double identity_score = 12;
+  // Which signals fired and what each weighed, so a verdict can be explained
+  // rather than only announced. Empty until first scored. Output-only.
+  map<string, double> identity_signals = 13;
+  // When the current verdict was set. Output-only.
+  optional google.protobuf.Timestamp verdict_set_at = 14;
+  // The asset's identities in external namespaces.
+  //
+  // POPULATED BY GetAsset ONLY. proto3 cannot tell an empty list from an absent
+  // one, and loading refs for every row of ListAssets would make the catalogue
+  // response grow with a fact almost no caller of it wants. Read an empty list
+  // from any other RPC as "not loaded", never as "this asset has none".
+  repeated AssetExternalRef external_refs = 15;
+}
+
+// AssetExternalRef maps an asset to its identifier in an external namespace.
+//
+// On a chain, identity is the contract and not the symbol: this is what keeps a
+// clone of a real ticker from merging into the real asset. It is also where a
+// wrong binding lives — a contract bound before that rule existed still routes
+// every sync to whatever it was bound to, which is why the binding has to be
+// visible and removable (DeleteAssetExternalRef).
+message AssetExternalRef {
+  string id = 1;
+  string asset_id = 2;
+  // Namespace: "onchain:<chain>", "coingecko", "cmc", broker ID spaces.
+  string source = 3;
+  // Contract address, mint, coin id.
+  string ref = 4;
+  // "auto" | "manual" | "seed". A manual link is terminal for auto-discovery.
+  string origin = 5;
+  google.protobuf.Timestamp created_at = 6;
 }
 
 // Price represents the price action of an Asset against a base Asset
@@ -198,6 +232,21 @@ service MarketDataService {
     };
   }
 
+  // DeleteAssetExternalRef removes one binding between an asset and an external
+  // identifier. Admin-only: a binding is catalogue identity, shared by everyone.
+  //
+  // Bindings are otherwise immutable on purpose — identity must be stable — so
+  // this exists for the one case where the binding itself was the error: an
+  // unknown contract bound to a real ticker before that was refused, which then
+  // routes every later sync to the wrong asset and lends it a price it has no
+  // claim to. Removing the ref lets the next sync resolve the contract on its
+  // own merits and isolate it.
+  rpc DeleteAssetExternalRef(DeleteAssetExternalRefRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/api/v1/assets/{asset_id}/external-refs/{id}"
+    };
+  }
+
   // --- Price CRUD ---
   rpc CreatePrice(CreatePriceRequest) returns (Price) {
     option (google.api.http) = {
@@ -330,6 +379,14 @@ message FindOrCreateAssetResponse {
   Asset asset = 1;
   // True when the asset was created (or would be, in a dry run).
   bool created = 2;
+}
+
+// DeleteAssetExternalRefRequest names both sides of the binding on purpose: the
+// ref id alone would let a mistyped id detach a contract from an unrelated
+// asset, and the point of this RPC is to repair identity, not to move it.
+message DeleteAssetExternalRefRequest {
+  string asset_id = 1;
+  string id = 2;
 }
 
 message SetAssetVerdictRequest {

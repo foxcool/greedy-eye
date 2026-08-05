@@ -45,6 +45,9 @@ type Store interface {
 	// (ref -> asset); pricing needs the reverse — which chain a contract lives
 	// on — and one query per asset would be hundreds of round trips per sweep.
 	ListAssetExternalRefs(ctx context.Context, assetIDs []string) ([]*entity.AssetExternalRef, error)
+	// DeleteAssetExternalRef removes one binding, refusing a ref that belongs to
+	// another asset. ErrNotFound when there is no such ref on this asset.
+	DeleteAssetExternalRef(ctx context.Context, assetID, id string) error
 	// FindTickerIncumbent answers whether this asset's ticker is already held on
 	// one of its own chains by an older, price-listed asset bound to a different
 	// contract. One chain cannot carry two contracts of the same asset, so the
