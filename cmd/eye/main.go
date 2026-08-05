@@ -19,6 +19,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
 	cosmosadapter "github.com/foxcool/greedy-eye/internal/adapter/cosmos"
 	esploraadapter "github.com/foxcool/greedy-eye/internal/adapter/esplora"
+	moexadapter "github.com/foxcool/greedy-eye/internal/adapter/moex"
 	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
 	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
 	solanaadapter "github.com/foxcool/greedy-eye/internal/adapter/solana"
@@ -181,6 +182,12 @@ func run() error {
 		cbradapter.ProviderName: cbradapter.NewProvider(cbradapter.NewClient(cbradapter.Config{
 			Transport: rateLimits.Transport(ratelimit.Credential{Provider: cbradapter.ProviderName}, nil),
 		})),
+		// Also keyless and free. Registered unconditionally for the same
+		// reason as CBR: a portfolio holding Russian shares reads zero
+		// without it, and there is nothing per-user to configure.
+		moexadapter.ProviderName: moexadapter.NewProvider(moexadapter.NewClient(moexadapter.Config{
+			Transport: rateLimits.Transport(ratelimit.Credential{Provider: moexadapter.ProviderName}, nil),
+		})),
 	}
 	credResolver := credentials.NewResolver(credentials.Config{
 		Source: portfolioStore,
@@ -329,6 +336,11 @@ func run() error {
 					Transport: rateLimits.Transport(accountCred(cbradapter.ProviderName, a), nil),
 				})), nil
 			},
+			moexadapter.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return moexadapter.NewProvider(moexadapter.NewClient(moexadapter.Config{
+					Transport: rateLimits.Transport(accountCred(moexadapter.ProviderName, a), nil),
+				})), nil
+			},
 		},
 		// The env syncer is Moralis too (deprecated path, g27), so it carries
 		// the same chain coverage — without it a Substrate account would fall
@@ -350,6 +362,7 @@ func run() error {
 		WithProvider(coingecko.ProviderName, envPriceProviders[coingecko.ProviderName]).
 		WithProvider(binanceadapter.ProviderName, envPriceProviders[binanceadapter.ProviderName]).
 		WithProvider(cbradapter.ProviderName, envPriceProviders[cbradapter.ProviderName]).
+		WithProvider(moexadapter.ProviderName, envPriceProviders[moexadapter.ProviderName]).
 		WithProviderSource(credResolver).
 		// The sweep interval is what a provider divides its remaining plan
 		// allowance by, so it comes from the cron spec rather than a second
