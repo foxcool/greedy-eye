@@ -13,6 +13,7 @@ import (
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
+	"github.com/foxcool/greedy-eye/internal/pricefresh"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/shopspring/decimal"
@@ -33,9 +34,10 @@ const unassignedGroupID = "unassigned"
 // Handler implements apiv1connect.AnalyticsServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedAnalyticsServiceHandler
-	store    Store
-	mdClient MarketDataClient // optional; nil if not configured
-	log      *slog.Logger
+	store     Store
+	mdClient  MarketDataClient         // optional; nil if not configured
+	setClient pricefresh.SettingReader // optional; nil means valuation defaults
+	log       *slog.Logger
 }
 
 func NewHandler(store Store, log *slog.Logger) *Handler {
@@ -46,6 +48,15 @@ func NewHandler(store Store, log *slog.Logger) *Handler {
 func (h *Handler) WithMarketDataClient(mc MarketDataClient) *Handler {
 	copied := *h
 	copied.mdClient = mc
+	return &copied
+}
+
+// WithSettingsClient returns a new Handler that reads valuation rules from the
+// caller's settings, so a map and a total answer under the same rules. Without
+// it the built-in defaults apply.
+func (h *Handler) WithSettingsClient(sc pricefresh.SettingReader) *Handler {
+	copied := *h
+	copied.setClient = sc
 	return &copied
 }
 
@@ -139,14 +150,19 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 	grouped := msg.GroupBy != apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_UNSPECIFIED
 	type leafKey struct{ groupID, assetID string }
 	values := map[leafKey]decimal.Decimal{}
-	assets := map[string]*assetPricing{}       // assetID → resolved price/change/label
-	accountPortfolios := map[string]string{}   // accountID → its portfolio id (for group_by=portfolio)
+	assets := map[string]*assetPricing{}     // assetID → resolved price/change/label
+	accountPortfolios := map[string]string{} // accountID → its portfolio id (for group_by=portfolio)
 
 	coverage := &apiv1.ValuationCoverage{}
 	var unpriced []*apiv1.UnpricedHolding
 	// The oldest amount behind a tile dates the whole map, the same way it dates
 	// a total: fresh prices over week-old quantities still draw last week.
 	var oldestAmount time.Time
+	// And the same for the price axis: a tile drawn from a quote that outlived
+	// its market looks exactly like one drawn from this morning's print.
+	var oldestQuote time.Time
+	freshness := pricefresh.PolicyFrom(ctx, h.setClient, h.log)
+	drawnAt := time.Now()
 
 	for _, hld := range holdings {
 		ap, err := h.assetPricing(ctx, assets, hld.AssetID, quoteAssetID, from)
@@ -174,6 +190,13 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 		}
 		coverage.PricedCount++
 		oldestAmount = olderOf(oldestAmount, hld.UpdatedAt)
+		oldestQuote = olderOf(oldestQuote, ap.quotedAt)
+		// Counted per holding even though pricing is cached per asset: the
+		// question is how many POSITIONS on this map rest on a quote that may no
+		// longer be a price, and two positions in one dead security are two.
+		if freshness.StaleAt(ap.quotedAt, drawnAt) {
+			coverage.StaleCount++
+		}
 		key := leafKey{assetID: hld.AssetID}
 		if grouped {
 			key.groupID, err = h.groupID(ctx, msg.GroupBy, hld, accountPortfolios)
@@ -217,6 +240,9 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 	coverage.Unpriced = unpriced
 	if !oldestAmount.IsZero() {
 		coverage.AmountsAsOf = timestamppb.New(oldestAmount)
+	}
+	if !oldestQuote.IsZero() {
+		coverage.PricesAsOf = timestamppb.New(oldestQuote)
 	}
 
 	return connect.NewResponse(&apiv1.GetHeatmapResponse{

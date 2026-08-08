@@ -17,6 +17,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/marketdepth"
 	"github.com/foxcool/greedy-eye/internal/middleware"
+	"github.com/foxcool/greedy-eye/internal/pricefresh"
 	"github.com/foxcool/greedy-eye/internal/scamfilter"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/shopspring/decimal"
@@ -48,6 +49,7 @@ type Handler struct {
 	apiv1connect.UnimplementedPortfolioServiceHandler
 	store          Store
 	mdClient       MarketDataClient     // optional; nil if not configured
+	setClient      SettingsClient       // optional; nil means valuation defaults
 	walletSyncer   entity.WalletSyncer  // optional; nil if not configured
 	syncerSource   WalletSyncerSource   // optional; takes precedence over walletSyncer
 	exchangeSource ExchangeSyncerSource // optional; resolves per-account exchange syncers
@@ -67,6 +69,14 @@ func (h *Handler) clone() *Handler {
 func (h *Handler) WithMarketDataClient(mc MarketDataClient) *Handler {
 	copied := h.clone()
 	copied.mdClient = mc
+	return copied
+}
+
+// WithSettingsClient returns a new Handler that reads valuation rules from the
+// caller's settings. Without it the built-in defaults apply.
+func (h *Handler) WithSettingsClient(sc SettingsClient) *Handler {
+	copied := h.clone()
+	copied.setClient = sc
 	return copied
 }
 
@@ -288,9 +298,15 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 	// as of: one week-old position dates the whole number, however fresh the
 	// prices under it are.
 	var oldestAmount time.Time
+	// The same statement about the other axis. A quote can outlive its market —
+	// a delisted security keeps its last print forever — and until it is dated,
+	// nothing tells that apart from a price observed a minute ago.
+	var oldestQuote time.Time
+	freshness := pricefresh.PolicyFrom(ctx, h.setClient, h.log)
+	valuedAt := time.Now()
 
 	for _, hld := range holdings {
-		unit, outcome, err := h.unitPrice(ctx, hld.AssetID, quoteAssetID)
+		priced, err := h.unitPrice(ctx, hld.AssetID, quoteAssetID)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get price for %s: %w", hld.AssetID, err))
 		}
@@ -299,28 +315,39 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 			// Quarantine is its own axis: an excluded holding is out of the total
 			// by decision, not for lack of a quote, so it stays out of coverage.
 			excludedCount++
-			if outcome == outcomePriced {
-				excludedTotal = excludedTotal.Add(hld.Amount.Shift(-decI32(hld.Decimals)).Mul(unit))
+			if priced.outcome == outcomePriced {
+				excludedTotal = excludedTotal.Add(hld.Amount.Shift(-decI32(hld.Decimals)).Mul(priced.unit))
 			}
 			continue
 		}
-		if outcome != outcomePriced {
+		if priced.outcome != outcomePriced {
 			// No usable price: report the holding instead of letting it contribute
 			// zero. Zero is an assertion about the market; this is missing data —
 			// either no quote at all, or a quote with no market behind it.
 			coverage.UnpricedCount++
-			unpriced = append(unpriced, unpricedHolding{holding: hld, reason: outcome.reason()})
+			unpriced = append(unpriced, unpricedHolding{holding: hld, reason: priced.outcome.reason()})
 			continue
 		}
 		coverage.PricedCount++
 		oldestAmount = olderOf(oldestAmount, hld.UpdatedAt)
+		oldestQuote = olderOf(oldestQuote, priced.quotedAt)
+		// A stale quote still counts toward the total: see ValuationCoverage on
+		// why naming it beats removing it. Counted per holding, not per asset —
+		// two positions in the same delisted security are two positions whose
+		// value is in question.
+		if freshness.StaleAt(priced.quotedAt, valuedAt) {
+			coverage.StaleCount++
+		}
 
 		// value = (amount / 10^holding.Decimals) * unitPrice
-		holdingValue := hld.Amount.Shift(-decI32(hld.Decimals)).Mul(unit)
+		holdingValue := hld.Amount.Shift(-decI32(hld.Decimals)).Mul(priced.unit)
 		total = total.Add(holdingValue)
 	}
 	if !oldestAmount.IsZero() {
 		coverage.AmountsAsOf = timestamppb.New(oldestAmount)
+	}
+	if !oldestQuote.IsZero() {
+		coverage.PricesAsOf = timestamppb.New(oldestQuote)
 	}
 
 	coverage.Unpriced, coverage.UnpricedTruncated = h.describeUnpriced(ctx, unpriced)
@@ -397,6 +424,16 @@ func (h *Handler) describeUnpriced(ctx context.Context, holdings []unpricedHoldi
 	return out, truncated
 }
 
+// pricing is one asset's resolved price: the number, whether it may be used, and
+// when it was observed. The observation time travels with the price because the
+// caller has to date the total by the oldest quote in it, and by then the price
+// row it came from is gone.
+type pricing struct {
+	unit     decimal.Decimal
+	outcome  priceOutcome
+	quotedAt time.Time // zero when unpriced, or when the quote carried no time
+}
+
 // priceOutcome says whether a holding could be valued, and if not, why. The proto
 // enum is the wire shape; this is the domain one, so the pricing code never has to
 // spell UNPRICED_REASON_UNSPECIFIED to mean success.
@@ -429,34 +466,38 @@ func (o priceOutcome) reason() apiv1.UnpricedReason {
 // gating it would take down everything priced through it.
 //
 // A non-nil error signals an unexpected failure, not an unpriced holding.
-func (h *Handler) unitPrice(ctx context.Context, assetID, quoteAssetID string) (decimal.Decimal, priceOutcome, error) {
+func (h *Handler) unitPrice(ctx context.Context, assetID, quoteAssetID string) (pricing, error) {
 	unit, price, ok, err := h.realPrice(ctx, assetID, quoteAssetID)
 	if err != nil {
-		return decimal.Zero, outcomeNoQuote, err
+		return pricing{outcome: outcomeNoQuote}, err
 	}
 	if ok {
 		if marketdepth.Thin(price, decimal.NewFromInt(1)) {
-			return decimal.Zero, outcomeThinMarket, nil
+			return pricing{outcome: outcomeThinMarket}, nil
 		}
-		return unit, outcomePriced, nil
+		return pricing{unit: unit, outcome: outcomePriced, quotedAt: pricefresh.QuotedAt(price)}, nil
 	}
 
 	// The asset's actual traded pair: latest price in whatever base it has.
 	baseID, value, price, ok, err := h.latestAnyBase(ctx, assetID)
 	if err != nil || !ok {
-		return decimal.Zero, outcomeNoQuote, err
+		return pricing{outcome: outcomeNoQuote}, err
 	}
 
 	rate, ok, err := h.crossRate(ctx, baseID, quoteAssetID)
 	if err != nil || !ok {
-		return decimal.Zero, outcomeNoQuote, err
+		return pricing{outcome: outcomeNoQuote}, err
 	}
 	// Volume is denominated in the base the asset trades in, so it converts with
 	// the same rate as the price.
 	if marketdepth.Thin(price, rate) {
-		return decimal.Zero, outcomeThinMarket, nil
+		return pricing{outcome: outcomeThinMarket}, nil
 	}
-	return value.Mul(rate), outcomePriced, nil
+	// Dated by the asset's own quote, not by the cross rate. The rate is a
+	// currency pair on the same footing as the market-depth gate above: judging
+	// it here would let one stale FX row date every position converted through
+	// it, which says nothing about whether THIS asset still trades.
+	return pricing{unit: value.Mul(rate), outcome: outcomePriced, quotedAt: pricefresh.QuotedAt(price)}, nil
 }
 
 // crossRate returns how many units of quoteID one unit of baseID is worth, using a

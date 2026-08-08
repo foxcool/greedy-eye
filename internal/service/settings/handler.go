@@ -17,6 +17,7 @@ import (
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
+	"github.com/foxcool/greedy-eye/internal/pricefresh"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -26,10 +27,24 @@ import (
 // becomes a row the old client never reads, rather than one it misparses.
 const KeyDashboard = "dashboard.v1"
 
+// KeyValuation holds the rules a valuation is computed under, as JSON text:
+//
+//	{"price_max_age": "48h"}
+//
+// Today that is the freshness threshold above which a quote stops counting as
+// current (personal-tlz). It is a setting rather than a constant because how
+// fresh a price must be depends on how often the instance sweeps for prices and
+// on which markets it holds — an instance of only continuously traded crypto can
+// demand hours, one holding instruments that print once a session cannot.
+//
+// The name is re-exported from the package that owns the value's meaning: this
+// service allowlists keys, it does not define what they contain.
+const KeyValuation = pricefresh.SettingKey
+
 // knownKeys is the set a caller may write. Without it this is an unbounded
 // per-user blob store reachable by anyone with a session: the quota would be
 // whatever the client felt like sending, under names nothing ever reads.
-var knownKeys = []string{KeyDashboard}
+var knownKeys = []string{KeyDashboard, KeyValuation}
 
 // maxValueBytes caps one setting. A dashboard layout is a few kilobytes of
 // widget instances; the cap is what stops the same endpoint from being used as

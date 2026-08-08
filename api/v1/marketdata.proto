@@ -136,6 +136,18 @@ message ValuationCoverage {
   // moves every hour and stays wrong — a number that moves reads as a number
   // that is current. Unset when nothing was counted.
   google.protobuf.Timestamp amounts_as_of = 5;
+  // How many of the priced holdings were valued by a quote older than the
+  // instance's freshness policy (see `valuation.v1`; the default is 48h).
+  //
+  // They stay IN the total on purpose. Dropping a stale quote would take the
+  // position out on every provider outage and put it back on recovery, so the
+  // total would move for reasons that have nothing to do with the market —
+  // the very failure this block exists to prevent. Named, not removed.
+  uint32 stale_count = 6;
+  // The oldest quote behind this result. A total is only as current as the
+  // stalest price under it, the same way `amounts_as_of` dates the quantities
+  // under it. Unset when nothing was priced.
+  google.protobuf.Timestamp prices_as_of = 7;
 }
 
 // UnpricedReason says why a holding stayed out of the total. The distinction is

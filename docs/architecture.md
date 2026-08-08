@@ -754,6 +754,7 @@ corrections:
 | No price path for a holding | `ValuationCoverage` (ADR-008) | Embedded in the valuation response: counts plus the identified holdings, capped with a truncation flag |
 | A quote with no market behind it | `UnpricedReason.THIN_MARKET` in the same block (ADR-009) | Same place as a missing quote, with the reason attached — the position is unknown, not worthless |
 | Asset judged a scam or impersonation | `holdings.excluded`, derived from the asset verdict | Reported alongside the total; the position keeps syncing and stays visible in quarantine |
+| A quote that outlived its market | `ValuationCoverage.stale_count` and `prices_as_of` | Same block; the position stays **in** the total and is named, because removing it would move the number on every provider outage |
 
 Rules that follow from this:
 
@@ -761,14 +762,25 @@ Rules that follow from this:
   into the second
 - A price and an amount go stale **independently**. `ValuationCoverage.amounts_as_of` carries the
   oldest confirmation time among the holdings counted, so an hourly re-price cannot present
-  week-old quantities as a current total
+  week-old quantities as a current total. `prices_as_of` is the same statement about the other
+  axis: a quote can outlive its market — a delisted security keeps its last print forever
+- **Not every disclosure is a removal.** A thin market takes a position out of the total, because
+  the price is not realisable; a stale quote leaves it in and labels it, because dropping it would
+  take the position out on an outage and put it back on recovery, moving the total for reasons
+  that have nothing to do with the market. Which of the two a defect calls for is a judgement
+  about *why* the number is doubtful, not a default
 - A new consumer of a valuation (heatmap, MCP, a future report) **embeds the existing coverage
   message** instead of growing its own coverage fields
 - Filtering a position out of a sum without saying so is a bug, whatever the reason for filtering
 
-Known gap: a price that exists but has no market behind it (no volume, no depth) is still treated
-as a real quote and enters the total at face value. Collecting volume and market cap — both are
-returned by the provider and currently discarded — is the prerequisite for closing it.
+**Freshness policy** (`internal/pricefresh`): a quote older than the threshold counts as stale.
+The default is 48h — coarser than the hourly price sweep on purpose, because not every market
+prints continuously: the CBR publishes one rate per business day and MOEX only during a session,
+so an hour-scale threshold would report every rouble-denominated position as stale over a weekend.
+The threshold is stored per user under the `valuation.v1` setting rather than compiled in, since
+it depends on the sweep cadence and the markets an instance actually holds. It is applied to the
+asset's **own** quote only, never to the cross rate — for the same reason the market-depth gate
+is not: one stale FX row would otherwise date every position converted through it.
 
 ### 8.4 Data Management
 
