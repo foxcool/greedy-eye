@@ -319,6 +319,10 @@ message GetPortfolioRequest {
 
 message UpdatePortfolioRequest {
   Portfolio portfolio = 1;
+  // Required. Names the fields to write; everything else is left alone. An
+  // absent or empty mask is rejected — it used to mean "all fields", which made
+  // a message carrying only an id an instruction to clear the row. Accepts
+  // name, description, data.
   google.protobuf.FieldMask update_mask = 2;
 }
 
@@ -392,6 +396,11 @@ message GetHoldingRequest {
 
 message UpdateHoldingRequest {
   Holding holding = 1;
+  // Required. Names the fields to write; everything else is left alone. An
+  // absent or empty mask is rejected — it used to mean "all fields", so
+  // toggling `excluded` alone zeroed amount and decimals and detached the
+  // position from its portfolio. Accepts amount, decimals, portfolio_id,
+  // excluded, chain, liquidity.
   google.protobuf.FieldMask update_mask = 2;
 }
 
@@ -545,6 +554,11 @@ message GetAccountRequest {
 
 message UpdateAccountRequest {
   Account account = 1;
+  // Required. Names the fields to write; everything else is left alone. An
+  // absent or empty mask is rejected — it used to mean "all fields", which made
+  // a message carrying only an id an instruction to clear the row. Accepts
+  // name, description, type, data, capabilities, system_scopes, portfolio_id;
+  // system_scopes additionally requires the admin role.
   google.protobuf.FieldMask update_mask = 2;
 }
 
@@ -587,6 +601,10 @@ message GetTransactionRequest {
 
 message UpdateTransactionRequest {
   Transaction transaction = 1;
+  // Required. Names the fields to write; everything else is left alone. An
+  // absent or empty mask is rejected — it used to mean "all fields", which made
+  // a message carrying only an id an instruction to clear the row. Accepts
+  // status, data.
   google.protobuf.FieldMask update_mask = 2;
 }
 

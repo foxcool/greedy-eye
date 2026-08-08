@@ -556,6 +556,7 @@ func TestUpdateAccount_MaskedSecretPreserved(t *testing.T) {
 			Id:   testAccountID,
 			Data: map[string]string{"provider": "kraken", "api_key": maskPrefix + "1a2b"},
 		},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"data"}},
 	}))
 	require.NoError(t, err)
 	s.AssertExpectations(t)
@@ -570,13 +571,14 @@ func TestUpdateAccount_MaskedValueWithoutStoredSecret(t *testing.T) {
 	h := newHandler(s)
 
 	_, err := h.UpdateAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdateAccountRequest{
-		Account: &apiv1.Account{Id: testAccountID, Data: map[string]string{"api_key": maskPrefix + "1a2b"}},
+		Account:    &apiv1.Account{Id: testAccountID, Data: map[string]string{"api_key": maskPrefix + "1a2b"}},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"data"}},
 	}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 }
 
-func TestUpdateAccount_SystemScopesNotInDefaultMask(t *testing.T) {
+func TestUpdateAccount_SystemScopesNeedExplicitMask(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
 	s.On("UpdateAccount", mock.Anything, mock.Anything, mock.MatchedBy(func(fields []string) bool {
@@ -584,9 +586,11 @@ func TestUpdateAccount_SystemScopesNotInDefaultMask(t *testing.T) {
 	})).Return(testAccount(testAccountID), nil)
 	h := newHandler(s)
 
-	// no admin role needed: system_scopes stays untouched without an explicit mask
+	// No admin role needed: a payload carrying system_scopes leaves the stored
+	// value alone as long as the mask does not name it.
 	_, err := h.UpdateAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdateAccountRequest{
-		Account: &apiv1.Account{Id: testAccountID, Name: "Renamed", SystemScopes: []string{"market_data"}},
+		Account:    &apiv1.Account{Id: testAccountID, Name: "Renamed", SystemScopes: []string{"market_data"}},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"name", "capabilities"}},
 	}))
 	require.NoError(t, err)
 	s.AssertExpectations(t)
@@ -786,26 +790,170 @@ func TestCreateHolding_NegativeAmount(t *testing.T) {
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 }
 
-// TestUpdateHolding_SourceNotUpdatable verifies an explicit update_mask entry for
-// source is passed through to the store, which has no case for it — the field list
-// reaching the store must still carry only what the mask says, and the store switch
-// ignores unknown fields, so source stays untouched.
-func TestUpdateHolding_SourceMaskIgnored(t *testing.T) {
+// TestUpdateHolding_SourceNotUpdatable: source is stamped by the server, so a
+// mask naming it is a caller error rather than a write the store quietly drops.
+func TestUpdateHolding_SourceMaskRejected(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetHolding", mock.Anything, testHoldingID).Return(testHolding(testHoldingID), nil)
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	h := newHandler(s)
+
+	_, err := h.UpdateHolding(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdateHoldingRequest{
+		Holding:    &apiv1.Holding{Id: testHoldingID, Amount: "1"},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"source"}},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	s.AssertNotCalled(t, "UpdateHolding")
+}
+
+// TestUpdateHolding_ForeignPortfolioRejected: a holding's visibility follows the
+// owner of its portfolio, so reassigning one to a stranger's portfolio would put
+// a row of the caller's choosing in front of another user. The destination is
+// checked here exactly as it is on create.
+func TestUpdateHolding_ForeignPortfolioRejected(t *testing.T) {
+	foreign := testPortfolio(testPortfolioID2)
+	foreign.UserID = testUserID2
+
+	s := &mockStore{}
+	s.On("GetHolding", mock.Anything, testHoldingID).Return(testHolding(testHoldingID), nil)
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	s.On("GetPortfolio", mock.Anything, testPortfolioID2).Return(foreign, nil)
+	h := newHandler(s)
+
+	target := testPortfolioID2
+	_, err := h.UpdateHolding(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdateHoldingRequest{
+		Holding:    &apiv1.Holding{Id: testHoldingID, PortfolioId: &target},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"portfolio_id"}},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	s.AssertNotCalled(t, "UpdateHolding")
+}
+
+// TestUpdateHolding_OwnPortfolioAccepted keeps the check from swallowing the
+// legitimate move, and clearing the assignment stays free of any lookup.
+func TestUpdateHolding_OwnPortfolioAccepted(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetHolding", mock.Anything, testHoldingID).Return(testHolding(testHoldingID), nil)
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	s.On("GetPortfolio", mock.Anything, testPortfolioID2).Return(testPortfolio(testPortfolioID2), nil)
+	s.On("UpdateHolding", mock.Anything, mock.Anything, []string{"portfolio_id"}).Return(testHolding(testHoldingID), nil)
+	h := newHandler(s)
+
+	for _, target := range []string{testPortfolioID2, ""} {
+		_, err := h.UpdateHolding(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdateHoldingRequest{
+			Holding:    &apiv1.Holding{Id: testHoldingID, PortfolioId: &target},
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"portfolio_id"}},
+		}))
+		require.NoError(t, err)
+	}
+	s.AssertExpectations(t)
+}
+
+// TestUpdateHolding_MaskRequired is the regression test for the exclude toggle
+// wiping a position: a mask-less update used to fall back to the full field set,
+// and the fields the caller never sent decoded as zero, so the row lost its
+// amount, its decimals and its portfolio.
+func TestUpdateHolding_MaskRequired(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetHolding", mock.Anything, testHoldingID).Return(testHolding(testHoldingID), nil)
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	h := newHandler(s)
+
+	for _, mask := range []*fieldmaskpb.FieldMask{nil, {}} {
+		_, err := h.UpdateHolding(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdateHoldingRequest{
+			Holding:    &apiv1.Holding{Id: testHoldingID, Excluded: true},
+			UpdateMask: mask,
+		}))
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	}
+	s.AssertNotCalled(t, "UpdateHolding")
+}
+
+// TestUpdateHolding_ExcludeTouchesOnlyExcluded is the acceptance criterion of
+// the toggle in code: the store is handed that one field and nothing else, so
+// amount, decimals and portfolio_id keep whatever the row already holds.
+func TestUpdateHolding_ExcludeTouchesOnlyExcluded(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetHolding", mock.Anything, testHoldingID).Return(testHolding(testHoldingID), nil)
 	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
 	stored := testHolding(testHoldingID)
-	stored.Source = entity.SourceSync
-	s.On("UpdateHolding", mock.Anything, mock.Anything, []string{"source"}).Return(stored, nil)
+	stored.Excluded = true
+	s.On("UpdateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		return h.ID == testHoldingID && h.Excluded
+	}), []string{"excluded"}).Return(stored, nil)
 	h := newHandler(s)
 
 	resp, err := h.UpdateHolding(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdateHoldingRequest{
-		Holding:    &apiv1.Holding{Id: testHoldingID, Amount: "1"},
-		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"source"}},
+		Holding:    &apiv1.Holding{Id: testHoldingID, Excluded: true},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"excluded"}},
 	}))
 	require.NoError(t, err)
-	// The stored source survives; the response reflects it, not anything client-sent.
-	assert.Equal(t, apiv1.ProvenanceSource_PROVENANCE_SOURCE_SYNC, resp.Msg.Source)
+	assert.True(t, resp.Msg.Excluded)
+	s.AssertExpectations(t)
+}
+
+// TestUpdate_MaskRequired covers the siblings of the holding toggle: the same
+// defaulted field list sat on every partial update of this service, and a
+// portfolio rename that omitted `data` cleared it.
+func TestUpdate_MaskRequired(t *testing.T) {
+	newStore := func() *mockStore {
+		s := &mockStore{}
+		s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+		s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+		s.On("GetTransaction", mock.Anything, testTxID).Return(&entity.Transaction{ID: testTxID, AccountID: testAccountID}, nil)
+		return s
+	}
+
+	cases := map[string]struct {
+		call    func(*Handler, context.Context, *fieldmaskpb.FieldMask) error
+		notCall string
+	}{
+		"UpdatePortfolio": {
+			call: func(h *Handler, ctx context.Context, m *fieldmaskpb.FieldMask) error {
+				_, err := h.UpdatePortfolio(ctx, connect.NewRequest(&apiv1.UpdatePortfolioRequest{
+					Portfolio: &apiv1.Portfolio{Id: testPortfolioID, Name: "Renamed"}, UpdateMask: m,
+				}))
+				return err
+			},
+			notCall: "UpdatePortfolio",
+		},
+		"UpdateAccount": {
+			call: func(h *Handler, ctx context.Context, m *fieldmaskpb.FieldMask) error {
+				_, err := h.UpdateAccount(ctx, connect.NewRequest(&apiv1.UpdateAccountRequest{
+					Account: &apiv1.Account{Id: testAccountID, Name: "Renamed"}, UpdateMask: m,
+				}))
+				return err
+			},
+			notCall: "UpdateAccount",
+		},
+		"UpdateTransaction": {
+			call: func(h *Handler, ctx context.Context, m *fieldmaskpb.FieldMask) error {
+				_, err := h.UpdateTransaction(ctx, connect.NewRequest(&apiv1.UpdateTransactionRequest{
+					Transaction: &apiv1.Transaction{Id: testTxID}, UpdateMask: m,
+				}))
+				return err
+			},
+			notCall: "UpdateTransaction",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := newStore()
+			h := newHandler(s)
+			ctx := ctxWithUser(testUserID)
+
+			for _, mask := range []*fieldmaskpb.FieldMask{nil, {}, {Paths: []string{"id"}}} {
+				err := tc.call(h, ctx, mask)
+				require.Error(t, err)
+				assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+			}
+			s.AssertNotCalled(t, tc.notCall)
+		})
+	}
 }
 
 func TestDeleteHolding_MissingID(t *testing.T) {

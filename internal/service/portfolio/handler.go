@@ -185,9 +185,9 @@ func (h *Handler) UpdatePortfolio(ctx context.Context, req *connect.Request[apiv
 		return nil, err
 	}
 
-	fields := []string{"name", "description", "data"}
-	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
-		fields = req.Msg.UpdateMask.Paths
+	fields, err := resolveMask(req.Msg.UpdateMask, portfolioUpdatable)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	p := portfolioFromProto(req.Msg.Portfolio)
@@ -670,18 +670,29 @@ func (h *Handler) UpdateHolding(ctx context.Context, req *connect.Request[apiv1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("holding with ID is required"))
 	}
 
-	if _, err := h.ownedHolding(ctx, req.Msg.Holding.Id); err != nil {
+	existing, err := h.ownedHolding(ctx, req.Msg.Holding.Id)
+	if err != nil {
 		return nil, err
 	}
 
-	fields := []string{"amount", "decimals", "portfolio_id", "excluded"}
-	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
-		fields = req.Msg.UpdateMask.Paths
+	fields, err := resolveMask(req.Msg.UpdateMask, holdingUpdatable)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	holding, err := holdingFromProto(req.Msg.Holding)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	// The destination portfolio must belong to the caller, exactly as it must on
+	// create: visibility of a holding is scoped by its portfolio's owner, so an
+	// unchecked reassignment would push a row of the caller's choosing —
+	// arbitrary asset, arbitrary amount — into a stranger's portfolio. Clearing
+	// the field, or naming the portfolio the row already sits in, needs no check.
+	if slices.Contains(fields, "portfolio_id") && holding.PortfolioID != "" && holding.PortfolioID != existing.PortfolioID {
+		if _, err := h.ownedPortfolio(ctx, holding.PortfolioID); err != nil {
+			return nil, err
+		}
 	}
 	updated, err := h.store.UpdateHolding(ctx, holding, fields)
 	if err != nil {
@@ -799,11 +810,10 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 		return nil, err
 	}
 
-	// system_scopes is deliberately absent from the defaults: it is only
-	// updated when explicitly named in the update_mask, and only by admins.
-	fields := []string{"name", "description", "type", "data", "portfolio_id", "capabilities"}
-	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
-		fields = req.Msg.UpdateMask.Paths
+	// system_scopes is only touched when the mask names it, and only by admins.
+	fields, err := resolveMask(req.Msg.UpdateMask, accountUpdatable)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	if slices.Contains(fields, "system_scopes") {
@@ -1610,9 +1620,9 @@ func (h *Handler) UpdateTransaction(ctx context.Context, req *connect.Request[ap
 		return nil, err
 	}
 
-	fields := []string{"status", "data"}
-	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
-		fields = req.Msg.UpdateMask.Paths
+	fields, err := resolveMask(req.Msg.UpdateMask, transactionUpdatable)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	tx := transactionFromProto(req.Msg.Transaction)

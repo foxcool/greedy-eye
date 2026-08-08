@@ -896,8 +896,12 @@ func (x *GetPortfolioRequest) GetId() string {
 }
 
 type UpdatePortfolioRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Portfolio     *Portfolio             `protobuf:"bytes,1,opt,name=portfolio,proto3" json:"portfolio,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Portfolio *Portfolio             `protobuf:"bytes,1,opt,name=portfolio,proto3" json:"portfolio,omitempty"`
+	// Required. Names the fields to write; everything else is left alone. An
+	// absent or empty mask is rejected — it used to mean "all fields", which made
+	// a message carrying only an id an instruction to clear the row. Accepts
+	// name, description, data.
 	UpdateMask    *fieldmaskpb.FieldMask `protobuf:"bytes,2,opt,name=update_mask,json=updateMask,proto3" json:"update_mask,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1498,8 +1502,13 @@ func (x *GetHoldingRequest) GetId() string {
 }
 
 type UpdateHoldingRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Holding       *Holding               `protobuf:"bytes,1,opt,name=holding,proto3" json:"holding,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Holding *Holding               `protobuf:"bytes,1,opt,name=holding,proto3" json:"holding,omitempty"`
+	// Required. Names the fields to write; everything else is left alone. An
+	// absent or empty mask is rejected — it used to mean "all fields", so
+	// toggling `excluded` alone zeroed amount and decimals and detached the
+	// position from its portfolio. Accepts amount, decimals, portfolio_id,
+	// excluded, chain, liquidity.
 	UpdateMask    *fieldmaskpb.FieldMask `protobuf:"bytes,2,opt,name=update_mask,json=updateMask,proto3" json:"update_mask,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2529,8 +2538,13 @@ func (x *GetAccountRequest) GetId() string {
 }
 
 type UpdateAccountRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Account       *Account               `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Account *Account               `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+	// Required. Names the fields to write; everything else is left alone. An
+	// absent or empty mask is rejected — it used to mean "all fields", which made
+	// a message carrying only an id an instruction to clear the row. Accepts
+	// name, description, type, data, capabilities, system_scopes, portfolio_id;
+	// system_scopes additionally requires the admin role.
 	UpdateMask    *fieldmaskpb.FieldMask `protobuf:"bytes,2,opt,name=update_mask,json=updateMask,proto3" json:"update_mask,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2848,8 +2862,12 @@ func (x *GetTransactionRequest) GetId() string {
 }
 
 type UpdateTransactionRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Transaction   *Transaction           `protobuf:"bytes,1,opt,name=transaction,proto3" json:"transaction,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Transaction *Transaction           `protobuf:"bytes,1,opt,name=transaction,proto3" json:"transaction,omitempty"`
+	// Required. Names the fields to write; everything else is left alone. An
+	// absent or empty mask is rejected — it used to mean "all fields", which made
+	// a message carrying only an id an instruction to clear the row. Accepts
+	// status, data.
 	UpdateMask    *fieldmaskpb.FieldMask `protobuf:"bytes,2,opt,name=update_mask,json=updateMask,proto3" json:"update_mask,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
