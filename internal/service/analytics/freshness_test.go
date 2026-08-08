@@ -110,3 +110,41 @@ func TestHeatmap_QuotesWithoutTimesLeaveTheMapUndated(t *testing.T) {
 	assert.Zero(t, resp.Msg.Coverage.GetStaleCount())
 	assert.Nil(t, resp.Msg.Coverage.GetPricesAsOf())
 }
+
+// The heatmap embeds the same coverage block as the portfolio total, so it has
+// to reach the same conclusion about the same holding. A map saying 'no quote'
+// beside a total saying 'nothing ever priced this' is the divergence that
+// sharing one message is meant to rule out.
+func TestHeatmap_ExhaustedSourcesReadAsNeverPriced(t *testing.T) {
+	st, md := fixture()
+	asked := time.Now().Add(-11 * 24 * time.Hour)
+	delete(md.latest, "eth|USD") // no price anywhere for ETH
+	md.pricing = map[string]*apiv1.AssetPricingStatus{
+		"eth": {
+			AssetId: "eth", EverPriced: false,
+			FirstAskedAt: timestamppb.New(asked), SourcesAsked: 4,
+		},
+	}
+
+	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
+	require.NoError(t, err)
+
+	require.Len(t, resp.Msg.Coverage.GetUnpriced(), 1)
+	item := resp.Msg.Coverage.GetUnpriced()[0]
+	assert.Equal(t, apiv1.UnpricedReason_UNPRICED_REASON_NEVER_PRICED, item.GetReason())
+	require.NotNil(t, item.GetAskedSince())
+	assert.WithinDuration(t, asked, item.GetAskedSince().AsTime(), time.Second)
+}
+
+func TestHeatmap_NoAttemptRecordStaysNoQuote(t *testing.T) {
+	st, md := fixture()
+	delete(md.latest, "eth|USD")
+
+	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
+	require.NoError(t, err)
+
+	require.Len(t, resp.Msg.Coverage.GetUnpriced(), 1)
+	assert.Equal(t, apiv1.UnpricedReason_UNPRICED_REASON_NO_QUOTE, resp.Msg.Coverage.GetUnpriced()[0].GetReason())
+}

@@ -1023,3 +1023,56 @@ func TestDeleteAssetExternalRef(t *testing.T) {
 		assert.Equal(t, other.ID, rebound.AssetID)
 	})
 }
+
+// TestPricingStatus covers the read side of the attempt log: whether ANY source
+// ever priced an asset, over what period it has been asked about and by how
+// many sources. The aggregate is the point — attempts are per (asset, source),
+// so "nothing priced this" is a claim about all of them at once.
+func TestPricingStatus(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Millisecond)
+
+	silent := createTestAsset(t, s, "StatusSilent")   // asked by two sources, never priced
+	priced := createTestAsset(t, s, "StatusPriced")   // one source priced it once
+	unasked := createTestAsset(t, s, "StatusUnasked") // no attempt record at all
+
+	first := now.Add(-11 * 24 * time.Hour)
+	require.NoError(t, s.RecordPriceAttempts(ctx, marketdata.RecordAttemptsOpts{
+		SourceID: "moex", At: first, Missed: []string{silent.ID}, TTL: time.Hour,
+	}))
+	require.NoError(t, s.RecordPriceAttempts(ctx, marketdata.RecordAttemptsOpts{
+		SourceID: "coingecko", At: now, Missed: []string{silent.ID}, TTL: time.Hour,
+	}))
+	require.NoError(t, s.RecordPriceAttempts(ctx, marketdata.RecordAttemptsOpts{
+		SourceID: "coingecko", At: now, Priced: []string{priced.ID}, TTL: time.Hour,
+	}))
+
+	got, err := s.PricingStatus(ctx, []string{silent.ID, priced.ID, unasked.ID})
+	require.NoError(t, err)
+
+	byAsset := map[string]*entity.AssetPricingStatus{}
+	for _, st := range got {
+		byAsset[st.AssetID] = st
+	}
+
+	require.Contains(t, byAsset, silent.ID)
+	assert.False(t, byAsset[silent.ID].EverPriced)
+	assert.Equal(t, uint32(2), byAsset[silent.ID].SourcesAsked)
+	assert.WithinDuration(t, first, byAsset[silent.ID].FirstAskedAt, time.Second,
+		"the silence is dated from the first source that asked, not the last")
+	assert.WithinDuration(t, now, byAsset[silent.ID].LastAskedAt, time.Second)
+
+	require.Contains(t, byAsset, priced.ID)
+	assert.True(t, byAsset[priced.ID].EverPriced)
+
+	assert.NotContains(t, byAsset, unasked.ID,
+		"an asset with no record is omitted: an empty status would read as 'asked, nothing came back'")
+
+	t.Run("no ids is not a query", func(t *testing.T) {
+		got, err := s.PricingStatus(ctx, nil)
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+}

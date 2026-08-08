@@ -155,11 +155,21 @@ message ValuationCoverage {
 // market is a property of the asset its owner has to make a decision about.
 enum UnpricedReason {
   UNPRICED_REASON_UNSPECIFIED = 0;
-  // No price row for the asset, or no path from its traded base to the quote.
+  // No price row for the asset, or no path from its traded base to the quote,
+  // and nothing yet says whether anyone has looked.
   UNPRICED_REASON_NO_QUOTE = 1;
   // A quote exists but the market behind it is too small to realise the position
   // at that price. See ADR-009 for the threshold and the distribution it came from.
   UNPRICED_REASON_THIN_MARKET = 2;
+  // Every source that was asked has been asked repeatedly and none has ever
+  // returned a price. `asked_since` says for how long.
+  //
+  // Read it as evidence, not as a verdict. The system knows it asked and got
+  // nothing; it does NOT know the instrument was delisted, halted or withdrawn —
+  // claiming that would assert a fact nothing here observed. What separates it
+  // from NO_QUOTE is where the gap lives: NO_QUOTE can still be our own pipeline
+  // not having reached the asset, while this one has exhausted the sources it has.
+  UNPRICED_REASON_NEVER_PRICED = 3;
 }
 
 // UnpricedHolding names one position that could not be valued. There is no
@@ -170,6 +180,34 @@ message UnpricedHolding {
   // Best-effort label for display; empty when the asset lookup failed.
   string symbol = 3;
   UnpricedReason reason = 4;
+  // Since when this asset has been asked about without an answer. Set only with
+  // UNPRICED_REASON_NEVER_PRICED, where it turns "no price" into "no price for
+  // eleven days, across four sources" — the difference between a gap someone
+  // should look at and one that has already been looked at.
+  google.protobuf.Timestamp asked_since = 5;
+}
+
+// AssetPricingStatus reports what asking sources for an asset's price has
+// produced so far. It answers one question a valuation cannot answer on its
+// own: is this asset unpriced because nothing has looked, or because everything
+// that looked came back empty?
+//
+// Deliberately NOT fields on Asset. Asset travels through ListAssets, where
+// proto3 cannot distinguish a field left unloaded from one that is genuinely
+// zero — the trap already documented on Asset.external_refs. A separate message
+// is unambiguous: an asset absent from the response has never been asked about.
+message AssetPricingStatus {
+  string asset_id = 1;
+  // True when at least one source has returned a price at some point. Such an
+  // asset has a price row, so a valuation that still could not use it failed
+  // for another reason (no path to the quote asset, or a thin market).
+  bool ever_priced = 2;
+  // First and last time any source was asked about this asset.
+  google.protobuf.Timestamp first_asked_at = 3;
+  google.protobuf.Timestamp last_asked_at = 4;
+  // How many distinct sources have been asked. Four sources silent for a week
+  // is a different statement from one source silent for a week.
+  uint32 sources_asked = 5;
 }
 
 // =============================================================================
@@ -308,6 +346,20 @@ service MarketDataService {
   rpc FetchExternalPrices(FetchExternalPricesRequest) returns (FetchExternalPricesResponse) {
     option (google.api.http) = {
       post: "/api/v1/prices/fetch-external"
+      body: "*"
+    };
+  }
+
+  // GetPricingStatus reports, for each asset asked about, what asking its price
+  // sources has produced. Batched because its caller is a valuation disclosing a
+  // set of unpriced positions, not a page rendering one asset.
+  //
+  // Assets never asked about are simply absent from the response: there is no
+  // record to report, and inventing an empty one would read as "asked, nothing
+  // came back", which is the opposite statement.
+  rpc GetPricingStatus(GetPricingStatusRequest) returns (GetPricingStatusResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/prices/status"
       body: "*"
     };
   }
@@ -485,4 +537,14 @@ message FetchExternalPricesResponse {
   int32 prices_fetched = 1;
   int32 prices_stored = 2;
   repeated string errors = 3;
+}
+
+message GetPricingStatusRequest {
+  repeated string asset_ids = 1;
+}
+
+message GetPricingStatusResponse {
+  // One entry per asset that has been asked about at least once, in no
+  // particular order. Assets with no record are omitted, not zero-filled.
+  repeated AssetPricingStatus statuses = 1;
 }

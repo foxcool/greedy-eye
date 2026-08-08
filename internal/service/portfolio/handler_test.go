@@ -2974,3 +2974,22 @@ func TestSyncAccount_AdoptedRowIsNotZeroed(t *testing.T) {
 	require.Len(t, updates, 1, "the adopted row is written once, as an update")
 	assert.Equal(t, "1000000", updates[0].String())
 }
+
+// GetPricingStatus answers empty unless a test sets an expectation. Every
+// valuation with an unpriced holding calls it, and an empty answer is exactly
+// the "no attempt record" case that leaves the reason at NO_QUOTE — so tests
+// about anything else keep the behaviour they were written against.
+func (m *mockMDClient) GetPricingStatus(ctx context.Context, req *connect.Request[apiv1.GetPricingStatusRequest]) (*connect.Response[apiv1.GetPricingStatusResponse], error) {
+	if len(m.ExpectedCalls) > 0 {
+		for _, c := range m.ExpectedCalls {
+			if c.Method == "GetPricingStatus" {
+				args := m.Called(ctx, req)
+				if v := args.Get(0); v != nil {
+					return v.(*connect.Response[apiv1.GetPricingStatusResponse]), args.Error(1)
+				}
+				return nil, args.Error(1)
+			}
+		}
+	}
+	return connect.NewResponse(&apiv1.GetPricingStatusResponse{}), nil
+}

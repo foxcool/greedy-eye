@@ -88,6 +88,9 @@ const (
 	// MarketDataServiceFetchExternalPricesProcedure is the fully-qualified name of the
 	// MarketDataService's FetchExternalPrices RPC.
 	MarketDataServiceFetchExternalPricesProcedure = "/eye.v1.MarketDataService/FetchExternalPrices"
+	// MarketDataServiceGetPricingStatusProcedure is the fully-qualified name of the MarketDataService's
+	// GetPricingStatus RPC.
+	MarketDataServiceGetPricingStatusProcedure = "/eye.v1.MarketDataService/GetPricingStatus"
 )
 
 // MarketDataServiceClient is a client for the eye.v1.MarketDataService service.
@@ -128,6 +131,14 @@ type MarketDataServiceClient interface {
 	DeletePrices(context.Context, *connect.Request[v1.DeletePricesRequest]) (*connect.Response[emptypb.Empty], error)
 	// --- Price business logic ---
 	FetchExternalPrices(context.Context, *connect.Request[v1.FetchExternalPricesRequest]) (*connect.Response[v1.FetchExternalPricesResponse], error)
+	// GetPricingStatus reports, for each asset asked about, what asking its price
+	// sources has produced. Batched because its caller is a valuation disclosing a
+	// set of unpriced positions, not a page rendering one asset.
+	//
+	// Assets never asked about are simply absent from the response: there is no
+	// record to report, and inventing an empty one would read as "asked, nothing
+	// came back", which is the opposite statement.
+	GetPricingStatus(context.Context, *connect.Request[v1.GetPricingStatusRequest]) (*connect.Response[v1.GetPricingStatusResponse], error)
 }
 
 // NewMarketDataServiceClient constructs a client for the eye.v1.MarketDataService service. By
@@ -249,6 +260,12 @@ func NewMarketDataServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(marketDataServiceMethods.ByName("FetchExternalPrices")),
 			connect.WithClientOptions(opts...),
 		),
+		getPricingStatus: connect.NewClient[v1.GetPricingStatusRequest, v1.GetPricingStatusResponse](
+			httpClient,
+			baseURL+MarketDataServiceGetPricingStatusProcedure,
+			connect.WithSchema(marketDataServiceMethods.ByName("GetPricingStatus")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -272,6 +289,7 @@ type marketDataServiceClient struct {
 	deletePrice            *connect.Client[v1.DeletePriceRequest, emptypb.Empty]
 	deletePrices           *connect.Client[v1.DeletePricesRequest, emptypb.Empty]
 	fetchExternalPrices    *connect.Client[v1.FetchExternalPricesRequest, v1.FetchExternalPricesResponse]
+	getPricingStatus       *connect.Client[v1.GetPricingStatusRequest, v1.GetPricingStatusResponse]
 }
 
 // CreateAsset calls eye.v1.MarketDataService.CreateAsset.
@@ -364,6 +382,11 @@ func (c *marketDataServiceClient) FetchExternalPrices(ctx context.Context, req *
 	return c.fetchExternalPrices.CallUnary(ctx, req)
 }
 
+// GetPricingStatus calls eye.v1.MarketDataService.GetPricingStatus.
+func (c *marketDataServiceClient) GetPricingStatus(ctx context.Context, req *connect.Request[v1.GetPricingStatusRequest]) (*connect.Response[v1.GetPricingStatusResponse], error) {
+	return c.getPricingStatus.CallUnary(ctx, req)
+}
+
 // MarketDataServiceHandler is an implementation of the eye.v1.MarketDataService service.
 type MarketDataServiceHandler interface {
 	// --- Asset CRUD ---
@@ -402,6 +425,14 @@ type MarketDataServiceHandler interface {
 	DeletePrices(context.Context, *connect.Request[v1.DeletePricesRequest]) (*connect.Response[emptypb.Empty], error)
 	// --- Price business logic ---
 	FetchExternalPrices(context.Context, *connect.Request[v1.FetchExternalPricesRequest]) (*connect.Response[v1.FetchExternalPricesResponse], error)
+	// GetPricingStatus reports, for each asset asked about, what asking its price
+	// sources has produced. Batched because its caller is a valuation disclosing a
+	// set of unpriced positions, not a page rendering one asset.
+	//
+	// Assets never asked about are simply absent from the response: there is no
+	// record to report, and inventing an empty one would read as "asked, nothing
+	// came back", which is the opposite statement.
+	GetPricingStatus(context.Context, *connect.Request[v1.GetPricingStatusRequest]) (*connect.Response[v1.GetPricingStatusResponse], error)
 }
 
 // NewMarketDataServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -519,6 +550,12 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 		connect.WithSchema(marketDataServiceMethods.ByName("FetchExternalPrices")),
 		connect.WithHandlerOptions(opts...),
 	)
+	marketDataServiceGetPricingStatusHandler := connect.NewUnaryHandler(
+		MarketDataServiceGetPricingStatusProcedure,
+		svc.GetPricingStatus,
+		connect.WithSchema(marketDataServiceMethods.ByName("GetPricingStatus")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/eye.v1.MarketDataService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MarketDataServiceCreateAssetProcedure:
@@ -557,6 +594,8 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 			marketDataServiceDeletePricesHandler.ServeHTTP(w, r)
 		case MarketDataServiceFetchExternalPricesProcedure:
 			marketDataServiceFetchExternalPricesHandler.ServeHTTP(w, r)
+		case MarketDataServiceGetPricingStatusProcedure:
+			marketDataServiceGetPricingStatusHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -636,4 +675,8 @@ func (UnimplementedMarketDataServiceHandler) DeletePrices(context.Context, *conn
 
 func (UnimplementedMarketDataServiceHandler) FetchExternalPrices(context.Context, *connect.Request[v1.FetchExternalPricesRequest]) (*connect.Response[v1.FetchExternalPricesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.FetchExternalPrices is not implemented"))
+}
+
+func (UnimplementedMarketDataServiceHandler) GetPricingStatus(context.Context, *connect.Request[v1.GetPricingStatusRequest]) (*connect.Response[v1.GetPricingStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.GetPricingStatus is not implemented"))
 }

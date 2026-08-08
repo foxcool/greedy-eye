@@ -45,3 +45,29 @@ type StoredPrice struct {
 	MarketCap decimal.NullDecimal
 	Timestamp time.Time
 }
+
+// AssetPricingStatus is what asking an asset's price sources has produced so
+// far, read back from the attempt log.
+//
+// It exists to separate two things a valuation reports identically today: an
+// asset nothing has looked at yet, and one every source has looked at and none
+// could price. The first is a gap in our own pipeline; the second has exhausted
+// the sources available and says something about the instrument.
+//
+// It is evidence, not a verdict. Silence from every source is consistent with a
+// delisting, a halt, a ticker no provider carries and a chain gone dark, and
+// nothing here can tell those apart.
+type AssetPricingStatus struct {
+	AssetID string
+	// EverPriced is true when some source returned a price at some point. Such
+	// an asset has a price row, so a valuation that still failed on it failed
+	// for a different reason than absence.
+	EverPriced bool
+	// FirstAskedAt and LastAskedAt bound the period over which the silence has
+	// been observed. Zero only when there is no attempt record at all, which is
+	// reported by omitting the asset rather than by an empty status.
+	FirstAskedAt time.Time
+	LastAskedAt  time.Time
+	// SourcesAsked is how many distinct sources have been asked.
+	SourcesAsked uint32
+}

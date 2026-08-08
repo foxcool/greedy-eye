@@ -755,6 +755,7 @@ corrections:
 | A quote with no market behind it | `UnpricedReason.THIN_MARKET` in the same block (ADR-009) | Same place as a missing quote, with the reason attached — the position is unknown, not worthless |
 | Asset judged a scam or impersonation | `holdings.excluded`, derived from the asset verdict | Reported alongside the total; the position keeps syncing and stays visible in quarantine |
 | A quote that outlived its market | `ValuationCoverage.stale_count` and `prices_as_of` | Same block; the position stays **in** the total and is named, because removing it would move the number on every provider outage |
+| Every source asked, none ever answered | `UnpricedReason.NEVER_PRICED` + `asked_since`, read from `price_fetch_attempts` | Same block as a missing quote, separated from it: `NO_QUOTE` can still be our pipeline not having looked, this one has exhausted the sources it has |
 
 Rules that follow from this:
 
@@ -769,8 +770,15 @@ Rules that follow from this:
   take the position out on an outage and put it back on recovery, moving the total for reasons
   that have nothing to do with the market. Which of the two a defect calls for is a judgement
   about *why* the number is doubtful, not a default
+- **Report evidence, not verdicts.** Silence from every price source is consistent with a
+  delisting, a halt, a ticker no provider carries and a chain gone dark. The system says what it
+  observed — asked N sources since date D, none answered — and does not name a cause it did not
+  witness. `NEVER_PRICED` is therefore a statement about the asking, and the reader draws the
+  conclusion
 - A new consumer of a valuation (heatmap, MCP, a future report) **embeds the existing coverage
-  message** instead of growing its own coverage fields
+  message** instead of growing its own coverage fields, and must reach the **same** conclusion for
+  the same holding — a map reading `NO_QUOTE` beside a total reading `NEVER_PRICED` is the
+  divergence sharing one message exists to rule out
 - Filtering a position out of a sum without saying so is a bug, whatever the reason for filtering
 
 **Freshness policy** (`internal/pricefresh`): a quote older than the threshold counts as stale.
