@@ -670,7 +670,8 @@ func (h *Handler) UpdateHolding(ctx context.Context, req *connect.Request[apiv1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("holding with ID is required"))
 	}
 
-	if _, err := h.ownedHolding(ctx, req.Msg.Holding.Id); err != nil {
+	existing, err := h.ownedHolding(ctx, req.Msg.Holding.Id)
+	if err != nil {
 		return nil, err
 	}
 
@@ -682,6 +683,16 @@ func (h *Handler) UpdateHolding(ctx context.Context, req *connect.Request[apiv1.
 	holding, err := holdingFromProto(req.Msg.Holding)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	// The destination portfolio must belong to the caller, exactly as it must on
+	// create: visibility of a holding is scoped by its portfolio's owner, so an
+	// unchecked reassignment would push a row of the caller's choosing —
+	// arbitrary asset, arbitrary amount — into a stranger's portfolio. Clearing
+	// the field, or naming the portfolio the row already sits in, needs no check.
+	if slices.Contains(fields, "portfolio_id") && holding.PortfolioID != "" && holding.PortfolioID != existing.PortfolioID {
+		if _, err := h.ownedPortfolio(ctx, holding.PortfolioID); err != nil {
+			return nil, err
+		}
 	}
 	updated, err := h.store.UpdateHolding(ctx, holding, fields)
 	if err != nil {

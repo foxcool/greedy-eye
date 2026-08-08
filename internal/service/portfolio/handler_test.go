@@ -807,6 +807,50 @@ func TestUpdateHolding_SourceMaskRejected(t *testing.T) {
 	s.AssertNotCalled(t, "UpdateHolding")
 }
 
+// TestUpdateHolding_ForeignPortfolioRejected: a holding's visibility follows the
+// owner of its portfolio, so reassigning one to a stranger's portfolio would put
+// a row of the caller's choosing in front of another user. The destination is
+// checked here exactly as it is on create.
+func TestUpdateHolding_ForeignPortfolioRejected(t *testing.T) {
+	foreign := testPortfolio(testPortfolioID2)
+	foreign.UserID = testUserID2
+
+	s := &mockStore{}
+	s.On("GetHolding", mock.Anything, testHoldingID).Return(testHolding(testHoldingID), nil)
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	s.On("GetPortfolio", mock.Anything, testPortfolioID2).Return(foreign, nil)
+	h := newHandler(s)
+
+	target := testPortfolioID2
+	_, err := h.UpdateHolding(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdateHoldingRequest{
+		Holding:    &apiv1.Holding{Id: testHoldingID, PortfolioId: &target},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"portfolio_id"}},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	s.AssertNotCalled(t, "UpdateHolding")
+}
+
+// TestUpdateHolding_OwnPortfolioAccepted keeps the check from swallowing the
+// legitimate move, and clearing the assignment stays free of any lookup.
+func TestUpdateHolding_OwnPortfolioAccepted(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetHolding", mock.Anything, testHoldingID).Return(testHolding(testHoldingID), nil)
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	s.On("GetPortfolio", mock.Anything, testPortfolioID2).Return(testPortfolio(testPortfolioID2), nil)
+	s.On("UpdateHolding", mock.Anything, mock.Anything, []string{"portfolio_id"}).Return(testHolding(testHoldingID), nil)
+	h := newHandler(s)
+
+	for _, target := range []string{testPortfolioID2, ""} {
+		_, err := h.UpdateHolding(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdateHoldingRequest{
+			Holding:    &apiv1.Holding{Id: testHoldingID, PortfolioId: &target},
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"portfolio_id"}},
+		}))
+		require.NoError(t, err)
+	}
+	s.AssertExpectations(t)
+}
+
 // TestUpdateHolding_MaskRequired is the regression test for the exclude toggle
 // wiping a position: a mask-less update used to fall back to the full field set,
 // and the fields the caller never sent decoded as zero, so the row lost its
