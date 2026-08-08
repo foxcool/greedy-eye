@@ -35,9 +35,10 @@ system-wide via `system_scopes`, letting one account serve every user.
 
 Two things regularly trip this up:
 
-- Changing `system_scopes` needs an explicit `update_mask` naming
-  `systemScopes` (camelCase in JSON) and an admin caller. A plain update leaves
-  the field untouched without complaining.
+- Every `UpdateAccount` carries an `update_mask` naming the fields to write —
+  the mask is required, and an update whose mask omits `systemScopes` leaves the
+  field untouched without complaining. Changing it needs the mask to name
+  `systemScopes` (camelCase in JSON) *and* an admin caller.
 - When two accounts share a provider slug, the resolver takes the **first by
   id**, and ids are UUIDv7 — so the oldest one wins. A key added to the newer
   duplicate is silently ignored while an empty older account shadows it.

@@ -185,9 +185,9 @@ func (h *Handler) UpdatePortfolio(ctx context.Context, req *connect.Request[apiv
 		return nil, err
 	}
 
-	fields := []string{"name", "description", "data"}
-	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
-		fields = req.Msg.UpdateMask.Paths
+	fields, err := resolveMask(req.Msg.UpdateMask, portfolioUpdatable)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	p := portfolioFromProto(req.Msg.Portfolio)
@@ -674,9 +674,9 @@ func (h *Handler) UpdateHolding(ctx context.Context, req *connect.Request[apiv1.
 		return nil, err
 	}
 
-	fields := []string{"amount", "decimals", "portfolio_id", "excluded"}
-	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
-		fields = req.Msg.UpdateMask.Paths
+	fields, err := resolveMask(req.Msg.UpdateMask, holdingUpdatable)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	holding, err := holdingFromProto(req.Msg.Holding)
@@ -799,11 +799,10 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 		return nil, err
 	}
 
-	// system_scopes is deliberately absent from the defaults: it is only
-	// updated when explicitly named in the update_mask, and only by admins.
-	fields := []string{"name", "description", "type", "data", "portfolio_id", "capabilities"}
-	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
-		fields = req.Msg.UpdateMask.Paths
+	// system_scopes is only touched when the mask names it, and only by admins.
+	fields, err := resolveMask(req.Msg.UpdateMask, accountUpdatable)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	if slices.Contains(fields, "system_scopes") {
@@ -1610,9 +1609,9 @@ func (h *Handler) UpdateTransaction(ctx context.Context, req *connect.Request[ap
 		return nil, err
 	}
 
-	fields := []string{"status", "data"}
-	if req.Msg.UpdateMask != nil && len(req.Msg.UpdateMask.Paths) > 0 {
-		fields = req.Msg.UpdateMask.Paths
+	fields, err := resolveMask(req.Msg.UpdateMask, transactionUpdatable)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	tx := transactionFromProto(req.Msg.Transaction)
