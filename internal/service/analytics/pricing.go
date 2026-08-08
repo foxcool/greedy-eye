@@ -8,6 +8,7 @@ import (
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/marketdepth"
+	"github.com/foxcool/greedy-eye/internal/pricefresh"
 	"github.com/shopspring/decimal"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -22,6 +23,11 @@ type assetPricing struct {
 	// priced. NO_QUOTE is the default because "no price row anywhere" is the
 	// outcome of every path that simply fails to find one.
 	reason apiv1.UnpricedReason
+	// quotedAt is when the price above was observed; zero when unpriced or when
+	// the quote carried no time. It is the asset's OWN quote on the cross path
+	// too — a stale conversion rate says nothing about whether this asset still
+	// trades, the same reasoning that keeps the depth gate off the rate.
+	quotedAt time.Time
 }
 
 // assetPricing resolves (and caches in `cache`) price, change and label for assetID.
@@ -47,7 +53,7 @@ func (h *Handler) assetPricing(ctx context.Context, cache map[string]*assetPrici
 		if h.markThin(ctx, ap, assetID, price, decimal.NewFromInt(1)) {
 			return ap, nil
 		}
-		ap.unit, ap.priced = unit, true
+		ap.unit, ap.priced, ap.quotedAt = unit, true, pricefresh.QuotedAt(price)
 		then, ok, err := h.histPrice(ctx, assetID, quoteAssetID, from)
 		if err != nil {
 			return nil, err
@@ -73,7 +79,7 @@ func (h *Handler) assetPricing(ctx context.Context, cache map[string]*assetPrici
 	if h.markThin(ctx, ap, assetID, price, rate) {
 		return ap, nil
 	}
-	ap.unit, ap.priced = nowBase.Mul(rate), true
+	ap.unit, ap.priced, ap.quotedAt = nowBase.Mul(rate), true, pricefresh.QuotedAt(price)
 	thenBase, ok, err := h.histPrice(ctx, assetID, baseID, from)
 	if err != nil {
 		return nil, err

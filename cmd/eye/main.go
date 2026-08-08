@@ -370,6 +370,12 @@ func run() error {
 		WithRefreshWindow(sweepWindow(config.Scheduler.PriceFetchCron))
 	automationStore := postgres.NewAutomationStore(pool)
 	automationHandler := automation.NewHandler(automationStore, log)
+	// Built before the loop because two other services read from it: valuation
+	// rules are a stored setting, and a total and a heatmap have to answer under
+	// the same ones. Registering its route stays inside the loop, so a
+	// deployment that does not serve settings still lets the local handler
+	// answer in-process — the same shape as mdHandler above.
+	settingsHandler := settings.NewHandler(postgres.NewSettingsStore(pool), log)
 	// The balance sweep runs against the portfolio service in this process.
 	// A deployment without one has no balances of its own to refresh, so the
 	// job stays unregistered rather than reaching across the network for them.
@@ -382,6 +388,7 @@ func run() error {
 		case ServiceConfigTypePortfolio:
 			pHandler := portfolio.NewHandler(portfolioStore, log).
 				WithMarketDataClient(mdHandler).
+				WithSettingsClient(settingsHandler).
 				WithWalletSyncer(walletSyncer).
 				WithWalletSyncerSource(credResolver).
 				WithExchangeSyncerSource(credResolver)
@@ -393,12 +400,12 @@ func run() error {
 			mux.Handle(path, handler)
 		case ServiceConfigTypeAnalytics:
 			aHandler := analytics.NewHandler(portfolioStore, log).
-				WithMarketDataClient(mdHandler)
+				WithMarketDataClient(mdHandler).
+				WithSettingsClient(settingsHandler)
 			path, handler := apiv1connect.NewAnalyticsServiceHandler(aHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypeSettings:
-			sHandler := settings.NewHandler(postgres.NewSettingsStore(pool), log)
-			path, handler := apiv1connect.NewSettingsServiceHandler(sHandler, interceptor)
+			path, handler := apiv1connect.NewSettingsServiceHandler(settingsHandler, interceptor)
 			mux.Handle(path, handler)
 		default:
 			log.Warn("unknown service type, skipping", slog.String("type", svc.Type))

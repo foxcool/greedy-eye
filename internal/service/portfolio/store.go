@@ -22,6 +22,18 @@ type MarketDataClient interface {
 	FetchExternalPrices(context.Context, *connect.Request[apiv1.FetchExternalPricesRequest]) (*connect.Response[apiv1.FetchExternalPricesResponse], error)
 }
 
+// SettingsClient is the subset of SettingsServiceClient that Portfolio needs:
+// the rules a valuation runs under are the caller's own setting, not a server
+// flag. Satisfied by *settings.Handler (monolith) and
+// apiv1connect.SettingsServiceClient (microservice), same as MarketDataClient.
+//
+// A deployment without a settings service leaves this nil and every valuation
+// uses the built-in defaults, which is why nothing here returns an error the
+// caller has to handle.
+type SettingsClient interface {
+	GetSetting(context.Context, *connect.Request[apiv1.GetSettingRequest]) (*connect.Response[apiv1.GetSettingResponse], error)
+}
+
 // HoldingWriter is the subset of holdings writes a sync performs. It exists so
 // the whole set can be handed to one transaction: a sync rewrites a snapshot,
 // and half a snapshot is not a smaller truth, it is a wrong one.

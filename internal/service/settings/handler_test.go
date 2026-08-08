@@ -13,6 +13,7 @@ import (
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
+	"github.com/foxcool/greedy-eye/internal/pricefresh"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -202,4 +203,26 @@ func TestAnyJSONDocumentIsAcceptable(t *testing.T) {
 		require.NoError(t, err, value)
 		assert.Equal(t, value, read.Msg.Setting.Value, value)
 	}
+}
+
+// The valuation rules are the second key this service carries, and the first
+// one another service reads. A round trip here is what stops a rename in
+// pricefresh from silently becoming an unwritable key.
+func TestValuationSettingRoundTrips(t *testing.T) {
+	h, _ := newHandler(t)
+	ctx := asUser(alice)
+
+	const policy = `{"price_max_age":"48h"}`
+
+	_, err := set(ctx, h, KeyValuation, policy)
+	require.NoError(t, err)
+
+	read, err := get(ctx, h, KeyValuation)
+	require.NoError(t, err)
+	assert.Equal(t, policy, read.Msg.Setting.Value)
+
+	parsed, err := pricefresh.ParsePolicy([]byte(read.Msg.Setting.Value))
+	require.NoError(t, err)
+	assert.Equal(t, 48*time.Hour, parsed.MaxAge,
+		"what this service stores is what the valuation package reads back")
 }
