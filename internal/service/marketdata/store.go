@@ -30,6 +30,12 @@ type Store interface {
 	// the next attempt out exponentially, so assets the provider does not list
 	// drain out of the rotation instead of blocking its head.
 	RecordPriceAttempts(ctx context.Context, opts RecordAttemptsOpts) error
+	// PricingStatus reads the attempt log back for the given assets: whether any
+	// source ever priced each one, over what period it has been asked about, and
+	// by how many sources. Assets with no attempt record are omitted — there is
+	// nothing recorded to report, and an empty status would read as "asked, and
+	// nothing came back", which is the opposite claim.
+	PricingStatus(ctx context.Context, assetIDs []string) ([]*entity.AssetPricingStatus, error)
 	// SetAssetVerdict writes an identity verdict (scam-filtering axis 1). A user
 	// verdict (source "user:*") is terminal: an automated write never overwrites
 	// one. The bool reports whether the row was written.

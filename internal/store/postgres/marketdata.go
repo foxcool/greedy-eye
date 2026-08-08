@@ -1239,3 +1239,47 @@ func stringToAssetType(s string) entity.AssetType {
 		return entity.AssetTypeUnspecified
 	}
 }
+
+// PricingStatus aggregates the attempt log per asset.
+//
+// The aggregate is what makes the answer meaningful: attempts are recorded per
+// (asset, source), so "nothing priced this" is a statement about all of them at
+// once, not about the row that happened to be read. bool_or is the whole test —
+// one source succeeding anywhere in the history is enough for the asset to have
+// a price row, and therefore enough for absence not to be the explanation.
+func (s *MarketDataStore) PricingStatus(ctx context.Context, assetIDs []string) ([]*entity.AssetPricingStatus, error) {
+	if len(assetIDs) == 0 {
+		return nil, nil
+	}
+
+	const query = `
+		SELECT asset_id,
+		       bool_or(succeeded_at IS NOT NULL) AS ever_priced,
+		       min(attempted_at) AS first_asked_at,
+		       max(attempted_at) AS last_asked_at,
+		       count(DISTINCT source_id) AS sources_asked
+		FROM price_fetch_attempts
+		WHERE asset_id = ANY($1)
+		GROUP BY asset_id`
+
+	rows, err := s.pool.Query(ctx, query, assetIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read pricing status: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]*entity.AssetPricingStatus, 0, len(assetIDs))
+	for rows.Next() {
+		var st entity.AssetPricingStatus
+		var sources int64
+		if err := rows.Scan(&st.AssetID, &st.EverPriced, &st.FirstAskedAt, &st.LastAskedAt, &sources); err != nil {
+			return nil, fmt.Errorf("failed to scan pricing status: %w", err)
+		}
+		st.SourcesAsked = uint32(sources) // #nosec G115 -- count of sources, bounded by the provider registry
+		out = append(out, &st)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate pricing status: %w", err)
+	}
+	return out, nil
+}

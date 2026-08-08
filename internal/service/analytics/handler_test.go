@@ -75,6 +75,10 @@ type fakeMD struct {
 	assets map[string]*apiv1.Asset
 	latest map[string]*apiv1.Price
 	hist   map[string]*apiv1.Price
+	// pricing is the attempt log keyed by asset id. Empty means no asset has an
+	// attempt record, which leaves every unpriced reason at NO_QUOTE — the state
+	// every test written before the attempt log was read expects.
+	pricing map[string]*apiv1.AssetPricingStatus
 }
 
 func (f *fakeMD) GetAsset(_ context.Context, req *connect.Request[apiv1.GetAssetRequest]) (*connect.Response[apiv1.Asset], error) {
@@ -89,6 +93,16 @@ func (f *fakeMD) GetLatestPrice(_ context.Context, req *connect.Request[apiv1.Ge
 		return connect.NewResponse(p), nil
 	}
 	return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no price"))
+}
+
+func (f *fakeMD) GetPricingStatus(_ context.Context, req *connect.Request[apiv1.GetPricingStatusRequest]) (*connect.Response[apiv1.GetPricingStatusResponse], error) {
+	resp := &apiv1.GetPricingStatusResponse{}
+	for _, id := range req.Msg.GetAssetIds() {
+		if st, ok := f.pricing[id]; ok {
+			resp.Statuses = append(resp.Statuses, st)
+		}
+	}
+	return connect.NewResponse(resp), nil
 }
 
 func (f *fakeMD) ListPriceHistory(_ context.Context, req *connect.Request[apiv1.ListPriceHistoryRequest]) (*connect.Response[apiv1.ListPriceHistoryResponse], error) {

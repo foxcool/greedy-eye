@@ -408,10 +408,21 @@ func (h *Handler) describeUnpriced(ctx context.Context, holdings []unpricedHoldi
 		truncated = true
 	}
 
+	exhausted := h.exhaustedSources(ctx, listed)
+
 	out := make([]*apiv1.UnpricedHolding, 0, len(listed))
 	for _, u := range listed {
 		hld := u.holding
 		item := &apiv1.UnpricedHolding{HoldingId: hld.ID, AssetId: hld.AssetID, Reason: u.reason}
+		// "No quote" is where the pricing path stops; the attempt log says
+		// whether that is because nothing has looked yet or because everything
+		// that could look already has.
+		if u.reason == apiv1.UnpricedReason_UNPRICED_REASON_NO_QUOTE {
+			if since, ok := exhausted[hld.AssetID]; ok {
+				item.Reason = apiv1.UnpricedReason_UNPRICED_REASON_NEVER_PRICED
+				item.AskedSince = timestamppb.New(since)
+			}
+		}
 		resp, err := h.mdClient.GetAsset(ctx, connect.NewRequest(&apiv1.GetAssetRequest{Id: hld.AssetID}))
 		if err != nil {
 			h.log.WarnContext(ctx, "unpriced holding: asset lookup failed, reporting without a symbol",
@@ -422,6 +433,50 @@ func (h *Handler) describeUnpriced(ctx context.Context, holdings []unpricedHoldi
 		out = append(out, item)
 	}
 	return out, truncated
+}
+
+// exhaustedSources returns, for each disclosed asset that every source has been
+// asked about and none has ever priced, when the asking started.
+//
+// One batched call for the whole disclosure: the set is already capped, and the
+// question is per asset while the list is per holding, so two positions in the
+// same dead instrument cost nothing extra.
+//
+// Best-effort by design. Losing this detail downgrades the reason to NO_QUOTE,
+// which is exactly what the caller would have reported without it — a weaker
+// statement, never a wrong one, and not worth failing a valuation over.
+func (h *Handler) exhaustedSources(ctx context.Context, listed []unpricedHolding) map[string]time.Time {
+	ids := make([]string, 0, len(listed))
+	seen := make(map[string]struct{}, len(listed))
+	for _, u := range listed {
+		if u.reason != apiv1.UnpricedReason_UNPRICED_REASON_NO_QUOTE {
+			continue
+		}
+		if _, dup := seen[u.holding.AssetID]; dup {
+			continue
+		}
+		seen[u.holding.AssetID] = struct{}{}
+		ids = append(ids, u.holding.AssetID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	resp, err := h.mdClient.GetPricingStatus(ctx, connect.NewRequest(&apiv1.GetPricingStatusRequest{AssetIds: ids}))
+	if err != nil {
+		h.log.WarnContext(ctx, "pricing status unavailable, reporting unpriced holdings without it",
+			"asset_count", len(ids), "error", err)
+		return nil
+	}
+
+	out := make(map[string]time.Time, len(resp.Msg.GetStatuses()))
+	for _, st := range resp.Msg.GetStatuses() {
+		if st.GetEverPriced() || st.GetFirstAskedAt() == nil {
+			continue
+		}
+		out[st.GetAssetId()] = st.GetFirstAskedAt().AsTime()
+	}
+	return out
 }
 
 // pricing is one asset's resolved price: the number, whether it may be used, and

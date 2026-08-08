@@ -1015,6 +1015,43 @@ func (h *Handler) attachExternalRefs(ctx context.Context, assets []*entity.Asset
 	}
 }
 
+// GetPricingStatus reads the attempt log back so a caller can tell an asset
+// nothing has looked at from one every source has looked at and none could
+// price. Both produce no price row; only the second says anything about the
+// instrument.
+//
+// Read-only and unauthenticated beyond the usual interceptor: the attempt log
+// holds no user data, only which catalogue assets this instance has asked its
+// own providers about.
+func (h *Handler) GetPricingStatus(ctx context.Context, req *connect.Request[apiv1.GetPricingStatusRequest]) (*connect.Response[apiv1.GetPricingStatusResponse], error) {
+	ids := req.Msg.GetAssetIds()
+	if len(ids) == 0 {
+		return connect.NewResponse(&apiv1.GetPricingStatusResponse{}), nil
+	}
+
+	statuses, err := h.store.PricingStatus(ctx, ids)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
+	out := make([]*apiv1.AssetPricingStatus, 0, len(statuses))
+	for _, st := range statuses {
+		item := &apiv1.AssetPricingStatus{
+			AssetId:      st.AssetID,
+			EverPriced:   st.EverPriced,
+			SourcesAsked: st.SourcesAsked,
+		}
+		if !st.FirstAskedAt.IsZero() {
+			item.FirstAskedAt = timestamppb.New(st.FirstAskedAt)
+		}
+		if !st.LastAskedAt.IsZero() {
+			item.LastAskedAt = timestamppb.New(st.LastAskedAt)
+		}
+		out = append(out, item)
+	}
+	return connect.NewResponse(&apiv1.GetPricingStatusResponse{Statuses: out}), nil
+}
+
 // recordAttempts marks what was asked of a source and what came back, so the
 // next sweep can skip what is still fresh and back off from what the provider
 // does not price. Best-effort: failing to record costs the next sweep a

@@ -157,6 +157,14 @@ func (m *mockStore) RecordPriceAttempts(ctx context.Context, opts RecordAttempts
 	return m.Called(ctx, opts).Error(0)
 }
 
+func (m *mockStore) PricingStatus(ctx context.Context, assetIDs []string) ([]*entity.AssetPricingStatus, error) {
+	args := m.Called(ctx, assetIDs)
+	if v := args.Get(0); v != nil {
+		return v.([]*entity.AssetPricingStatus), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockStore) CreatePrice(ctx context.Context, price *entity.StoredPrice) (*entity.StoredPrice, error) {
 	args := m.Called(ctx, price)
 	if v := args.Get(0); v != nil {
