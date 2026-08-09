@@ -54,6 +54,18 @@ type Store interface {
 	// DeleteAssetExternalRef removes one binding, refusing a ref that belongs to
 	// another asset. ErrNotFound when there is no such ref on this asset.
 	DeleteAssetExternalRef(ctx context.Context, assetID, id string) error
+	// CreateAssetRiskFlag records a situational risk on an asset (risk-model axis
+	// 2). Flags accumulate: two exploits are two events, not one overwritten.
+	// A flag never affects a valuation — it marks real money that may need
+	// acting on, which is the opposite claim from an identity verdict.
+	CreateAssetRiskFlag(ctx context.Context, flag *entity.AssetRiskFlag) (*entity.AssetRiskFlag, error)
+	// ListAssetRiskFlags returns one asset's flags, newest first. Single-asset
+	// on purpose: its only consumer is the asset card, and a batch form would
+	// invite the catalogue list to carry flags it has no use for.
+	ListAssetRiskFlags(ctx context.Context, assetID string) ([]*entity.AssetRiskFlag, error)
+	// DeleteAssetRiskFlag removes one flag, refusing one that belongs to another
+	// asset. ErrNotFound when there is no such flag on this asset.
+	DeleteAssetRiskFlag(ctx context.Context, assetID, id string) error
 	// FindTickerIncumbent answers whether this asset's ticker is already held on
 	// one of its own chains by an older, price-listed asset bound to a different
 	// contract. One chain cannot carry two contracts of the same asset, so the

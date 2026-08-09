@@ -14,6 +14,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -874,6 +875,131 @@ func TestListAssetExternalRefs(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, rows)
 	})
+}
+
+// seedHoldingForAsset gives an asset a position to be counted in, so a test can
+// ask whether something took it out of the sums.
+func seedHoldingForAsset(t *testing.T, pool *pgxpool.Pool, assetID string) string {
+	t.Helper()
+	ctx := context.Background()
+	user := createTestUser(t, NewUserStore(pool))
+	portfolios := NewPortfolioStore(pool)
+
+	account, err := portfolios.CreateAccount(ctx, &entity.Account{
+		UserID:       user.ID,
+		Name:         "risk flag test",
+		Type:         entity.AccountTypeManual,
+		Capabilities: []entity.AccountCapability{entity.CapabilityManualPositions},
+	})
+	require.NoError(t, err)
+
+	holding, err := portfolios.CreateHolding(ctx, &entity.Holding{
+		AssetID:   assetID,
+		AccountID: account.ID,
+		Decimals:  8,
+		Source:    entity.SourceManual,
+	})
+	require.NoError(t, err)
+	return holding.ID
+}
+
+func holdingExcluded(t *testing.T, pool *pgxpool.Pool, holdingID string) bool {
+	t.Helper()
+	var excluded bool
+	require.NoError(t, pool.QueryRow(context.Background(),
+		`SELECT excluded FROM holdings WHERE id = $1`, holdingID).Scan(&excluded))
+	return excluded
+}
+
+// TestAssetRiskFlags covers axis 2 end to end in the store: flags accumulate,
+// come back newest first, belong to exactly one asset, and cannot be written
+// without a review date.
+func TestAssetRiskFlags(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	asset := createTestAsset(t, s, "RiskFlagged")
+	other := createTestAsset(t, s, "RiskUnflagged")
+	review := time.Now().Add(30 * 24 * time.Hour).UTC()
+
+	first, err := s.CreateAssetRiskFlag(ctx, &entity.AssetRiskFlag{
+		AssetID: asset.ID, Kind: "exploit", Note: "bridge drained",
+		ActionHint: "exit_soon", ReviewAt: &review, SetBy: "user:tester",
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, first.ID)
+
+	// A second event is a second row: collapsing them would erase the first
+	// one's history the moment the second is filed.
+	second, err := s.CreateAssetRiskFlag(ctx, &entity.AssetRiskFlag{
+		AssetID: asset.ID, Kind: "depeg", ReviewAt: &review,
+	})
+	require.NoError(t, err)
+
+	got, err := s.ListAssetRiskFlags(ctx, asset.ID)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, second.ID, got[0].ID, "newest first: the oldest flag is the least likely to still describe the situation")
+	assert.Equal(t, "exploit", got[1].Kind)
+	assert.Equal(t, "exit_soon", got[1].ActionHint)
+	assert.Equal(t, "bridge drained", got[1].Note)
+	require.NotNil(t, got[1].ReviewAt)
+	assert.WithinDuration(t, review, *got[1].ReviewAt, time.Second)
+	// An absent note is empty, not a scan error on NULL.
+	assert.Empty(t, got[0].Note)
+
+	empty, err := s.ListAssetRiskFlags(ctx, other.ID)
+	require.NoError(t, err)
+	assert.Empty(t, empty, "flags belong to one asset")
+
+	t.Run("review date is required", func(t *testing.T) {
+		_, err := s.CreateAssetRiskFlag(ctx, &entity.AssetRiskFlag{AssetID: asset.ID, Kind: "delisting"})
+		require.ErrorIs(t, err, store.ErrInvalidArgument)
+	})
+
+	t.Run("delete refuses another asset's flag", func(t *testing.T) {
+		err := s.DeleteAssetRiskFlag(ctx, other.ID, first.ID)
+		require.ErrorIs(t, err, store.ErrNotFound)
+
+		still, err := s.ListAssetRiskFlags(ctx, asset.ID)
+		require.NoError(t, err)
+		assert.Len(t, still, 2)
+	})
+
+	t.Run("delete removes exactly one", func(t *testing.T) {
+		require.NoError(t, s.DeleteAssetRiskFlag(ctx, asset.ID, first.ID))
+		left, err := s.ListAssetRiskFlags(ctx, asset.ID)
+		require.NoError(t, err)
+		require.Len(t, left, 1)
+		assert.Equal(t, second.ID, left[0].ID)
+	})
+}
+
+// TestAssetRiskFlagDoesNotExcludeHolding is the invariant of axis 2 and the
+// regression this whole separation exists to prevent: a risk flag marks real
+// money, so it must not do what an identity verdict does and take the position
+// out of the sums. The check is on holdings.excluded because that is the switch
+// a verdict flips — if a future change ever wires flags into it, this fails.
+func TestAssetRiskFlagDoesNotExcludeHolding(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	asset := createTestAsset(t, s, "RiskFlagKeepsCounting")
+	holdingID := seedHoldingForAsset(t, pool, asset.ID)
+
+	excludedBefore := holdingExcluded(t, pool, holdingID)
+	require.False(t, excludedBefore, "a plain holding starts counted")
+
+	review := time.Now().Add(24 * time.Hour).UTC()
+	_, err := s.CreateAssetRiskFlag(ctx, &entity.AssetRiskFlag{
+		AssetID: asset.ID, Kind: "sanctions_freeze", ActionHint: "hold", ReviewAt: &review,
+	})
+	require.NoError(t, err)
+
+	assert.False(t, holdingExcluded(t, pool, holdingID),
+		"a risk flag must never exclude a holding: the asset is real and so is its value")
 }
 
 // TestFindTickerIncumbent covers the shape personal-go65 is about: 1.89M "USDT"

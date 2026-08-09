@@ -64,6 +64,12 @@ const (
 	// MarketDataServiceDeleteAssetExternalRefProcedure is the fully-qualified name of the
 	// MarketDataService's DeleteAssetExternalRef RPC.
 	MarketDataServiceDeleteAssetExternalRefProcedure = "/eye.v1.MarketDataService/DeleteAssetExternalRef"
+	// MarketDataServiceAddAssetRiskFlagProcedure is the fully-qualified name of the MarketDataService's
+	// AddAssetRiskFlag RPC.
+	MarketDataServiceAddAssetRiskFlagProcedure = "/eye.v1.MarketDataService/AddAssetRiskFlag"
+	// MarketDataServiceDeleteAssetRiskFlagProcedure is the fully-qualified name of the
+	// MarketDataService's DeleteAssetRiskFlag RPC.
+	MarketDataServiceDeleteAssetRiskFlagProcedure = "/eye.v1.MarketDataService/DeleteAssetRiskFlag"
 	// MarketDataServiceCreatePriceProcedure is the fully-qualified name of the MarketDataService's
 	// CreatePrice RPC.
 	MarketDataServiceCreatePriceProcedure = "/eye.v1.MarketDataService/CreatePrice"
@@ -121,6 +127,19 @@ type MarketDataServiceClient interface {
 	// claim to. Removing the ref lets the next sync resolve the contract on its
 	// own merits and isolate it.
 	DeleteAssetExternalRef(context.Context, *connect.Request[v1.DeleteAssetExternalRefRequest]) (*connect.Response[emptypb.Empty], error)
+	// AddAssetRiskFlag attaches a situational risk to an asset (axis 2): exploit,
+	// depeg, frozen transfers, deprecation, delisting, sanctions freeze.
+	//
+	// THE FLAG DOES NOT TOUCH THE SUM — it does not exclude the asset from any
+	// valuation and does not appear in ValuationCoverage. It marks money that is
+	// real and may need acting on, which is the opposite of an identity verdict.
+	//
+	// Admin-only, like a verdict: a flag is catalogue-wide, seen by every user.
+	AddAssetRiskFlag(context.Context, *connect.Request[v1.AddAssetRiskFlagRequest]) (*connect.Response[v1.AssetRiskFlag], error)
+	// DeleteAssetRiskFlag removes one flag. Admin-only. Flags are meant to be
+	// removed — that is what review_at is for — so unlike a binding this carries
+	// no identity consequence.
+	DeleteAssetRiskFlag(context.Context, *connect.Request[v1.DeleteAssetRiskFlagRequest]) (*connect.Response[emptypb.Empty], error)
 	// --- Price CRUD ---
 	CreatePrice(context.Context, *connect.Request[v1.CreatePriceRequest]) (*connect.Response[v1.Price], error)
 	CreatePrices(context.Context, *connect.Request[v1.CreatePricesRequest]) (*connect.Response[v1.CreatePricesResponse], error)
@@ -212,6 +231,18 @@ func NewMarketDataServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(marketDataServiceMethods.ByName("DeleteAssetExternalRef")),
 			connect.WithClientOptions(opts...),
 		),
+		addAssetRiskFlag: connect.NewClient[v1.AddAssetRiskFlagRequest, v1.AssetRiskFlag](
+			httpClient,
+			baseURL+MarketDataServiceAddAssetRiskFlagProcedure,
+			connect.WithSchema(marketDataServiceMethods.ByName("AddAssetRiskFlag")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteAssetRiskFlag: connect.NewClient[v1.DeleteAssetRiskFlagRequest, emptypb.Empty](
+			httpClient,
+			baseURL+MarketDataServiceDeleteAssetRiskFlagProcedure,
+			connect.WithSchema(marketDataServiceMethods.ByName("DeleteAssetRiskFlag")),
+			connect.WithClientOptions(opts...),
+		),
 		createPrice: connect.NewClient[v1.CreatePriceRequest, v1.Price](
 			httpClient,
 			baseURL+MarketDataServiceCreatePriceProcedure,
@@ -281,6 +312,8 @@ type marketDataServiceClient struct {
 	findOrCreateAsset      *connect.Client[v1.FindOrCreateAssetRequest, v1.FindOrCreateAssetResponse]
 	setAssetVerdict        *connect.Client[v1.SetAssetVerdictRequest, v1.Asset]
 	deleteAssetExternalRef *connect.Client[v1.DeleteAssetExternalRefRequest, emptypb.Empty]
+	addAssetRiskFlag       *connect.Client[v1.AddAssetRiskFlagRequest, v1.AssetRiskFlag]
+	deleteAssetRiskFlag    *connect.Client[v1.DeleteAssetRiskFlagRequest, emptypb.Empty]
 	createPrice            *connect.Client[v1.CreatePriceRequest, v1.Price]
 	createPrices           *connect.Client[v1.CreatePricesRequest, v1.CreatePricesResponse]
 	getLatestPrice         *connect.Client[v1.GetLatestPriceRequest, v1.Price]
@@ -340,6 +373,16 @@ func (c *marketDataServiceClient) SetAssetVerdict(ctx context.Context, req *conn
 // DeleteAssetExternalRef calls eye.v1.MarketDataService.DeleteAssetExternalRef.
 func (c *marketDataServiceClient) DeleteAssetExternalRef(ctx context.Context, req *connect.Request[v1.DeleteAssetExternalRefRequest]) (*connect.Response[emptypb.Empty], error) {
 	return c.deleteAssetExternalRef.CallUnary(ctx, req)
+}
+
+// AddAssetRiskFlag calls eye.v1.MarketDataService.AddAssetRiskFlag.
+func (c *marketDataServiceClient) AddAssetRiskFlag(ctx context.Context, req *connect.Request[v1.AddAssetRiskFlagRequest]) (*connect.Response[v1.AssetRiskFlag], error) {
+	return c.addAssetRiskFlag.CallUnary(ctx, req)
+}
+
+// DeleteAssetRiskFlag calls eye.v1.MarketDataService.DeleteAssetRiskFlag.
+func (c *marketDataServiceClient) DeleteAssetRiskFlag(ctx context.Context, req *connect.Request[v1.DeleteAssetRiskFlagRequest]) (*connect.Response[emptypb.Empty], error) {
+	return c.deleteAssetRiskFlag.CallUnary(ctx, req)
 }
 
 // CreatePrice calls eye.v1.MarketDataService.CreatePrice.
@@ -415,6 +458,19 @@ type MarketDataServiceHandler interface {
 	// claim to. Removing the ref lets the next sync resolve the contract on its
 	// own merits and isolate it.
 	DeleteAssetExternalRef(context.Context, *connect.Request[v1.DeleteAssetExternalRefRequest]) (*connect.Response[emptypb.Empty], error)
+	// AddAssetRiskFlag attaches a situational risk to an asset (axis 2): exploit,
+	// depeg, frozen transfers, deprecation, delisting, sanctions freeze.
+	//
+	// THE FLAG DOES NOT TOUCH THE SUM — it does not exclude the asset from any
+	// valuation and does not appear in ValuationCoverage. It marks money that is
+	// real and may need acting on, which is the opposite of an identity verdict.
+	//
+	// Admin-only, like a verdict: a flag is catalogue-wide, seen by every user.
+	AddAssetRiskFlag(context.Context, *connect.Request[v1.AddAssetRiskFlagRequest]) (*connect.Response[v1.AssetRiskFlag], error)
+	// DeleteAssetRiskFlag removes one flag. Admin-only. Flags are meant to be
+	// removed — that is what review_at is for — so unlike a binding this carries
+	// no identity consequence.
+	DeleteAssetRiskFlag(context.Context, *connect.Request[v1.DeleteAssetRiskFlagRequest]) (*connect.Response[emptypb.Empty], error)
 	// --- Price CRUD ---
 	CreatePrice(context.Context, *connect.Request[v1.CreatePriceRequest]) (*connect.Response[v1.Price], error)
 	CreatePrices(context.Context, *connect.Request[v1.CreatePricesRequest]) (*connect.Response[v1.CreatePricesResponse], error)
@@ -502,6 +558,18 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 		connect.WithSchema(marketDataServiceMethods.ByName("DeleteAssetExternalRef")),
 		connect.WithHandlerOptions(opts...),
 	)
+	marketDataServiceAddAssetRiskFlagHandler := connect.NewUnaryHandler(
+		MarketDataServiceAddAssetRiskFlagProcedure,
+		svc.AddAssetRiskFlag,
+		connect.WithSchema(marketDataServiceMethods.ByName("AddAssetRiskFlag")),
+		connect.WithHandlerOptions(opts...),
+	)
+	marketDataServiceDeleteAssetRiskFlagHandler := connect.NewUnaryHandler(
+		MarketDataServiceDeleteAssetRiskFlagProcedure,
+		svc.DeleteAssetRiskFlag,
+		connect.WithSchema(marketDataServiceMethods.ByName("DeleteAssetRiskFlag")),
+		connect.WithHandlerOptions(opts...),
+	)
 	marketDataServiceCreatePriceHandler := connect.NewUnaryHandler(
 		MarketDataServiceCreatePriceProcedure,
 		svc.CreatePrice,
@@ -578,6 +646,10 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 			marketDataServiceSetAssetVerdictHandler.ServeHTTP(w, r)
 		case MarketDataServiceDeleteAssetExternalRefProcedure:
 			marketDataServiceDeleteAssetExternalRefHandler.ServeHTTP(w, r)
+		case MarketDataServiceAddAssetRiskFlagProcedure:
+			marketDataServiceAddAssetRiskFlagHandler.ServeHTTP(w, r)
+		case MarketDataServiceDeleteAssetRiskFlagProcedure:
+			marketDataServiceDeleteAssetRiskFlagHandler.ServeHTTP(w, r)
 		case MarketDataServiceCreatePriceProcedure:
 			marketDataServiceCreatePriceHandler.ServeHTTP(w, r)
 		case MarketDataServiceCreatePricesProcedure:
@@ -643,6 +715,14 @@ func (UnimplementedMarketDataServiceHandler) SetAssetVerdict(context.Context, *c
 
 func (UnimplementedMarketDataServiceHandler) DeleteAssetExternalRef(context.Context, *connect.Request[v1.DeleteAssetExternalRefRequest]) (*connect.Response[emptypb.Empty], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.DeleteAssetExternalRef is not implemented"))
+}
+
+func (UnimplementedMarketDataServiceHandler) AddAssetRiskFlag(context.Context, *connect.Request[v1.AddAssetRiskFlagRequest]) (*connect.Response[v1.AssetRiskFlag], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.AddAssetRiskFlag is not implemented"))
+}
+
+func (UnimplementedMarketDataServiceHandler) DeleteAssetRiskFlag(context.Context, *connect.Request[v1.DeleteAssetRiskFlagRequest]) (*connect.Response[emptypb.Empty], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.DeleteAssetRiskFlag is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) CreatePrice(context.Context, *connect.Request[v1.CreatePriceRequest]) (*connect.Response[v1.Price], error) {

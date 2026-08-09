@@ -94,6 +94,14 @@ type Asset struct {
 	// Every other read leaves it nil. Treat nil as "not loaded", never as
 	// "this asset has none".
 	ExternalRefs []AssetExternalRef
+	// RiskFlags are the asset's situational-risk flags (axis 2). Populated only
+	// by the single-asset read behind the asset card; nil elsewhere means "not
+	// loaded", never "this asset carries no risk".
+	//
+	// A flag never derives holdings.excluded and never reaches a valuation —
+	// that separation is the axis: an identity verdict says the asset is not
+	// real, a risk flag says real money may need acting on.
+	RiskFlags []AssetRiskFlag
 }
 
 // AssetExternalRef maps an asset to its identifier in an external namespace

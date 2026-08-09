@@ -155,6 +155,7 @@ func (h *Handler) GetAsset(ctx context.Context, req *connect.Request[apiv1.GetAs
 	// what the asset was bound through can state a suspicion it cannot explain.
 	// Best-effort — a failure to load them must not cost the caller the asset.
 	h.attachExternalRefs(ctx, []*entity.Asset{asset})
+	h.attachRiskFlags(ctx, asset)
 
 	return connect.NewResponse(assetToProto(asset)), nil
 }
@@ -653,6 +654,123 @@ func (h *Handler) SetAssetVerdict(ctx context.Context, req *connect.Request[apiv
 	return connect.NewResponse(assetToProto(updated)), nil
 }
 
+// riskFlagKinds are the situational risks that can be recorded on axis 2. The
+// list is closed on purpose: a free-text kind cannot be filtered, counted or
+// acted on, and the axis is only worth having if the flags are comparable.
+var riskFlagKinds = map[string]bool{
+	"exploit":          true,
+	"depeg":            true,
+	"frozen_transfers": true,
+	"deprecation":      true,
+	"delisting":        true,
+	"sanctions_freeze": true,
+}
+
+// riskActionHints are the action directions a flag may carry (axis 3).
+var riskActionHints = map[string]bool{
+	"none":      true,
+	"hold":      true,
+	"exit_soon": true,
+}
+
+// AddAssetRiskFlag records a situational risk on an asset: an exploit, a depeg,
+// frozen transfers, a deprecation, a delisting, a sanctions freeze.
+//
+// The flag does NOT touch the sum. It does not derive holdings.excluded and it
+// does not enter ValuationCoverage: the asset is real and so is its value, and
+// the only thing in question is what happens to it next. An identity verdict
+// makes the opposite claim — that the asset is not what it says — which is why
+// that one removes money from the total and this one must never do so.
+//
+// Admin-only, like a verdict: a flag is catalogue-wide and every user sees it.
+func (h *Handler) AddAssetRiskFlag(ctx context.Context, req *connect.Request[apiv1.AddAssetRiskFlagRequest]) (*connect.Response[apiv1.AssetRiskFlag], error) {
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
+	}
+	if !user.IsAdmin() {
+		return nil, connect.NewError(connect.CodePermissionDenied,
+			errors.New("adding an asset risk flag is admin-only"))
+	}
+	if req.Msg.AssetId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset_id is required"))
+	}
+	if !riskFlagKinds[req.Msg.Kind] {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("kind must be one of exploit, depeg, frozen_transfers, deprecation, delisting, sanctions_freeze; got %q", req.Msg.Kind))
+	}
+	hint := req.Msg.GetActionHint()
+	if hint == "" {
+		hint = "none"
+	}
+	if !riskActionHints[hint] {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("action_hint must be one of none, hold, exit_soon; got %q", hint))
+	}
+	// A flag with no review date outlives the situation it describes and turns
+	// the axis into background noise, so there is no way to write one.
+	if req.Msg.ReviewAt == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("review_at is required: a flag with no review date never expires"))
+	}
+	reviewAt := req.Msg.ReviewAt.AsTime()
+
+	flag, err := h.store.CreateAssetRiskFlag(ctx, &entity.AssetRiskFlag{
+		AssetID:    req.Msg.AssetId,
+		Kind:       req.Msg.Kind,
+		Note:       req.Msg.GetNote(),
+		ActionHint: hint,
+		ReviewAt:   &reviewAt,
+		SetBy:      "user:" + user.ID,
+	})
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+	return connect.NewResponse(riskFlagToProto(flag)), nil
+}
+
+// DeleteAssetRiskFlag removes one flag. Admin-only, and naming the asset as
+// well as the flag so a mistyped id cannot reach an unrelated asset's row.
+//
+// Removal is ordinary here, unlike removing an external ref: review_at exists
+// precisely so flags are revisited and retired.
+func (h *Handler) DeleteAssetRiskFlag(ctx context.Context, req *connect.Request[apiv1.DeleteAssetRiskFlagRequest]) (*connect.Response[emptypb.Empty], error) {
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
+	}
+	if !user.IsAdmin() {
+		return nil, connect.NewError(connect.CodePermissionDenied,
+			errors.New("removing an asset risk flag is admin-only"))
+	}
+	if req.Msg.AssetId == "" || req.Msg.Id == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset_id and id are required"))
+	}
+	if err := h.store.DeleteAssetRiskFlag(ctx, req.Msg.AssetId, req.Msg.Id); err != nil {
+		return nil, toConnectError(err)
+	}
+	return connect.NewResponse(&emptypb.Empty{}), nil
+}
+
+// attachRiskFlags loads an asset's axis-2 flags for the single-asset read.
+//
+// Best-effort, like the bindings next to it: a card that cannot list flags is
+// worse without the asset than with an incomplete card. The cost of the
+// omission is bounded because the flag never enters a number — nothing is
+// miscounted when this fails, only unsaid.
+func (h *Handler) attachRiskFlags(ctx context.Context, asset *entity.Asset) {
+	flags, err := h.store.ListAssetRiskFlags(ctx, asset.ID)
+	if err != nil {
+		if h.log != nil {
+			h.log.Warn("load asset risk flags failed", "asset_id", asset.ID, "error", err)
+		}
+		return
+	}
+	for _, f := range flags {
+		asset.RiskFlags = append(asset.RiskFlags, *f)
+	}
+}
+
 // DeleteAssetExternalRef removes one binding between an asset and an external
 // identifier.
 //
@@ -1140,6 +1258,26 @@ func assetToProto(e *entity.Asset) *apiv1.Asset {
 			Origin:    ref.Origin,
 			CreatedAt: timestamppb.New(ref.CreatedAt),
 		})
+	}
+	// Same "nil means not loaded" contract as the bindings above.
+	for _, f := range e.RiskFlags {
+		out.RiskFlags = append(out.RiskFlags, riskFlagToProto(&f))
+	}
+	return out
+}
+
+func riskFlagToProto(f *entity.AssetRiskFlag) *apiv1.AssetRiskFlag {
+	out := &apiv1.AssetRiskFlag{
+		Id:         f.ID,
+		AssetId:    f.AssetID,
+		Kind:       f.Kind,
+		Note:       optionalString(f.Note),
+		ActionHint: optionalString(f.ActionHint),
+		SetBy:      optionalString(f.SetBy),
+		CreatedAt:  timestamppb.New(f.CreatedAt),
+	}
+	if f.ReviewAt != nil {
+		out.ReviewAt = timestamppb.New(*f.ReviewAt)
 	}
 	return out
 }
