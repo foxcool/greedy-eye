@@ -44,7 +44,38 @@ type StoredPrice struct {
 	// which is a different statement from a cap of zero.
 	MarketCap decimal.NullDecimal
 	Timestamp time.Time
+	// Provenance says what produced this number: a trade, or an administrative
+	// act. Empty means the source made no claim either way, which is where every
+	// row written before this field existed sits.
+	Provenance PriceProvenance
 }
+
+// PriceProvenance is what stands behind a quote.
+//
+// ADR-009 gates a price on the market behind it, and until now "market" meant
+// reported turnover. That silently assumed every print came from a trade. It
+// does not: MOEX publishes LEGALCLOSEPRICE — a recognised close set
+// administratively — for instruments that did not trade at all, and FXGD's last
+// reachable figure was 93.55 ₽ that way against a real last traded price of 37 ₽.
+// Same shape, same fields, 2.5x apart, and nothing in the row said which was which.
+//
+// It is deliberately not a boolean. "Not traded" covers at least two different
+// claims — an exchange's recognised close and a fund's NAV — and the day the
+// first RWA arrives (BUIDL: $2.7bn under management, no turnover) they must not
+// have collapsed into one value already.
+type PriceProvenance string
+
+const (
+	// PriceProvenanceUnknown is the honest value for a source that says nothing
+	// about how its number came to be. Most crypto providers are here: their
+	// prints come from trades, but they never promised that in the payload.
+	PriceProvenanceUnknown PriceProvenance = ""
+	// PriceProvenanceTraded means a trade produced this price.
+	PriceProvenanceTraded PriceProvenance = "traded"
+	// PriceProvenanceAppraised means the venue published the number without a
+	// trade behind it: a recognised close, a settlement price, an admitted quote.
+	PriceProvenanceAppraised PriceProvenance = "appraised"
+)
 
 // AssetPricingStatus is what asking an asset's price sources has produced so
 // far, read back from the attempt log.

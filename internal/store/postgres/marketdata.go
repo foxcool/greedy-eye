@@ -98,6 +98,27 @@ func nullIfEmpty(s string) *string {
 	return &s
 }
 
+// provenanceValue writes an unstated provenance as NULL rather than as an empty
+// string. "The source said nothing" and "the source said empty" would be the same
+// row otherwise, and the first is the honest reading of every row written before
+// the column existed.
+func provenanceValue(p entity.PriceProvenance) *string {
+	if p == entity.PriceProvenanceUnknown {
+		return nil
+	}
+	s := string(p)
+	return &s
+}
+
+// readProvenance maps a NULL provenance back to the unknown value. Reading NULL
+// as "traded" would be the system inventing a claim the source never made.
+func readProvenance(s *string) entity.PriceProvenance {
+	if s == nil {
+		return entity.PriceProvenanceUnknown
+	}
+	return entity.PriceProvenance(*s)
+}
+
 // CreateAsset creates a new asset in the database.
 func (s *MarketDataStore) CreateAsset(ctx context.Context, asset *entity.Asset) (*entity.Asset, error) {
 	if asset == nil {
@@ -872,8 +893,8 @@ func (s *MarketDataStore) CreatePrice(ctx context.Context, price *entity.StoredP
 	}
 
 	query := `
-		INSERT INTO prices (id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, market_cap, timestamp)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		INSERT INTO prices (id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, market_cap, timestamp, provenance)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		RETURNING timestamp`
 
 	err = s.pool.QueryRow(ctx, query,
@@ -891,6 +912,7 @@ func (s *MarketDataStore) CreatePrice(ctx context.Context, price *entity.StoredP
 		price.Volume,
 		price.MarketCap,
 		price.Timestamp,
+		provenanceValue(price.Provenance),
 	).Scan(&price.Timestamp)
 	if err != nil {
 		if isConstraintError(err) {
@@ -942,13 +964,14 @@ func (s *MarketDataStore) GetLatestPrice(ctx context.Context, assetID, baseAsset
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, market_cap, timestamp
+		SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, market_cap, timestamp, provenance
 		FROM prices
 		WHERE asset_id = $1%s
 		ORDER BY timestamp DESC
 		LIMIT 1`, filters)
 
 	var price entity.StoredPrice
+	var provenance *string
 	err := s.pool.QueryRow(ctx, query, args...).Scan(
 		&price.ID,
 		&price.SourceID,
@@ -964,6 +987,7 @@ func (s *MarketDataStore) GetLatestPrice(ctx context.Context, assetID, baseAsset
 		&price.Volume,
 		&price.MarketCap,
 		&price.Timestamp,
+		&provenance,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -971,6 +995,7 @@ func (s *MarketDataStore) GetLatestPrice(ctx context.Context, assetID, baseAsset
 		}
 		return nil, fmt.Errorf("failed to get latest price: %w", err)
 	}
+	price.Provenance = readProvenance(provenance)
 
 	return &price, nil
 }
@@ -982,13 +1007,14 @@ func (s *MarketDataStore) GetFirstPriceAfter(ctx context.Context, assetID, baseA
 	}
 
 	query := `
-		SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, market_cap, timestamp
+		SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, market_cap, timestamp, provenance
 		FROM prices
 		WHERE asset_id = $1 AND base_asset_id = $2 AND timestamp >= $3
 		ORDER BY timestamp ASC
 		LIMIT 1`
 
 	var price entity.StoredPrice
+	var provenance *string
 	err := s.pool.QueryRow(ctx, query, assetID, baseAssetID, after).Scan(
 		&price.ID,
 		&price.SourceID,
@@ -1004,6 +1030,7 @@ func (s *MarketDataStore) GetFirstPriceAfter(ctx context.Context, assetID, baseA
 		&price.Volume,
 		&price.MarketCap,
 		&price.Timestamp,
+		&provenance,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1011,6 +1038,7 @@ func (s *MarketDataStore) GetFirstPriceAfter(ctx context.Context, assetID, baseA
 		}
 		return nil, fmt.Errorf("failed to get first price after: %w", err)
 	}
+	price.Provenance = readProvenance(provenance)
 
 	return &price, nil
 }
@@ -1061,7 +1089,7 @@ func (s *MarketDataStore) ListPriceHistory(ctx context.Context, opts marketdata.
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, market_cap, timestamp
+		SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, market_cap, timestamp, provenance
 		FROM prices
 		WHERE %s
 		ORDER BY timestamp
@@ -1078,6 +1106,7 @@ func (s *MarketDataStore) ListPriceHistory(ctx context.Context, opts marketdata.
 	prices := make([]*entity.StoredPrice, 0, limit)
 	for rows.Next() {
 		var price entity.StoredPrice
+		var provenance *string
 		if err := rows.Scan(
 			&price.ID,
 			&price.SourceID,
@@ -1093,9 +1122,11 @@ func (s *MarketDataStore) ListPriceHistory(ctx context.Context, opts marketdata.
 			&price.Volume,
 			&price.MarketCap,
 			&price.Timestamp,
+			&provenance,
 		); err != nil {
 			return nil, "", fmt.Errorf("failed to scan price: %w", err)
 		}
+		price.Provenance = readProvenance(provenance)
 		prices = append(prices, &price)
 	}
 

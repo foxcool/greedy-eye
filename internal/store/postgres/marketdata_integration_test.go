@@ -402,6 +402,53 @@ func TestCreatePrice(t *testing.T) {
 	})
 }
 
+// TestPriceProvenanceRoundTrips: the column exists so a quote nobody traded can
+// be told apart from one somebody paid for. A round trip that silently returned
+// "traded" for a row the source said nothing about would put the claim in our
+// mouth rather than the source's, which is the failure the NULL is there to
+// prevent.
+func TestPriceProvenanceRoundTrips(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	asset := createTestAsset(t, s, "ProvenanceAsset")
+	base := createTestAsset(t, s, "ProvenanceBase")
+
+	write := func(t *testing.T, p entity.PriceProvenance, at time.Time) {
+		t.Helper()
+		_, err := s.CreatePrice(context.Background(), &entity.StoredPrice{
+			SourceID:    "moex",
+			AssetID:     asset.ID,
+			BaseAssetID: base.ID,
+			Interval:    "latest",
+			Last:        decimal.NewFromInt(9355000000),
+			Decimals:    8,
+			Timestamp:   at,
+			Provenance:  p,
+		})
+		require.NoError(t, err)
+	}
+
+	start := time.Now()
+	write(t, entity.PriceProvenanceUnknown, start)
+	write(t, entity.PriceProvenanceTraded, start.Add(time.Second))
+	write(t, entity.PriceProvenanceAppraised, start.Add(2*time.Second))
+
+	latest, err := s.GetLatestPrice(context.Background(), asset.ID, base.ID, "moex")
+	require.NoError(t, err)
+	assert.Equal(t, entity.PriceProvenanceAppraised, latest.Provenance)
+
+	history, _, err := s.ListPriceHistory(context.Background(), marketdata.ListPriceHistoryOpts{
+		AssetID:     asset.ID,
+		BaseAssetID: base.ID,
+	})
+	require.NoError(t, err)
+	require.Len(t, history, 3)
+	assert.Equal(t, entity.PriceProvenanceUnknown, history[0].Provenance,
+		"a source that said nothing must not read back as a claim")
+	assert.Equal(t, entity.PriceProvenanceTraded, history[1].Provenance)
+	assert.Equal(t, entity.PriceProvenanceAppraised, history[2].Provenance)
+}
+
 func TestGetLatestPrice(t *testing.T) {
 	pool := getTestPool(t)
 	s := NewMarketDataStore(pool)

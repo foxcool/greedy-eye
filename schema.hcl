@@ -576,6 +576,14 @@ table "prices" {
     type = numeric
     null = true
   }
+  column "provenance" {
+    # What stands behind this number: 'traded' (a trade made it) or 'appraised'
+    # (the venue published it without one — a recognised close, a settlement
+    # price). NULL means the source made no claim, which is where every row
+    # written before this column existed sits, and is NOT the same as 'traded'.
+    type = character_varying
+    null = true
+  }
   column "timestamp" {
     type = timestamptz
     null = false

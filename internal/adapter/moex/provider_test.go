@@ -48,6 +48,103 @@ func TestSharePricedFromTheTradedBoard(t *testing.T) {
 	assert.Equal(t, "1496727706600000000", got.Volume.Decimal.String())
 }
 
+// fxgdExchangeAppraisal is the shape that made this task P1: MOEX publishes a
+// recognised close for a fund nobody trades. Measured on the ISS history feed
+// for FXGD, 2023-08-01..08 — CLOSE null, VALUE 0, NUMTRADES 0, LEGALCLOSEPRICE
+// 93.55 — against a real last traded price of 37 roubles over the counter.
+const fxgdExchangeAppraisal = `{
+  "securities": {
+    "columns": ["SECID","BOARDID","CURRENCYID","PREVPRICE","PREVDATE","PREVWAPRICE","PREVLEGALCLOSEPRICE"],
+    "data": [["FXGD","TQTF","SUR",93.55,"2026-08-06",null,93.55]]
+  },
+  "marketdata": {
+    "columns": ["SECID","BOARDID","LAST","VALTODAY","SYSTIME"],
+    "data": [["FXGD","TQTF",null,0,"2026-08-07 23:50:46"]]
+  }
+}`
+
+// fxgdOverTheCounterTrade is the same paper on MTQR, where it actually traded.
+const fxgdOverTheCounterTrade = `{
+  "securities": {
+    "columns": ["SECID","BOARDID","CURRENCYID","PREVPRICE","PREVDATE","PREVWAPRICE"],
+    "data": [["FXGD","MTQR","SUR",37,"2026-08-06",36.9]]
+  },
+  "marketdata": {
+    "columns": ["SECID","BOARDID","LAST","VALTODAY","SYSTIME"],
+    "data": [["FXGD","MTQR",37.2,412000,"2026-08-07 18:40:10"]]
+  }
+}`
+
+// TestOverTheCounterTradeBeatsAnExchangeAppraisal is the whole point of reading
+// a second engine. The exchange floor answers with a number 2.5x the truth, and
+// it answers from a higher-ranked board, so nothing but "somebody actually paid
+// this" can pick the right one.
+func TestOverTheCounterTradeBeatsAnExchangeAppraisal(t *testing.T) {
+	client, requests := serveByVenue(t, map[Venue]handlerSpec{
+		VenueStockShares: {status: 200, body: fxgdExchangeAppraisal},
+		VenueOTCShares:   {status: 200, body: fxgdOverTheCounterTrade},
+	})
+
+	prices, err := NewProvider(client).FetchPrices(context.Background(),
+		[]*entity.Asset{listed("fxgd-1", "FXGD", entity.AssetTypeFund)})
+	require.NoError(t, err)
+	require.Len(t, prices, 1)
+
+	got := prices[0]
+	assert.Equal(t, "3720000000", got.Last.String(), "37.20 traded, not 93.55 appraised")
+	assert.Equal(t, entity.PriceProvenanceTraded, got.Provenance)
+	assert.True(t, got.Volume.Valid, "a traded print carries the turnover behind it")
+	assert.Equal(t, "41200000000000", got.Volume.Decimal.String())
+
+	assert.Len(t, *requests, len(venuesFor(entity.AssetTypeFund)),
+		"every venue is asked before a winner is picked")
+}
+
+// TestAppraisedCloseIsStoredButNotAsAMarketPrice covers the case where the
+// over-the-counter admission is gone and the recognised close is all that is
+// left. The number is kept — it is real, and the catalogue should show it — but
+// it carries the zero turnover of the session that produced it, which is what
+// keeps it out of a total under ADR-009.
+func TestAppraisedCloseIsStoredButNotAsAMarketPrice(t *testing.T) {
+	client, _ := serveByVenue(t, map[Venue]handlerSpec{
+		VenueStockShares: {status: 200, body: fxgdExchangeAppraisal},
+	})
+
+	prices, err := NewProvider(client).FetchPrices(context.Background(),
+		[]*entity.Asset{listed("fxgd-1", "FXGD", entity.AssetTypeFund)})
+	require.NoError(t, err)
+	require.Len(t, prices, 1)
+
+	got := prices[0]
+	assert.Equal(t, "9355000000", got.Last.String())
+	assert.Equal(t, entity.PriceProvenanceAppraised, got.Provenance)
+	require.True(t, got.Volume.Valid, "zero turnover is a measurement here, not an absence")
+	assert.True(t, got.Volume.Decimal.IsZero())
+	assert.Equal(t, "2026-08-06T00:00:00+03:00", got.Timestamp.Format(time.RFC3339),
+		"dated to the session it belongs to, not to the sweep")
+}
+
+// TestPreviousCloseWithoutEvidenceStaysUnclaimed: a board that publishes neither
+// a weighted average nor a recognised close (SPEQ carries a previous price and
+// neither, measured on ISS 2026-08-09) leaves no grounds for either claim.
+// Inventing "traded" there would be the same error as inventing "appraised".
+func TestPreviousCloseWithoutEvidenceStaysUnclaimed(t *testing.T) {
+	body := `{
+	  "securities": {
+	    "columns": ["SECID","BOARDID","CURRENCYID","PREVPRICE","PREVDATE"],
+	    "data": [["SBER","SPEQ","SUR",315.28,"2026-08-01"]]
+	  },
+	  "marketdata": {"columns": ["SECID","BOARDID","LAST","VALTODAY"], "data": []}
+	}`
+
+	prices := fetchWith(t, body, listed("sber-1", "SBER", entity.AssetTypeStock))
+	require.Len(t, prices, 1)
+
+	assert.Equal(t, entity.PriceProvenanceUnknown, prices[0].Provenance)
+	assert.False(t, prices[0].Volume.Valid,
+		"today's silence says nothing about the session that made this price")
+}
+
 func TestFundIsPricedOnTheSameMarketAsShares(t *testing.T) {
 	prices := fetchWith(t, sharesJSON, listed("sbmx-1", "SBMX", entity.AssetTypeFund))
 
@@ -171,8 +268,19 @@ func TestDuplicateTickersAreAskedOnce(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	require.Len(t, *requests, 1)
-	assert.Equal(t, "SBER", (*requests)[0].URL.Query().Get("securities"))
+
+	// One request per venue, and the ticker appears once in each: the same paper
+	// is admitted in several places, so asking all of them is the point — asking
+	// any of them twice for the same ticker is not.
+	require.Len(t, *requests, len(venuesFor(entity.AssetTypeStock)))
+	paths := map[string]bool{}
+	for _, req := range *requests {
+		assert.Equal(t, "SBER", req.URL.Query().Get("securities"))
+		paths[req.URL.Path] = true
+	}
+	assert.Len(t, paths, len(*requests), "each venue is asked at its own path")
+	assert.True(t, paths["/iss/engines/otc/markets/shares/securities.json"],
+		"the over-the-counter market is one of them")
 }
 
 func TestProviderQuotesInRoubles(t *testing.T) {
@@ -184,4 +292,31 @@ func TestProviderQuotesInRoubles(t *testing.T) {
 	// portion, and saying so is not the same as saying the budget is zero.
 	_, metered := p.AssetBudget(time.Now(), time.Hour)
 	assert.False(t, metered)
+}
+
+// TestForeignNameOnARussianBoardIsNotThatCompanysPrice: MTQR carries RM-suffixed
+// foreign shares — AAPL-RM traded at 8149 roubles on 2026-08-07 — and that is a
+// Russian over-the-counter quote for Apple, not Apple's price. Matching is by
+// exact ticker, so an asset called AAPL takes nothing from it; the guard is here
+// because a "helpful" suffix-stripping lookup would turn a $75 share into 8149
+// of something.
+func TestForeignNameOnARussianBoardIsNotThatCompanysPrice(t *testing.T) {
+	body := `{
+	  "securities": {
+	    "columns": ["SECID","BOARDID","CURRENCYID","PREVPRICE","PREVDATE","PREVWAPRICE"],
+	    "data": [["AAPL-RM","MTQR","SUR",7950,"2026-08-06",7782]]
+	  },
+	  "marketdata": {
+	    "columns": ["SECID","BOARDID","LAST","VALTODAY","SYSTIME"],
+	    "data": [["AAPL-RM","MTQR",8149,363133,"2026-08-07 18:39:59"]]
+	  }
+	}`
+
+	assert.Empty(t, fetchWith(t, body, listed("aapl-1", "AAPL", entity.AssetTypeStock)),
+		"a row for another ticker is not this asset's price")
+
+	// The same response does price the instrument it actually describes.
+	prices := fetchWith(t, body, listed("aaplrm-1", "AAPL-RM", entity.AssetTypeStock))
+	require.Len(t, prices, 1)
+	assert.Equal(t, entity.PriceProvenanceTraded, prices[0].Provenance)
 }
