@@ -561,6 +561,110 @@ func (s *MarketDataStore) ListAssetExternalRefs(ctx context.Context, assetIDs []
 	return out, nil
 }
 
+// CreateAssetRiskFlag records a situational risk on an asset (risk-model axis
+// 2). ReviewAt is required by the caller, not by the column: the schema allows
+// NULL because rows predate the rule, while nothing written from here may hang
+// without a date to revisit it.
+//
+// Flags accumulate rather than replace. Two exploits a year apart are two
+// events, and collapsing them would erase the first one's history the moment
+// the second is filed.
+func (s *MarketDataStore) CreateAssetRiskFlag(ctx context.Context, flag *entity.AssetRiskFlag) (*entity.AssetRiskFlag, error) {
+	if flag == nil || flag.AssetID == "" || flag.Kind == "" {
+		return nil, fmt.Errorf("%w: asset_id and kind are required", store.ErrInvalidArgument)
+	}
+	if !isValidUUID(flag.AssetID) {
+		return nil, fmt.Errorf("%w: invalid asset ID format", store.ErrInvalidArgument)
+	}
+	if flag.ReviewAt == nil {
+		return nil, fmt.Errorf("%w: review_at is required", store.ErrInvalidArgument)
+	}
+
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate ID: %w", err)
+	}
+	flag.ID = id.String()
+
+	err = s.pool.QueryRow(ctx,
+		`INSERT INTO asset_risk_flags (id, asset_id, kind, note, action_hint, review_at, set_by, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+		 RETURNING created_at`,
+		flag.ID, flag.AssetID, flag.Kind,
+		nullIfEmpty(flag.Note), nullIfEmpty(flag.ActionHint), flag.ReviewAt, nullIfEmpty(flag.SetBy),
+	).Scan(&flag.CreatedAt)
+	if err != nil {
+		if isConstraintError(err) {
+			return nil, fmt.Errorf("%w: %v", store.ErrConstraint, err)
+		}
+		return nil, fmt.Errorf("failed to create asset risk flag: %w", err)
+	}
+	return flag, nil
+}
+
+// ListAssetRiskFlags returns one asset's risk flags, newest first: the card
+// shows the current situation, and the oldest flag is the least likely to still
+// describe it.
+//
+// Single-asset by design. Unlike external refs, which the pricing sweep needs
+// for every asset it touches, flags have exactly one consumer — the asset card
+// — and batching them would invite the catalogue list to carry them too.
+func (s *MarketDataStore) ListAssetRiskFlags(ctx context.Context, assetID string) ([]*entity.AssetRiskFlag, error) {
+	if !isValidUUID(assetID) {
+		return nil, fmt.Errorf("%w: invalid asset ID format", store.ErrInvalidArgument)
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, asset_id, kind, COALESCE(note, ''), COALESCE(action_hint, ''),
+		       review_at, COALESCE(set_by, ''), created_at
+		FROM asset_risk_flags
+		WHERE asset_id = $1
+		ORDER BY created_at DESC`, assetID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list asset risk flags: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*entity.AssetRiskFlag
+	for rows.Next() {
+		var flag entity.AssetRiskFlag
+		if err := rows.Scan(&flag.ID, &flag.AssetID, &flag.Kind, &flag.Note, &flag.ActionHint,
+			&flag.ReviewAt, &flag.SetBy, &flag.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan asset risk flag: %w", err)
+		}
+		out = append(out, &flag)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate asset risk flags: %w", err)
+	}
+	return out, nil
+}
+
+// DeleteAssetRiskFlag removes one flag, refusing one that belongs to a
+// different asset — the asset id is in the WHERE clause for the same reason it
+// is in DeleteAssetExternalRef: a mistyped id must not reach somebody else's
+// row, and ErrNotFound deliberately does not distinguish "no such flag" from
+// "not this asset's flag".
+func (s *MarketDataStore) DeleteAssetRiskFlag(ctx context.Context, assetID, id string) error {
+	if !isValidUUID(assetID) {
+		return fmt.Errorf("%w: invalid asset ID format", store.ErrInvalidArgument)
+	}
+	if !isValidUUID(id) {
+		return fmt.Errorf("%w: invalid risk flag ID format", store.ErrInvalidArgument)
+	}
+
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM asset_risk_flags
+		WHERE id = $1 AND asset_id = $2`, id, assetID)
+	if err != nil {
+		return fmt.Errorf("failed to delete asset risk flag: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: risk flag %s on asset %s", store.ErrNotFound, id, assetID)
+	}
+	return nil
+}
+
 // FindTickerIncumbent reports whether this asset's ticker is already held, on
 // one of its own chains, by an older asset bound to a different contract.
 //

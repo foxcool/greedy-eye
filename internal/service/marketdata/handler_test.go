@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"log/slog"
 	"os"
 )
@@ -135,6 +136,34 @@ func (m *mockStore) ListAssetExternalRefs(ctx context.Context, assetIDs []string
 		return v.([]*entity.AssetExternalRef), args.Error(1)
 	}
 	return nil, args.Error(1)
+}
+
+func (m *mockStore) CreateAssetRiskFlag(ctx context.Context, flag *entity.AssetRiskFlag) (*entity.AssetRiskFlag, error) {
+	args := m.Called(ctx, flag)
+	if v := args.Get(0); v != nil {
+		return v.(*entity.AssetRiskFlag), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockStore) ListAssetRiskFlags(ctx context.Context, assetID string) ([]*entity.AssetRiskFlag, error) {
+	args := m.Called(ctx, assetID)
+	if v := args.Get(0); v != nil {
+		return v.([]*entity.AssetRiskFlag), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockStore) DeleteAssetRiskFlag(ctx context.Context, assetID, id string) error {
+	args := m.Called(ctx, assetID, id)
+	return args.Error(0)
+}
+
+// expectRiskFlags lets a GetAsset test that is about something else ignore the
+// axis-2 lookup, which the single-asset read always makes.
+func expectRiskFlags(s *mockStore) {
+	s.On("ListAssetRiskFlags", mock.Anything, mock.Anything).
+		Return([]*entity.AssetRiskFlag{}, nil).Maybe()
 }
 
 // expectExternalRefs lets a pricing test ignore the ref lookup: the pricing
@@ -299,6 +328,7 @@ func TestGetAsset_OK(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
 	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return(nil, nil)
+	expectRiskFlags(s)
 	h := newHandler(s)
 
 	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "id-1"}))
@@ -317,6 +347,7 @@ func TestGetAsset_CarriesTheBindings(t *testing.T) {
 		{ID: "ref-eth", AssetID: "id-1", Source: "onchain:ethereum", Ref: "0xreal", Origin: entity.RefOriginAuto},
 		{ID: "ref-poly", AssetID: "id-1", Source: "onchain:polygon", Ref: "0xfake", Origin: entity.RefOriginAuto},
 	}, nil)
+	expectRiskFlags(s)
 	h := newHandler(s)
 
 	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "id-1"}))
@@ -332,6 +363,7 @@ func TestGetAsset_SurvivesUnreadableBindings(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
 	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return(nil, assert.AnError)
+	expectRiskFlags(s)
 	h := newHandler(s)
 
 	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "id-1"}))
@@ -944,6 +976,148 @@ func TestSetAssetVerdict_RejectsUnknownVerdict(t *testing.T) {
 		}))
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), "verdict %q", v)
 	}
+}
+
+// --- Tests: asset risk flags (axis 2) ---
+
+func TestAddAssetRiskFlag_AdminWritesFlag(t *testing.T) {
+	review := time.Now().Add(48 * time.Hour).UTC().Truncate(time.Second)
+	s := &mockStore{}
+	s.On("CreateAssetRiskFlag", mock.Anything, mock.MatchedBy(func(f *entity.AssetRiskFlag) bool {
+		return f.AssetID == "id-1" && f.Kind == "depeg" && f.ActionHint == "exit_soon" &&
+			f.SetBy == "user:admin-1" && f.ReviewAt != nil && f.ReviewAt.Equal(review)
+	})).Return(&entity.AssetRiskFlag{
+		ID: "flag-1", AssetID: "id-1", Kind: "depeg", ActionHint: "exit_soon",
+		ReviewAt: &review, SetBy: "user:admin-1", CreatedAt: time.Now(),
+	}, nil)
+	h := newHandler(s)
+
+	hint := "exit_soon"
+	resp, err := h.AddAssetRiskFlag(adminCtx(), connect.NewRequest(&apiv1.AddAssetRiskFlagRequest{
+		AssetId: "id-1", Kind: "depeg", ActionHint: &hint, ReviewAt: timestamppb.New(review),
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "flag-1", resp.Msg.Id)
+	assert.Equal(t, "user:admin-1", resp.Msg.GetSetBy())
+	s.AssertExpectations(t)
+}
+
+// An omitted action hint is "none": the flag says something happened without
+// claiming to know what to do about it yet.
+func TestAddAssetRiskFlag_DefaultsActionHintToNone(t *testing.T) {
+	review := time.Now().Add(24 * time.Hour)
+	s := &mockStore{}
+	s.On("CreateAssetRiskFlag", mock.Anything, mock.MatchedBy(func(f *entity.AssetRiskFlag) bool {
+		return f.ActionHint == "none"
+	})).Return(&entity.AssetRiskFlag{ID: "flag-1", AssetID: "id-1", Kind: "exploit"}, nil)
+	h := newHandler(s)
+
+	_, err := h.AddAssetRiskFlag(adminCtx(), connect.NewRequest(&apiv1.AddAssetRiskFlagRequest{
+		AssetId: "id-1", Kind: "exploit", ReviewAt: timestamppb.New(review),
+	}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+}
+
+func TestAddAssetRiskFlag_NonAdminDenied(t *testing.T) {
+	h := newHandler(&mockStore{})
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "u-1"})
+	_, err := h.AddAssetRiskFlag(ctx, connect.NewRequest(&apiv1.AddAssetRiskFlagRequest{
+		AssetId: "id-1", Kind: "depeg", ReviewAt: timestamppb.New(time.Now()),
+	}))
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+}
+
+func TestAddAssetRiskFlag_RejectsUnknownKindAndHint(t *testing.T) {
+	h := newHandler(&mockStore{})
+	for _, kind := range []string{"", "rug", "scam"} {
+		_, err := h.AddAssetRiskFlag(adminCtx(), connect.NewRequest(&apiv1.AddAssetRiskFlagRequest{
+			AssetId: "id-1", Kind: kind, ReviewAt: timestamppb.New(time.Now()),
+		}))
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), "kind %q", kind)
+	}
+
+	bogus := "sell_everything"
+	_, err := h.AddAssetRiskFlag(adminCtx(), connect.NewRequest(&apiv1.AddAssetRiskFlagRequest{
+		AssetId: "id-1", Kind: "depeg", ActionHint: &bogus, ReviewAt: timestamppb.New(time.Now()),
+	}))
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
+// The invariant that keeps axis 2 worth having: no review date, no flag.
+func TestAddAssetRiskFlag_RequiresReviewDate(t *testing.T) {
+	h := newHandler(&mockStore{})
+	_, err := h.AddAssetRiskFlag(adminCtx(), connect.NewRequest(&apiv1.AddAssetRiskFlagRequest{
+		AssetId: "id-1", Kind: "delisting",
+	}))
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
+func TestDeleteAssetRiskFlag_AdminOnlyAndNamesBothSides(t *testing.T) {
+	s := &mockStore{}
+	s.On("DeleteAssetRiskFlag", mock.Anything, "id-1", "flag-1").Return(nil)
+	h := newHandler(s)
+
+	_, err := h.DeleteAssetRiskFlag(adminCtx(), connect.NewRequest(&apiv1.DeleteAssetRiskFlagRequest{
+		AssetId: "id-1", Id: "flag-1",
+	}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "u-1"})
+	_, err = h.DeleteAssetRiskFlag(ctx, connect.NewRequest(&apiv1.DeleteAssetRiskFlagRequest{
+		AssetId: "id-1", Id: "flag-1",
+	}))
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+}
+
+func TestGetAsset_AttachesRiskFlags(t *testing.T) {
+	review := time.Now().Add(72 * time.Hour)
+	s := &mockStore{}
+	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
+	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return(nil, nil)
+	s.On("ListAssetRiskFlags", mock.Anything, "id-1").Return([]*entity.AssetRiskFlag{
+		{ID: "flag-1", AssetID: "id-1", Kind: "frozen_transfers", ActionHint: "hold", ReviewAt: &review},
+	}, nil)
+	h := newHandler(s)
+
+	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "id-1"}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.RiskFlags, 1)
+	assert.Equal(t, "frozen_transfers", resp.Msg.RiskFlags[0].Kind)
+	assert.Equal(t, "hold", resp.Msg.RiskFlags[0].GetActionHint())
+	s.AssertExpectations(t)
+}
+
+// Best-effort, like the bindings: a flag lookup that fails costs the card its
+// flags, never the asset. Nothing is miscounted by the omission because a flag
+// never enters a number in the first place.
+func TestGetAsset_RiskFlagFailureKeepsAsset(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
+	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return(nil, nil)
+	s.On("ListAssetRiskFlags", mock.Anything, "id-1").Return(nil, assert.AnError)
+	h := newHandler(s)
+
+	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "id-1"}))
+	require.NoError(t, err)
+	assert.Equal(t, "id-1", resp.Msg.Id)
+	assert.Empty(t, resp.Msg.RiskFlags)
+}
+
+// ListAssets must not carry flags: an empty list there means "not loaded", and
+// loading them would put a per-asset query behind every catalogue render.
+func TestListAssets_DoesNotLoadRiskFlags(t *testing.T) {
+	s := &mockStore{}
+	s.On("ListAssets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{testAsset("id-1")}, "", nil)
+	h := newHandler(s)
+
+	resp, err := h.ListAssets(context.Background(), connect.NewRequest(&apiv1.ListAssetsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Assets, 1)
+	assert.Empty(t, resp.Msg.Assets[0].RiskFlags)
+	s.AssertNotCalled(t, "ListAssetRiskFlags", mock.Anything, mock.Anything)
 }
 
 func TestFindOrCreateAsset_StockRequiresMarket(t *testing.T) {
