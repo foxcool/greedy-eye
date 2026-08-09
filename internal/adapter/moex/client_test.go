@@ -90,10 +90,37 @@ func serveByMarket(t *testing.T, byMarket map[string]handlerSpec) (*Client, *[]*
 	return NewClient(Config{BaseURL: srv.URL}), &seen
 }
 
+// serveByVenue answers each (engine, market) pair differently. Distinguishing
+// engines is the point: the same security can be described by both, and the
+// interesting cases are exactly the ones where the two disagree.
+func serveByVenue(t *testing.T, byVenue map[Venue]handlerSpec) (*Client, *[]*http.Request) {
+	t.Helper()
+	var seen []*http.Request
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Clone(context.Background()))
+		for venue, spec := range byVenue {
+			prefix := "/iss/engines/" + string(venue.Engine) + "/markets/" + string(venue.Market) + "/"
+			if !strings.HasPrefix(r.URL.Path, prefix) {
+				continue
+			}
+			w.WriteHeader(spec.status)
+			_, _ = w.Write([]byte(spec.body))
+			return
+		}
+		// A venue with no canned answer behaves like a venue the security is not
+		// admitted to: a valid, empty response.
+		_, _ = w.Write([]byte(`{"securities":{"columns":[],"data":[]},"marketdata":{"columns":[],"data":[]}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	return NewClient(Config{BaseURL: srv.URL}), &seen
+}
+
 func TestQuotesJoinsBothBlocks(t *testing.T) {
 	client, requests := serveISS(t, sharesJSON)
 
-	quotes, err := client.Quotes(context.Background(), MarketShares, []string{"SBER", "SBMX"})
+	quotes, err := client.Quotes(context.Background(), VenueStockShares, []string{"SBER", "SBMX"})
 	require.NoError(t, err)
 	require.Len(t, quotes, 3, "one row per security and board")
 
@@ -128,7 +155,7 @@ func TestQuotesJoinsBothBlocks(t *testing.T) {
 func TestQuotesReadsTheBondNominal(t *testing.T) {
 	client, _ := serveISS(t, bondsJSON)
 
-	quotes, err := client.Quotes(context.Background(), MarketBonds, []string{"SU26238RMFS4"})
+	quotes, err := client.Quotes(context.Background(), VenueStockBonds, []string{"SU26238RMFS4"})
 	require.NoError(t, err)
 	require.Len(t, quotes, 1)
 
@@ -140,7 +167,7 @@ func TestQuotesReadsTheBondNominal(t *testing.T) {
 func TestQuotesAsksNothingForAnEmptyList(t *testing.T) {
 	client, requests := serveISS(t, sharesJSON)
 
-	quotes, err := client.Quotes(context.Background(), MarketShares, nil)
+	quotes, err := client.Quotes(context.Background(), VenueStockShares, nil)
 	require.NoError(t, err)
 	assert.Empty(t, quotes)
 	assert.Empty(t, *requests)
@@ -153,7 +180,7 @@ func TestQuotesRejectsABadStatus(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	_, err := NewClient(Config{BaseURL: srv.URL}).
-		Quotes(context.Background(), MarketShares, []string{"SBER"})
+		Quotes(context.Background(), VenueStockShares, []string{"SBER"})
 	require.Error(t, err)
 }
 
@@ -169,7 +196,7 @@ func TestQuotesSurvivesAShortRow(t *testing.T) {
 	}`
 	client, _ := serveISS(t, body)
 
-	quotes, err := client.Quotes(context.Background(), MarketShares, []string{"SBER"})
+	quotes, err := client.Quotes(context.Background(), VenueStockShares, []string{"SBER"})
 	require.NoError(t, err)
 	require.Len(t, quotes, 1)
 	assert.Equal(t, "SBER", quotes[0].SecID)

@@ -26,14 +26,47 @@ const defaultBaseURL = "https://iss.moex.com"
 // courtesy deserves a caller it can identify and throttle by name.
 const userAgent = "greedy-eye (+https://github.com/foxcool/greedy-eye)"
 
-// Market is an ISS market inside the "stock" engine. Shares and exchange-traded
-// funds share one market — a fund's primary board (TQTF, TQIF) lives under
-// "shares" — so two markets cover everything this adapter prices.
+// Engine is an ISS trading engine: the top level of the ISS tree, above markets
+// and boards.
+//
+// It was a constant ("stock") until 2026-08-09, and that constant hid an entire
+// class of trading. MOEX admits securities over the counter under engine "otc",
+// and FXGD traded there for thirteen months — 24 to 77 trades a day — while this
+// adapter reported it as unquotable. The engine has to be asked for, not assumed.
+type Engine string
+
+const (
+	EngineStock Engine = "stock"
+	EngineOTC   Engine = "otc"
+)
+
+// Market is an ISS market inside an engine. Under "stock", shares and
+// exchange-traded funds share one market — a fund's primary board (TQTF, TQIF)
+// lives under "shares". Under "otc" the same instruments appear on "shares"
+// (board MTQR) and "sharesndm" (board MPTR).
 type Market string
 
 const (
-	MarketShares Market = "shares"
-	MarketBonds  Market = "bonds"
+	MarketShares    Market = "shares"
+	MarketBonds     Market = "bonds"
+	MarketSharesNDM Market = "sharesndm"
+)
+
+// Venue is one (engine, market) pair to ask. A security is looked up in several,
+// because admission to one says nothing about admission to another.
+type Venue struct {
+	Engine Engine
+	Market Market
+}
+
+func (v Venue) String() string { return string(v.Engine) + "/" + string(v.Market) }
+
+// The venues this adapter knows how to read.
+var (
+	VenueStockShares  = Venue{Engine: EngineStock, Market: MarketShares}
+	VenueStockBonds   = Venue{Engine: EngineStock, Market: MarketBonds}
+	VenueOTCShares    = Venue{Engine: EngineOTC, Market: MarketShares}
+	VenueOTCSharesNDM = Venue{Engine: EngineOTC, Market: MarketSharesNDM}
 )
 
 // moscow is the zone ISS states its timestamps in. Fixed rather than loaded
@@ -74,6 +107,9 @@ func NewClient(cfg Config) *Client {
 type Quote struct {
 	SecID string
 	Board string
+	// Venue the row came from. Two engines can describe the same security, and
+	// which one answered is part of reading the price.
+	Venue Venue
 	// Currency the instrument is quoted in ("SUR" for roubles).
 	Currency string
 	// Last is the most recent trade of the current session; unset outside
@@ -82,6 +118,16 @@ type Quote struct {
 	// Prev is the previous session's close, with the date it belongs to.
 	Prev     decimal.NullDecimal
 	PrevDate time.Time
+	// PrevWAP is the previous session's volume-weighted average price. A weighted
+	// average of nothing does not exist, so its presence is ISS stating that the
+	// session had trades — the only evidence of trading the live endpoint carries
+	// about a past session.
+	PrevWAP decimal.NullDecimal
+	// PrevLegalClose is the previous session's recognised close: a number the
+	// exchange publishes for settlement and accounting, set whether or not anyone
+	// traded. Alone — with no PrevWAP beside it — it is an appraisal, not a price
+	// somebody paid.
+	PrevLegalClose decimal.NullDecimal
 	// FaceValue and FaceUnit describe the nominal. Bonds are quoted as a
 	// percentage of it, so for them the pair is what turns a quote into money.
 	FaceValue decimal.NullDecimal
@@ -123,12 +169,12 @@ type issResponse struct {
 // Board selection is deliberately left to the caller: ISS answers with every
 // board a security is admitted to, and which one carries the meaningful price
 // is a judgement about trading, not about parsing.
-func (c *Client) Quotes(ctx context.Context, market Market, secIDs []string) ([]Quote, error) {
+func (c *Client) Quotes(ctx context.Context, venue Venue, secIDs []string) ([]Quote, error) {
 	if len(secIDs) == 0 {
 		return nil, nil
 	}
 
-	endpoint := fmt.Sprintf("%s/iss/engines/stock/markets/%s/securities.json", c.baseURL, market)
+	endpoint := fmt.Sprintf("%s/iss/engines/%s/markets/%s/securities.json", c.baseURL, venue.Engine, venue.Market)
 	query := url.Values{
 		"iss.meta":   {"off"},
 		"iss.only":   {"securities,marketdata"},
@@ -143,25 +189,25 @@ func (c *Client) Quotes(ctx context.Context, market Market, secIDs []string) ([]
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("moex: request %s: %w", market, err)
+		return nil, fmt.Errorf("moex: request %s: %w", venue, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("moex: %s answered %d", market, resp.StatusCode)
+		return nil, fmt.Errorf("moex: %s answered %d", venue, resp.StatusCode)
 	}
 
 	var doc issResponse
 	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
-		return nil, fmt.Errorf("moex: decode %s: %w", market, err)
+		return nil, fmt.Errorf("moex: decode %s: %w", venue, err)
 	}
-	return join(doc), nil
+	return join(doc, venue), nil
 }
 
 // join merges the two blocks on (SECID, BOARDID). The description block is the
 // spine: a board ISS describes but reports no trading for is still a real
 // listing carrying a previous close.
-func join(doc issResponse) []Quote {
+func join(doc issResponse, venue Venue) []Quote {
 	type key struct{ sec, board string }
 
 	trading := make(map[key]map[string]json.RawMessage, len(doc.MarketData.Data))
@@ -174,13 +220,16 @@ func join(doc issResponse) []Quote {
 	for i := range doc.Securities.Data {
 		s := doc.Securities.row(i)
 		q := Quote{
-			SecID:     str(s["SECID"]),
-			Board:     str(s["BOARDID"]),
-			Currency:  str(s["CURRENCYID"]),
-			Prev:      num(s["PREVPRICE"]),
-			PrevDate:  day(str(s["PREVDATE"])),
-			FaceValue: num(s["FACEVALUE"]),
-			FaceUnit:  str(s["FACEUNIT"]),
+			SecID:          str(s["SECID"]),
+			Board:          str(s["BOARDID"]),
+			Venue:          venue,
+			Currency:       str(s["CURRENCYID"]),
+			Prev:           num(s["PREVPRICE"]),
+			PrevDate:       day(str(s["PREVDATE"])),
+			PrevWAP:        num(s["PREVWAPRICE"]),
+			PrevLegalClose: num(s["PREVLEGALCLOSEPRICE"]),
+			FaceValue:      num(s["FACEVALUE"]),
+			FaceUnit:       str(s["FACEUNIT"]),
 		}
 		if q.SecID == "" {
 			continue
