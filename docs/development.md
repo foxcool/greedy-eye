@@ -496,6 +496,43 @@ Tracked in beads (`bd ready`). High-level state:
 - Portfolio analytics / performance metrics
 - Additional broker integrations (T-Invest)
 
+## Release Policy
+
+A tag is what reaches production: the release job in `.github/workflows/ci.yml` runs
+GoReleaser on tag push and publishes `ghcr.io/foxcool/greedy-eye:<version>` (no `v`
+prefix in the image tag). Production pins that version explicitly in the infra
+inventory, so nothing ships without a tag.
+
+**Patch (`x.y.Z`) — deploy-driven.** Anything production needs that does not change
+what the system claims about itself: bug fixes, added proto fields, new RPCs,
+settings, dependency bumps. Cut one as soon as something is merged that makes
+production wrong or stale. No ceremony beyond green CI on `main`.
+
+**Minor (`x.Y.0`) — stage-driven.** The claim changes: a way the total could lie is
+closed, a beta gate is closed, a new class of source or surface exists. The tag fixes
+a roadmap stage, and it carries one sentence saying what is now true — and, just as
+importantly, what is still not. Example, v0.3.0: "the total is correct and names what
+it omits", but *not* "the portfolio is no longer zero".
+
+**The three repositories are tagged independently.** `greedy-eye`, `greedy-eye-fe` and
+`greedy-eye-mcp` release when they have something to ship; a repository with no changes
+is not tagged just to keep numbers aligned — a tag that contains nothing lies about
+what it contains. Compatibility is recorded, not implied:
+
+- MCP ↔ backend: `greedy-eye-mcp/go.mod` requires a published `github.com/foxcool/greedy-eye`
+  tag. That requirement *is* the contract; nothing else is needed.
+- FE ↔ backend: by proto. Recorded in the release matrix alongside the deployed versions.
+
+**Release order.** Tag backend → wait for the GHCR image → bump the pinned version in
+the infra inventory → run the deploy playbook → verify the claim by direct RPC against
+production → only then bump the MCP dependency and tag MCP. Verification means checking
+that the new claim holds on live data, not that the container started.
+
+**Schema.** `atlas schema apply` runs on deploy against the declarative `schema.hcl`.
+Before tagging, check `git diff <last-tag>..main -- schema.hcl`: an empty diff means the
+deploy is image-only. A non-empty one means reading the plan the apply prints, because
+declarative apply will drop columns that the target schema does not describe.
+
 ## Common Development Tasks
 
 ### Manual Cross-Platform Docker Build
