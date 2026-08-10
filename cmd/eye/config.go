@@ -44,6 +44,19 @@ type Config struct {
 		APISecret string `koanf:"apiSecret"`
 		Sandbox   bool   `koanf:"sandbox"`
 	} `koanf:"binance"`
+	TInvest struct {
+		// RootCAFile is the path to a PEM certificate authority used to verify
+		// the T-Invest API host, and the switch that enables the provider at
+		// all: without it the adapter is not registered.
+		//
+		// There is no default and the certificate is not vendored. The host's
+		// chain terminates in a root no standard trust store carries, so
+		// reaching the API means an operator deciding to trust that authority
+		// and mounting it — a decision that belongs to whoever runs the
+		// instance. Key is lowercase for the same env-override reason as the
+		// scheduler's cron keys.
+		RootCAFile string `koanf:"rootcafile"`
+	} `koanf:"tinvest"`
 	Security struct {
 		// MasterKey holds one or more base64-encoded 32-byte keys for
 		// accounts.data encryption at rest (ADR-005), comma-separated. Empty =
@@ -196,4 +209,24 @@ func getConfig() (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+// loadTInvestRootCA reads the trust anchor for the broker API, if one is
+// configured. An empty path is not an error: the provider is simply not
+// available on this instance, which is the normal state everywhere the broker
+// is not used.
+//
+// An unreadable path IS an error, and a fatal one. The alternative — carrying
+// on with no anchor — turns a typo in a path into TLS handshake failures inside
+// a price sweep hours later, where nothing points back at the configuration.
+func loadTInvestRootCA(path string) ([]byte, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, nil
+	}
+	pem, err := os.ReadFile(path) // #nosec G304 -- operator-supplied path from config, not user input
+	if err != nil {
+		return nil, fmt.Errorf("read tinvest.rootCAFile %q: %w", path, err)
+	}
+	return pem, nil
 }

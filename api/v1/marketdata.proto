@@ -35,7 +35,7 @@ message Asset {
   google.protobuf.Timestamp created_at = 6;
   google.protobuf.Timestamp updated_at = 7;
   // Listing market/venue ("crypto" is the single global crypto market,
-  // "nasdaq", "moex"), not the price source. Defaults by type on create:
+  // "nasdaq", "moex", "spbex"), not the price source. Defaults by type on create:
   // cryptocurrency -> "crypto", forex -> "forex"; required otherwise.
   optional string market = 8;
   // Quote currency/base where applicable.

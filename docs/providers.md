@@ -71,14 +71,59 @@ inside the trust boundary — with the response leaking back through sync error
 strings. Pointing an adapter at a self-hosted instance belongs in operator
 config, not in user data.
 
-## Market data providers (`service` or `exchange` + `market_data`)
+## Market data providers (`service`, `exchange` or `broker` + `market_data`)
 
 | `provider` | Key | `data` fields | Notes |
 |---|---|---|---|
 | `coingecko` | optional | `api_key`, `tier`, `pro` | The keyless tier accepts exactly one contract address per request and about 30 requests a minute. A free demo key raises this to batches of 30 and allows 10 000 calls a month. Name a paid plan with `tier: pro` — one name picks the API host, the auth header and the allowance, which have to agree. `pro: "true"` is the old spelling of the same thing and still works |
 | `binance` | required | `api_key`, `api_secret` | Also serves as an exchange syncer |
 | `moex` | none | — | MOEX ISS. Prices assets whose `market` is `moex`: shares and exchange-traded funds from the ISS `shares` market, bonds from `bonds`. Quotes are in roubles, so the RUB/USD rate from `cbr` is what carries them into a USD total. Where a security trades on several boards, the one with the most turnover today wins; outside trading hours the previous close is used and dated to its own session, with no turnover attached. A bond quote is a percentage of nominal and is multiplied out; accrued interest is not included (`personal-b7l`). **Delisted securities get no price at all** — `is_traded=0` means ISS reports no current market, and a last trade from years ago is not a valuation |
+| `tinvest` | required | `api_key` | T-Invest broker API, account type `broker`. Prices assets whose `market` is `spbex` or `moex` — the SPB Exchange has no open endpoint of its own, and MOEX arrives as a second opinion alongside `moex` above. **Needs an operator-supplied trust anchor** (`tinvest.rootCAFile`): the API host's certificate chain terminates in a root no standard trust store carries, and without it every request fails inside TLS. See below. Identity is the FIGI, bound automatically into `asset_external_refs` when a ticker resolves to exactly one instrument on the venue — an ambiguous ticker is left unbound and unpriced rather than guessed. Each row carries the instrument's own currency, so a dollar-quoted foreign share and a rouble-quoted domestic one come out of one response correctly. An instrument that is not trading right now — halted, blocked, delisted — is published with an explicit **zero turnover**, which keeps it out of the total under ADR-009 while the number stays in the catalogue: the API reports no volume at all, and without that a frozen 2022 print would sail into the sum |
 | `cbr` | none | — | Bank of Russia daily rates. Registered unconditionally, account or not, because nothing about it is per-user. Quotes every currency in the published set in USD, including the rouble, and prices only assets typed `forex` — a token that copied a currency's ticker gets no rate. Prices carry the set's own business day, not the fetch time: a Friday set read on Sunday is two days old and says so |
+
+### The T-Invest trust anchor
+
+`*.tinkoff.ru` is signed by the Russian Trusted Root CA, which no operating
+system, browser or Go distribution ships. Standard verification therefore fails
+with `self signed certificate in certificate chain`, and the API answers
+normally the moment that root is trusted.
+
+The certificate is **not vendored in this repository**, and that is deliberate.
+Which certificate authorities a service accepts is a decision for whoever runs
+it, not one a source tree should make on their behalf — particularly a state
+authority in a project meant to be self-hosted anywhere.
+
+So an operator who wants this provider supplies it:
+
+```yaml
+tinvest:
+  rootcafile: /etc/greedy-eye/russian_trusted_root_ca.pem
+```
+
+Published at `https://gu-st.ru/content/Other/doc/russian_trusted_root_ca.cer`.
+Verify before installing — the same root is presented by the API host itself,
+and as measured 2026-08-09 both agree on
+
+```
+SHA256 D2:6D:2D:02:31:B7:C3:9F:92:CC:73:85:12:BA:54:10:35:19:E4:40:5D:68:B5:BD:70:3E:97:88:CA:8E:CF:31
+```
+
+The anchor is added to a pool for **this client only**: nothing else the service
+connects to will accept certificates from that authority.
+
+What happens when it is missing, in three cases that are deliberately different:
+
+- **No path configured, no broker account.** Nothing happens. The service starts
+  and runs exactly as it does without this provider, which is the normal state
+  on every instance that does not use a Russian broker.
+- **No path configured, but a broker account exists.** The account stays where
+  its owner put it and simply produces no prices. Each sweep logs one warning
+  naming the provider, the account and the missing `tinvest.rootCAFile`. Every
+  other provider prices as usual — one unconfigured account is not allowed to
+  cost the portfolio its CoinGecko, MOEX and FX prices.
+- **A path is configured but unreadable.** The process refuses to start. This is
+  a typo in operator config, and the alternative is a TLS handshake error inside
+  a sweep hours later with nothing pointing back at the cause.
 
 ## Exchange accounts (`exchange` + `portfolio_sync`)
 

@@ -1173,6 +1173,158 @@ func expectBaseAsset(s *mockStore) {
 		Return(&entity.Asset{ID: "usd-id", Symbol: "USD"}, nil)
 }
 
+// --- Tests: per-row base currency and provider ref discovery ---
+
+// perRowBaseProvider prices one asset in a currency of its own, the way a
+// broker quotes a foreign share in dollars and a domestic one in roubles from
+// the same response.
+type perRowBaseProvider struct {
+	rowBase map[string]string // asset ID → base symbol, "" for the provider default
+}
+
+func (p *perRowBaseProvider) FetchPrices(_ context.Context, assets []*entity.Asset) ([]entity.StoredPrice, error) {
+	var out []entity.StoredPrice
+	for _, a := range assets {
+		out = append(out, entity.StoredPrice{
+			AssetID:    a.ID,
+			Last:       decimal.NewFromInt(1),
+			BaseSymbol: p.rowBase[a.ID],
+		})
+	}
+	return out, nil
+}
+func (p *perRowBaseProvider) BaseAssetSymbol() string         { return "USD" }
+func (p *perRowBaseProvider) BaseAssetType() entity.AssetType { return entity.AssetTypeForex }
+
+// A row naming its own base is stored against that base. Falling back to the
+// provider default here would file a rouble price as dollars — a hundredfold
+// error, not a rounding one.
+func TestFetchExternalPrices_RowBaseOverridesProviderDefault(t *testing.T) {
+	usd := testAsset("usd-quoted")
+	rub := testAsset("rub-quoted")
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("GetOrCreateAssetBySymbol", mock.Anything, "RUB", "RUB", entity.AssetTypeForex).
+		Return(&entity.Asset{ID: "rub-id", Symbol: "RUB"}, nil)
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{usd, rub}, "", nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+
+	var stored []*entity.StoredPrice
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(2, nil).
+		Run(func(args mock.Arguments) { stored = args.Get(1).([]*entity.StoredPrice) })
+
+	p := &perRowBaseProvider{rowBase: map[string]string{"rub-quoted": "RUB"}}
+	h := newHandler(s).WithProvider("broker", p)
+
+	_, err := h.FetchExternalPrices(context.Background(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"usd-quoted", "rub-quoted"}}))
+	require.NoError(t, err)
+
+	bases := map[string]string{}
+	for _, row := range stored {
+		bases[row.AssetID] = row.BaseAssetID
+	}
+	assert.Equal(t, map[string]string{"usd-quoted": "usd-id", "rub-quoted": "rub-id"}, bases)
+}
+
+// discoveringProvider learns an identifier for the assets it is given, the way
+// a broker adapter resolves a ticker to a FIGI.
+type discoveringProvider struct {
+	fakePriceProvider
+	refs []entity.AssetExternalRef
+	err  error
+	// sawRefs records what each asset carried by the time prices were asked
+	// for, which is how the test checks the binding was attached in memory.
+	sawRefs map[string]int
+}
+
+func (d *discoveringProvider) DiscoverRefs(_ context.Context, _ []*entity.Asset) ([]entity.AssetExternalRef, error) {
+	return d.refs, d.err
+}
+
+func (d *discoveringProvider) FetchPrices(_ context.Context, assets []*entity.Asset) ([]entity.StoredPrice, error) {
+	d.sawRefs = map[string]int{}
+	var out []entity.StoredPrice
+	for _, a := range assets {
+		d.sawRefs[a.ID] = len(a.ExternalRefs)
+		out = append(out, entity.StoredPrice{AssetID: a.ID, Last: decimal.NewFromInt(1)})
+	}
+	return out, nil
+}
+
+// A discovered binding is persisted, so it outlives the sweep, and attached in
+// memory, so the same sweep can already price by it.
+func TestFetchExternalPrices_PersistsDiscoveredRefs(t *testing.T) {
+	a := testAsset("unbound-1")
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{a}, "", nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreateAssetExternalRef", mock.Anything, mock.MatchedBy(func(r *entity.AssetExternalRef) bool {
+		return r.AssetID == "unbound-1" && r.Source == "broker" && r.Ref == "FIGI-1"
+	})).Return(&entity.AssetExternalRef{
+		ID: "ref-1", AssetID: "unbound-1", Source: "broker", Ref: "FIGI-1", Origin: entity.RefOriginAuto,
+	}, nil)
+
+	p := &discoveringProvider{refs: []entity.AssetExternalRef{
+		{AssetID: "unbound-1", Source: "broker", Ref: "FIGI-1", Origin: entity.RefOriginAuto},
+	}}
+	h := newHandler(s).WithProvider("broker", p)
+
+	_, err := h.FetchExternalPrices(context.Background(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"unbound-1"}}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+	assert.Equal(t, 1, p.sawRefs["unbound-1"], "the binding is available to the sweep that made it")
+}
+
+// Re-discovering the same instrument every sweep is the steady state, not a
+// failure: identity is stable once bound, so the store refuses the duplicate
+// and the sweep carries on.
+func TestFetchExternalPrices_DuplicateRefIsNotAnError(t *testing.T) {
+	a := testAsset("bound-1")
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{a}, "", nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreateAssetExternalRef", mock.Anything, mock.Anything).
+		Return(nil, fmt.Errorf("%w: already bound", store.ErrConstraint))
+
+	p := &discoveringProvider{refs: []entity.AssetExternalRef{
+		{AssetID: "bound-1", Source: "broker", Ref: "FIGI-1"},
+	}}
+	h := newHandler(s).WithProvider("broker", p)
+
+	resp, err := h.FetchExternalPrices(context.Background(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"bound-1"}}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.Errors)
+}
+
+// A provider with no namespace of its own is never asked, and nothing is
+// written on its behalf.
+func TestFetchExternalPrices_PlainProviderDiscoversNothing(t *testing.T) {
+	a := testAsset("plain-1")
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{a}, "", nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+
+	h := newHandler(s).WithProvider("fake", &fakePriceProvider{prices: map[string]bool{"plain-1": true}})
+
+	_, err := h.FetchExternalPrices(context.Background(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"plain-1"}}))
+	require.NoError(t, err)
+	s.AssertNotCalled(t, "CreateAssetExternalRef", mock.Anything, mock.Anything)
+}
+
 // TestFetchExternalPrices_SweepSelectsDueAssets: an unattended sweep asks the
 // store what is due for this source rather than re-pricing the catalogue, and
 // records the outcome so the next sweep can skip what is fresh.

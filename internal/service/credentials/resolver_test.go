@@ -310,6 +310,36 @@ func TestPriceProvidersForOverlayOrder(t *testing.T) {
 	assert.Equal(t, "sys-bin", got["binance"].(*fakeProvider).name, "system credentials win over env")
 }
 
+// An account that cannot be built costs its own provider and nothing else.
+// The first factory able to fail is the broker adapter, which refuses without
+// an operator-supplied trust anchor — and one unconfigured broker account must
+// not stop every other price in the sweep.
+func TestPriceProvidersForSkipsUnusableAccount(t *testing.T) {
+	now := time.Now()
+	r := NewResolver(Config{
+		Source: &fakeSource{
+			user: map[string][]*entity.Account{"u1": {
+				account("own-cg", "coingecko", now),
+				account("own-broker", "tinvest", now),
+			}},
+		},
+		PriceProviders: map[string]PriceProviderFactory{
+			"coingecko": func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return &fakeProvider{name: a.ID}, nil
+			},
+			"tinvest": func(*entity.Account) (marketdata.PriceProvider, error) {
+				return nil, errors.New("no root CA configured")
+			},
+		},
+	})
+
+	got, err := r.PriceProvidersFor(context.Background(), "u1")
+	require.NoError(t, err, "one broken account is not a failed resolution")
+	require.Len(t, got, 1)
+	assert.Equal(t, "own-cg", got["coingecko"].(*fakeProvider).name)
+	assert.NotContains(t, got, "tinvest", "the provider that could not be built is absent, not broken")
+}
+
 func TestResolverPropagatesSourceErrors(t *testing.T) {
 	r := NewResolver(Config{Source: &fakeSource{err: errors.New("db down")}})
 

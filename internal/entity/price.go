@@ -30,7 +30,16 @@ type StoredPrice struct {
 	SourceID    string
 	AssetID     string
 	BaseAssetID string
-	Interval    string
+	// BaseSymbol overrides the provider's declared quote currency for this row
+	// only. Empty means the provider's BaseAssetSymbol() stands, which is the
+	// case for every source that quotes everything in one currency.
+	//
+	// A broker prices a foreign share in dollars and a domestic one in roubles
+	// from the same response, so one base per provider cannot describe it. The
+	// handler resolves this to a BaseAssetID before persisting; it is never
+	// stored as text.
+	BaseSymbol string
+	Interval   string
 	Decimals    uint32
 	Last        decimal.Decimal
 	Open        decimal.NullDecimal
