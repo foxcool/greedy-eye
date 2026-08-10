@@ -24,6 +24,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
 	solanaadapter "github.com/foxcool/greedy-eye/internal/adapter/solana"
 	subscanadapter "github.com/foxcool/greedy-eye/internal/adapter/subscan"
+	tinvestadapter "github.com/foxcool/greedy-eye/internal/adapter/tinvest"
 	tonapiadapter "github.com/foxcool/greedy-eye/internal/adapter/tonapi"
 	tzktadapter "github.com/foxcool/greedy-eye/internal/adapter/tzkt"
 	"github.com/foxcool/greedy-eye/internal/entity"
@@ -161,6 +162,15 @@ func run() error {
 
 	// Converge rows sealed under a key being rotated out. No-op with one key.
 	startRekey(context.Background(), pool, encryptor, log)
+
+	// The trust anchor for the broker API, if this instance has been given one.
+	// Read once at boot so a missing or unreadable file stops the process here,
+	// where it reads as configuration, instead of surfacing hours later as a
+	// TLS handshake error inside a price sweep.
+	tinvestRootCA, err := loadTInvestRootCA(config.TInvest.RootCAFile)
+	if err != nil {
+		return err
+	}
 
 	// Env-configured price providers stay the fallback registry; the resolver
 	// overlays them with credentials stored in accounts (system → user).
@@ -340,6 +350,31 @@ func run() error {
 				return moexadapter.NewProvider(moexadapter.NewClient(moexadapter.Config{
 					Transport: rateLimits.Transport(accountCred(moexadapter.ProviderName, a), nil),
 				})), nil
+			},
+			// Registered whether or not a root CA was supplied. Without one the
+			// factory refuses and the resolver skips this account with a warning
+			// naming the missing config key, so the account exists, says what it
+			// needs, and costs nothing else — every other provider in the sweep
+			// keeps working. Leaving the slug unregistered instead would report
+			// the provider as simply absent, which is the silence that let stale
+			// env credentials serve the sweep for days (personal-cpw).
+			tinvestadapter.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
+				// The verified transport is built first and the rate limiter
+				// wraps it. The other order would hand NewClient a ready
+				// Transport, which takes precedence over the anchor and would
+				// leave the connection trusting only the system store.
+				base, err := tinvestadapter.TLSTransport(tinvestRootCA)
+				if err != nil {
+					return nil, err
+				}
+				client, err := tinvestadapter.NewClient(tinvestadapter.Config{
+					Token:     a.Data["api_key"],
+					Transport: rateLimits.Transport(accountCred(tinvestadapter.ProviderName, a), base),
+				})
+				if err != nil {
+					return nil, err
+				}
+				return tinvestadapter.NewProvider(client), nil
 			},
 		},
 		// The env syncer is Moralis too (deprecated path, g27), so it carries

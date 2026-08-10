@@ -38,6 +38,21 @@ type PriceProvider interface {
 	BaseAssetType() entity.AssetType
 }
 
+// RefDiscoverer is implemented by providers whose universe has identifiers of
+// its own — a broker's FIGI, a data vendor's coin id — that the catalogue has
+// no way to derive.
+//
+// Called before FetchPrices so the same sweep can already price by what it
+// learns. The handler persists the bindings; an adapter has no store, and
+// giving it one would put catalogue writes behind an HTTP client.
+//
+// Returning nothing is the correct answer for an ambiguous match. A binding is
+// identity, it outlives the sweep that made it, and a wrong one prices a
+// position as somebody else's paper until a human notices.
+type RefDiscoverer interface {
+	DiscoverRefs(ctx context.Context, assets []*entity.Asset) ([]entity.AssetExternalRef, error)
+}
+
 // BudgetExemptProvider is implemented by providers whose request cost does not
 // grow with the number of assets in some subset — CoinGecko covers up to 250
 // curated coin ids in a single /coins/markets call. Those symbols bypass the
@@ -752,6 +767,51 @@ func (h *Handler) DeleteAssetRiskFlag(ctx context.Context, req *connect.Request[
 	return connect.NewResponse(&emptypb.Empty{}), nil
 }
 
+// discoverRefs lets a provider bind assets to identifiers in its own namespace
+// and persists what it finds, so the binding outlives the sweep.
+//
+// Best-effort, and deliberately so: a binding that cannot be written costs this
+// sweep a price, not the whole fetch. The refs are also attached in memory,
+// because the provider is about to be asked for prices and re-reading them from
+// the store would be a round trip to learn what we just wrote.
+//
+// A duplicate is not an error. CreateAssetExternalRef refuses to overwrite an
+// existing (source, ref) — identity is stable once bound — so re-discovering
+// the same instrument every sweep is the expected steady state.
+func (h *Handler) discoverRefs(ctx context.Context, name string, p PriceProvider, assets []*entity.Asset) {
+	d, ok := p.(RefDiscoverer)
+	if !ok {
+		return
+	}
+	refs, err := d.DiscoverRefs(ctx, assets)
+	if err != nil && h.log != nil {
+		// Partial results still travel: the error names one asset's lookup, not
+		// the whole batch.
+		h.log.Warn("provider ref discovery failed", "source", name, "error", err)
+	}
+	if len(refs) == 0 {
+		return
+	}
+
+	byID := make(map[string]*entity.Asset, len(assets))
+	for _, a := range assets {
+		byID[a.ID] = a
+	}
+	for i := range refs {
+		created, err := h.store.CreateAssetExternalRef(ctx, &refs[i])
+		if err != nil {
+			if !errors.Is(err, store.ErrConstraint) && h.log != nil {
+				h.log.Warn("persist discovered ref failed", "source", name,
+					"asset_id", refs[i].AssetID, "error", err)
+			}
+			continue
+		}
+		if a, ok := byID[created.AssetID]; ok {
+			a.ExternalRefs = append(a.ExternalRefs, *created)
+		}
+	}
+}
+
 // attachRiskFlags loads an asset's axis-2 flags for the single-asset read.
 //
 // Best-effort, like the bindings next to it: a card that cannot list flags is
@@ -1005,6 +1065,7 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			continue
 		}
 		h.attachExternalRefs(ctx, assets)
+		h.discoverRefs(ctx, name, provider, assets)
 
 		results, err := provider.FetchPrices(ctx, assets)
 		if err != nil {
@@ -1015,20 +1076,41 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		h.recordAttempts(ctx, name, assets, results)
 
 		// Resolve base asset UUID for this provider (create the asset if it doesn't exist yet).
-		sym := strings.ToUpper(provider.BaseAssetSymbol())
-		baseID, ok := baseAssetCache[sym]
-		if !ok {
+		resolveBase := func(sym string) (string, error) {
+			sym = strings.ToUpper(sym)
+			if id, ok := baseAssetCache[sym]; ok {
+				return id, nil
+			}
 			baseAsset, err := h.store.GetOrCreateAssetBySymbol(ctx, sym, sym, provider.BaseAssetType())
 			if err != nil {
-				fetchErrs = append(fetchErrs, fmt.Sprintf("%s: resolve base asset %s: %v", name, sym, err))
-				continue
+				return "", fmt.Errorf("resolve base asset %s: %w", sym, err)
 			}
-			baseID = baseAsset.ID
-			baseAssetCache[sym] = baseID
+			baseAssetCache[sym] = baseAsset.ID
+			return baseAsset.ID, nil
+		}
+
+		defaultBaseID, err := resolveBase(provider.BaseAssetSymbol())
+		if err != nil {
+			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
+			continue
 		}
 
 		totalFetched += len(results)
 		for i := range results {
+			// Most sources quote everything in one currency and say so once. A
+			// broker prices a foreign share in dollars and a domestic one in
+			// roubles out of the same response, so a row may name its own base;
+			// storing those under the provider's default would be a hundredfold
+			// error, not a rounding one.
+			baseID := defaultBaseID
+			if sym := results[i].BaseSymbol; sym != "" {
+				resolved, err := resolveBase(sym)
+				if err != nil {
+					fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
+					continue
+				}
+				baseID = resolved
+			}
 			results[i].BaseAssetID = baseID
 			allPrices = append(allPrices, &results[i])
 		}

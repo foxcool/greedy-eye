@@ -252,7 +252,21 @@ func (r *Resolver) PriceProvidersFor(ctx context.Context, userID string) (map[st
 		}
 		client, err := r.clientFor("price_provider", a, func() (any, error) { return factory(a) })
 		if err != nil {
-			return nil, fmt.Errorf("build price provider from account %s: %w", a.ID, err)
+			// One account that cannot be built costs its own provider, not the
+			// registry. Failing the whole resolution here would let a single
+			// misconfigured credential stop every price in the sweep —
+			// CoinGecko, MOEX, the FX leg — which is a far larger outage than
+			// the thing that is actually broken.
+			//
+			// Loud rather than silent: an unusable account is a configuration
+			// problem its owner has to see, and quiet degradation is what let
+			// stale env credentials serve the sweep for days (personal-cpw).
+			if r.cfg.Log != nil {
+				r.cfg.Log.Warn("price provider account unusable, skipped",
+					slog.String("provider", slug), slog.String("account_id", a.ID),
+					slog.Any("error", err))
+			}
+			continue
 		}
 		providers[slug] = client.(marketdata.PriceProvider)
 		accountBacked[slug] = true

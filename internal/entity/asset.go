@@ -62,7 +62,8 @@ type Asset struct {
 	Name   string
 	Symbol string
 	Type   AssetType
-	// Market is the listing market/venue: "crypto" (global), "nasdaq", "moex".
+	// Market is the listing market/venue: "crypto" (global), "nasdaq", "moex",
+	// "spbex".
 	Market string
 	// Quote is the quote currency where applicable ("" when not meaningful).
 	Quote string

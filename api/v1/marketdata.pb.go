@@ -166,7 +166,7 @@ type Asset struct {
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	// Listing market/venue ("crypto" is the single global crypto market,
-	// "nasdaq", "moex"), not the price source. Defaults by type on create:
+	// "nasdaq", "moex", "spbex"), not the price source. Defaults by type on create:
 	// cryptocurrency -> "crypto", forex -> "forex"; required otherwise.
 	Market *string `protobuf:"bytes,8,opt,name=market,proto3,oneof" json:"market,omitempty"`
 	// Quote currency/base where applicable.
