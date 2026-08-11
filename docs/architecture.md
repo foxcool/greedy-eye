@@ -762,9 +762,15 @@ Rules that follow from this:
 - An absent quote and a zero valuation are **different statements**. Nothing may turn the first
   into the second
 - A price and an amount go stale **independently**. `ValuationCoverage.amounts_as_of` carries the
-  oldest confirmation time among the holdings counted, so an hourly re-price cannot present
-  week-old quantities as a current total. `prices_as_of` is the same statement about the other
-  axis: a quote can outlive its market — a delisted security keeps its last print forever
+  oldest confirmation time among the **synced** holdings counted, so an hourly re-price cannot
+  present week-old quantities as a current total. `prices_as_of` is the same statement about the
+  other axis: a quote can outlive its market — a delisted security keeps its last print forever
+- **An age is only a symptom where something was responsible for refreshing it.** A hand-entered
+  or imported amount has no sweep behind it, so it never enters `amounts_as_of`: one forgotten
+  manual row would pin that date permanently and the field would stop reporting the sweep it
+  exists to watch. Its own age is disclosed per row instead — `Holding.updated_at` beside
+  `Holding.source`, where the owner can act on it. The field is unset when every counted holding
+  was entered by hand, which `priced_count` tells apart from an empty result
 - **Not every disclosure is a removal.** A thin market takes a position out of the total, because
   the price is not realisable; a stale quote leaves it in and labels it, because dropping it would
   take the position out on an outage and put it back on recovery, moving the total for reasons

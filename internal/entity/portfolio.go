@@ -139,6 +139,18 @@ func (s ProvenanceSource) Valid() bool {
 	}
 }
 
+// Swept reports whether a provider is responsible for keeping this row current.
+// Only a synced row has one: a hand-entered or imported amount is a claim its
+// author owns, and no sweep will ever revisit it.
+//
+// The distinction matters wherever an age is read as a symptom. A synced amount
+// that is two weeks old means the sweep failed to reach its account; a manual
+// amount that is two weeks old means it was entered two weeks ago and is exactly
+// as true as it was then.
+func (s ProvenanceSource) Swept() bool {
+	return s == SourceSync
+}
+
 // Liquidity says how soon a position can be spent. It is the axis the runway
 // question needs — "how much can I use, and when" — and it lives on the row
 // rather than on the asset: the same ATOM is liquid in the bank pool and staked

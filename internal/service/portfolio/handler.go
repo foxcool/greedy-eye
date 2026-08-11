@@ -297,6 +297,12 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 	// The oldest amount in the total is what the total can honestly claim to be
 	// as of: one week-old position dates the whole number, however fresh the
 	// prices under it are.
+	//
+	// Synced rows only. A manual amount cannot be refreshed by anything, so
+	// including it pins this date forever and the field stops reporting the
+	// sweep it exists to watch. What a stale hand-entered position needs is
+	// disclosure per row — `Holding.updated_at` beside `Holding.source` — not a
+	// portfolio-wide date that can never move.
 	var oldestAmount time.Time
 	// The same statement about the other axis. A quote can outlive its market —
 	// a delisted security keeps its last print forever — and until it is dated,
@@ -329,7 +335,9 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 			continue
 		}
 		coverage.PricedCount++
-		oldestAmount = olderOf(oldestAmount, hld.UpdatedAt)
+		if hld.Source.Swept() {
+			oldestAmount = olderOf(oldestAmount, hld.UpdatedAt)
+		}
 		oldestQuote = olderOf(oldestQuote, priced.quotedAt)
 		// A stale quote still counts toward the total: see ValuationCoverage on
 		// why naming it beats removing it. Counted per holding, not per asset —
