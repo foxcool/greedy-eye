@@ -740,13 +740,24 @@ type ValuationCoverage struct {
 	Unpriced []*UnpricedHolding `protobuf:"bytes,3,rep,name=unpriced,proto3" json:"unpriced,omitempty"`
 	// True when unpriced_count exceeds the cap and `unpriced` lists only a prefix.
 	UnpricedTruncated bool `protobuf:"varint,4,opt,name=unpriced_truncated,json=unpricedTruncated,proto3" json:"unpriced_truncated,omitempty"`
-	// When the amounts behind this result were last confirmed: the oldest
-	// update time among the holdings that entered it.
+	// When the amounts behind this result were last confirmed by a sync: the
+	// oldest update time among the SYNCED holdings that entered it.
 	//
 	// A price and an amount go stale independently, and only the price has a
 	// sweep watching it. Re-pricing week-old quantities produces a total that
 	// moves every hour and stays wrong — a number that moves reads as a number
-	// that is current. Unset when nothing was counted.
+	// that is current.
+	//
+	// Hand-entered and imported holdings are deliberately not counted here. No
+	// provider will ever refresh them, so one forgotten manual row would pin this
+	// date permanently and the field would report nothing about the sweep it
+	// exists to watch. Their age is disclosed where it can be acted on: per row,
+	// as `Holding.updated_at` beside `Holding.source`.
+	//
+	// Unset when nothing was counted — and also when everything counted was
+	// hand-entered, which a caller can tell apart by `priced_count` being
+	// non-zero. Read that as "no synced amount stands behind this total", not as
+	// "the quantities are current".
 	AmountsAsOf *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=amounts_as_of,json=amountsAsOf,proto3" json:"amounts_as_of,omitempty"`
 	// How many of the priced holdings were valued by a quote older than the
 	// instance's freshness policy (see `valuation.v1`; the default is 48h).

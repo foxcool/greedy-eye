@@ -203,8 +203,8 @@ func TestCalculatePortfolioValue_ReportsAmountAge(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
-		{ID: "h1", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: recent},
-		{ID: "h2", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: old},
+		{ID: "h1", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: recent, Source: entity.SourceSync},
+		{ID: "h2", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: old, Source: entity.SourceSync},
 	}, "", nil)
 
 	md := &mockMDClient{}
@@ -222,4 +222,71 @@ func TestCalculatePortfolioValue_ReportsAmountAge(t *testing.T) {
 	require.NotNil(t, resp.Msg.Coverage.GetAmountsAsOf())
 	assert.Equal(t, old, resp.Msg.Coverage.GetAmountsAsOf().AsTime(),
 		"the oldest amount dates the whole total, however fresh the rest is")
+}
+
+// TestCalculatePortfolioValue_AmountAgeIgnoresUnsweptRows: a hand-entered amount
+// is not stale, it is simply as old as its author left it, and nothing will ever
+// refresh it. Counting it here pins the date forever, which is what made the
+// field unreadable on production: it reported 26.07 for weeks while every synced
+// account was being refreshed hourly.
+func TestCalculatePortfolioValue_AmountAgeIgnoresUnsweptRows(t *testing.T) {
+	ancient := time.Date(2025, 8, 1, 12, 0, 0, 0, time.UTC)
+	old := time.Date(2026, 7, 26, 9, 0, 0, 0, time.UTC)
+	recent := time.Date(2026, 8, 4, 6, 15, 0, 0, time.UTC)
+
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
+		{ID: "h1", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: recent, Source: entity.SourceSync},
+		{ID: "h2", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: old, Source: entity.SourceManual},
+		{ID: "h3", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: ancient, Source: entity.SourceLLMImport},
+	}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("GetLatestPrice", mock.Anything, mock.Anything).Return(connect.NewResponse(&apiv1.Price{
+		AssetId: testAssetID, BaseAssetId: "usd", Last: "100", Decimals: 0,
+	}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+
+	resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
+		PortfolioId:  testPortfolioID,
+		QuoteAssetId: "usd",
+	}))
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, resp.Msg.Coverage.GetPricedCount(),
+		"unswept rows stay in the total; only their age is not a symptom")
+	require.NotNil(t, resp.Msg.Coverage.GetAmountsAsOf())
+	assert.Equal(t, recent, resp.Msg.Coverage.GetAmountsAsOf().AsTime(),
+		"the date reports the sweep, so only synced rows can set it")
+}
+
+// TestCalculatePortfolioValue_AllUnsweptLeavesAmountsUndated: with nothing synced
+// there is no sweep to report on, and the field says nothing rather than passing
+// a manual entry date off as a confirmation. A caller tells this apart from an
+// empty portfolio by priced_count.
+func TestCalculatePortfolioValue_AllUnsweptLeavesAmountsUndated(t *testing.T) {
+	old := time.Date(2026, 7, 26, 9, 0, 0, 0, time.UTC)
+
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
+		{ID: "h1", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: old, Source: entity.SourceManual},
+	}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("GetLatestPrice", mock.Anything, mock.Anything).Return(connect.NewResponse(&apiv1.Price{
+		AssetId: testAssetID, BaseAssetId: "usd", Last: "100", Decimals: 0,
+	}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+
+	resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
+		PortfolioId:  testPortfolioID,
+		QuoteAssetId: "usd",
+	}))
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, resp.Msg.Coverage.GetPricedCount())
+	assert.Nil(t, resp.Msg.Coverage.GetAmountsAsOf(),
+		"no synced amount stands behind this total, and silence beats a date that means something else")
 }

@@ -337,6 +337,32 @@ func TestGetHeatmap_FullCoverageReportsNothingMissing(t *testing.T) {
 	assert.False(t, cov.UnpricedTruncated)
 }
 
+// TestGetHeatmap_AmountAgeIgnoresUnsweptRows: the map dates its quantities by the
+// same rule as the total, and for the same reason — a hand-entered amount has no
+// sweep behind it, so its age says nothing about whether the map is being kept
+// current, and letting it set the date freezes the date.
+func TestGetHeatmap_AmountAgeIgnoresUnsweptRows(t *testing.T) {
+	ancient := time.Date(2025, 8, 1, 12, 0, 0, 0, time.UTC)
+	recent := time.Date(2026, 8, 4, 6, 15, 0, 0, time.UTC)
+
+	st, md := fixture()
+	st.holdings[0].UpdatedAt = recent
+	st.holdings[0].Source = entity.SourceSync
+	st.holdings[1].UpdatedAt = ancient
+	st.holdings[1].Source = entity.SourceManual
+
+	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+
+	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
+	require.NoError(t, err)
+
+	cov := resp.Msg.Coverage
+	require.NotNil(t, cov)
+	assert.Equal(t, uint32(2), cov.PricedCount, "both tiles are drawn; only the dating changes")
+	require.NotNil(t, cov.GetAmountsAsOf())
+	assert.Equal(t, recent, cov.GetAmountsAsOf().AsTime())
+}
+
 // TestGetHeatmap_SkipsThinMarket: a quote with no market behind it does not draw a
 // node. MNEP would otherwise render as the second-largest tile on the dev map,
 // $4,175 of area over a market that turns over $40k a day.

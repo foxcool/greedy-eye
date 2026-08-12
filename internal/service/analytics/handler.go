@@ -157,6 +157,9 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 	var unpriced []*apiv1.UnpricedHolding
 	// The oldest amount behind a tile dates the whole map, the same way it dates
 	// a total: fresh prices over week-old quantities still draw last week.
+	// Synced rows only, for the reason spelled out in CalculatePortfolioValue:
+	// a manual amount has no sweep behind it, so its age is not a symptom and
+	// would pin this date permanently.
 	var oldestAmount time.Time
 	// And the same for the price axis: a tile drawn from a quote that outlived
 	// its market looks exactly like one drawn from this morning's print.
@@ -189,7 +192,9 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 			continue
 		}
 		coverage.PricedCount++
-		oldestAmount = olderOf(oldestAmount, hld.UpdatedAt)
+		if hld.Source.Swept() {
+			oldestAmount = olderOf(oldestAmount, hld.UpdatedAt)
+		}
 		oldestQuote = olderOf(oldestQuote, ap.quotedAt)
 		// Counted per holding even though pricing is cached per asset: the
 		// question is how many POSITIONS on this map rest on a quote that may no
