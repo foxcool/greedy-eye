@@ -986,6 +986,13 @@ const (
 	missBackoffCap = 7 * 24 * time.Hour
 )
 
+// baseAssetKey identifies a quote currency the way the catalogue does: a ticker
+// is not an identity on its own.
+type baseAssetKey struct {
+	symbol string
+	typ    entity.AssetType
+}
+
 // quarantineVerdicts are excluded from unattended pricing: their holdings are
 // already excluded from the portfolio sums, so a price for them buys nothing.
 var quarantineVerdicts = []string{
@@ -1042,8 +1049,11 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	var fetchErrs []string
 	var totalFetched int
 
-	// Cache base asset UUIDs per symbol to avoid repeated lookups across providers.
-	baseAssetCache := map[string]string{} // symbol → UUID
+	// Cache base asset UUIDs to avoid repeated lookups across providers. Keyed by
+	// symbol AND type: identity is composite, and two providers naming the same
+	// ticker for different kinds of thing (a stablecoin USDT against a fiat USDT
+	// row) do not mean the same asset.
+	baseAssetCache := map[baseAssetKey]string{}
 
 	for name, provider := range providers {
 		if len(req.Msg.SourceIds) > 0 && !slices.Contains(req.Msg.SourceIds, name) {
@@ -1064,6 +1074,32 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		if len(assets) == 0 {
 			continue
 		}
+		// Resolve base asset UUID for this provider (create the asset if it doesn't exist yet).
+		resolveBase := func(sym string) (string, error) {
+			key := baseAssetKey{symbol: strings.ToUpper(sym), typ: provider.BaseAssetType()}
+			if id, ok := baseAssetCache[key]; ok {
+				return id, nil
+			}
+			baseAsset, err := h.store.GetOrCreateAssetBySymbol(ctx, key.symbol, key.symbol, key.typ)
+			if err != nil {
+				return "", fmt.Errorf("resolve base asset %s: %w", key.symbol, err)
+			}
+			baseAssetCache[key] = baseAsset.ID
+			return baseAsset.ID, nil
+		}
+
+		// Resolved BEFORE the provider is asked for anything. The base is a
+		// constant of the provider, so a failure here is a failure of the whole
+		// batch either way — and doing it afterwards means paying for the
+		// request, spending the quota and recording the attempts, only to throw
+		// every price away at the last step. That is precisely what Binance did
+		// on dev, hourly, from 2026-06-02 until this was moved.
+		defaultBaseID, err := resolveBase(provider.BaseAssetSymbol())
+		if err != nil {
+			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
+			continue
+		}
+
 		h.attachExternalRefs(ctx, assets)
 		h.discoverRefs(ctx, name, provider, assets)
 
@@ -1074,26 +1110,6 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			continue
 		}
 		h.recordAttempts(ctx, name, assets, results)
-
-		// Resolve base asset UUID for this provider (create the asset if it doesn't exist yet).
-		resolveBase := func(sym string) (string, error) {
-			sym = strings.ToUpper(sym)
-			if id, ok := baseAssetCache[sym]; ok {
-				return id, nil
-			}
-			baseAsset, err := h.store.GetOrCreateAssetBySymbol(ctx, sym, sym, provider.BaseAssetType())
-			if err != nil {
-				return "", fmt.Errorf("resolve base asset %s: %w", sym, err)
-			}
-			baseAssetCache[sym] = baseAsset.ID
-			return baseAsset.ID, nil
-		}
-
-		defaultBaseID, err := resolveBase(provider.BaseAssetSymbol())
-		if err != nil {
-			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
-			continue
-		}
 
 		totalFetched += len(results)
 		for i := range results {

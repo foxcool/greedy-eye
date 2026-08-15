@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // --- Mock Store ---
@@ -1076,18 +1077,18 @@ func TestCalculatePortfolioValue_CrossRate(t *testing.T) {
 	}}, "", nil)
 
 	md := &mockMDClient{}
-	// 1. No direct X/USD price.
-	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
-		return r.Msg.AssetId == assetX && r.Msg.BaseAssetId == "USD"
-	})).Return(nil, connect.NewError(connect.CodeNotFound, errors.New("not found")))
-	// 2. X actually trades in USDT at 2.0.
+	// 1. X actually trades in USDT at 2.0 — this is its freshest print, and the
+	//    question valuation asks first. Matched exactly, not through latestIn:
+	//    the whole point here is that the two lookups answer differently.
 	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
 		return r.Msg.AssetId == assetX && r.Msg.BaseAssetId == ""
 	})).Return(connect.NewResponse(&apiv1.Price{Last: "200000000", Decimals: 8, BaseAssetId: usdtUUID}), nil)
-	// 3. USDT depegged to 0.99 USD.
+	// 2. No direct X/USD price.
 	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
-		return r.Msg.AssetId == usdtUUID && r.Msg.BaseAssetId == "USD"
-	})).Return(connect.NewResponse(&apiv1.Price{Last: "99000000", Decimals: 8, BaseAssetId: "USD"}), nil)
+		return r.Msg.AssetId == assetX && r.Msg.BaseAssetId == "USD"
+	})).Return(nil, connect.NewError(connect.CodeNotFound, errors.New("not found")))
+	// 3. USDT depegged to 0.99 USD.
+	md.On("GetLatestPrice", mock.Anything, latestIn(usdtUUID, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "99000000", Decimals: 8, BaseAssetId: "USD"}), nil)
 
 	h := newHandler(s).WithMarketDataClient(md)
 	resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
@@ -1118,12 +1119,8 @@ func TestCalculatePortfolioValue_DisclosesExcluded(t *testing.T) {
 	}, "", nil)
 
 	md := &mockMDClient{}
-	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
-		return r.Msg.AssetId == legitAsset && r.Msg.BaseAssetId == "USD"
-	})).Return(connect.NewResponse(&apiv1.Price{Last: "300000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 3.0
-	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
-		return r.Msg.AssetId == scamAsset && r.Msg.BaseAssetId == "USD"
-	})).Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 1.0
+	md.On("GetLatestPrice", mock.Anything, latestIn(legitAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "300000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 3.0
+	md.On("GetLatestPrice", mock.Anything, latestIn(scamAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 1.0
 
 	h := newHandler(s).WithMarketDataClient(md)
 	resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
@@ -1154,16 +1151,12 @@ func TestCalculatePortfolioValue_ReportsUnpricedCoverage(t *testing.T) {
 	}, "", nil)
 
 	md := &mockMDClient{}
-	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
-		return r.Msg.AssetId == pricedAsset && r.Msg.BaseAssetId == "USD"
-	})).Return(connect.NewResponse(&apiv1.Price{Last: "300000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 3.0
+	md.On("GetLatestPrice", mock.Anything, latestIn(pricedAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "300000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 3.0
 	// The FinEx-style case: no direct quote and no traded pair to cross through.
 	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
 		return r.Msg.AssetId == unpricedAsset
 	})).Return(nil, connect.NewError(connect.CodeNotFound, errors.New("not found")))
-	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
-		return r.Msg.AssetId == scamAsset && r.Msg.BaseAssetId == "USD"
-	})).Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 1.0
+	md.On("GetLatestPrice", mock.Anything, latestIn(scamAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 1.0
 	symbol := "FXUS"
 	md.On("GetAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetAssetRequest]) bool {
 		return r.Msg.Id == unpricedAsset
@@ -1217,15 +1210,9 @@ func TestCalculatePortfolioValue_GatesThinMarket(t *testing.T) {
 	thinVolume := "4065500000000"      // $40,655 — MNEP's real 24h volume
 
 	md := &mockMDClient{}
-	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
-		return r.Msg.AssetId == liquidAsset && r.Msg.BaseAssetId == "USD"
-	})).Return(connect.NewResponse(&apiv1.Price{Last: "300000000", Decimals: 8, BaseAssetId: "USD", Volume: &bigVolume}), nil) // 3.0
-	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
-		return r.Msg.AssetId == receiptAsset && r.Msg.BaseAssetId == "USD"
-	})).Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 1.0, no volume reported
-	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
-		return r.Msg.AssetId == thinAsset && r.Msg.BaseAssetId == "USD"
-	})).Return(connect.NewResponse(&apiv1.Price{Last: "1391886", Decimals: 8, BaseAssetId: "USD", Volume: &thinVolume}), nil) // $0.01391886
+	md.On("GetLatestPrice", mock.Anything, latestIn(liquidAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "300000000", Decimals: 8, BaseAssetId: "USD", Volume: &bigVolume}), nil) // 3.0
+	md.On("GetLatestPrice", mock.Anything, latestIn(receiptAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 1.0, no volume reported
+	md.On("GetLatestPrice", mock.Anything, latestIn(thinAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "1391886", Decimals: 8, BaseAssetId: "USD", Volume: &thinVolume}), nil) // $0.01391886
 	symbol := "MNEP"
 	md.On("GetAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetAssetRequest]) bool {
 		return r.Msg.Id == thinAsset
@@ -1250,6 +1237,113 @@ func TestCalculatePortfolioValue_GatesThinMarket(t *testing.T) {
 	assert.Equal(t, "MNEP", cov.Unpriced[0].Symbol)
 	assert.Equal(t, apiv1.UnpricedReason_UNPRICED_REASON_THIN_MARKET, cov.Unpriced[0].Reason,
 		"the quote existed; what it lacked was a market")
+}
+
+// TestCalculatePortfolioValue_FreshCrossBeatsStaleDirect is prod 2026-08-14 in
+// miniature: CoinGecko's BTC/USD froze on the 11th behind a 429 while Binance
+// kept writing BTC/USDT hourly, and the total showed the frozen number because
+// resolution was ordered by path — direct first — rather than by age. Storing
+// prices from two sources buys nothing if the read only ever looks at one.
+func TestCalculatePortfolioValue_FreshCrossBeatsStaleDirect(t *testing.T) {
+	const (
+		btc      = "00000000-0000-0000-0000-0000000000b1"
+		usdtUUID = "00000000-0000-0000-0000-0000000000d7"
+	)
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{{
+		ID: testHoldingID, AssetID: btc, Amount: decimal.NewFromInt(100000000), Decimals: 8, // 1.0 BTC
+	}}, "", nil)
+
+	stale := timestamppb.New(time.Now().Add(-72 * time.Hour))
+	fresh := timestamppb.New(time.Now().Add(-time.Hour))
+
+	md := &mockMDClient{}
+	// The asset's freshest print: quoted in USDT, an hour old.
+	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
+		return r.Msg.AssetId == btc && r.Msg.BaseAssetId == ""
+	})).Return(connect.NewResponse(&apiv1.Price{
+		Last: "6369373000000", Decimals: 8, BaseAssetId: usdtUUID, Timestamp: fresh,
+	}), nil)
+	// A direct USD quote that stopped moving three days ago.
+	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
+		return r.Msg.AssetId == btc && r.Msg.BaseAssetId == "USD"
+	})).Return(connect.NewResponse(&apiv1.Price{
+		Last: "6414600000000", Decimals: 8, BaseAssetId: "USD", Timestamp: stale,
+	}), nil)
+	md.On("GetLatestPrice", mock.Anything, latestIn(usdtUUID, "USD")).Return(connect.NewResponse(&apiv1.Price{
+		Last: "100000000", Decimals: 8, BaseAssetId: "USD", Timestamp: fresh,
+	}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+	resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
+		PortfolioId: testPortfolioID,
+	}))
+	require.NoError(t, err)
+
+	assert.Equal(t, "6369373", resp.Msg.TotalValueAmount,
+		"the hour-old crossed quote, not the three-day-old direct one")
+	require.NotNil(t, resp.Msg.Coverage)
+	assert.Equal(t, uint32(0), resp.Msg.Coverage.StaleCount,
+		"the total rests on a fresh quote, so nothing in it is stale")
+	require.NotNil(t, resp.Msg.Coverage.PricesAsOf)
+	assert.WithinDuration(t, fresh.AsTime(), resp.Msg.Coverage.PricesAsOf.AsTime(), time.Second,
+		"the number is dated by the quote it actually used")
+}
+
+// TestCalculatePortfolioValue_ThinGateReadsAnyVolumeBearingQuote: the freshest
+// quote is not always the one carrying the evidence. Binance reports no volume
+// at all, and marketdepth.Thin reads an absent volume as "no claim" — so
+// selecting on freshness alone would let a volume-less row displace the one
+// saying "$40,655 a day" and disarm ADR-009 by accident. The gate reads every
+// candidate, not just the chosen one.
+func TestCalculatePortfolioValue_ThinGateReadsAnyVolumeBearingQuote(t *testing.T) {
+	const (
+		mnep     = "00000000-0000-0000-0000-0000000000a3"
+		usdtUUID = "00000000-0000-0000-0000-0000000000d7"
+	)
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{{
+		ID: "h1", AssetID: mnep, Amount: decimal.NewFromInt(30000000000000), Decimals: 8, // 300,000 units
+	}}, "", nil)
+
+	thinVolume := "4065500000000" // $40,655 — MNEP's real 24h volume
+	stale := timestamppb.New(time.Now().Add(-72 * time.Hour))
+	fresh := timestamppb.New(time.Now().Add(-time.Hour))
+
+	md := &mockMDClient{}
+	// Freshest print, from a source that reports no volume whatsoever.
+	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
+		return r.Msg.AssetId == mnep && r.Msg.BaseAssetId == ""
+	})).Return(connect.NewResponse(&apiv1.Price{
+		Last: "1391886", Decimals: 8, BaseAssetId: usdtUUID, Timestamp: fresh,
+	}), nil)
+	// Older, and the only row that says anything about the market behind it.
+	md.On("GetLatestPrice", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
+		return r.Msg.AssetId == mnep && r.Msg.BaseAssetId == "USD"
+	})).Return(connect.NewResponse(&apiv1.Price{
+		Last: "1391886", Decimals: 8, BaseAssetId: "USD", Volume: &thinVolume, Timestamp: stale,
+	}), nil)
+	md.On("GetLatestPrice", mock.Anything, latestIn(usdtUUID, "USD")).Return(connect.NewResponse(&apiv1.Price{
+		Last: "100000000", Decimals: 8, BaseAssetId: "USD", Timestamp: fresh,
+	}), nil)
+	symbol := "MNEP"
+	md.On("GetAsset", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.Asset{Id: mnep, Symbol: &symbol}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+	resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
+		PortfolioId: testPortfolioID,
+	}))
+	require.NoError(t, err)
+
+	assert.Equal(t, "0", resp.Msg.TotalValueAmount, "$4,175 of airdrop stays out of the total")
+	cov := resp.Msg.Coverage
+	require.NotNil(t, cov)
+	require.Len(t, cov.Unpriced, 1)
+	assert.Equal(t, apiv1.UnpricedReason_UNPRICED_REASON_THIN_MARKET, cov.Unpriced[0].Reason,
+		"a fresher quote with no volume does not overrule an older one that measured the market")
 }
 
 // TestCalculatePortfolioValue_UnpricedListIsCapped: the count stays exact while
@@ -1381,6 +1475,19 @@ func (m *mockMDClient) GetLatestPrice(ctx context.Context, req *connect.Request[
 		return v.(*connect.Response[apiv1.Price]), args.Error(1)
 	}
 	return nil, args.Error(1)
+}
+
+// latestIn matches a price lookup for `asset` that either names `base` or asks
+// for the asset's freshest row in any base at all.
+//
+// Valuation asks the second question first: it selects on freshness, so it wants
+// the newest print before it wants a particular pair. For an asset whose only
+// row IS in the quote asset both questions have the same answer, which is why
+// one expectation serves both.
+func latestIn(asset, base string) any {
+	return mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
+		return r.Msg.AssetId == asset && (r.Msg.BaseAssetId == base || r.Msg.BaseAssetId == "")
+	})
 }
 
 func (m *mockMDClient) ListPriceHistory(ctx context.Context, req *connect.Request[apiv1.ListPriceHistoryRequest]) (*connect.Response[apiv1.ListPriceHistoryResponse], error) {

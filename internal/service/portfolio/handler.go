@@ -515,52 +515,113 @@ func (o priceOutcome) reason() apiv1.UnpricedReason {
 	return apiv1.UnpricedReason_UNPRICED_REASON_NO_QUOTE
 }
 
+// quote is one usable way to express an asset in the quote currency: the price
+// row it rests on, the rate that converts that row's base, and the per-token
+// value that falls out.
+type quote struct {
+	unit decimal.Decimal
+	row  *apiv1.Price
+	rate decimal.Decimal
+}
+
 // unitPrice returns the per-token price of assetID expressed in quoteAssetID as a
 // real-unit decimal (i.e. already divided by the price's decimals).
 //
 // A position is priced in whatever pair it actually trades in (USDT, RUB, BTC, …); the
-// quote currency is not assumed. Resolution:
-//  1. direct  — a price quoted straight in quoteAssetID
-//  2. cross   — the asset's latest price in its own base B, converted B→quote
+// quote currency is not assumed. Among the ways to express it, the FRESHEST wins.
 //
-// A quote that survives resolution still has to have a market behind it: MNEP priced
-// $4,175 of airdropped tokens off a $40k/day market until this gate existed. The check
-// runs on the asset's OWN price row only — the cross rate is a currency pair, and
-// gating it would take down everything priced through it.
+// That is a correction, not a preference. Resolution used to be ordered by path —
+// a direct quote first, a cross only if no direct one existed — so one stale
+// direct row shadowed every fresher row the catalogue held, from any source,
+// permanently. Prod 2026-08-14 is the proof: Binance wrote BTC/USDT hourly and
+// current while CoinGecko's BTC/USD had been frozen since the 11th by a 429, and
+// the total and the map both showed the frozen number. Storing prices from
+// several sources buys nothing if the read discards all but one of them, which
+// is the whole of personal-psu on the side nobody was looking at.
+//
+// A quote that survives selection still has to have a market behind it: MNEP priced
+// $4,175 of airdropped tokens off a $40k/day market until this gate existed. The gate
+// reads EVERY candidate that reports a volume, not only the one whose number is used,
+// because the freshest row is not always the one carrying the evidence — Binance
+// reports no volume at all, and letting its row displace a CoinGecko row that says
+// "$40k a day" would disarm ADR-009 by accident. The rate is applied per candidate,
+// since volume is denominated in that candidate's own base. The cross rate itself is
+// never gated: it is a currency pair, and judging it would take down everything
+// priced through it.
 //
 // A non-nil error signals an unexpected failure, not an unpriced holding.
 func (h *Handler) unitPrice(ctx context.Context, assetID, quoteAssetID string) (pricing, error) {
-	unit, price, ok, err := h.realPrice(ctx, assetID, quoteAssetID)
+	candidates, err := h.quotes(ctx, assetID, quoteAssetID)
 	if err != nil {
 		return pricing{outcome: outcomeNoQuote}, err
 	}
-	if ok {
-		if marketdepth.Thin(price, decimal.NewFromInt(1)) {
+	if len(candidates) == 0 {
+		return pricing{outcome: outcomeNoQuote}, nil
+	}
+
+	for _, c := range candidates {
+		if marketdepth.Thin(c.row, c.rate) {
 			return pricing{outcome: outcomeThinMarket}, nil
 		}
-		return pricing{unit: unit, outcome: outcomePriced, quotedAt: pricefresh.QuotedAt(price)}, nil
 	}
 
-	// The asset's actual traded pair: latest price in whatever base it has.
-	baseID, value, price, ok, err := h.latestAnyBase(ctx, assetID)
-	if err != nil || !ok {
-		return pricing{outcome: outcomeNoQuote}, err
-	}
-
-	rate, ok, err := h.crossRate(ctx, baseID, quoteAssetID)
-	if err != nil || !ok {
-		return pricing{outcome: outcomeNoQuote}, err
-	}
-	// Volume is denominated in the base the asset trades in, so it converts with
-	// the same rate as the price.
-	if marketdepth.Thin(price, rate) {
-		return pricing{outcome: outcomeThinMarket}, nil
-	}
+	best := freshestQuote(candidates)
 	// Dated by the asset's own quote, not by the cross rate. The rate is a
 	// currency pair on the same footing as the market-depth gate above: judging
 	// it here would let one stale FX row date every position converted through
 	// it, which says nothing about whether THIS asset still trades.
-	return pricing{unit: value.Mul(rate), outcome: outcomePriced, quotedAt: pricefresh.QuotedAt(price)}, nil
+	return pricing{unit: best.unit, outcome: outcomePriced, quotedAt: pricefresh.QuotedAt(best.row)}, nil
+}
+
+// quotes collects every way this asset can be expressed in quoteAssetID: its own
+// freshest print converted from whatever pair it trades in, and a price quoted
+// straight in the quote asset. They are the same row whenever the freshest print
+// is already in the quote asset, and then there is only one candidate and
+// nothing to choose between.
+func (h *Handler) quotes(ctx context.Context, assetID, quoteAssetID string) ([]quote, error) {
+	one := decimal.NewFromInt(1)
+	var out []quote
+
+	baseID, value, row, ok, err := h.latestAnyBase(ctx, assetID)
+	if err != nil {
+		return nil, err
+	}
+	direct := ok && baseID == quoteAssetID
+	switch {
+	case direct:
+		out = append(out, quote{unit: value, row: row, rate: one})
+	case ok:
+		rate, hasRate, err := h.crossRate(ctx, baseID, quoteAssetID)
+		if err != nil {
+			return nil, err
+		}
+		if hasRate {
+			out = append(out, quote{unit: value.Mul(rate), row: row, rate: rate})
+		}
+	}
+
+	if !direct {
+		unit, row, ok, err := h.realPrice(ctx, assetID, quoteAssetID)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out = append(out, quote{unit: unit, row: row, rate: one})
+		}
+	}
+	return out, nil
+}
+
+// freshestQuote picks the most recently observed candidate. A quote with no
+// timestamp sorts oldest: it cannot claim currency it never stated.
+func freshestQuote(candidates []quote) quote {
+	best := candidates[0]
+	for _, c := range candidates[1:] {
+		if pricefresh.QuotedAt(c.row).After(pricefresh.QuotedAt(best.row)) {
+			best = c
+		}
+	}
+	return best
 }
 
 // crossRate returns how many units of quoteID one unit of baseID is worth, using a
