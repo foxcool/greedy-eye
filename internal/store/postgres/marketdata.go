@@ -200,11 +200,31 @@ func (s *MarketDataStore) GetAsset(ctx context.Context, id string) (*entity.Asse
 	return asset, nil
 }
 
-// GetOrCreateAssetBySymbol returns an existing asset by symbol or creates a new one.
-// typeIfNew and nameIfNew are used only when creating. Safe under concurrent inserts:
-// if a concurrent write wins the race, the existing row is returned.
-func (s *MarketDataStore) GetOrCreateAssetBySymbol(ctx context.Context, symbol, nameIfNew string, typeIfNew entity.AssetType) (*entity.Asset, error) {
-	a, err := s.GetAssetBySymbol(ctx, symbol)
+// GetOrCreateAssetBySymbol returns the asset a caller means by a bare ticker of
+// a known kind, creating it when it does not exist yet. nameIfNew is used only
+// when creating. Safe under concurrent inserts: if a concurrent write wins the
+// race, the existing row is returned.
+//
+// The lookup is scoped by TYPE, and that is not a refinement — it is the write
+// path read back correctly. CreateAsset stores the row at
+// (symbol, DefaultMarket(type), type), so resolving it by symbol alone asks a
+// wider question than the one that was written, and any second row sharing the
+// ticker answers "ambiguous" from then on.
+//
+// Dev 2026-08-14 is the proof. Correcting Binance's quote currency from forex to
+// cryptocurrency (commit 0f5c100) left the old USDT row in place, and because
+// type is part of the identity key the correction minted a twin instead of
+// updating the row. Every sweep afterwards threw away Binance's whole batch on
+// "symbol USDT is ambiguous" — for two months, unnoticed until CoinGecko's quota
+// ran out and there was no second source left to notice it with.
+//
+// Market is deliberately NOT part of the lookup. Legacy rows were backfilled to
+// 'crypto' regardless of type, so USD lives at (USD, crypto, forex) while a
+// fresh one would be created at (USD, forex, forex). Matching on market would
+// miss the existing row and mint a duplicate base asset — with every price ever
+// stored still pointing at the old one.
+func (s *MarketDataStore) GetOrCreateAssetBySymbol(ctx context.Context, symbol, nameIfNew string, typ entity.AssetType) (*entity.Asset, error) {
+	a, err := s.findAssetBySymbol(ctx, symbol, typ)
 	if err == nil {
 		return a, nil
 	}
@@ -214,13 +234,13 @@ func (s *MarketDataStore) GetOrCreateAssetBySymbol(ctx context.Context, symbol, 
 	created, err := s.CreateAsset(ctx, &entity.Asset{
 		Symbol: symbol,
 		Name:   nameIfNew,
-		Type:   typeIfNew,
+		Type:   typ,
 		Tags:   []string{},
 	})
 	if err != nil {
 		// Concurrent insert: another process created it first — read back.
 		if errors.Is(err, store.ErrConstraint) {
-			return s.GetAssetBySymbol(ctx, symbol)
+			return s.findAssetBySymbol(ctx, symbol, typ)
 		}
 		return nil, err
 	}
@@ -246,9 +266,26 @@ func (s *MarketDataStore) GetOrCreateAssetBySymbol(ctx context.Context, symbol, 
 // The contract market is not ignored, only outranked: a symbol that ONLY an
 // isolated contract carries still resolves, and two of them still collide.
 func (s *MarketDataStore) GetAssetBySymbol(ctx context.Context, symbol string) (*entity.Asset, error) {
+	return s.findAssetBySymbol(ctx, symbol, entity.AssetTypeUnspecified)
+}
+
+// findAssetBySymbol is GetAssetBySymbol with an optional type filter;
+// entity.AssetTypeUnspecified means "any kind", which is the symbol-only
+// question GetAssetBySymbol asks. The tiering is shared rather than copied:
+// which rows may contend for a ticker is one rule, and a second copy of it is
+// how the contract market would start shadowing a ticker again in one caller
+// and not the other.
+func (s *MarketDataStore) findAssetBySymbol(ctx context.Context, symbol string, typ entity.AssetType) (*entity.Asset, error) {
 	symbol = entity.NormalizeSymbol(symbol)
 	if symbol == "" {
 		return nil, fmt.Errorf("%w: symbol is required", store.ErrInvalidArgument)
+	}
+
+	args := []any{symbol}
+	typeFilter := ""
+	if typ != entity.AssetTypeUnspecified {
+		args = append(args, assetTypeToString(typ))
+		typeFilter = fmt.Sprintf(" AND type = $%d", len(args))
 	}
 
 	// Ordered so the preferred tier comes first; the cap is a sanity bound, the
@@ -256,11 +293,11 @@ func (s *MarketDataStore) GetAssetBySymbol(ctx context.Context, symbol string) (
 	query := `
 		SELECT ` + assetColumns + `
 		FROM assets
-		WHERE symbol = $1
+		WHERE symbol = $1` + typeFilter + `
 		ORDER BY (market LIKE 'onchain:%') ASC, created_at ASC
 		LIMIT 50`
 
-	rows, err := s.pool.Query(ctx, query, symbol)
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get asset by symbol: %w", err)
 	}

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -101,13 +102,48 @@ func (c *Client) WithBaseURL(baseURL string) *Client {
 	return c
 }
 
+// tickerBatchSize bounds how many symbols travel in one request.
+//
+// Binance answers 400 (code -1121, "Invalid symbol.") for the WHOLE request if a
+// single symbol in it is unknown — verified against the live API on 2026-08-14
+// with symbols=["BTCUSDT","NOTAREALCOINUSDT"]. Asking for the entire stale set
+// at once therefore makes every price hostage to the worst entry in it. Batching
+// does not make an unknown symbol free, it bounds what one costs.
+const tickerBatchSize = 100
+
 // GetTickerPrices fetches current prices for the given symbols.
 // Uses the public GET /api/v3/ticker/price endpoint — no auth required.
 // Pass multiple symbols as a JSON array: symbols=["BTCUSDT","ETHUSDT"].
+//
+// A batch that fails costs its own symbols and no others; an error is returned
+// only when every batch failed, because "some prices" and "no prices" are
+// different answers and the caller records attempts from what came back.
 func (c *Client) GetTickerPrices(ctx context.Context, symbols []string) ([]TickerPrice, error) {
 	if len(symbols) == 0 {
 		return nil, nil
 	}
+
+	var out []TickerPrice
+	var firstErr error
+	var failed int
+	for chunk := range slices.Chunk(symbols, tickerBatchSize) {
+		got, err := c.tickerPriceBatch(ctx, chunk)
+		if err != nil {
+			failed++
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		out = append(out, got...)
+	}
+	if failed > 0 && len(out) == 0 {
+		return nil, firstErr
+	}
+	return out, nil
+}
+
+func (c *Client) tickerPriceBatch(ctx context.Context, symbols []string) ([]TickerPrice, error) {
 
 	encoded, err := json.Marshal(symbols)
 	if err != nil {

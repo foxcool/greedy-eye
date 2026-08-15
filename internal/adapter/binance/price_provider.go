@@ -35,6 +35,23 @@ func (p *Provider) BaseAssetSymbol() string { return "USDT" }
 // BaseAssetType reports that Binance's quote currency (USDT) is a cryptocurrency stablecoin.
 func (p *Provider) BaseAssetType() entity.AssetType { return entity.AssetTypeCryptocurrency }
 
+// speaksFor reports whether this provider prices the asset at all.
+//
+// Selection is by market, like every other price adapter: assets.market is the
+// listing venue. It matters more here than anywhere else, because this provider
+// still identifies an instrument by its TICKER (see FetchPrices), and a ticker
+// is minted by whoever pays the gas. An asset isolated on its own contract
+// market — entity.ContractMarket, the quarantine a counterfeit lands in — must
+// never be asked about under a name it merely claims, or the counterfeit is
+// priced as the real thing and the whole point of the isolation is undone.
+//
+// This is a floor, not the fix. A counterfeit that reached the global crypto
+// market without a verdict is still exposed; binding to the listing is what
+// closes that (personal-avm.1).
+func (p *Provider) speaksFor(a *entity.Asset) bool {
+	return a != nil && entity.NormalizeMarket(a.Market) == entity.MarketCrypto
+}
+
 // FetchPrices fetches current prices from Binance for the given assets.
 // Binance symbols are derived from asset symbols as UPPER(symbol)+"USDT"
 // (e.g., asset.Symbol="BTC" → "BTCUSDT").
@@ -48,9 +65,15 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 	symbolToAsset := make(map[string]string, len(assets))
 	symbols := make([]string, 0, len(assets))
 	for _, a := range assets {
+		if !p.speaksFor(a) {
+			continue
+		}
 		sym := strings.ToUpper(a.Symbol) + "USDT"
 		symbolToAsset[sym] = a.ID
 		symbols = append(symbols, sym)
+	}
+	if len(symbols) == 0 {
+		return nil, nil
 	}
 
 	tickers, err := p.client.GetTickerPrices(ctx, symbols)

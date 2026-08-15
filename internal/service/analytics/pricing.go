@@ -30,11 +30,31 @@ type assetPricing struct {
 	quotedAt time.Time
 }
 
+// quote is one usable way to express an asset in the quote currency: the price
+// row it rests on, the rate converting that row's base, the per-token value that
+// falls out, and the base itself — the map reads change in the pair the asset
+// actually trades in.
+type quote struct {
+	unit   decimal.Decimal
+	row    *apiv1.Price
+	rate   decimal.Decimal
+	baseID string
+	// valueBase is the price in its own base, before conversion; change is
+	// computed there so a moving cross rate does not read as a moving asset.
+	valueBase decimal.Decimal
+}
+
 // assetPricing resolves (and caches in `cache`) price, change and label for assetID.
 //
-// Price resolution mirrors portfolio.Handler.unitPrice: direct quote first, then
-// cross through the asset's actual traded base. Duplicated consciously — second
-// consumer; extract a shared pricing package on the third (rule of three).
+// Price resolution mirrors portfolio.Handler.unitPrice, deliberately down to the
+// wording: among the ways to express the asset, the FRESHEST candidate wins, and
+// the market-depth gate reads every candidate that reports a volume rather than
+// only the chosen one. See unitPrice for why each of those is the way it is.
+//
+// Duplicated consciously — second consumer; extract a shared pricing package on
+// the third (rule of three). Until then TestTotalAndHeatmapAgree is what keeps
+// the two copies answering the same question: a total and a map that disagree
+// are the same failure as способ #6, moved between two backend services.
 func (h *Handler) assetPricing(ctx context.Context, cache map[string]*assetPricing, assetID, quoteAssetID string, from time.Time) (*assetPricing, error) {
 	if ap, ok := cache[assetID]; ok {
 		return ap, nil
@@ -46,48 +66,83 @@ func (h *Handler) assetPricing(ctx context.Context, cache map[string]*assetPrici
 		return nil, err
 	}
 
-	// Direct price in the quote asset: value and change come from the same pair.
-	if unit, price, ok, err := h.realPrice(ctx, assetID, quoteAssetID); err != nil {
+	candidates, err := h.quotes(ctx, assetID, quoteAssetID)
+	if err != nil {
 		return nil, err
-	} else if ok {
-		if h.markThin(ctx, ap, assetID, price, decimal.NewFromInt(1)) {
+	}
+	if len(candidates) == 0 {
+		return ap, nil
+	}
+	for _, c := range candidates {
+		if h.markThin(ctx, ap, assetID, c.row, c.rate) {
 			return ap, nil
 		}
-		ap.unit, ap.priced, ap.quotedAt = unit, true, pricefresh.QuotedAt(price)
-		then, ok, err := h.histPrice(ctx, assetID, quoteAssetID, from)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			ap.changePct = changePct(unit, then)
-		}
-		return ap, nil
 	}
 
-	// Cross price: latest in the asset's own traded base, converted to quote.
-	// Change is computed in base terms (the conversion rate cancels out only
-	// approximately, but it is the pair the asset actually trades in).
-	baseID, nowBase, price, ok, err := h.latestAnyBase(ctx, assetID)
-	if err != nil || !ok {
-		return ap, err
-	}
-	rate, ok, err := h.crossRate(ctx, baseID, quoteAssetID)
-	if err != nil || !ok {
-		return ap, err
-	}
-	// Volume is denominated in the traded base, so it converts with the same rate.
-	if h.markThin(ctx, ap, assetID, price, rate) {
-		return ap, nil
-	}
-	ap.unit, ap.priced, ap.quotedAt = nowBase.Mul(rate), true, pricefresh.QuotedAt(price)
-	thenBase, ok, err := h.histPrice(ctx, assetID, baseID, from)
+	best := freshestQuote(candidates)
+	ap.unit, ap.priced, ap.quotedAt = best.unit, true, pricefresh.QuotedAt(best.row)
+
+	// Change is read in the pair the price came from: the conversion rate
+	// cancels out only approximately, and it is the asset that is being asked
+	// about, not the currency it is converted through.
+	then, ok, err := h.histPrice(ctx, assetID, best.baseID, from)
 	if err != nil {
 		return nil, err
 	}
 	if ok {
-		ap.changePct = changePct(nowBase, thenBase)
+		ap.changePct = changePct(best.valueBase, then)
 	}
 	return ap, nil
+}
+
+// quotes collects every way this asset can be expressed in quoteAssetID: its own
+// freshest print converted from whatever pair it trades in, and a price quoted
+// straight in the quote asset. They are the same row whenever the freshest print
+// is already in the quote asset, and then there is nothing to choose between.
+func (h *Handler) quotes(ctx context.Context, assetID, quoteAssetID string) ([]quote, error) {
+	one := decimal.NewFromInt(1)
+	var out []quote
+
+	baseID, value, row, ok, err := h.latestAnyBase(ctx, assetID)
+	if err != nil {
+		return nil, err
+	}
+	direct := ok && baseID == quoteAssetID
+	switch {
+	case direct:
+		out = append(out, quote{unit: value, row: row, rate: one, baseID: baseID, valueBase: value})
+	case ok:
+		rate, hasRate, err := h.crossRate(ctx, baseID, quoteAssetID)
+		if err != nil {
+			return nil, err
+		}
+		if hasRate {
+			out = append(out, quote{unit: value.Mul(rate), row: row, rate: rate, baseID: baseID, valueBase: value})
+		}
+	}
+
+	if !direct {
+		unit, row, ok, err := h.realPrice(ctx, assetID, quoteAssetID)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out = append(out, quote{unit: unit, row: row, rate: one, baseID: quoteAssetID, valueBase: unit})
+		}
+	}
+	return out, nil
+}
+
+// freshestQuote picks the most recently observed candidate. A quote with no
+// timestamp sorts oldest: it cannot claim currency it never stated.
+func freshestQuote(candidates []quote) quote {
+	best := candidates[0]
+	for _, c := range candidates[1:] {
+		if pricefresh.QuotedAt(c.row).After(pricefresh.QuotedAt(best.row)) {
+			best = c
+		}
+	}
+	return best
 }
 
 // markThin applies the market-depth gate to the asset's own price row and reports
