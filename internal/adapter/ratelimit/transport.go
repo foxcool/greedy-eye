@@ -14,6 +14,17 @@ const (
 	// maxBackoff caps what a provider can talk us into. A Retry-After of a
 	// day would silently take the sync offline until a restart.
 	maxBackoff = 15 * time.Minute
+	// maxEscalatedBackoff caps the pause we impose on ourselves after repeated
+	// refusals. It is deliberately larger than maxBackoff: that one bounds what
+	// a provider may ask for, this one bounds how long we keep believing the
+	// provider will change its mind.
+	//
+	// Hours rather than days. A plan that has run dry stays dry until the period
+	// rolls over, so a longer ceiling would be closer to the truth — and would
+	// also mean that one bad afternoon costs a day of prices when the cause was
+	// transient. Retrying hourly against an exhausted plan is cheap; staying
+	// silent through a recovery is not.
+	maxEscalatedBackoff = 2 * time.Hour
 )
 
 // backoffStatuses are the responses that mean "stop sending for a while".
@@ -76,11 +87,40 @@ func (t *limitedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 
 	if backoffStatuses[resp.StatusCode] {
-		t.bucket.noteBackoff()
-		t.bucket.freezeUntil(t.clock().Add(retryAfter(resp)))
+		// The pause grows with each refusal that no success has interrupted.
+		//
+		// A provider says "too many requests" for two different reasons and does
+		// not distinguish them: the rate was too high, or the plan is spent. The
+		// first clears in seconds; the second does not clear at all before the
+		// period rolls over. Honouring Retry-After alone treats both as the
+		// first, so an instance that has run into a spent plan thaws and asks
+		// again, indefinitely — dev spent four and a half days doing exactly
+		// that, 70 refusals deep, every request certain to be refused.
+		//
+		// Escalating asserts nothing about which reason applies. It only stops
+		// paying for an answer we keep being given, and it heals itself: one
+		// successful response resets the run.
+		streak := t.bucket.noteBackoff()
+		t.bucket.freezeUntil(t.clock().Add(escalate(retryAfter(resp), streak)))
+	} else {
+		t.bucket.noteSuccess()
 	}
 
 	return resp, nil
+}
+
+// escalate doubles the provider's own pause once per consecutive refusal,
+// bounded by maxEscalatedBackoff. A streak of one returns base unchanged, so a
+// single 429 behaves exactly as it did before.
+func escalate(base time.Duration, streak int64) time.Duration {
+	if base <= 0 {
+		base = defaultBackoff
+	}
+	d := base
+	for i := int64(1); i < streak && d < maxEscalatedBackoff; i++ {
+		d *= 2
+	}
+	return min(d, maxEscalatedBackoff)
 }
 
 // waitOutFreeze blocks until an active back-off expires, or the context ends.

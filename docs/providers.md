@@ -218,10 +218,46 @@ included. That is deliberate: providers meter rate per IP as much as per key,
 and the whole process shares one address, so a rate one account is told to
 respect is a rate all of them have to respect.
 
-It changes rate only. A **volume allowance stays with the key it belongs to** —
-it is that account's plan and that account's money, and no operator setting can
-raise or lower it. Fields left unset keep the tier's value, so naming a burst
-does not silently zero the rate.
+Fields left unset keep the tier's value, so naming a burst does not silently
+zero the rate.
+
+### Sharing one plan between deployments
+
+The same section carries volume:
+
+```yaml
+ratelimit:
+  coingecko:
+    quota: 2000     # what THIS deployment may spend
+    period: month   # or "day"; required whenever quota is set
+```
+
+This used to be forbidden, on the grounds that a volume allowance belongs to
+the key and is that account's money, which no operator setting should touch.
+That reasoning held while one key meant one deployment. It stopped holding on
+2026-08-11: dev and production ran the same CoinGecko key, each counted spend
+into its own database, each divided the remaining allowance as though it owned
+all 10,000 calls — and the plan ran dry with both instances still reporting
+room, then answered 429 for four days while they kept asking.
+
+So the setting does not raise or lower the plan. It declares **this
+deployment's share of it**, which is a fact about the deployment and belongs
+next to the other deployment-wide knobs. Set it below the plan on every
+instance that shares a key; leave it unset and the provider's own plan applies
+whole, which is right when the key is not shared.
+
+A quota with no `period` is refused at startup. It would never roll over —
+the counters reset on a boundary that does not exist — so the allowance would
+be spent once and that provider would stay silent for the life of the
+deployment, surfacing days later as "prices stopped updating".
+
+Repeated refusals are also self-limiting now: each 429 that no successful
+response has interrupted doubles the pause, up to a couple of hours. That
+asserts nothing about *why* a provider is refusing — rate and exhausted plan
+arrive as the same status — it only stops paying for an answer already given.
+One good response resets it. The escalation lives in memory: a restart starts
+the run over, which costs one pause rather than a burn, because the spend the
+quota check reads is persisted.
 
 Providers not named keep their defaults, and a provider with no default at all
 gets 1 rps.
