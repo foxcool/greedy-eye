@@ -566,14 +566,25 @@ func loggingInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {
 
 // rateLimitOverrides converts the operator-facing config section into the
 // limiter's own type. A provider absent here keeps its built-in default, so
-// the section is only ever a correction.
+// the section is only ever a correction — and so is each field: the registry
+// applies only the ones an operator actually wrote.
+//
+// Volume travels with rate. Carrying only RPS and Burst is what left an
+// operator able to slow a provider down but unable to cap what it spends, which
+// on a plan metered by volume is not a smaller version of the same control — it
+// is no control at all.
 func rateLimitOverrides(config *Config) map[string]ratelimit.Limit {
 	if len(config.RateLimit) == 0 {
 		return nil
 	}
 	out := make(map[string]ratelimit.Limit, len(config.RateLimit))
 	for provider, l := range config.RateLimit {
-		out[provider] = ratelimit.Limit{RPS: l.RPS, Burst: l.Burst}
+		out[provider] = ratelimit.Limit{
+			RPS:    l.RPS,
+			Burst:  l.Burst,
+			Quota:  l.Quota,
+			Period: ratelimit.QuotaPeriod(l.Period),
+		}
 	}
 	return out
 }

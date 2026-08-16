@@ -486,3 +486,88 @@ func TestBackoffsAreCounted(t *testing.T) {
 	assert.EqualValues(t, 1, snap[0].Requests)
 	assert.EqualValues(t, 1, snap[0].Backoffs)
 }
+
+// TestRepeatedBackoffEscalates: a provider that keeps refusing buys a longer
+// pause each time, so an instance that has run into a spent plan stops paying
+// for the same answer. Dev spent four and a half days re-asking CoinGecko for a
+// 429 it had already been given seventy times.
+func TestRepeatedBackoffEscalates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	reg := newTestRegistry(t, 1000)
+	tr, ok := reg.Transport(Credential{Provider: "test", APIKey: "key"}, nil).(*limitedTransport)
+	require.True(t, ok)
+
+	now := time.Now()
+	tr.now = func() time.Time { return now }
+	client := &http.Client{Transport: tr}
+
+	// Each call is made from a moment past the previous freeze, so the pause
+	// being measured is the new one rather than what was left of the old.
+	for _, want := range []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute} {
+		resp, err := client.Get(srv.URL) //nolint:noctx // fixed URL
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		assert.Equal(t, want, tr.bucket.frozenFor(now), "streak of refusals lengthens the pause")
+		now = now.Add(want)
+	}
+}
+
+// TestSuccessResetsEscalation: the escalation is a response to being refused,
+// not a memory of having been refused. One answer that is not a refusal puts
+// the next pause back where it started.
+func TestSuccessResetsEscalation(t *testing.T) {
+	var refuse atomic.Bool
+	refuse.Store(true)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if refuse.Load() {
+			w.Header().Set("Retry-After", "60")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	reg := newTestRegistry(t, 1000)
+	tr, ok := reg.Transport(Credential{Provider: "test", APIKey: "key"}, nil).(*limitedTransport)
+	require.True(t, ok)
+
+	now := time.Now()
+	tr.now = func() time.Time { return now }
+	client := &http.Client{Transport: tr}
+
+	for range 3 {
+		resp, err := client.Get(srv.URL) //nolint:noctx // fixed URL
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		now = now.Add(tr.bucket.frozenFor(now))
+	}
+	require.EqualValues(t, 3, tr.bucket.streak)
+
+	refuse.Store(false)
+	resp, err := client.Get(srv.URL) //nolint:noctx // fixed URL
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	assert.EqualValues(t, 0, tr.bucket.streak, "a good answer ends the run")
+
+	refuse.Store(true)
+	resp, err = client.Get(srv.URL) //nolint:noctx // fixed URL
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	assert.Equal(t, time.Minute, tr.bucket.frozenFor(now),
+		"the next refusal starts from the provider's own pause again")
+}
+
+// TestEscalationIsBounded: however long a provider stays unavailable, the pause
+// stops growing. Believing a provider will never come back is a claim, and this
+// package does not make claims — it only stops paying for a refused answer.
+func TestEscalationIsBounded(t *testing.T) {
+	assert.Equal(t, maxEscalatedBackoff, escalate(time.Minute, 1000))
+	assert.Equal(t, time.Minute, escalate(time.Minute, 1), "one refusal is the provider's own pause")
+	assert.Equal(t, defaultBackoff, escalate(0, 1), "a provider that names no pause gets the default")
+}

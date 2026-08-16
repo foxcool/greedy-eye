@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
 	"github.com/knadh/koanf"
 	"github.com/knadh/koanf/parsers/json"
 	"github.com/knadh/koanf/parsers/toml"
@@ -102,13 +103,36 @@ type Config struct {
 	} `koanf:"scheduler"`
 }
 
-// RateLimitConfig is one provider's request budget.
+// RateLimitConfig is one provider's request budget for THIS deployment.
+//
+// A budget has two dimensions and they are not interchangeable. Rate is what a
+// provider meters per second; volume is what a plan allows per period. Lowering
+// the rate does not reduce what a month costs — it only spreads the same
+// requests over more time.
+//
+// Volume is here rather than beside the credential because it describes the
+// deployment, not the key. Two instances sharing one plan need different shares
+// of it, which is the failure this section exists to prevent: on 2026-08-11 dev
+// and prod held the same CoinGecko key, each counted spend into its own
+// database, each sized its sweep as though it owned all 10,000 calls, and the
+// plan ran out with both instances still reporting room. (The same reasoning
+// keeps rps/burst in config — see personal-s05.3.)
 type RateLimitConfig struct {
 	// RPS is the sustained rate. Fractional values are meaningful.
 	RPS float64 `koanf:"rps"`
 	// Burst is how many requests may go out back-to-back. Zero means one:
 	// providers that meter per second are tripped by bursts, not by rate.
 	Burst int `koanf:"burst"`
+	// Quota is how many requests this deployment may spend per Period. Zero
+	// leaves the provider's built-in plan alone, so the section stays a
+	// correction rather than a redefinition.
+	//
+	// Set it BELOW the plan when the key is shared: it is this instance's
+	// share, not the plan itself.
+	Quota int `koanf:"quota"`
+	// Period is the window Quota resets on: "day" or "month". Required
+	// whenever Quota is set — a volume with no window is not a budget.
+	Period string `koanf:"period"`
 }
 
 // ServiceConfig is a config for a service
@@ -208,7 +232,35 @@ func getConfig() (*Config, error) {
 		return nil, fmt.Errorf("can't unmarshal config: %w", err)
 	}
 
+	if err := validateRateLimits(config.RateLimit); err != nil {
+		return nil, err
+	}
+
 	return &config, nil
+}
+
+// validateRateLimits refuses a volume with no window at startup.
+//
+// It has to be fatal rather than a warning. A quota whose period is unset never
+// rolls over, because the counters reset on a period boundary that does not
+// exist — so the allowance is spent once and the provider goes quiet for the
+// life of the deployment. That failure surfaces as "prices stopped updating"
+// days later, nowhere near the line that caused it, which is exactly how the
+// outage this setting exists to prevent presented itself.
+func validateRateLimits(limits map[string]RateLimitConfig) error {
+	for provider, l := range limits {
+		if l.Quota <= 0 {
+			continue
+		}
+		switch ratelimit.QuotaPeriod(l.Period) {
+		case ratelimit.QuotaDay, ratelimit.QuotaMonth:
+		default:
+			return fmt.Errorf(
+				"ratelimit.%s: quota %d needs a period of %q or %q, got %q — a volume with no window never resets",
+				provider, l.Quota, ratelimit.QuotaDay, ratelimit.QuotaMonth, l.Period)
+		}
+	}
+	return nil
 }
 
 // loadTInvestRootCA reads the trust anchor for the broker API, if one is

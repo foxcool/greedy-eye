@@ -31,6 +31,18 @@ services:
       EYE_LOGGING_LEVEL: INFO
       EYE_SENTRY_ENVIRONMENT: "development"
       EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
+      # Development's share of a CoinGecko plan it does not own alone.
+      #
+      # The key is the same one production uses, and neither instance can see
+      # the other's spend: each counts into its own database and divides the
+      # remainder as though the whole plan were its. On 2026-08-11 that is
+      # exactly what happened — both still reported room while the plan was
+      # gone, and CoinGecko answered 429 for four days.
+      #
+      # A fifth of the free 10,000. Development exists to be wrong in cheaply,
+      # so it gets the small share; production keeps the plan's own default.
+      EYE_RATELIMIT_COINGECKO_QUOTA: "2000"
+      EYE_RATELIMIT_COINGECKO_PERIOD: "month"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/eye/health || exit 1"]
       interval: 5s

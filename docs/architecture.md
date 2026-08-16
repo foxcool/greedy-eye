@@ -413,10 +413,14 @@ per-account clients from stored credentials, falling back to env-configured clie
   Because clients are per-account and short-lived, a limiter inside a client paces one account and
   is blind to the rest — a sweep over three accounts on one key would triple the observed rate.
   `429`/`418`/`430` freeze the bucket for `Retry-After` (default 1 min, capped at 15) while the
-  response still reaches the adapter, which owns the error handling. Limits per provider live in
-  `defaultLimits`; `ratelimit.<provider>.rps`/`.burst` in config overrides them. In-process only:
-  like the scheduler, this assumes a single backend instance — a second instance gets its own
-  budget and their sum reaches the provider.
+  response still reaches the adapter, which owns the error handling; each further refusal with no
+  success between them doubles that pause, up to 2h, so an instance that has run into a spent plan
+  stops re-asking. The streak is in memory and a restart clears it — the spend it protects is not.
+  Limits per provider live in `defaultLimits`; `ratelimit.<provider>.rps`/`.burst`/`.quota`/`.period`
+  in config override them. Spend is persisted per period (`provider_usage`), so a restart does not
+  hand the process a fresh month. Two instances on ONE key remain the sharp edge: they see each
+  other's spend only through a shared database, and dev+prod do not have one — hence `quota` as this
+  deployment's declared share of the plan.
 
 **Wallet syncer routing (chain-keyed registry)**:
 

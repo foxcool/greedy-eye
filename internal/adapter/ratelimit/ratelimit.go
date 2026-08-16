@@ -503,6 +503,15 @@ type bucket struct {
 	backoffs        int64
 	pendingRequests int64
 	pendingBackoffs int64
+	// streak is how many refusals have arrived with no success between them.
+	// It sizes the escalating pause and is deliberately NOT persisted: the
+	// stored counters add rather than set (so a reset cannot be expressed) and
+	// count the whole period rather than the current run, so nothing in them
+	// distinguishes "the last answer was a refusal" from "the last answer was
+	// fine". A restart therefore starts the run over — which costs one
+	// provider-sized pause, not a burn, because the quota check reads spend
+	// that IS persisted and refuses before any request goes out.
+	streak int64
 }
 
 func newBucket(provider, fp string, l Limit, start time.Time) *bucket {
@@ -563,12 +572,24 @@ func (b *bucket) reserve(class Class, now time.Time) error {
 	return nil
 }
 
-// noteBackoff records that the provider asked us to slow down.
-func (b *bucket) noteBackoff() {
+// noteBackoff records that the provider asked us to slow down and returns how
+// many refusals have now arrived without a success between them.
+func (b *bucket) noteBackoff() int64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.backoffs++
 	b.pendingBackoffs++
+	b.streak++
+	return b.streak
+}
+
+// noteSuccess ends a run of refusals. Any answer that is not a back-off counts,
+// including an error status: the provider talked to us, which is the thing a
+// back-off said it would not do.
+func (b *bucket) noteSuccess() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.streak = 0
 }
 
 // takePending returns and clears the spend the store has not seen.
