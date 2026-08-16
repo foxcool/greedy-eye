@@ -1413,10 +1413,15 @@ func TestFetchExternalPrices_BudgetCapsTheSweep(t *testing.T) {
 	assert.Len(t, p.asked[0], 2, "both tiers reach the provider in one call")
 }
 
-// TestFetchExternalPrices_ExhaustedBudgetStillPricesFreeTier: with the plan's
-// background allowance spent, the curated batch still goes out — it costs one
-// request whatever happens — and nothing else is asked for.
-func TestFetchExternalPrices_ExhaustedBudgetStillPricesFreeTier(t *testing.T) {
+// TestFetchExternalPrices_ZeroBudgetStillPricesFreeTier: a budget of zero means
+// "nothing outside the exempt set is worth asking for", and the curated batch
+// still goes out — it costs one request whatever happens.
+//
+// It is deliberately NOT read as "this provider is spent". CBR returns zero
+// permanently, because its entire feed is that one exempt document; treating
+// the number as exhaustion switched off the FX leg, and without a RUB/USD rate
+// every rouble-quoted position values at nothing.
+func TestFetchExternalPrices_ZeroBudgetStillPricesFreeTier(t *testing.T) {
 	free := testAsset("free-1")
 
 	s := &mockStore{}
@@ -1440,6 +1445,7 @@ func TestFetchExternalPrices_ExhaustedBudgetStillPricesFreeTier(t *testing.T) {
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	require.NoError(t, err)
 	s.AssertNumberOfCalls(t, "ListStalePricingTargets", 1)
+	require.Len(t, p.asked, 1, "the exempt document is still fetched")
 }
 
 // TestFetchExternalPrices_MissesAreRecorded: assets the provider did not price
@@ -1550,4 +1556,61 @@ func TestDeleteAssetExternalRef_UnknownBindingIsNotFound(t *testing.T) {
 	err := unbind(t, h, adminCtx(), "asset-1", "ref-x")
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+}
+
+// stuckProvider is a provider that reports its own credential as unable to
+// carry work, the way CoinGecko does once its share of the plan is spent.
+type stuckProvider struct {
+	fakePriceProvider
+	reason string
+}
+
+func (s *stuckProvider) Unusable() (string, bool) { return s.reason, true }
+
+// TestFetchExternalPrices_SkipsUnusableProvider: a provider whose share is spent
+// or which is pausing after refusals is not asked at all — not even for target
+// selection. Handing it a list costs one refusal per asset, and recordAttempts
+// files each refusal against the ASSET, so a token's own back-off would grow
+// because of an outage it has nothing to do with.
+func TestFetchExternalPrices_SkipsUnusableProvider(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+
+	spent := &stuckProvider{reason: "share spent"}
+	working := &fakePriceProvider{}
+	h := newHandler(s).
+		WithProvider("coingecko", spent).
+		WithProvider("binance", working)
+
+	_, err := h.FetchExternalPrices(context.Background(), connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+
+	assert.Empty(t, spent.asked, "the unusable provider is never asked")
+	assert.NotEmpty(t, working.asked, "and the others are unaffected")
+}
+
+// TestFetchExternalPrices_ReconciliationIgnoresHealth: naming assets is a person
+// waiting for an answer, not background work. It is not sized by the background
+// share and must not be silenced by it — the request may well be the operator
+// checking whether the provider is back.
+func TestFetchExternalPrices_ReconciliationIgnoresHealth(t *testing.T) {
+	a := testAsset("a1")
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{a}, "", nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+
+	p := &stuckProvider{reason: "share spent"}
+	h := newHandler(s).WithProvider("coingecko", p)
+
+	_, err := h.FetchExternalPrices(context.Background(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a1"}}))
+	require.NoError(t, err)
+	assert.NotEmpty(t, p.asked, "an explicitly named asset is still asked for")
 }

@@ -53,6 +53,18 @@ type RefDiscoverer interface {
 	DiscoverRefs(ctx context.Context, assets []*entity.Asset) ([]entity.AssetExternalRef, error)
 }
 
+// HealthReportingProvider is implemented by providers that can tell whether
+// their own credential is able to carry work right now.
+//
+// Asked on the PROVIDER rather than looked up by slug, because a plan is
+// metered per credential: one slug can have several, of which one is spent and
+// another fine, and nothing outside the provider knows which one it holds.
+type HealthReportingProvider interface {
+	// Unusable returns why this provider cannot be asked now, in a phrase fit
+	// for a log line. False means go ahead.
+	Unusable() (reason string, unusable bool)
+}
+
 // BudgetExemptProvider is implemented by providers whose request cost does not
 // grow with the number of assets in some subset — CoinGecko covers up to 250
 // curated coin ids in a single /coins/markets call. Those symbols bypass the
@@ -1060,6 +1072,22 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			continue
 		}
 
+		// A provider that cannot answer is skipped before anything is selected
+		// for it. Asking anyway costs a refusal per asset, and recordAttempts
+		// files each one against the ASSET — so a token's own back-off would
+		// grow because a plan it never heard of ran out.
+		//
+		// Only the reconciliation path (named assets, a person waiting) goes
+		// through regardless: that is not background work, it is not sized by
+		// the background share, and the request may well be somebody checking
+		// whether the provider is back.
+		if hp, ok := provider.(HealthReportingProvider); ok && named == nil {
+			if reason, unusable := hp.Unusable(); unusable {
+				h.log.Info("price sweep: provider skipped", "provider", name, "reason", reason)
+				continue
+			}
+		}
+
 		// Selection is per source because freshness is: an asset Binance priced
 		// a minute ago is still stale for CoinGecko.
 		assets := named
@@ -1188,8 +1216,11 @@ func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PricePr
 		n, ok := bp.AssetBudget(now, h.refreshWindow)
 		if ok {
 			if n <= 0 {
-				// The plan's background allowance is spent; the free tier above
-				// still went out, since it costs nothing extra.
+				// Nothing outside the exempt set is worth asking for. That is
+				// not the same statement as "this provider has nothing left":
+				// CBR answers zero permanently, because its whole feed is the
+				// one exempt document. Whether a provider can be asked at all
+				// is HealthReportingProvider's question, asked before this.
 				return targets, nil
 			}
 			budgeted.Limit = n

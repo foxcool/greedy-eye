@@ -571,3 +571,66 @@ func TestEscalationIsBounded(t *testing.T) {
 	assert.Equal(t, time.Minute, escalate(time.Minute, 1), "one refusal is the provider's own pause")
 	assert.Equal(t, defaultBackoff, escalate(0, 1), "a provider that names no pause gets the default")
 }
+
+// TestUnusableReportsWhyAndWhen: the sweep asks this before it selects targets,
+// so the answer has to distinguish the two reasons a credential can be useless.
+// "Come back next month" and "come back after lunch" are different instructions.
+func TestUnusableReportsWhyAndWhen(t *testing.T) {
+	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+	reg := quotaRegistry(10, func() time.Time { return now })
+	cred := Credential{Provider: "test", APIKey: "key"}
+
+	_, unusable := reg.Unusable(cred)
+	assert.False(t, unusable, "a credential that has spent nothing is usable")
+
+	// Background may spend 8 of 10; spending them all leaves the sweep nothing.
+	b := reg.bucket(cred)
+	for range 8 {
+		require.NoError(t, b.reserve(ClassBackground, now))
+	}
+	reason, unusable := reg.Unusable(cred)
+	require.True(t, unusable)
+	assert.Contains(t, reason, "share of the plan is spent")
+	assert.Contains(t, reason, "2026-09-01", "a spent share ends on the period boundary")
+
+	_, unusable = reg.Unusable(Credential{Provider: "test", APIKey: "another"})
+	assert.False(t, unusable,
+		"a plan is metered per credential: one being spent says nothing about the next")
+}
+
+// TestUnusableReportsAPause: a run of refusals is the other reason, and it ends
+// at a moment rather than on a calendar boundary.
+func TestUnusableReportsAPause(t *testing.T) {
+	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+	reg := NewRegistry(map[string]Limit{"test": {RPS: 1000, Burst: 10}}, WithClock(func() time.Time { return now }))
+	cred := Credential{Provider: "test", APIKey: "key"}
+
+	reg.bucket(cred).freezeUntil(now.Add(30 * time.Minute))
+	reason, unusable := reg.Unusable(cred)
+	require.True(t, unusable)
+	assert.Contains(t, reason, "paused after repeated refusals")
+	assert.Contains(t, reason, "12:30")
+}
+
+// TestBudgetHandleReportsUnusable: an adapter holds a Budget, not the registry,
+// so that is where the question has to be answerable.
+func TestBudgetHandleReportsUnusable(t *testing.T) {
+	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+	reg := quotaRegistry(10, func() time.Time { return now })
+	cred := Credential{Provider: "test", APIKey: "key"}
+	budget := reg.Budget(cred)
+
+	_, unusable := budget.Unusable()
+	assert.False(t, unusable)
+
+	b := reg.bucket(cred)
+	for range 8 {
+		require.NoError(t, b.reserve(ClassBackground, now))
+	}
+	_, unusable = budget.Unusable()
+	assert.True(t, unusable)
+
+	var nilBudget *Budget
+	_, unusable = nilBudget.Unusable()
+	assert.False(t, unusable, "no budget wired means nothing to report")
+}
