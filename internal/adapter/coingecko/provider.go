@@ -169,6 +169,18 @@ func (p *Provider) AssetBudget(now time.Time, window time.Duration) (int, bool) 
 	return (requests - 1) * p.client.contractBatchSize(), true
 }
 
+// Unusable reports why this provider's credential cannot carry a sweep now.
+//
+// Distinct from AssetBudget returning zero, which is a statement about the long
+// tail — "nothing outside the curated batch is worth a request" — and leaves the
+// curated batch itself going out, because one call covers it whatever happens.
+// That reasoning holds only while a call is possible at all. When the plan is
+// spent or the credential is pausing after refusals, the curated batch is
+// refused too, and its assets are then recorded as misses: the holdings carrying
+// most of the portfolio's value back themselves out of the rotation because of
+// an allowance they have nothing to do with.
+func (p *Provider) Unusable() (string, bool) { return p.client.budget.Unusable() }
+
 // BaseAssetSymbol returns the ticker of the quote currency used by CoinGecko ("USD").
 func (p *Provider) BaseAssetSymbol() string { return "USD" }
 

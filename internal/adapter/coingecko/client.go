@@ -30,6 +30,11 @@ type Client struct {
 // depending on how budgets are keyed.
 type PlanBudget interface {
 	Remaining() (requests int, periodEnd time.Time, ok bool)
+	// Unusable reports why this credential cannot carry background work now.
+	// A sweep asks before selecting anything: being refused once per asset
+	// costs a request each time, and every refusal is filed against the ASSET,
+	// so its own back-off grows because of an allowance it never touched.
+	Unusable() (reason string, unusable bool)
 }
 
 // noBudget stands in when none was wired: unmetered by volume, so callers that
@@ -37,6 +42,8 @@ type PlanBudget interface {
 type noBudget struct{}
 
 func (noBudget) Remaining() (int, time.Time, bool) { return 0, time.Time{}, false }
+
+func (noBudget) Unusable() (string, bool) { return "", false }
 
 // TierPro names CoinGecko's paid plans. It matches the tier an account carries
 // in data["tier"], which is also what the rate budget resolves its limits from:

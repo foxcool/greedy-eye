@@ -20,6 +20,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -363,6 +364,18 @@ func (b *Budget) Remaining() (requests int, periodEnd time.Time, ok bool) {
 	return b.reg.Remaining(b.cred)
 }
 
+// Unusable reports why this budget's credential cannot carry background work
+// now. It is the question a sweep asks before selecting anything for a
+// provider: being refused per asset costs a request each time, and each refusal
+// is recorded against the ASSET, so its own back-off grows because of an
+// allowance it has nothing to do with.
+func (b *Budget) Unusable() (string, bool) {
+	if b == nil || b.reg == nil {
+		return "", false
+	}
+	return b.reg.Unusable(b.cred)
+}
+
 // Snapshot reports spend per credential since the period began. This is the
 // number an operator divides by the plan's allowance; there is no metrics
 // system in this process to publish it to.
@@ -647,6 +660,56 @@ func (b *bucket) freezeUntil(t time.Time) {
 	if t.After(b.frozenUntil) {
 		b.frozenUntil = t
 	}
+}
+
+// unusableFor reports why this credential cannot carry a request of the given
+// class right now, and when that ends. ok is false when it can.
+//
+// The two reasons are not the same kind of thing and the caller is told which.
+// A spent share ends on a calendar boundary and nothing before it will help; a
+// pause ends when it ends, and may end early on the next successful call from
+// another caller. Collapsing them into "unavailable" would hide the difference
+// between "come back next month" and "come back after lunch".
+func (b *bucket) unusableFor(class Class, now time.Time) (string, time.Time, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.rollPeriod(now)
+
+	if b.limit.Quota > 0 {
+		ceiling := b.limit.Quota
+		if class == ClassBackground {
+			ceiling = int(float64(b.limit.Quota) * backgroundReserve)
+		}
+		if b.requests >= int64(ceiling) {
+			end := periodEnd(b.periodStart, b.limit.Period)
+			return "this deployment's share of the plan is spent for the period", end, true
+		}
+	}
+
+	if now.Before(b.frozenUntil) {
+		return "paused after repeated refusals", b.frozenUntil, true
+	}
+
+	return "", time.Time{}, false
+}
+
+// Unusable reports why this credential cannot carry background work now, in a
+// phrase fit for a log line. False means go ahead.
+//
+// Asked per credential rather than per provider slug, because that is the unit
+// a plan is metered in. A slug can have several credentials, of which one is
+// spent and another fine, and scanning them all cannot tell which one the
+// caller actually holds — the caller can, because it holds it.
+func (r *Registry) Unusable(c Credential) (string, bool) {
+	if r == nil {
+		return "", false
+	}
+	now := r.now()
+	reason, until, unusable := r.bucket(c).unusableFor(ClassBackground, now)
+	if !unusable {
+		return "", false
+	}
+	return fmt.Sprintf("%s; not before %s", reason, until.UTC().Format(time.RFC3339)), true
 }
 
 // frozenFor reports how long the caller must wait before the next request.
