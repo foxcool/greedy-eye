@@ -382,7 +382,8 @@ graph TB
 
 The system uses the **Adapter Pattern** to isolate external API dependencies from core business logic.
 Adapters are no longer singletons: the credentials resolver (`internal/service/credentials/`) builds
-per-account clients from stored credentials, falling back to env-configured clients.
+per-account clients from stored credentials. Configuration carries none: a key names a plan, a
+plan names money, and both belong to the account rather than to the service.
 
 - **Price Adapters** (`internal/adapter/coingecko/`, `internal/adapter/binance/`): CoinGecko (live
   prices; tier-aware — the tier picks the host, the auth header and the plan allowance),
@@ -416,11 +417,12 @@ per-account clients from stored credentials, falling back to env-configured clie
   response still reaches the adapter, which owns the error handling; each further refusal with no
   success between them doubles that pause, up to 2h, so an instance that has run into a spent plan
   stops re-asking. The streak is in memory and a restart clears it — the spend it protects is not.
-  Limits per provider live in `defaultLimits`; `ratelimit.<provider>.rps`/`.burst`/`.quota`/`.period`
-  in config override them. Spend is persisted per period (`provider_usage`), so a restart does not
-  hand the process a fresh month. Two instances on ONE key remain the sharp edge: they see each
-  other's spend only through a shared database, and dev+prod do not have one — hence `quota` as this
-  deployment's declared share of the plan.
+  Built-in plans live in `defaultLimits`; the ACCOUNT overrides them field by field through
+  `data.rps`/`.burst`/`.quota`/`.period`, because a plan belongs to the key rather than to the
+  service. Spend is persisted per period (`provider_usage`), so a restart does not hand the process
+  a fresh month. Two instances on ONE key remain the sharp edge: they see each other's spend only
+  through a shared database, and dev+prod do not have one — hence `quota` as this deployment's
+  declared share of the plan.
 
 **Wallet syncer routing (chain-keyed registry)**:
 
@@ -555,7 +557,7 @@ API Client → MarketDataService → MarketDataStore → PostgreSQL
 API Client → MarketDataService/FetchExternalPrices → resolver → adapter → CreatePrices
   1. POST /eye.v1.MarketDataService/FetchExternalPrices
   2. Handler resolves the price providers for the caller (credentials resolver:
-     user account → system account → env fallback)
+     user account → system account → the sole operator's own, for unattended work)
   3. Each provider (CoinGecko / Binance) fetches prices for the tracked assets
   4. Prices are bulk-inserted via CreatePrices
   5. Response: FetchExternalPricesResponse{prices_fetched, prices_stored, errors}

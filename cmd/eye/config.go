@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
 	"github.com/knadh/koanf"
 	"github.com/knadh/koanf/parsers/json"
 	"github.com/knadh/koanf/parsers/toml"
@@ -33,31 +32,6 @@ type Config struct {
 		Port int `koanf:"port"`
 	} `koanf:"server"`
 	Services  []ServiceConfig `koanf:"services"`
-	CoinGecko struct {
-		APIKey string `koanf:"apiKey"`
-		Pro    bool   `koanf:"pro"`
-	} `koanf:"coingecko"`
-	Moralis struct {
-		APIKey string `koanf:"apiKey"`
-	} `koanf:"moralis"`
-	Binance struct {
-		APIKey    string `koanf:"apiKey"`
-		APISecret string `koanf:"apiSecret"`
-		Sandbox   bool   `koanf:"sandbox"`
-	} `koanf:"binance"`
-	TInvest struct {
-		// RootCAFile is the path to a PEM certificate authority used to verify
-		// the T-Invest API host, and the switch that enables the provider at
-		// all: without it the adapter is not registered.
-		//
-		// There is no default and the certificate is not vendored. The host's
-		// chain terminates in a root no standard trust store carries, so
-		// reaching the API means an operator deciding to trust that authority
-		// and mounting it — a decision that belongs to whoever runs the
-		// instance. Key is lowercase for the same env-override reason as the
-		// scheduler's cron keys.
-		RootCAFile string `koanf:"rootcafile"`
-	} `koanf:"tinvest"`
 	Security struct {
 		// MasterKey holds one or more base64-encoded 32-byte keys for
 		// accounts.data encryption at rest (ADR-005), comma-separated. Empty =
@@ -69,12 +43,6 @@ type Config struct {
 		// everything in the background and logs when the tail can be dropped.
 		MasterKey string `koanf:"masterKey"`
 	} `koanf:"security"`
-	// RateLimit lets an operator override the built-in per-provider request
-	// budget, keyed by provider slug (subscan, coingecko, ...). Useful on a
-	// paid plan, or to dial a provider down after an enforcement notice
-	// without waiting for a release. Omitted providers use the defaults in
-	// internal/adapter/ratelimit.
-	RateLimit map[string]RateLimitConfig `koanf:"ratelimit"`
 	Scheduler struct {
 		Enabled bool `koanf:"enabled"`
 		// PriceFetchCron is the cron spec for periodic external price
@@ -101,38 +69,6 @@ type Config struct {
 		// fire.
 		BalanceAccountsPerSweep int `koanf:"balanceaccountspersweep"`
 	} `koanf:"scheduler"`
-}
-
-// RateLimitConfig is one provider's request budget for THIS deployment.
-//
-// A budget has two dimensions and they are not interchangeable. Rate is what a
-// provider meters per second; volume is what a plan allows per period. Lowering
-// the rate does not reduce what a month costs — it only spreads the same
-// requests over more time.
-//
-// Volume is here rather than beside the credential because it describes the
-// deployment, not the key. Two instances sharing one plan need different shares
-// of it, which is the failure this section exists to prevent: on 2026-08-11 dev
-// and prod held the same CoinGecko key, each counted spend into its own
-// database, each sized its sweep as though it owned all 10,000 calls, and the
-// plan ran out with both instances still reporting room. (The same reasoning
-// keeps rps/burst in config — see personal-s05.3.)
-type RateLimitConfig struct {
-	// RPS is the sustained rate. Fractional values are meaningful.
-	RPS float64 `koanf:"rps"`
-	// Burst is how many requests may go out back-to-back. Zero means one:
-	// providers that meter per second are tripped by bursts, not by rate.
-	Burst int `koanf:"burst"`
-	// Quota is how many requests this deployment may spend per Period. Zero
-	// leaves the provider's built-in plan alone, so the section stays a
-	// correction rather than a redefinition.
-	//
-	// Set it BELOW the plan when the key is shared: it is this instance's
-	// share, not the plan itself.
-	Quota int `koanf:"quota"`
-	// Period is the window Quota resets on: "day" or "month". Required
-	// whenever Quota is set — a volume with no window is not a budget.
-	Period string `koanf:"period"`
 }
 
 // ServiceConfig is a config for a service
@@ -232,53 +168,6 @@ func getConfig() (*Config, error) {
 		return nil, fmt.Errorf("can't unmarshal config: %w", err)
 	}
 
-	if err := validateRateLimits(config.RateLimit); err != nil {
-		return nil, err
-	}
-
 	return &config, nil
 }
 
-// validateRateLimits refuses a volume with no window at startup.
-//
-// It has to be fatal rather than a warning. A quota whose period is unset never
-// rolls over, because the counters reset on a period boundary that does not
-// exist — so the allowance is spent once and the provider goes quiet for the
-// life of the deployment. That failure surfaces as "prices stopped updating"
-// days later, nowhere near the line that caused it, which is exactly how the
-// outage this setting exists to prevent presented itself.
-func validateRateLimits(limits map[string]RateLimitConfig) error {
-	for provider, l := range limits {
-		if l.Quota <= 0 {
-			continue
-		}
-		switch ratelimit.QuotaPeriod(l.Period) {
-		case ratelimit.QuotaDay, ratelimit.QuotaMonth:
-		default:
-			return fmt.Errorf(
-				"ratelimit.%s: quota %d needs a period of %q or %q, got %q — a volume with no window never resets",
-				provider, l.Quota, ratelimit.QuotaDay, ratelimit.QuotaMonth, l.Period)
-		}
-	}
-	return nil
-}
-
-// loadTInvestRootCA reads the trust anchor for the broker API, if one is
-// configured. An empty path is not an error: the provider is simply not
-// available on this instance, which is the normal state everywhere the broker
-// is not used.
-//
-// An unreadable path IS an error, and a fatal one. The alternative — carrying
-// on with no anchor — turns a typo in a path into TLS handshake failures inside
-// a price sweep hours later, where nothing points back at the configuration.
-func loadTInvestRootCA(path string) ([]byte, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return nil, nil
-	}
-	pem, err := os.ReadFile(path) // #nosec G304 -- operator-supplied path from config, not user input
-	if err != nil {
-		return nil, fmt.Errorf("read tinvest.rootCAFile %q: %w", path, err)
-	}
-	return pem, nil
-}
