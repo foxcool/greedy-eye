@@ -26,6 +26,10 @@ const DataProviderKey = "provider"
 type AccountSource interface {
 	ListUserAccountsByCapability(ctx context.Context, userID string, capability entity.AccountCapability) ([]*entity.Account, error)
 	ListSystemAccountsByCapability(ctx context.Context, capability entity.AccountCapability) ([]*entity.Account, error)
+	// ListCapabilityOwners returns the users holding an account with the
+	// capability. Unattended work reads it to tell a single-operator instance
+	// from a shared one.
+	ListCapabilityOwners(ctx context.Context, capability entity.AccountCapability) ([]string, error)
 }
 
 // WalletSyncerFactory builds a wallet syncer from account credentials.
@@ -150,7 +154,52 @@ func (r *Resolver) accountsFor(ctx context.Context, userID string, capability en
 	if err != nil {
 		return nil, fmt.Errorf("list system accounts: %w", err)
 	}
-	return append(candidates, system...), nil
+	candidates = append(candidates, system...)
+
+	if userID == "" && len(candidates) == 0 {
+		owned, err := r.soleOperatorAccounts(ctx, capability)
+		if err != nil {
+			return nil, err
+		}
+		candidates = append(candidates, owned...)
+	}
+	return candidates, nil
+}
+
+// soleOperatorAccounts returns the credentials of the one person who holds them,
+// for work that runs with nobody in context.
+//
+// Unattended jobs see only accounts carrying system_scopes, and setting those
+// requires the admin role — which no RPC grants, so on a self-hosted instance
+// there is no supported way to reach it. The result was a deadlock with a
+// silent failure mode: prod 2026-07-25 had fresh keys sitting in accounts while
+// the sweep quietly went on using stale environment ones.
+//
+// On an instance with a single operator the distinction between "their account"
+// and "the system's account" is ceremony, and it is the ceremony that produced
+// the deadlock. With several credential holders it stops being ceremony — one
+// person's plan must not be spent on everyone's behalf — so the fallback
+// declines, and says so rather than leaving an operator to wonder why the sweep
+// found nothing.
+func (r *Resolver) soleOperatorAccounts(ctx context.Context, capability entity.AccountCapability) ([]*entity.Account, error) {
+	owners, err := r.cfg.Source.ListCapabilityOwners(ctx, capability)
+	if err != nil {
+		return nil, fmt.Errorf("list capability owners: %w", err)
+	}
+	if len(owners) != 1 {
+		if len(owners) > 1 && r.cfg.Log != nil {
+			r.cfg.Log.Warn("unattended work found no system account and will not choose between operators",
+				slog.String("capability", string(capability)),
+				slog.Int("credential_holders", len(owners)))
+		}
+		return nil, nil
+	}
+
+	own, err := r.cfg.Source.ListUserAccountsByCapability(ctx, owners[0], capability)
+	if err != nil {
+		return nil, fmt.Errorf("list sole operator accounts: %w", err)
+	}
+	return own, nil
 }
 
 // clientFor returns the cached client for the account, rebuilding it when the

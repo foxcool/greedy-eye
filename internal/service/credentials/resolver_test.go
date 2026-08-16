@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,22 @@ func (f *fakeSource) ListUserAccountsByCapability(_ context.Context, userID stri
 
 func (f *fakeSource) ListSystemAccountsByCapability(_ context.Context, _ entity.AccountCapability) ([]*entity.Account, error) {
 	return f.system, f.err
+}
+
+// ListCapabilityOwners answers from the same map the accounts come from, so a
+// fixture cannot describe an owner who holds nothing.
+func (f *fakeSource) ListCapabilityOwners(_ context.Context, _ entity.AccountCapability) ([]string, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	owners := make([]string, 0, len(f.user))
+	for userID, accounts := range f.user {
+		if len(accounts) > 0 {
+			owners = append(owners, userID)
+		}
+	}
+	sort.Strings(owners)
+	return owners, nil
 }
 
 type fakeSyncer struct{ name string }
@@ -399,4 +416,98 @@ func TestNoEnvFallbackWarnWhenAccountBacked(t *testing.T) {
 	_, err := r.PriceProvidersFor(context.Background(), "u1")
 	require.NoError(t, err)
 	assert.NotContains(t, buf.String(), "deprecated")
+}
+
+// TestUnattendedWorkUsesTheSoleOperator: a sweep runs with nobody in context, so
+// it sees only accounts carrying system_scopes — and setting those needs the
+// admin role, which no RPC grants. On a self-hosted instance that is a deadlock:
+// the operator enters a key, the scheduler cannot see it, and prod 2026-07-25
+// spent days quietly using stale environment credentials instead.
+func TestUnattendedWorkUsesTheSoleOperator(t *testing.T) {
+	now := time.Now()
+	r := NewResolver(Config{
+		Source: &fakeSource{
+			user: map[string][]*entity.Account{"u1": {account("cg", "coingecko", now)}},
+			// No system accounts: nobody granted a scope, because nobody can.
+		},
+		PriceProviders: map[string]PriceProviderFactory{
+			"coingecko": func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return &fakeProvider{name: a.ID}, nil
+			},
+		},
+	})
+
+	providers, err := r.PriceProvidersFor(context.Background(), "")
+	require.NoError(t, err)
+	require.Contains(t, providers, "coingecko")
+	assert.Equal(t, "cg", providers["coingecko"].(*fakeProvider).name)
+}
+
+// TestUnattendedWorkDeclinesBetweenOperators: with more than one credential
+// holder the distinction stops being ceremony — one person's plan must not be
+// spent on everyone's behalf — so the fallback refuses, and says so instead of
+// leaving an operator to wonder why the sweep found nothing.
+func TestUnattendedWorkDeclinesBetweenOperators(t *testing.T) {
+	now := time.Now()
+	var logs bytes.Buffer
+	r := NewResolver(Config{
+		Source: &fakeSource{user: map[string][]*entity.Account{
+			"u1": {account("cg-1", "coingecko", now)},
+			"u2": {account("cg-2", "coingecko", now)},
+		}},
+		PriceProviders: map[string]PriceProviderFactory{
+			"coingecko": func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return &fakeProvider{name: a.ID}, nil
+			},
+		},
+		Log: slog.New(slog.NewTextHandler(&logs, nil)),
+	})
+
+	providers, err := r.PriceProvidersFor(context.Background(), "")
+	require.NoError(t, err)
+	assert.NotContains(t, providers, "coingecko", "neither operator's plan is spent by default")
+	assert.Contains(t, logs.String(), "will not choose between operators")
+}
+
+// TestSoleOperatorDoesNotOverrideASystemAccount: an explicitly scoped account
+// stays the supported path. The fallback exists for instances that have no way
+// to grant a scope, not to overrule one that was granted.
+func TestSoleOperatorDoesNotOverrideASystemAccount(t *testing.T) {
+	now := time.Now()
+	r := NewResolver(Config{
+		Source: &fakeSource{
+			user:   map[string][]*entity.Account{"u1": {account("personal", "coingecko", now)}},
+			system: []*entity.Account{account("shared", "coingecko", now)},
+		},
+		PriceProviders: map[string]PriceProviderFactory{
+			"coingecko": func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return &fakeProvider{name: a.ID}, nil
+			},
+		},
+	})
+
+	providers, err := r.PriceProvidersFor(context.Background(), "")
+	require.NoError(t, err)
+	assert.Equal(t, "shared", providers["coingecko"].(*fakeProvider).name)
+}
+
+// TestUserRequestIsUnaffectedBySoleOperator: the fallback is for work with
+// nobody in context. A request made BY someone resolves their own accounts and
+// must not start borrowing another operator's key.
+func TestUserRequestIsUnaffectedBySoleOperator(t *testing.T) {
+	now := time.Now()
+	r := NewResolver(Config{
+		Source: &fakeSource{user: map[string][]*entity.Account{
+			"owner": {account("theirs", "coingecko", now)},
+		}},
+		PriceProviders: map[string]PriceProviderFactory{
+			"coingecko": func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return &fakeProvider{name: a.ID}, nil
+			},
+		},
+	})
+
+	providers, err := r.PriceProvidersFor(context.Background(), "someone-else")
+	require.NoError(t, err)
+	assert.NotContains(t, providers, "coingecko")
 }
