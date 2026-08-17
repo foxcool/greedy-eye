@@ -270,6 +270,19 @@ service PortfolioService {
     };
   }
 
+  // ListProviders returns the external providers this build can talk to and
+  // what each of them needs in accounts.data.
+  //
+  // Read-only and secret-free: it describes the shape of a credential, never a
+  // credential. It exists so an account form stops guessing — the slugs, the
+  // chains, the plans and the extra fields are the ones the resolver and the
+  // rate limiter actually use, rather than a second copy that drifts.
+  rpc ListProviders(ListProvidersRequest) returns (ListProvidersResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/providers"
+    };
+  }
+
   // --- Transaction CRUD ---
   rpc CreateTransaction(CreateTransactionRequest) returns (Transaction) {
     option (google.api.http) = {
@@ -585,6 +598,77 @@ message ListAccountsRequest {
 message ListAccountsResponse {
   repeated Account accounts = 1;
   string next_page_token = 2;
+}
+
+message ListProvidersRequest {}
+
+message ListProvidersResponse {
+  repeated Provider providers = 1;
+}
+
+// ProviderKind is a service a provider performs. A provider may do several:
+// Binance both syncs an exchange account and quotes prices.
+enum ProviderKind {
+  PROVIDER_KIND_UNSPECIFIED = 0;
+  PROVIDER_KIND_PRICE = 1;
+  PROVIDER_KIND_WALLET = 2;
+  PROVIDER_KIND_EXCHANGE = 3;
+}
+
+// Provider describes an external service an account can be created against.
+// Everything here is a statement about what the provider needs; nothing here is
+// a credential.
+message Provider {
+  // Slug is the value of accounts.data["provider"] — the identity the resolver
+  // routes on.
+  string slug = 1;
+  // Human-readable name.
+  string title = 2;
+  repeated ProviderKind kinds = 3;
+  // Capabilities an account must carry for this provider to be reachable.
+  // Derived from kinds, so a form does not have to know the mapping.
+  repeated string capabilities = 4;
+  bool needs_api_key = 5;
+  // Exchange APIs sign requests; read-only price feeds do not.
+  bool needs_api_secret = 6;
+  // Keyless providers answer with no account at all and are registered by
+  // default. An account naming the slug still wins — that is how a free feed
+  // gets throttled, or given a smaller share of a shared plan.
+  bool keyless = 7;
+  // Chains a wallet provider reads. Empty for everything else.
+  repeated string chains = 8;
+  // Extra accounts.data entries beyond api_key/api_secret.
+  repeated ProviderField fields = 9;
+  // Plans the provider is metered under, free keyed plan first.
+  repeated ProviderTier tiers = 10;
+}
+
+// ProviderField is an accounts.data entry a provider needs beyond the usual key
+// and secret — a trust anchor, for instance, which no key field can hold.
+message ProviderField {
+  string key = 1;
+  string title = 2;
+  // What happens without it, in one sentence.
+  string help = 3;
+  bool required = 4;
+  // Asks for a textarea rather than an input: a PEM block is not a line.
+  bool multiline = 5;
+}
+
+// ProviderTier is a plan the provider meters a credential under, with the
+// limits this instance applies by default. The name is what goes into
+// accounts.data["tier"]; an empty name is the provider's free keyed plan.
+message ProviderTier {
+  string name = 1;
+  // Steady-state requests per second. Fractional values are meaningful.
+  double rps = 2;
+  // How many requests may go out back-to-back before pacing applies.
+  int32 burst = 3;
+  // Requests the plan allows per period. Zero means the provider meters only
+  // rate, which is usual for keyless tiers.
+  int32 quota = 4;
+  // Window the quota resets on: "day", "month", or empty when unmetered.
+  string quota_period = 5;
 }
 
 // =============================================================================
