@@ -3,6 +3,7 @@ package portfolio
 import (
 	"context"
 	"errors"
+	"math"
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
@@ -89,12 +90,31 @@ func providerToProto(d catalog.Descriptor) *apiv1.Provider {
 		p.Tiers = append(p.Tiers, &apiv1.ProviderTier{
 			Name:        tier.Name,
 			Rps:         tier.Limit.RPS,
-			Burst:       int32(tier.Limit.Burst), //nolint:gosec // plan burst is a small positive count
-			Quota:       int32(tier.Limit.Quota), //nolint:gosec // plan volume fits an int32 with room to spare
+			Burst:       planCount(tier.Limit.Burst),
+			Quota:       planCount(tier.Limit.Quota),
 			QuotaPeriod: string(tier.Limit.Period),
 		})
 	}
 	return p
+}
+
+// planCount narrows a plan's number to the width the wire carries.
+//
+// Today's allowances are small enough that this never binds — the largest is
+// half a million calls a month. It clamps rather than converts because the
+// alternative silently wraps: a plan of three billion would arrive as a
+// negative allowance, and a negative allowance reads as a provider that may not
+// be called at all. Saturating at the maximum is wrong by a knowable amount;
+// wrapping is wrong by an unknowable one.
+func planCount(v int) int32 {
+	switch {
+	case v < 0:
+		return 0
+	case v > math.MaxInt32:
+		return math.MaxInt32
+	default:
+		return int32(v)
+	}
 }
 
 func kindToProto(k catalog.Kind) apiv1.ProviderKind {
