@@ -346,6 +346,32 @@ func TestUnattendedWorkDeclinesBetweenOperators(t *testing.T) {
 	assert.Contains(t, logs.String(), "will not choose between operators")
 }
 
+// TestSoleOperatorFallbackIsPerProvider: prod 2026-08-17. Three accounts carried
+// a market-data system scope, so the candidate list was not empty and the
+// capability-wide fallback never fired — while binance, the one live crypto
+// source, carried no scope and was simply absent. The sweep refreshed no crypto
+// price for six days, and every manual fetch kept working, because those carry a
+// user id.
+func TestSoleOperatorFallbackIsPerProvider(t *testing.T) {
+	now := time.Now()
+	priced := func(a *entity.Account) (marketdata.PriceProvider, error) {
+		return &fakeProvider{name: a.ID}, nil
+	}
+	r := NewResolver(Config{
+		Source: &fakeSource{
+			user:   map[string][]*entity.Account{"u1": {account("binance-own", "binance", now)}},
+			system: []*entity.Account{account("cg-sys", "coingecko", now)},
+		},
+		PriceProviders: map[string]PriceProviderFactory{"coingecko": priced, "binance": priced},
+	})
+
+	providers, err := r.PriceProvidersFor(context.Background(), "")
+	require.NoError(t, err)
+	assert.Equal(t, "cg-sys", providers["coingecko"].(*fakeProvider).name, "a granted scope still wins its own slug")
+	require.Contains(t, providers, "binance", "a scope on one provider must not hide another")
+	assert.Equal(t, "binance-own", providers["binance"].(*fakeProvider).name)
+}
+
 // TestSoleOperatorDoesNotOverrideASystemAccount: an explicitly scoped account
 // stays the supported path. The fallback exists for instances that have no way
 // to grant a scope, not to overrule one that was granted.
@@ -366,6 +392,80 @@ func TestSoleOperatorDoesNotOverrideASystemAccount(t *testing.T) {
 	providers, err := r.PriceProvidersFor(context.Background(), "")
 	require.NoError(t, err)
 	assert.Equal(t, "shared", providers["coingecko"].(*fakeProvider).name)
+}
+
+// TestInventoryNamesWhatItPassedOver: the startup line is the only surface where
+// an unattended-only failure can appear, and a list of what worked cannot show
+// an absence. Both skips here price nothing and neither raises an error.
+func TestInventoryNamesWhatItPassedOver(t *testing.T) {
+	now := time.Now()
+	r := NewResolver(Config{
+		Source: &fakeSource{user: map[string][]*entity.Account{
+			"u1": {account("typo", "coingeko", now)},
+		}},
+		PriceProviders: map[string]PriceProviderFactory{
+			"coingecko": func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return &fakeProvider{name: a.ID}, nil
+			},
+		},
+	})
+
+	inv, err := r.PriceInventoryFor(context.Background(), "")
+	require.NoError(t, err)
+	assert.Empty(t, inv.Providers)
+	require.Len(t, inv.Skipped, 1)
+	assert.Equal(t, "coingeko", inv.Skipped[0].Provider)
+	assert.Equal(t, "typo", inv.Skipped[0].AccountID)
+	assert.Contains(t, inv.Skipped[0].Reason, "no price adapter")
+
+	// Several credential holders: nobody's plan is spent by default, and the
+	// reason says so rather than leaving the registry quietly short.
+	r = NewResolver(Config{
+		Source: &fakeSource{user: map[string][]*entity.Account{
+			"u1": {account("cg-1", "coingecko", now)},
+			"u2": {account("cg-2", "coingecko", now)},
+		}},
+		PriceProviders: map[string]PriceProviderFactory{
+			"coingecko": func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return &fakeProvider{name: a.ID}, nil
+			},
+		},
+	})
+
+	inv, err = r.PriceInventoryFor(context.Background(), "")
+	require.NoError(t, err)
+	assert.NotContains(t, inv.Providers, "coingecko")
+	require.Len(t, inv.Skipped, 1)
+	assert.Contains(t, inv.Skipped[0].Reason, "2 operators hold")
+}
+
+// TestUnusableAccountIsReportedNotFatal: one credential that cannot be built
+// costs its own provider and is named, not the whole registry — a single
+// misconfigured key must not stop CoinGecko, MOEX and the FX leg at once.
+func TestUnusableAccountIsReportedNotFatal(t *testing.T) {
+	now := time.Now()
+	r := NewResolver(Config{
+		Source: &fakeSource{system: []*entity.Account{
+			account("broken", "coingecko", now),
+			account("fine", "moex", now),
+		}},
+		PriceProviders: map[string]PriceProviderFactory{
+			"coingecko": func(*entity.Account) (marketdata.PriceProvider, error) {
+				return nil, errors.New("api key rejected")
+			},
+			"moex": func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return &fakeProvider{name: a.ID}, nil
+			},
+		},
+	})
+
+	inv, err := r.PriceInventoryFor(context.Background(), "")
+	require.NoError(t, err)
+	assert.Contains(t, inv.Providers, "moex")
+	assert.NotContains(t, inv.Providers, "coingecko")
+	require.Len(t, inv.Skipped, 1)
+	assert.Equal(t, "broken", inv.Skipped[0].AccountID)
+	assert.Contains(t, inv.Skipped[0].Reason, "api key rejected")
 }
 
 // TestUserRequestIsUnaffectedBySoleOperator: the fallback is for work with

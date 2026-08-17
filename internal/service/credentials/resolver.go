@@ -144,31 +144,80 @@ func NewResolver(cfg Config) *Resolver {
 	return &Resolver{cfg: cfg, cache: map[string]cacheEntry{}}
 }
 
+// Skipped names an account unattended work could have used and did not, with
+// the reason it was passed over. It exists because the failure it describes has
+// no other surface: a request made BY someone resolves that person's own
+// accounts and works, so a provider missing only from the scheduler's view is
+// invisible everywhere a human looks.
+type Skipped struct {
+	// Provider is the slug the account names, empty when the skip is about the
+	// instance rather than one account.
+	Provider  string
+	AccountID string
+	Reason    string
+}
+
 // accountsFor returns candidate accounts for the capability in resolution
-// order: the user's own accounts first, then system-shared ones.
-func (r *Resolver) accountsFor(ctx context.Context, userID string, capability entity.AccountCapability) ([]*entity.Account, error) {
+// order: the user's own accounts first, then system-shared ones. It also
+// returns what it passed over, so a caller can say so out loud.
+func (r *Resolver) accountsFor(ctx context.Context, userID string, capability entity.AccountCapability) ([]*entity.Account, []Skipped, error) {
 	var candidates []*entity.Account
 	if userID != "" {
 		own, err := r.cfg.Source.ListUserAccountsByCapability(ctx, userID, capability)
 		if err != nil {
-			return nil, fmt.Errorf("list user accounts: %w", err)
+			return nil, nil, fmt.Errorf("list user accounts: %w", err)
 		}
 		candidates = append(candidates, own...)
 	}
 	system, err := r.cfg.Source.ListSystemAccountsByCapability(ctx, capability)
 	if err != nil {
-		return nil, fmt.Errorf("list system accounts: %w", err)
+		return nil, nil, fmt.Errorf("list system accounts: %w", err)
 	}
 	candidates = append(candidates, system...)
 
-	if userID == "" && len(candidates) == 0 {
-		owned, err := r.soleOperatorAccounts(ctx, capability)
-		if err != nil {
-			return nil, err
-		}
-		candidates = append(candidates, owned...)
+	if userID != "" {
+		return candidates, nil, nil
 	}
-	return candidates, nil
+
+	owned, skipped, err := r.soleOperatorAccounts(ctx, capability)
+	if err != nil {
+		return nil, nil, err
+	}
+	candidates = append(candidates, unclaimedProviders(candidates, owned)...)
+	return candidates, skipped, nil
+}
+
+// unclaimedProviders returns the operator's accounts for the providers no
+// candidate covers.
+//
+// The fallback used to fire only when the candidate list came back empty, which
+// answers "this instance has no system account at all" — not "it has one for
+// some other provider", which is the far more likely state of a real instance,
+// because scopes are granted one at a time as each account is created.
+//
+// Prod 2026-08-17 held a market-data system scope on coingecko, subscan and
+// helius, so the list was never empty and binance — the one live crypto source
+// left after the CoinGecko plan burned out — was simply absent from it. The
+// hourly sweep refreshed no crypto price for six days while every manual fetch
+// succeeded, because those carry a user id. Falling back per capability is what
+// made partial coverage silent; the rule is per provider.
+//
+// An explicitly scoped account still wins its own slug: the fallback exists for
+// instances with no way to grant a scope, not to overrule one that was granted.
+func unclaimedProviders(candidates, owned []*entity.Account) []*entity.Account {
+	covered := make(map[string]bool, len(candidates))
+	for _, a := range candidates {
+		covered[a.Data[DataProviderKey]] = true
+	}
+
+	var extra []*entity.Account
+	for _, a := range owned {
+		if covered[a.Data[DataProviderKey]] {
+			continue
+		}
+		extra = append(extra, a)
+	}
+	return extra
 }
 
 // soleOperatorAccounts returns the credentials of the one person who holds them,
@@ -186,25 +235,30 @@ func (r *Resolver) accountsFor(ctx context.Context, userID string, capability en
 // person's plan must not be spent on everyone's behalf — so the fallback
 // declines, and says so rather than leaving an operator to wonder why the sweep
 // found nothing.
-func (r *Resolver) soleOperatorAccounts(ctx context.Context, capability entity.AccountCapability) ([]*entity.Account, error) {
+func (r *Resolver) soleOperatorAccounts(ctx context.Context, capability entity.AccountCapability) ([]*entity.Account, []Skipped, error) {
 	owners, err := r.cfg.Source.ListCapabilityOwners(ctx, capability)
 	if err != nil {
-		return nil, fmt.Errorf("list capability owners: %w", err)
+		return nil, nil, fmt.Errorf("list capability owners: %w", err)
 	}
 	if len(owners) != 1 {
-		if len(owners) > 1 && r.cfg.Log != nil {
-			r.cfg.Log.Warn("unattended work found no system account and will not choose between operators",
+		if len(owners) <= 1 {
+			return nil, nil, nil
+		}
+		if r.cfg.Log != nil {
+			r.cfg.Log.Warn("unattended work will not choose between operators",
 				slog.String("capability", string(capability)),
 				slog.Int("credential_holders", len(owners)))
 		}
-		return nil, nil
+		return nil, []Skipped{{Reason: fmt.Sprintf(
+			"%d operators hold %s credentials and no system scope names one",
+			len(owners), capability)}}, nil
 	}
 
 	own, err := r.cfg.Source.ListUserAccountsByCapability(ctx, owners[0], capability)
 	if err != nil {
-		return nil, fmt.Errorf("list sole operator accounts: %w", err)
+		return nil, nil, fmt.Errorf("list sole operator accounts: %w", err)
 	}
-	return own, nil
+	return own, nil, nil
 }
 
 // clientFor returns the cached client for the account, rebuilding it when the
@@ -232,7 +286,7 @@ func (r *Resolver) clientFor(kind string, a *entity.Account, build func() (any, 
 // auto-discovery, resolved by the address's shape. Returns the env-configured
 // syncer (possibly nil) when no account-based credentials match.
 func (r *Resolver) WalletSyncerFor(ctx context.Context, userID, address string, chains []string) (entity.WalletSyncer, error) {
-	candidates, err := r.accountsFor(ctx, userID, entity.CapabilityOnchainLookup)
+	candidates, _, err := r.accountsFor(ctx, userID, entity.CapabilityOnchainLookup)
 	if err != nil {
 		return nil, err
 	}
@@ -285,26 +339,55 @@ func (r *Resolver) ExchangeSyncerForAccount(a *entity.Account) (entity.ExchangeS
 	return client.(entity.ExchangeSyncer), nil
 }
 
+// PriceInventory is what one resolution of the price registry saw: the
+// providers it can reach, and the accounts it could have used and did not.
+type PriceInventory struct {
+	Providers map[string]marketdata.PriceProvider
+	Skipped   []Skipped
+}
+
 // PriceProvidersFor resolves the effective price provider registry for the
 // user: credential-free sources overlaid by system-shared accounts and then the
 // user's own (most specific wins per provider slug).
 func (r *Resolver) PriceProvidersFor(ctx context.Context, userID string) (map[string]marketdata.PriceProvider, error) {
+	inv, err := r.PriceInventoryFor(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return inv.Providers, nil
+}
+
+// PriceInventoryFor resolves the same registry as PriceProvidersFor and reports
+// what it left out along the way.
+//
+// The skipped list is the point. A startup line naming only the providers it
+// reached is a complete, correct and reassuring sentence that says nothing about
+// the configured account sitting unused beside them — which is exactly how prod
+// went six days without refreshing a crypto price.
+func (r *Resolver) PriceInventoryFor(ctx context.Context, userID string) (PriceInventory, error) {
 	providers := make(map[string]marketdata.PriceProvider, len(r.cfg.KeylessPriceProviders))
 	maps.Copy(providers, r.cfg.KeylessPriceProviders)
 
-	candidates, err := r.accountsFor(ctx, userID, entity.CapabilityMarketData)
+	candidates, skipped, err := r.accountsFor(ctx, userID, entity.CapabilityMarketData)
 	if err != nil {
-		return nil, err
+		return PriceInventory{}, err
 	}
 
 	// candidates are ordered user-first; iterate in reverse so system accounts
 	// apply first and the user's own credentials overwrite them.
-	accountBacked := make(map[string]bool, len(candidates))
 	for i := len(candidates) - 1; i >= 0; i-- {
 		a := candidates[i]
 		slug := a.Data[DataProviderKey]
 		factory, ok := r.cfg.PriceProviders[slug]
 		if !ok {
+			// An account claiming market data whose provider this build cannot
+			// talk to: a slug typo, or an adapter that left with an upgrade.
+			// Either way its owner entered a credential that prices nothing.
+			skipped = append(skipped, Skipped{
+				Provider:  slug,
+				AccountID: a.ID,
+				Reason:    "no price adapter is registered for this provider",
+			})
 			continue
 		}
 		client, err := r.clientFor("price_provider", a, func() (any, error) { return factory(a) })
@@ -323,11 +406,15 @@ func (r *Resolver) PriceProvidersFor(ctx context.Context, userID string) (map[st
 					slog.String("provider", slug), slog.String("account_id", a.ID),
 					slog.Any("error", err))
 			}
+			skipped = append(skipped, Skipped{
+				Provider:  slug,
+				AccountID: a.ID,
+				Reason:    "account unusable: " + err.Error(),
+			})
 			continue
 		}
 		providers[slug] = client.(marketdata.PriceProvider)
-		accountBacked[slug] = true
 	}
 
-	return providers, nil
+	return PriceInventory{Providers: providers, Skipped: skipped}, nil
 }
