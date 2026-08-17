@@ -9,29 +9,15 @@ import (
 	"os"
 	"os/signal"
 	"slices"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
-	binanceadapter "github.com/foxcool/greedy-eye/internal/adapter/binance"
-	blockchairadapter "github.com/foxcool/greedy-eye/internal/adapter/blockchair"
-	cbradapter "github.com/foxcool/greedy-eye/internal/adapter/cbr"
-	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
-	cosmosadapter "github.com/foxcool/greedy-eye/internal/adapter/cosmos"
-	esploraadapter "github.com/foxcool/greedy-eye/internal/adapter/esplora"
-	moexadapter "github.com/foxcool/greedy-eye/internal/adapter/moex"
-	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
 	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
-	solanaadapter "github.com/foxcool/greedy-eye/internal/adapter/solana"
-	subscanadapter "github.com/foxcool/greedy-eye/internal/adapter/subscan"
-	tinvestadapter "github.com/foxcool/greedy-eye/internal/adapter/tinvest"
-	tonapiadapter "github.com/foxcool/greedy-eye/internal/adapter/tonapi"
-	tzktadapter "github.com/foxcool/greedy-eye/internal/adapter/tzkt"
-	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
+	"github.com/foxcool/greedy-eye/internal/provider"
 	"github.com/foxcool/greedy-eye/internal/scheduler"
 	"github.com/foxcool/greedy-eye/internal/service/analytics"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
@@ -142,258 +128,22 @@ func run() error {
 	// Converge rows sealed under a key being rotated out. No-op with one key.
 	startRekey(context.Background(), pool, encryptor, log)
 
-	// Sources that need no credential. Registered unconditionally because there
-	// is nothing to configure and nothing to keep secret: without a RUB/USD rate
-	// a rouble-quoted instrument has a price and still contributes nothing to a
-	// USD total, and a portfolio holding Russian shares reads zero without MOEX.
-	//
-	// Everything that DOES need a key comes from an account. An account naming
-	// one of these slugs still wins over the entry here — that is how a free
-	// feed gets throttled after an enforcement notice.
-	keylessPriceProviders := map[string]marketdata.PriceProvider{
-		cbradapter.ProviderName: cbradapter.NewProvider(cbradapter.NewClient(cbradapter.Config{
-			Transport: rateLimits.Transport(ratelimit.Credential{Provider: cbradapter.ProviderName}, nil),
-		})),
-		moexadapter.ProviderName: moexadapter.NewProvider(moexadapter.NewClient(moexadapter.Config{
-			Transport: rateLimits.Transport(ratelimit.Credential{Provider: moexadapter.ProviderName}, nil),
-		})),
-	}
-	// Chain readers that need no credential. Each ignores the account it is
-	// handed, so it can be built with none — which is the point: a syncer is
-	// chosen from accounts carrying onchain_lookup, and a wallet account holds
-	// only an address. Without these a fresh instance reads no chain at all
-	// until somebody hand-creates a service row per ecosystem.
-	keylessWalletSyncers := map[string]credentials.WalletProvider{
-		esploraadapter.ProviderName: {
-			Factory: func(*entity.Account) (entity.WalletSyncer, error) {
-				return esploraadapter.NewWalletSyncer(esploraadapter.NewClient(esploraadapter.Config{
-					Transport: rateLimits.Transport(ratelimit.Credential{Provider: esploraadapter.ProviderName}, nil),
-				})), nil
-			},
-			Chains:         esploraadapter.SupportedChains(),
-			HandlesAddress: esploraadapter.HandlesAddress,
-		},
-		cosmosadapter.ProviderName: {
-			Factory: func(*entity.Account) (entity.WalletSyncer, error) {
-				return cosmosadapter.NewWalletSyncer(cosmosadapter.NewClient(cosmosadapter.Config{
-					Transport: rateLimits.Transport(ratelimit.Credential{Provider: cosmosadapter.ProviderName}, nil),
-				})), nil
-			},
-			Chains:         cosmosadapter.SupportedChains(),
-			HandlesAddress: cosmosadapter.HandlesAddress,
-		},
-		tzktadapter.ProviderName: {
-			Factory: func(*entity.Account) (entity.WalletSyncer, error) {
-				return tzktadapter.NewWalletSyncer(tzktadapter.NewClient(tzktadapter.Config{
-					Transport: rateLimits.Transport(ratelimit.Credential{Provider: tzktadapter.ProviderName}, nil),
-				})), nil
-			},
-			Chains:         tzktadapter.SupportedChains(),
-			HandlesAddress: tzktadapter.HandlesAddress,
-		},
-		// TON answers without a key, on a much tighter allowance
-		// (defaultLimits carries "tonapi:keyless"). An account with a key still
-		// overrides this and gets the keyed rate.
-		tonapiadapter.ProviderName: {
-			Factory: func(*entity.Account) (entity.WalletSyncer, error) {
-				return tonapiadapter.NewWalletSyncer(tonapiadapter.NewClient(tonapiadapter.Config{
-					Transport: rateLimits.Transport(ratelimit.Credential{Provider: tonapiadapter.ProviderName}, nil),
-				})), nil
-			},
-			Chains:         tonapiadapter.SupportedChains(),
-			HandlesAddress: tonapiadapter.HandlesAddress,
-		},
-	}
+	// Every adapter this build can construct lives in internal/provider, so the
+	// service that composes them does not also have to know them: nothing here
+	// imports an adapter package any more, and the same registry answers "which
+	// providers exist" to the account form (personal-s05.1).
+	providers := provider.New(rateLimits)
 
 	credResolver := credentials.NewResolver(credentials.Config{
-		Source: portfolioStore,
-		// Wallet providers are routed by chain: every non-EVM ecosystem
-		// registers its own adapter here alongside Moralis (personal-feb).
-		WalletSyncers: map[string]credentials.WalletProvider{
-			moralisadapter.ProviderName: {
-				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
-					return moralisadapter.NewWalletSyncer(
-						moralisadapter.NewClient(moralisadapter.Config{
-							APIKey:    a.Data["api_key"],
-							Transport: rateLimits.Transport(accountCred(moralisadapter.ProviderName, a), nil),
-						}),
-					), nil
-				},
-				Chains:         moralisadapter.SupportedChains(),
-				HandlesAddress: moralisadapter.HandlesAddress,
-			},
-			subscanadapter.ProviderName: {
-				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
-					return subscanadapter.NewWalletSyncer(
-						subscanadapter.NewClient(subscanadapter.Config{
-							APIKey:    a.Data["api_key"],
-							Transport: rateLimits.Transport(accountCred(subscanadapter.ProviderName, a), nil),
-						}),
-					), nil
-				},
-				Chains:         subscanadapter.SupportedChains(),
-				HandlesAddress: subscanadapter.HandlesAddress,
-			},
-			tonapiadapter.ProviderName: {
-				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
-					return tonapiadapter.NewWalletSyncer(
-						tonapiadapter.NewClient(tonapiadapter.Config{
-							APIKey:    a.Data["api_key"],
-							Transport: rateLimits.Transport(accountCred(tonapiadapter.ProviderName, a), nil),
-						}),
-					), nil
-				},
-				Chains:         tonapiadapter.SupportedChains(),
-				HandlesAddress: tonapiadapter.HandlesAddress,
-			},
-			solanaadapter.ProviderName: {
-				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
-					return solanaadapter.NewWalletSyncer(
-						solanaadapter.NewClient(solanaadapter.Config{
-							APIKey:    a.Data["api_key"],
-							Transport: rateLimits.Transport(accountCred(solanaadapter.ProviderName, a), nil),
-						}),
-					), nil
-				},
-				Chains:         solanaadapter.SupportedChains(),
-				HandlesAddress: solanaadapter.HandlesAddress,
-			},
-			// Esplora needs no credentials; the account exists only so the
-			// registry has something to route to.
-			//
-			// The endpoint is not configurable per account on purpose.
-			// accounts.data is user-supplied, and a client whose base URL comes
-			// from it would make the server issue requests to any address its
-			// caller names — cloud metadata, loopback, anything inside the
-			// trust boundary — with the response surfacing through sync errors.
-			// If a self-hosted instance is ever needed it belongs in operator
-			// config, not in user data.
-			esploraadapter.ProviderName: {
-				Factory: func(_ *entity.Account) (entity.WalletSyncer, error) {
-					return esploraadapter.NewWalletSyncer(
-						esploraadapter.NewClient(esploraadapter.Config{
-							Transport: rateLimits.Transport(ratelimit.Credential{Provider: esploraadapter.ProviderName}, nil),
-						}),
-					), nil
-				},
-				Chains:         esploraadapter.SupportedChains(),
-				HandlesAddress: esploraadapter.HandlesAddress,
-			},
-			cosmosadapter.ProviderName: {
-				Factory: func(_ *entity.Account) (entity.WalletSyncer, error) {
-					return cosmosadapter.NewWalletSyncer(
-						cosmosadapter.NewClient(cosmosadapter.Config{
-							Transport: rateLimits.Transport(ratelimit.Credential{Provider: cosmosadapter.ProviderName}, nil),
-						}),
-					), nil
-				},
-				Chains:         cosmosadapter.SupportedChains(),
-				HandlesAddress: cosmosadapter.HandlesAddress,
-			},
-			tzktadapter.ProviderName: {
-				Factory: func(_ *entity.Account) (entity.WalletSyncer, error) {
-					return tzktadapter.NewWalletSyncer(
-						tzktadapter.NewClient(tzktadapter.Config{
-							Transport: rateLimits.Transport(ratelimit.Credential{Provider: tzktadapter.ProviderName}, nil),
-						}),
-					), nil
-				},
-				Chains:         tzktadapter.SupportedChains(),
-				HandlesAddress: tzktadapter.HandlesAddress,
-			},
-			blockchairadapter.ProviderName: {
-				Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
-					return blockchairadapter.NewWalletSyncer(
-						blockchairadapter.NewClient(blockchairadapter.Config{
-							APIKey:    a.Data["api_key"],
-							Transport: rateLimits.Transport(accountCred(blockchairadapter.ProviderName, a), nil),
-						}),
-					), nil
-				},
-				Chains:         blockchairadapter.SupportedChains(),
-				HandlesAddress: blockchairadapter.HandlesAddress,
-			},
-		},
-		ExchangeSyncers: map[string]credentials.ExchangeSyncerFactory{
-			binanceadapter.ProviderName: func(a *entity.Account) (entity.ExchangeSyncer, error) {
-				return binanceadapter.NewExchangeSyncer(binanceadapter.NewClient(binanceadapter.Config{
-					APIKey:    a.Data["api_key"],
-					APISecret: a.Data["api_secret"],
-					Transport: rateLimits.Transport(accountCred(binanceadapter.ProviderName, a), nil),
-				})), nil
-			},
-		},
-		PriceProviders: map[string]credentials.PriceProviderFactory{
-			coingecko.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
-				cred := accountCred(coingecko.ProviderName, a)
-				return coingecko.NewProvider(coingecko.NewClient(coingecko.Config{
-					APIKey: a.Data["api_key"],
-					// accountCred already folded the legacy "pro" flag into the
-					// tier; reading data["pro"] separately here is what let the
-					// host and the plan disagree.
-					Tier:      cred.Tier,
-					Transport: rateLimits.Transport(cred, nil),
-					Budget:    rateLimits.Budget(cred),
-				})), nil
-			},
-			binanceadapter.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
-				return binanceadapter.NewProvider(binanceadapter.NewClient(binanceadapter.Config{
-					APIKey:    a.Data["api_key"],
-					APISecret: a.Data["api_secret"],
-					Transport: rateLimits.Transport(accountCred(binanceadapter.ProviderName, a), nil),
-				})), nil
-			},
-			// The feed needs no credential, but an account is still how a
-			// provider becomes visible in the registry (docs/providers.md).
-			// Registering the factory means seeding one later (personal-s05.2)
-			// silences the env-fallback warning instead of adding a provider.
-			cbradapter.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
-				return cbradapter.NewProvider(cbradapter.NewClient(cbradapter.Config{
-					Transport: rateLimits.Transport(accountCred(cbradapter.ProviderName, a), nil),
-				})), nil
-			},
-			moexadapter.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
-				return moexadapter.NewProvider(moexadapter.NewClient(moexadapter.Config{
-					Transport: rateLimits.Transport(accountCred(moexadapter.ProviderName, a), nil),
-				})), nil
-			},
-			// Registered whether or not a root CA was supplied. Without one the
-			// factory refuses and the resolver skips this account with a warning
-			// naming the missing config key, so the account exists, says what it
-			// needs, and costs nothing else — every other provider in the sweep
-			// keeps working. Leaving the slug unregistered instead would report
-			// the provider as simply absent, which is the silence that let stale
-			// env credentials serve the sweep for days (personal-cpw).
-			//
-			// The trust anchor travels with the account, in data["root_ca"].
-			// The host's chain terminates in a root no standard store carries,
-			// so reaching this API means an operator deciding to trust that
-			// authority — a decision that belongs beside the token it is used
-			// with, not in the service's own configuration.
-			tinvestadapter.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
-				// The verified transport is built first and the rate limiter
-				// wraps it. The other order would hand NewClient a ready
-				// Transport, which takes precedence over the anchor and would
-				// leave the connection trusting only the system store.
-				base, err := tinvestadapter.TLSTransport([]byte(a.Data["root_ca"]))
-				if err != nil {
-					return nil, err
-				}
-				client, err := tinvestadapter.NewClient(tinvestadapter.Config{
-					Token:     a.Data["api_key"],
-					Transport: rateLimits.Transport(accountCred(tinvestadapter.ProviderName, a), base),
-				})
-				if err != nil {
-					return nil, err
-				}
-				return tinvestadapter.NewProvider(client), nil
-			},
-		},
+		Source:          portfolioStore,
+		WalletSyncers:   providers.WalletSyncers(),
+		ExchangeSyncers: providers.ExchangeSyncers(),
+		PriceProviders:  providers.PriceProviders(),
 		// Readers that need no credential. Without these a fresh instance syncs
 		// nothing at all: a syncer is chosen from accounts carrying
 		// onchain_lookup, and the wallet account holds only an address.
-		KeylessWalletSyncers:  keylessWalletSyncers,
-		KeylessPriceProviders: keylessPriceProviders,
+		KeylessWalletSyncers:  providers.KeylessWalletSyncers(),
+		KeylessPriceProviders: providers.KeylessPriceProviders(),
 		Log:                   log,
 	})
 
@@ -433,7 +183,11 @@ func run() error {
 				WithMarketDataClient(mdHandler).
 				WithSettingsClient(settingsHandler).
 				WithWalletSyncerSource(credResolver).
-				WithExchangeSyncerSource(credResolver)
+				WithExchangeSyncerSource(credResolver).
+				// The same registry that builds the clients describes them, so
+				// the account form offers the slugs, chains and plans this build
+				// actually uses rather than a copy of them (personal-7bn).
+				WithProviderCatalog(providers)
 			path, handler := apiv1connect.NewPortfolioServiceHandler(pHandler, interceptor)
 			mux.Handle(path, handler)
 			balanceSweeper = pHandler
@@ -595,83 +349,6 @@ func logProviderInventory(ctx context.Context, resolver *credentials.Resolver, l
 	log.Info("price providers reachable without a user", slog.Any("providers", slugs))
 }
 
-// accountCred is the rate-limit credential behind an account-backed client.
-// The plan tier sits next to the key in accounts.data, so moving a provider to
-// a paid plan is a settings edit rather than a release. CoinGecko's older
-// "pro" flag is still honoured: it named the same thing before tiers existed.
-func accountCred(provider string, a *entity.Account) ratelimit.Credential {
-	tier := a.Data["tier"]
-	if tier == "" && a.Data["pro"] == "true" {
-		tier = "pro"
-	}
-	return ratelimit.Credential{
-		Provider: provider,
-		APIKey:   a.Data["api_key"],
-		Tier:     tier,
-		Limit:    accountLimit(a),
-	}
-}
-
-// accountLimit reads a custom request budget out of the account, beside the key
-// and the tier it belongs to.
-//
-// The plan is the key's, so the numbers that carve it up live with the key. An
-// operator running two deployments off one credential gives each its share here;
-// nothing else can, because the two instances cannot see each other's spend.
-//
-// A malformed field is dropped with a warning rather than refusing to start.
-// This arrives from the database while the process is running — an account can
-// be edited at any moment — so the alternative to ignoring one bad value is a
-// service that will not boot because somebody mistyped a number in a form.
-func accountLimit(a *entity.Account) ratelimit.Limit {
-	var l ratelimit.Limit
-	l.RPS = accountFloat(a, "rps")
-	l.Burst = accountInt(a, "burst")
-
-	quota := accountInt(a, "quota")
-	period := ratelimit.QuotaPeriod(strings.TrimSpace(a.Data["period"]))
-	switch {
-	case quota <= 0:
-	case period == ratelimit.QuotaDay || period == ratelimit.QuotaMonth:
-		l.Quota, l.Period = quota, period
-	default:
-		// A volume with no window never resets: the counters roll on a period
-		// boundary that does not exist, so the allowance would be spent once and
-		// the provider would go quiet until someone noticed.
-		slog.Warn("account quota ignored: it needs a period",
-			slog.String("account_id", a.ID), slog.String("period", a.Data["period"]))
-	}
-	return l
-}
-
-func accountInt(a *entity.Account, key string) int {
-	raw := strings.TrimSpace(a.Data[key])
-	if raw == "" {
-		return 0
-	}
-	v, err := strconv.Atoi(raw)
-	if err != nil || v < 0 {
-		slog.Warn("account rate limit field ignored: not a positive number",
-			slog.String("account_id", a.ID), slog.String("field", key), slog.String("value", raw))
-		return 0
-	}
-	return v
-}
-
-func accountFloat(a *entity.Account, key string) float64 {
-	raw := strings.TrimSpace(a.Data[key])
-	if raw == "" {
-		return 0
-	}
-	v, err := strconv.ParseFloat(raw, 64)
-	if err != nil || v < 0 {
-		slog.Warn("account rate limit field ignored: not a positive number",
-			slog.String("account_id", a.ID), slog.String("field", key), slog.String("value", raw))
-		return 0
-	}
-	return v
-}
-
 // sweepWindow is how long the price job waits between runs, read off its own
 // cron spec by asking when it would fire twice. An unparsable or disabled spec
 // yields zero, which leaves sweeps unbudgeted rather than guessing.
@@ -686,4 +363,3 @@ func sweepWindow(spec string) time.Duration {
 	first := sched.Next(time.Now())
 	return sched.Next(first).Sub(first)
 }
-

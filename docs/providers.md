@@ -7,9 +7,16 @@ resolver looks up syncers by the `provider` slug on accounts carrying the right
 capability. A provider with no account registered is invisible, **even when it
 needs no key** — the account is the registration, not just the secret store.
 
-> This document is maintained by hand against the registry in
-> `cmd/eye/main.go`. Adding an adapter without a row here leaves a capability
-> nobody can discover.
+> The registry lives in `internal/provider`: factories and the description of
+> what each needs are written side by side there, and a test fails the build if
+> one exists without the other. This document is maintained by hand against it,
+> and `TestProvidersAreDocumented` reads the same catalogue — an adapter with no
+> row here fails the build rather than becoming a capability nobody can find.
+>
+> The catalogue is also served: `PortfolioService.ListProviders` returns the
+> slugs, chains, plans and extra fields a client needs to build an account form,
+> so a UI offering a choice reads the registry instead of carrying a copy of it.
+> It describes credentials and never returns one.
 
 ## Account types and what they hold
 
@@ -49,7 +56,7 @@ These sync wallet balances. Every one of them needs an account, key or not.
 
 | `provider` | Chains | Key | Where to get it |
 |---|---|---|---|
-| `moralis` | 8 EVM chains | required | moralis.io |
+| `moralis` | arbitrum, avalanche, base, ethereum, fantom, linea, optimism, polygon, scroll, zksync | required | moralis.io |
 | `subscan` | polkadot, kusama, assethub-polkadot, assethub-kusama, hydration, astar, moonbeam | required | subscan.io — unauthenticated access is disabled entirely |
 | `tonapi` | ton | optional | tonconsole.com; anonymous calls are rate-limited |
 | `helius` | solana | required in practice | dashboard.helius.dev, free tier. Without it the client falls back to the public RPC, which throttles hard and serves no token metadata |

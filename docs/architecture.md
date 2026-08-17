@@ -385,6 +385,14 @@ Adapters are no longer singletons: the credentials resolver (`internal/service/c
 per-account clients from stored credentials. Configuration carries none: a key names a plan, a
 plan names money, and both belong to the account rather than to the service.
 
+Which adapters exist is a fact of `internal/provider/`, not of `main.go`. It holds the factory
+table and, beside each factory, a `catalog.Descriptor` saying what that provider needs — key,
+secret, chains, plans, extra fields such as a trust anchor. Nothing above it imports an adapter:
+`cmd/` wires interfaces, and `PortfolioService.ListProviders` serves the descriptors so an account
+form reads the registry rather than carrying a second copy of it. `internal/provider/catalog/`
+holds the description types alone, with no adapter code, so a handler can describe providers
+without linking them.
+
 - **Price Adapters** (`internal/adapter/coingecko/`, `internal/adapter/binance/`): CoinGecko (live
   prices; tier-aware — the tier picks the host, the auth header and the plan allowance),
   Binance (`ticker/price`; batch fails on invalid symbols — tracked separately)
@@ -445,8 +453,10 @@ covering *every* requested chain.
 - Discovery costs one request per chain swept, so it trades API budget for not having to
   configure chains. Chains named explicitly skip the sweep.
 - Adding an ecosystem: implement `entity.WalletSyncer` in `internal/adapter/<name>/`, expose a
-  `SupportedChains()`, register it in `cmd/eye/main.go`. Test pattern: golden fixtures of provider
-  responses driven through an `httptest` server (see `internal/adapter/moralis`, `internal/adapter/subscan`).
+  `SupportedChains()`, register it in `internal/provider` — both the factory and the descriptor
+  beside it, since a registered adapter with no description fails `TestCatalogueCoversTheRegistry`.
+  Test pattern: golden fixtures of provider responses driven through an `httptest` server
+  (see `internal/adapter/moralis`, `internal/adapter/subscan`).
 - **Substrate balance model** (`internal/adapter/subscan/`): a position is `balance` alone.
   Reserved, bonded and unbonding are each a subset of it — locks and holds restrict the balance
   rather than sitting beside it — so adding any of them double-counts the largest holding on a

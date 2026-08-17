@@ -315,6 +315,60 @@ func (ImportAction) EnumDescriptor() ([]byte, []int) {
 	return file_v1_portfolio_proto_rawDescGZIP(), []int{4}
 }
 
+// ProviderKind is a service a provider performs. A provider may do several:
+// Binance both syncs an exchange account and quotes prices.
+type ProviderKind int32
+
+const (
+	ProviderKind_PROVIDER_KIND_UNSPECIFIED ProviderKind = 0
+	ProviderKind_PROVIDER_KIND_PRICE       ProviderKind = 1
+	ProviderKind_PROVIDER_KIND_WALLET      ProviderKind = 2
+	ProviderKind_PROVIDER_KIND_EXCHANGE    ProviderKind = 3
+)
+
+// Enum value maps for ProviderKind.
+var (
+	ProviderKind_name = map[int32]string{
+		0: "PROVIDER_KIND_UNSPECIFIED",
+		1: "PROVIDER_KIND_PRICE",
+		2: "PROVIDER_KIND_WALLET",
+		3: "PROVIDER_KIND_EXCHANGE",
+	}
+	ProviderKind_value = map[string]int32{
+		"PROVIDER_KIND_UNSPECIFIED": 0,
+		"PROVIDER_KIND_PRICE":       1,
+		"PROVIDER_KIND_WALLET":      2,
+		"PROVIDER_KIND_EXCHANGE":    3,
+	}
+)
+
+func (x ProviderKind) Enum() *ProviderKind {
+	p := new(ProviderKind)
+	*p = x
+	return p
+}
+
+func (x ProviderKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ProviderKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_v1_portfolio_proto_enumTypes[5].Descriptor()
+}
+
+func (ProviderKind) Type() protoreflect.EnumType {
+	return &file_v1_portfolio_proto_enumTypes[5]
+}
+
+func (x ProviderKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ProviderKind.Descriptor instead.
+func (ProviderKind) EnumDescriptor() ([]byte, []int) {
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{5}
+}
+
 // Portfolio represents a collection of holdings managed by a user.
 type Portfolio struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2773,6 +2827,381 @@ func (x *ListAccountsResponse) GetNextPageToken() string {
 	return ""
 }
 
+type ListProvidersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListProvidersRequest) Reset() {
+	*x = ListProvidersRequest{}
+	mi := &file_v1_portfolio_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListProvidersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListProvidersRequest) ProtoMessage() {}
+
+func (x *ListProvidersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_portfolio_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListProvidersRequest.ProtoReflect.Descriptor instead.
+func (*ListProvidersRequest) Descriptor() ([]byte, []int) {
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{34}
+}
+
+type ListProvidersResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Providers     []*Provider            `protobuf:"bytes,1,rep,name=providers,proto3" json:"providers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListProvidersResponse) Reset() {
+	*x = ListProvidersResponse{}
+	mi := &file_v1_portfolio_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListProvidersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListProvidersResponse) ProtoMessage() {}
+
+func (x *ListProvidersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_portfolio_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListProvidersResponse.ProtoReflect.Descriptor instead.
+func (*ListProvidersResponse) Descriptor() ([]byte, []int) {
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *ListProvidersResponse) GetProviders() []*Provider {
+	if x != nil {
+		return x.Providers
+	}
+	return nil
+}
+
+// Provider describes an external service an account can be created against.
+// Everything here is a statement about what the provider needs; nothing here is
+// a credential.
+type Provider struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Slug is the value of accounts.data["provider"] — the identity the resolver
+	// routes on.
+	Slug string `protobuf:"bytes,1,opt,name=slug,proto3" json:"slug,omitempty"`
+	// Human-readable name.
+	Title string         `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	Kinds []ProviderKind `protobuf:"varint,3,rep,packed,name=kinds,proto3,enum=eye.v1.ProviderKind" json:"kinds,omitempty"`
+	// Capabilities an account must carry for this provider to be reachable.
+	// Derived from kinds, so a form does not have to know the mapping.
+	Capabilities []string `protobuf:"bytes,4,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	NeedsApiKey  bool     `protobuf:"varint,5,opt,name=needs_api_key,json=needsApiKey,proto3" json:"needs_api_key,omitempty"`
+	// Exchange APIs sign requests; read-only price feeds do not.
+	NeedsApiSecret bool `protobuf:"varint,6,opt,name=needs_api_secret,json=needsApiSecret,proto3" json:"needs_api_secret,omitempty"`
+	// Keyless providers answer with no account at all and are registered by
+	// default. An account naming the slug still wins — that is how a free feed
+	// gets throttled, or given a smaller share of a shared plan.
+	Keyless bool `protobuf:"varint,7,opt,name=keyless,proto3" json:"keyless,omitempty"`
+	// Chains a wallet provider reads. Empty for everything else.
+	Chains []string `protobuf:"bytes,8,rep,name=chains,proto3" json:"chains,omitempty"`
+	// Extra accounts.data entries beyond api_key/api_secret.
+	Fields []*ProviderField `protobuf:"bytes,9,rep,name=fields,proto3" json:"fields,omitempty"`
+	// Plans the provider is metered under, free keyed plan first.
+	Tiers         []*ProviderTier `protobuf:"bytes,10,rep,name=tiers,proto3" json:"tiers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Provider) Reset() {
+	*x = Provider{}
+	mi := &file_v1_portfolio_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Provider) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Provider) ProtoMessage() {}
+
+func (x *Provider) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_portfolio_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Provider.ProtoReflect.Descriptor instead.
+func (*Provider) Descriptor() ([]byte, []int) {
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *Provider) GetSlug() string {
+	if x != nil {
+		return x.Slug
+	}
+	return ""
+}
+
+func (x *Provider) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *Provider) GetKinds() []ProviderKind {
+	if x != nil {
+		return x.Kinds
+	}
+	return nil
+}
+
+func (x *Provider) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
+func (x *Provider) GetNeedsApiKey() bool {
+	if x != nil {
+		return x.NeedsApiKey
+	}
+	return false
+}
+
+func (x *Provider) GetNeedsApiSecret() bool {
+	if x != nil {
+		return x.NeedsApiSecret
+	}
+	return false
+}
+
+func (x *Provider) GetKeyless() bool {
+	if x != nil {
+		return x.Keyless
+	}
+	return false
+}
+
+func (x *Provider) GetChains() []string {
+	if x != nil {
+		return x.Chains
+	}
+	return nil
+}
+
+func (x *Provider) GetFields() []*ProviderField {
+	if x != nil {
+		return x.Fields
+	}
+	return nil
+}
+
+func (x *Provider) GetTiers() []*ProviderTier {
+	if x != nil {
+		return x.Tiers
+	}
+	return nil
+}
+
+// ProviderField is an accounts.data entry a provider needs beyond the usual key
+// and secret — a trust anchor, for instance, which no key field can hold.
+type ProviderField struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Key   string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Title string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	// What happens without it, in one sentence.
+	Help     string `protobuf:"bytes,3,opt,name=help,proto3" json:"help,omitempty"`
+	Required bool   `protobuf:"varint,4,opt,name=required,proto3" json:"required,omitempty"`
+	// Asks for a textarea rather than an input: a PEM block is not a line.
+	Multiline     bool `protobuf:"varint,5,opt,name=multiline,proto3" json:"multiline,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProviderField) Reset() {
+	*x = ProviderField{}
+	mi := &file_v1_portfolio_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProviderField) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProviderField) ProtoMessage() {}
+
+func (x *ProviderField) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_portfolio_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProviderField.ProtoReflect.Descriptor instead.
+func (*ProviderField) Descriptor() ([]byte, []int) {
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *ProviderField) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *ProviderField) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *ProviderField) GetHelp() string {
+	if x != nil {
+		return x.Help
+	}
+	return ""
+}
+
+func (x *ProviderField) GetRequired() bool {
+	if x != nil {
+		return x.Required
+	}
+	return false
+}
+
+func (x *ProviderField) GetMultiline() bool {
+	if x != nil {
+		return x.Multiline
+	}
+	return false
+}
+
+// ProviderTier is a plan the provider meters a credential under, with the
+// limits this instance applies by default. The name is what goes into
+// accounts.data["tier"]; an empty name is the provider's free keyed plan.
+type ProviderTier struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Steady-state requests per second. Fractional values are meaningful.
+	Rps float64 `protobuf:"fixed64,2,opt,name=rps,proto3" json:"rps,omitempty"`
+	// How many requests may go out back-to-back before pacing applies.
+	Burst int32 `protobuf:"varint,3,opt,name=burst,proto3" json:"burst,omitempty"`
+	// Requests the plan allows per period. Zero means the provider meters only
+	// rate, which is usual for keyless tiers.
+	Quota int32 `protobuf:"varint,4,opt,name=quota,proto3" json:"quota,omitempty"`
+	// Window the quota resets on: "day", "month", or empty when unmetered.
+	QuotaPeriod   string `protobuf:"bytes,5,opt,name=quota_period,json=quotaPeriod,proto3" json:"quota_period,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProviderTier) Reset() {
+	*x = ProviderTier{}
+	mi := &file_v1_portfolio_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProviderTier) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProviderTier) ProtoMessage() {}
+
+func (x *ProviderTier) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_portfolio_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProviderTier.ProtoReflect.Descriptor instead.
+func (*ProviderTier) Descriptor() ([]byte, []int) {
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *ProviderTier) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ProviderTier) GetRps() float64 {
+	if x != nil {
+		return x.Rps
+	}
+	return 0
+}
+
+func (x *ProviderTier) GetBurst() int32 {
+	if x != nil {
+		return x.Burst
+	}
+	return 0
+}
+
+func (x *ProviderTier) GetQuota() int32 {
+	if x != nil {
+		return x.Quota
+	}
+	return 0
+}
+
+func (x *ProviderTier) GetQuotaPeriod() string {
+	if x != nil {
+		return x.QuotaPeriod
+	}
+	return ""
+}
+
 type CreateTransactionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Transaction   *Transaction           `protobuf:"bytes,1,opt,name=transaction,proto3" json:"transaction,omitempty"`
@@ -2782,7 +3211,7 @@ type CreateTransactionRequest struct {
 
 func (x *CreateTransactionRequest) Reset() {
 	*x = CreateTransactionRequest{}
-	mi := &file_v1_portfolio_proto_msgTypes[34]
+	mi := &file_v1_portfolio_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2794,7 +3223,7 @@ func (x *CreateTransactionRequest) String() string {
 func (*CreateTransactionRequest) ProtoMessage() {}
 
 func (x *CreateTransactionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_portfolio_proto_msgTypes[34]
+	mi := &file_v1_portfolio_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2807,7 +3236,7 @@ func (x *CreateTransactionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateTransactionRequest.ProtoReflect.Descriptor instead.
 func (*CreateTransactionRequest) Descriptor() ([]byte, []int) {
-	return file_v1_portfolio_proto_rawDescGZIP(), []int{34}
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *CreateTransactionRequest) GetTransaction() *Transaction {
@@ -2826,7 +3255,7 @@ type GetTransactionRequest struct {
 
 func (x *GetTransactionRequest) Reset() {
 	*x = GetTransactionRequest{}
-	mi := &file_v1_portfolio_proto_msgTypes[35]
+	mi := &file_v1_portfolio_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2838,7 +3267,7 @@ func (x *GetTransactionRequest) String() string {
 func (*GetTransactionRequest) ProtoMessage() {}
 
 func (x *GetTransactionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_portfolio_proto_msgTypes[35]
+	mi := &file_v1_portfolio_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2851,7 +3280,7 @@ func (x *GetTransactionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTransactionRequest.ProtoReflect.Descriptor instead.
 func (*GetTransactionRequest) Descriptor() ([]byte, []int) {
-	return file_v1_portfolio_proto_rawDescGZIP(), []int{35}
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *GetTransactionRequest) GetId() string {
@@ -2875,7 +3304,7 @@ type UpdateTransactionRequest struct {
 
 func (x *UpdateTransactionRequest) Reset() {
 	*x = UpdateTransactionRequest{}
-	mi := &file_v1_portfolio_proto_msgTypes[36]
+	mi := &file_v1_portfolio_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2887,7 +3316,7 @@ func (x *UpdateTransactionRequest) String() string {
 func (*UpdateTransactionRequest) ProtoMessage() {}
 
 func (x *UpdateTransactionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_portfolio_proto_msgTypes[36]
+	mi := &file_v1_portfolio_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2900,7 +3329,7 @@ func (x *UpdateTransactionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateTransactionRequest.ProtoReflect.Descriptor instead.
 func (*UpdateTransactionRequest) Descriptor() ([]byte, []int) {
-	return file_v1_portfolio_proto_rawDescGZIP(), []int{36}
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *UpdateTransactionRequest) GetTransaction() *Transaction {
@@ -2932,7 +3361,7 @@ type ListTransactionsRequest struct {
 
 func (x *ListTransactionsRequest) Reset() {
 	*x = ListTransactionsRequest{}
-	mi := &file_v1_portfolio_proto_msgTypes[37]
+	mi := &file_v1_portfolio_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2944,7 +3373,7 @@ func (x *ListTransactionsRequest) String() string {
 func (*ListTransactionsRequest) ProtoMessage() {}
 
 func (x *ListTransactionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_portfolio_proto_msgTypes[37]
+	mi := &file_v1_portfolio_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2957,7 +3386,7 @@ func (x *ListTransactionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTransactionsRequest.ProtoReflect.Descriptor instead.
 func (*ListTransactionsRequest) Descriptor() ([]byte, []int) {
-	return file_v1_portfolio_proto_rawDescGZIP(), []int{37}
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *ListTransactionsRequest) GetType() TransactionType {
@@ -3019,7 +3448,7 @@ type ListTransactionsResponse struct {
 
 func (x *ListTransactionsResponse) Reset() {
 	*x = ListTransactionsResponse{}
-	mi := &file_v1_portfolio_proto_msgTypes[38]
+	mi := &file_v1_portfolio_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3031,7 +3460,7 @@ func (x *ListTransactionsResponse) String() string {
 func (*ListTransactionsResponse) ProtoMessage() {}
 
 func (x *ListTransactionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_portfolio_proto_msgTypes[38]
+	mi := &file_v1_portfolio_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3044,7 +3473,7 @@ func (x *ListTransactionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTransactionsResponse.ProtoReflect.Descriptor instead.
 func (*ListTransactionsResponse) Descriptor() ([]byte, []int) {
-	return file_v1_portfolio_proto_rawDescGZIP(), []int{38}
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *ListTransactionsResponse) GetTransactions() []*Transaction {
@@ -3070,7 +3499,7 @@ type SyncAccountRequest struct {
 
 func (x *SyncAccountRequest) Reset() {
 	*x = SyncAccountRequest{}
-	mi := &file_v1_portfolio_proto_msgTypes[39]
+	mi := &file_v1_portfolio_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3082,7 +3511,7 @@ func (x *SyncAccountRequest) String() string {
 func (*SyncAccountRequest) ProtoMessage() {}
 
 func (x *SyncAccountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_portfolio_proto_msgTypes[39]
+	mi := &file_v1_portfolio_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3095,7 +3524,7 @@ func (x *SyncAccountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncAccountRequest.ProtoReflect.Descriptor instead.
 func (*SyncAccountRequest) Descriptor() ([]byte, []int) {
-	return file_v1_portfolio_proto_rawDescGZIP(), []int{39}
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *SyncAccountRequest) GetAccountId() string {
@@ -3121,7 +3550,7 @@ type SyncAccountResponse struct {
 
 func (x *SyncAccountResponse) Reset() {
 	*x = SyncAccountResponse{}
-	mi := &file_v1_portfolio_proto_msgTypes[40]
+	mi := &file_v1_portfolio_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3133,7 +3562,7 @@ func (x *SyncAccountResponse) String() string {
 func (*SyncAccountResponse) ProtoMessage() {}
 
 func (x *SyncAccountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_portfolio_proto_msgTypes[40]
+	mi := &file_v1_portfolio_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3146,7 +3575,7 @@ func (x *SyncAccountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncAccountResponse.ProtoReflect.Descriptor instead.
 func (*SyncAccountResponse) Descriptor() ([]byte, []int) {
-	return file_v1_portfolio_proto_rawDescGZIP(), []int{40}
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *SyncAccountResponse) GetAccountId() string {
@@ -3445,7 +3874,34 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\v_page_token\"k\n" +
 	"\x14ListAccountsResponse\x12+\n" +
 	"\baccounts\x18\x01 \x03(\v2\x0f.eye.v1.AccountR\baccounts\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"Q\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x16\n" +
+	"\x14ListProvidersRequest\"G\n" +
+	"\x15ListProvidersResponse\x12.\n" +
+	"\tproviders\x18\x01 \x03(\v2\x10.eye.v1.ProviderR\tproviders\"\xdf\x02\n" +
+	"\bProvider\x12\x12\n" +
+	"\x04slug\x18\x01 \x01(\tR\x04slug\x12\x14\n" +
+	"\x05title\x18\x02 \x01(\tR\x05title\x12*\n" +
+	"\x05kinds\x18\x03 \x03(\x0e2\x14.eye.v1.ProviderKindR\x05kinds\x12\"\n" +
+	"\fcapabilities\x18\x04 \x03(\tR\fcapabilities\x12\"\n" +
+	"\rneeds_api_key\x18\x05 \x01(\bR\vneedsApiKey\x12(\n" +
+	"\x10needs_api_secret\x18\x06 \x01(\bR\x0eneedsApiSecret\x12\x18\n" +
+	"\akeyless\x18\a \x01(\bR\akeyless\x12\x16\n" +
+	"\x06chains\x18\b \x03(\tR\x06chains\x12-\n" +
+	"\x06fields\x18\t \x03(\v2\x15.eye.v1.ProviderFieldR\x06fields\x12*\n" +
+	"\x05tiers\x18\n" +
+	" \x03(\v2\x14.eye.v1.ProviderTierR\x05tiers\"\x85\x01\n" +
+	"\rProviderField\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05title\x18\x02 \x01(\tR\x05title\x12\x12\n" +
+	"\x04help\x18\x03 \x01(\tR\x04help\x12\x1a\n" +
+	"\brequired\x18\x04 \x01(\bR\brequired\x12\x1c\n" +
+	"\tmultiline\x18\x05 \x01(\bR\tmultiline\"\x83\x01\n" +
+	"\fProviderTier\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
+	"\x03rps\x18\x02 \x01(\x01R\x03rps\x12\x14\n" +
+	"\x05burst\x18\x03 \x01(\x05R\x05burst\x12\x14\n" +
+	"\x05quota\x18\x04 \x01(\x05R\x05quota\x12!\n" +
+	"\fquota_period\x18\x05 \x01(\tR\vquotaPeriod\"Q\n" +
 	"\x18CreateTransactionRequest\x125\n" +
 	"\vtransaction\x18\x01 \x01(\v2\x13.eye.v1.TransactionR\vtransaction\"'\n" +
 	"\x15GetTransactionRequest\x12\x0e\n" +
@@ -3517,7 +3973,12 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x14IMPORT_ACTION_CREATE\x10\x01\x12\x18\n" +
 	"\x14IMPORT_ACTION_UPDATE\x10\x02\x12\x16\n" +
 	"\x12IMPORT_ACTION_SKIP\x10\x03\x12\x18\n" +
-	"\x14IMPORT_ACTION_DELETE\x10\x042\xe7\x15\n" +
+	"\x14IMPORT_ACTION_DELETE\x10\x04*|\n" +
+	"\fProviderKind\x12\x1d\n" +
+	"\x19PROVIDER_KIND_UNSPECIFIED\x10\x00\x12\x17\n" +
+	"\x13PROVIDER_KIND_PRICE\x10\x01\x12\x18\n" +
+	"\x14PROVIDER_KIND_WALLET\x10\x02\x12\x1a\n" +
+	"\x16PROVIDER_KIND_EXCHANGE\x10\x032\xd0\x16\n" +
 	"\x10PortfolioService\x12k\n" +
 	"\x0fCreatePortfolio\x12\x1e.eye.v1.CreatePortfolioRequest\x1a\x11.eye.v1.Portfolio\"%\x82\xd3\xe4\x93\x02\x1f:\tportfolio\"\x12/api/v1/portfolios\x12_\n" +
 	"\fGetPortfolio\x12\x1b.eye.v1.GetPortfolioRequest\x1a\x11.eye.v1.Portfolio\"\x1f\x82\xd3\xe4\x93\x02\x19\x12\x17/api/v1/portfolios/{id}\x12z\n" +
@@ -3539,7 +4000,8 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"GetAccount\x12\x19.eye.v1.GetAccountRequest\x1a\x0f.eye.v1.Account\"\x1d\x82\xd3\xe4\x93\x02\x17\x12\x15/api/v1/accounts/{id}\x12n\n" +
 	"\rUpdateAccount\x12\x1c.eye.v1.UpdateAccountRequest\x1a\x0f.eye.v1.Account\".\x82\xd3\xe4\x93\x02(:\aaccount\x1a\x1d/api/v1/accounts/{account.id}\x12d\n" +
 	"\rDeleteAccount\x12\x1c.eye.v1.DeleteAccountRequest\x1a\x16.google.protobuf.Empty\"\x1d\x82\xd3\xe4\x93\x02\x17*\x15/api/v1/accounts/{id}\x12c\n" +
-	"\fListAccounts\x12\x1b.eye.v1.ListAccountsRequest\x1a\x1c.eye.v1.ListAccountsResponse\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/api/v1/accounts\x12u\n" +
+	"\fListAccounts\x12\x1b.eye.v1.ListAccountsRequest\x1a\x1c.eye.v1.ListAccountsResponse\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/api/v1/accounts\x12g\n" +
+	"\rListProviders\x12\x1c.eye.v1.ListProvidersRequest\x1a\x1d.eye.v1.ListProvidersResponse\"\x19\x82\xd3\xe4\x93\x02\x13\x12\x11/api/v1/providers\x12u\n" +
 	"\x11CreateTransaction\x12 .eye.v1.CreateTransactionRequest\x1a\x13.eye.v1.Transaction\")\x82\xd3\xe4\x93\x02#:\vtransaction\"\x14/api/v1/transactions\x12g\n" +
 	"\x0eGetTransaction\x12\x1d.eye.v1.GetTransactionRequest\x1a\x13.eye.v1.Transaction\"!\x82\xd3\xe4\x93\x02\x1b\x12\x19/api/v1/transactions/{id}\x12\x86\x01\n" +
 	"\x11UpdateTransaction\x12 .eye.v1.UpdateTransactionRequest\x1a\x13.eye.v1.Transaction\":\x82\xd3\xe4\x93\x024:\vtransaction\x1a%/api/v1/transactions/{transaction.id}\x12s\n" +
@@ -3560,173 +4022,185 @@ func file_v1_portfolio_proto_rawDescGZIP() []byte {
 	return file_v1_portfolio_proto_rawDescData
 }
 
-var file_v1_portfolio_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_v1_portfolio_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
+var file_v1_portfolio_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
+var file_v1_portfolio_proto_msgTypes = make([]protoimpl.MessageInfo, 50)
 var file_v1_portfolio_proto_goTypes = []any{
 	(AccountType)(0),                       // 0: eye.v1.AccountType
 	(ProvenanceSource)(0),                  // 1: eye.v1.ProvenanceSource
 	(TransactionType)(0),                   // 2: eye.v1.TransactionType
 	(TransactionStatus)(0),                 // 3: eye.v1.TransactionStatus
 	(ImportAction)(0),                      // 4: eye.v1.ImportAction
-	(*Portfolio)(nil),                      // 5: eye.v1.Portfolio
-	(*Holding)(nil),                        // 6: eye.v1.Holding
-	(*Account)(nil),                        // 7: eye.v1.Account
-	(*Transaction)(nil),                    // 8: eye.v1.Transaction
-	(*CreatePortfolioRequest)(nil),         // 9: eye.v1.CreatePortfolioRequest
-	(*GetPortfolioRequest)(nil),            // 10: eye.v1.GetPortfolioRequest
-	(*UpdatePortfolioRequest)(nil),         // 11: eye.v1.UpdatePortfolioRequest
-	(*DeletePortfolioRequest)(nil),         // 12: eye.v1.DeletePortfolioRequest
-	(*ListPortfoliosRequest)(nil),          // 13: eye.v1.ListPortfoliosRequest
-	(*ListPortfoliosResponse)(nil),         // 14: eye.v1.ListPortfoliosResponse
-	(*CalculatePortfolioValueRequest)(nil), // 15: eye.v1.CalculatePortfolioValueRequest
-	(*PortfolioValueResponse)(nil),         // 16: eye.v1.PortfolioValueResponse
-	(*GetPortfolioPerformanceRequest)(nil), // 17: eye.v1.GetPortfolioPerformanceRequest
-	(*PortfolioPerformanceResponse)(nil),   // 18: eye.v1.PortfolioPerformanceResponse
-	(*CreateHoldingRequest)(nil),           // 19: eye.v1.CreateHoldingRequest
-	(*GetHoldingRequest)(nil),              // 20: eye.v1.GetHoldingRequest
-	(*UpdateHoldingRequest)(nil),           // 21: eye.v1.UpdateHoldingRequest
-	(*DeleteHoldingRequest)(nil),           // 22: eye.v1.DeleteHoldingRequest
-	(*ImportPositionItem)(nil),             // 23: eye.v1.ImportPositionItem
-	(*ImportPositionsRequest)(nil),         // 24: eye.v1.ImportPositionsRequest
-	(*ImportPositionResult)(nil),           // 25: eye.v1.ImportPositionResult
-	(*ImportPositionsResponse)(nil),        // 26: eye.v1.ImportPositionsResponse
-	(*ImportTransactionItem)(nil),          // 27: eye.v1.ImportTransactionItem
-	(*ImportTransactionsRequest)(nil),      // 28: eye.v1.ImportTransactionsRequest
-	(*ImportTransactionResult)(nil),        // 29: eye.v1.ImportTransactionResult
-	(*ImportTransactionsResponse)(nil),     // 30: eye.v1.ImportTransactionsResponse
-	(*ListHoldingsRequest)(nil),            // 31: eye.v1.ListHoldingsRequest
-	(*ListHoldingsResponse)(nil),           // 32: eye.v1.ListHoldingsResponse
-	(*CreateAccountRequest)(nil),           // 33: eye.v1.CreateAccountRequest
-	(*GetAccountRequest)(nil),              // 34: eye.v1.GetAccountRequest
-	(*UpdateAccountRequest)(nil),           // 35: eye.v1.UpdateAccountRequest
-	(*DeleteAccountRequest)(nil),           // 36: eye.v1.DeleteAccountRequest
-	(*ListAccountsRequest)(nil),            // 37: eye.v1.ListAccountsRequest
-	(*ListAccountsResponse)(nil),           // 38: eye.v1.ListAccountsResponse
-	(*CreateTransactionRequest)(nil),       // 39: eye.v1.CreateTransactionRequest
-	(*GetTransactionRequest)(nil),          // 40: eye.v1.GetTransactionRequest
-	(*UpdateTransactionRequest)(nil),       // 41: eye.v1.UpdateTransactionRequest
-	(*ListTransactionsRequest)(nil),        // 42: eye.v1.ListTransactionsRequest
-	(*ListTransactionsResponse)(nil),       // 43: eye.v1.ListTransactionsResponse
-	(*SyncAccountRequest)(nil),             // 44: eye.v1.SyncAccountRequest
-	(*SyncAccountResponse)(nil),            // 45: eye.v1.SyncAccountResponse
-	nil,                                    // 46: eye.v1.Portfolio.DataEntry
-	nil,                                    // 47: eye.v1.Account.DataEntry
-	nil,                                    // 48: eye.v1.Transaction.DataEntry
-	nil,                                    // 49: eye.v1.ImportTransactionItem.DataEntry
-	(*timestamppb.Timestamp)(nil),          // 50: google.protobuf.Timestamp
-	(*fieldmaskpb.FieldMask)(nil),          // 51: google.protobuf.FieldMask
-	(*ValuationCoverage)(nil),              // 52: eye.v1.ValuationCoverage
-	(AssetType)(0),                         // 53: eye.v1.AssetType
-	(*anypb.Any)(nil),                      // 54: google.protobuf.Any
-	(*emptypb.Empty)(nil),                  // 55: google.protobuf.Empty
+	(ProviderKind)(0),                      // 5: eye.v1.ProviderKind
+	(*Portfolio)(nil),                      // 6: eye.v1.Portfolio
+	(*Holding)(nil),                        // 7: eye.v1.Holding
+	(*Account)(nil),                        // 8: eye.v1.Account
+	(*Transaction)(nil),                    // 9: eye.v1.Transaction
+	(*CreatePortfolioRequest)(nil),         // 10: eye.v1.CreatePortfolioRequest
+	(*GetPortfolioRequest)(nil),            // 11: eye.v1.GetPortfolioRequest
+	(*UpdatePortfolioRequest)(nil),         // 12: eye.v1.UpdatePortfolioRequest
+	(*DeletePortfolioRequest)(nil),         // 13: eye.v1.DeletePortfolioRequest
+	(*ListPortfoliosRequest)(nil),          // 14: eye.v1.ListPortfoliosRequest
+	(*ListPortfoliosResponse)(nil),         // 15: eye.v1.ListPortfoliosResponse
+	(*CalculatePortfolioValueRequest)(nil), // 16: eye.v1.CalculatePortfolioValueRequest
+	(*PortfolioValueResponse)(nil),         // 17: eye.v1.PortfolioValueResponse
+	(*GetPortfolioPerformanceRequest)(nil), // 18: eye.v1.GetPortfolioPerformanceRequest
+	(*PortfolioPerformanceResponse)(nil),   // 19: eye.v1.PortfolioPerformanceResponse
+	(*CreateHoldingRequest)(nil),           // 20: eye.v1.CreateHoldingRequest
+	(*GetHoldingRequest)(nil),              // 21: eye.v1.GetHoldingRequest
+	(*UpdateHoldingRequest)(nil),           // 22: eye.v1.UpdateHoldingRequest
+	(*DeleteHoldingRequest)(nil),           // 23: eye.v1.DeleteHoldingRequest
+	(*ImportPositionItem)(nil),             // 24: eye.v1.ImportPositionItem
+	(*ImportPositionsRequest)(nil),         // 25: eye.v1.ImportPositionsRequest
+	(*ImportPositionResult)(nil),           // 26: eye.v1.ImportPositionResult
+	(*ImportPositionsResponse)(nil),        // 27: eye.v1.ImportPositionsResponse
+	(*ImportTransactionItem)(nil),          // 28: eye.v1.ImportTransactionItem
+	(*ImportTransactionsRequest)(nil),      // 29: eye.v1.ImportTransactionsRequest
+	(*ImportTransactionResult)(nil),        // 30: eye.v1.ImportTransactionResult
+	(*ImportTransactionsResponse)(nil),     // 31: eye.v1.ImportTransactionsResponse
+	(*ListHoldingsRequest)(nil),            // 32: eye.v1.ListHoldingsRequest
+	(*ListHoldingsResponse)(nil),           // 33: eye.v1.ListHoldingsResponse
+	(*CreateAccountRequest)(nil),           // 34: eye.v1.CreateAccountRequest
+	(*GetAccountRequest)(nil),              // 35: eye.v1.GetAccountRequest
+	(*UpdateAccountRequest)(nil),           // 36: eye.v1.UpdateAccountRequest
+	(*DeleteAccountRequest)(nil),           // 37: eye.v1.DeleteAccountRequest
+	(*ListAccountsRequest)(nil),            // 38: eye.v1.ListAccountsRequest
+	(*ListAccountsResponse)(nil),           // 39: eye.v1.ListAccountsResponse
+	(*ListProvidersRequest)(nil),           // 40: eye.v1.ListProvidersRequest
+	(*ListProvidersResponse)(nil),          // 41: eye.v1.ListProvidersResponse
+	(*Provider)(nil),                       // 42: eye.v1.Provider
+	(*ProviderField)(nil),                  // 43: eye.v1.ProviderField
+	(*ProviderTier)(nil),                   // 44: eye.v1.ProviderTier
+	(*CreateTransactionRequest)(nil),       // 45: eye.v1.CreateTransactionRequest
+	(*GetTransactionRequest)(nil),          // 46: eye.v1.GetTransactionRequest
+	(*UpdateTransactionRequest)(nil),       // 47: eye.v1.UpdateTransactionRequest
+	(*ListTransactionsRequest)(nil),        // 48: eye.v1.ListTransactionsRequest
+	(*ListTransactionsResponse)(nil),       // 49: eye.v1.ListTransactionsResponse
+	(*SyncAccountRequest)(nil),             // 50: eye.v1.SyncAccountRequest
+	(*SyncAccountResponse)(nil),            // 51: eye.v1.SyncAccountResponse
+	nil,                                    // 52: eye.v1.Portfolio.DataEntry
+	nil,                                    // 53: eye.v1.Account.DataEntry
+	nil,                                    // 54: eye.v1.Transaction.DataEntry
+	nil,                                    // 55: eye.v1.ImportTransactionItem.DataEntry
+	(*timestamppb.Timestamp)(nil),          // 56: google.protobuf.Timestamp
+	(*fieldmaskpb.FieldMask)(nil),          // 57: google.protobuf.FieldMask
+	(*ValuationCoverage)(nil),              // 58: eye.v1.ValuationCoverage
+	(AssetType)(0),                         // 59: eye.v1.AssetType
+	(*anypb.Any)(nil),                      // 60: google.protobuf.Any
+	(*emptypb.Empty)(nil),                  // 61: google.protobuf.Empty
 }
 var file_v1_portfolio_proto_depIdxs = []int32{
-	46, // 0: eye.v1.Portfolio.data:type_name -> eye.v1.Portfolio.DataEntry
-	50, // 1: eye.v1.Portfolio.created_at:type_name -> google.protobuf.Timestamp
-	50, // 2: eye.v1.Portfolio.updated_at:type_name -> google.protobuf.Timestamp
-	50, // 3: eye.v1.Holding.created_at:type_name -> google.protobuf.Timestamp
-	50, // 4: eye.v1.Holding.updated_at:type_name -> google.protobuf.Timestamp
+	52, // 0: eye.v1.Portfolio.data:type_name -> eye.v1.Portfolio.DataEntry
+	56, // 1: eye.v1.Portfolio.created_at:type_name -> google.protobuf.Timestamp
+	56, // 2: eye.v1.Portfolio.updated_at:type_name -> google.protobuf.Timestamp
+	56, // 3: eye.v1.Holding.created_at:type_name -> google.protobuf.Timestamp
+	56, // 4: eye.v1.Holding.updated_at:type_name -> google.protobuf.Timestamp
 	1,  // 5: eye.v1.Holding.source:type_name -> eye.v1.ProvenanceSource
 	0,  // 6: eye.v1.Account.type:type_name -> eye.v1.AccountType
-	47, // 7: eye.v1.Account.data:type_name -> eye.v1.Account.DataEntry
-	50, // 8: eye.v1.Account.created_at:type_name -> google.protobuf.Timestamp
-	50, // 9: eye.v1.Account.updated_at:type_name -> google.protobuf.Timestamp
-	50, // 10: eye.v1.Transaction.created_at:type_name -> google.protobuf.Timestamp
-	50, // 11: eye.v1.Transaction.updated_at:type_name -> google.protobuf.Timestamp
+	53, // 7: eye.v1.Account.data:type_name -> eye.v1.Account.DataEntry
+	56, // 8: eye.v1.Account.created_at:type_name -> google.protobuf.Timestamp
+	56, // 9: eye.v1.Account.updated_at:type_name -> google.protobuf.Timestamp
+	56, // 10: eye.v1.Transaction.created_at:type_name -> google.protobuf.Timestamp
+	56, // 11: eye.v1.Transaction.updated_at:type_name -> google.protobuf.Timestamp
 	2,  // 12: eye.v1.Transaction.type:type_name -> eye.v1.TransactionType
 	3,  // 13: eye.v1.Transaction.status:type_name -> eye.v1.TransactionStatus
-	48, // 14: eye.v1.Transaction.data:type_name -> eye.v1.Transaction.DataEntry
+	54, // 14: eye.v1.Transaction.data:type_name -> eye.v1.Transaction.DataEntry
 	1,  // 15: eye.v1.Transaction.source:type_name -> eye.v1.ProvenanceSource
-	5,  // 16: eye.v1.CreatePortfolioRequest.portfolio:type_name -> eye.v1.Portfolio
-	5,  // 17: eye.v1.UpdatePortfolioRequest.portfolio:type_name -> eye.v1.Portfolio
-	51, // 18: eye.v1.UpdatePortfolioRequest.update_mask:type_name -> google.protobuf.FieldMask
-	5,  // 19: eye.v1.ListPortfoliosResponse.portfolios:type_name -> eye.v1.Portfolio
-	50, // 20: eye.v1.CalculatePortfolioValueRequest.at_time:type_name -> google.protobuf.Timestamp
-	50, // 21: eye.v1.PortfolioValueResponse.calculation_time:type_name -> google.protobuf.Timestamp
-	52, // 22: eye.v1.PortfolioValueResponse.coverage:type_name -> eye.v1.ValuationCoverage
-	50, // 23: eye.v1.GetPortfolioPerformanceRequest.from:type_name -> google.protobuf.Timestamp
-	50, // 24: eye.v1.GetPortfolioPerformanceRequest.to:type_name -> google.protobuf.Timestamp
-	6,  // 25: eye.v1.CreateHoldingRequest.holding:type_name -> eye.v1.Holding
-	6,  // 26: eye.v1.UpdateHoldingRequest.holding:type_name -> eye.v1.Holding
-	51, // 27: eye.v1.UpdateHoldingRequest.update_mask:type_name -> google.protobuf.FieldMask
-	53, // 28: eye.v1.ImportPositionItem.asset_type:type_name -> eye.v1.AssetType
-	23, // 29: eye.v1.ImportPositionsRequest.positions:type_name -> eye.v1.ImportPositionItem
+	6,  // 16: eye.v1.CreatePortfolioRequest.portfolio:type_name -> eye.v1.Portfolio
+	6,  // 17: eye.v1.UpdatePortfolioRequest.portfolio:type_name -> eye.v1.Portfolio
+	57, // 18: eye.v1.UpdatePortfolioRequest.update_mask:type_name -> google.protobuf.FieldMask
+	6,  // 19: eye.v1.ListPortfoliosResponse.portfolios:type_name -> eye.v1.Portfolio
+	56, // 20: eye.v1.CalculatePortfolioValueRequest.at_time:type_name -> google.protobuf.Timestamp
+	56, // 21: eye.v1.PortfolioValueResponse.calculation_time:type_name -> google.protobuf.Timestamp
+	58, // 22: eye.v1.PortfolioValueResponse.coverage:type_name -> eye.v1.ValuationCoverage
+	56, // 23: eye.v1.GetPortfolioPerformanceRequest.from:type_name -> google.protobuf.Timestamp
+	56, // 24: eye.v1.GetPortfolioPerformanceRequest.to:type_name -> google.protobuf.Timestamp
+	7,  // 25: eye.v1.CreateHoldingRequest.holding:type_name -> eye.v1.Holding
+	7,  // 26: eye.v1.UpdateHoldingRequest.holding:type_name -> eye.v1.Holding
+	57, // 27: eye.v1.UpdateHoldingRequest.update_mask:type_name -> google.protobuf.FieldMask
+	59, // 28: eye.v1.ImportPositionItem.asset_type:type_name -> eye.v1.AssetType
+	24, // 29: eye.v1.ImportPositionsRequest.positions:type_name -> eye.v1.ImportPositionItem
 	4,  // 30: eye.v1.ImportPositionResult.action:type_name -> eye.v1.ImportAction
-	25, // 31: eye.v1.ImportPositionsResponse.items:type_name -> eye.v1.ImportPositionResult
+	26, // 31: eye.v1.ImportPositionsResponse.items:type_name -> eye.v1.ImportPositionResult
 	2,  // 32: eye.v1.ImportTransactionItem.type:type_name -> eye.v1.TransactionType
 	3,  // 33: eye.v1.ImportTransactionItem.status:type_name -> eye.v1.TransactionStatus
-	49, // 34: eye.v1.ImportTransactionItem.data:type_name -> eye.v1.ImportTransactionItem.DataEntry
-	27, // 35: eye.v1.ImportTransactionsRequest.transactions:type_name -> eye.v1.ImportTransactionItem
+	55, // 34: eye.v1.ImportTransactionItem.data:type_name -> eye.v1.ImportTransactionItem.DataEntry
+	28, // 35: eye.v1.ImportTransactionsRequest.transactions:type_name -> eye.v1.ImportTransactionItem
 	4,  // 36: eye.v1.ImportTransactionResult.action:type_name -> eye.v1.ImportAction
-	29, // 37: eye.v1.ImportTransactionsResponse.items:type_name -> eye.v1.ImportTransactionResult
-	6,  // 38: eye.v1.ListHoldingsResponse.holdings:type_name -> eye.v1.Holding
-	7,  // 39: eye.v1.CreateAccountRequest.account:type_name -> eye.v1.Account
-	7,  // 40: eye.v1.UpdateAccountRequest.account:type_name -> eye.v1.Account
-	51, // 41: eye.v1.UpdateAccountRequest.update_mask:type_name -> google.protobuf.FieldMask
+	30, // 37: eye.v1.ImportTransactionsResponse.items:type_name -> eye.v1.ImportTransactionResult
+	7,  // 38: eye.v1.ListHoldingsResponse.holdings:type_name -> eye.v1.Holding
+	8,  // 39: eye.v1.CreateAccountRequest.account:type_name -> eye.v1.Account
+	8,  // 40: eye.v1.UpdateAccountRequest.account:type_name -> eye.v1.Account
+	57, // 41: eye.v1.UpdateAccountRequest.update_mask:type_name -> google.protobuf.FieldMask
 	0,  // 42: eye.v1.ListAccountsRequest.type:type_name -> eye.v1.AccountType
-	7,  // 43: eye.v1.ListAccountsResponse.accounts:type_name -> eye.v1.Account
-	8,  // 44: eye.v1.CreateTransactionRequest.transaction:type_name -> eye.v1.Transaction
-	8,  // 45: eye.v1.UpdateTransactionRequest.transaction:type_name -> eye.v1.Transaction
-	51, // 46: eye.v1.UpdateTransactionRequest.update_mask:type_name -> google.protobuf.FieldMask
-	2,  // 47: eye.v1.ListTransactionsRequest.type:type_name -> eye.v1.TransactionType
-	3,  // 48: eye.v1.ListTransactionsRequest.status:type_name -> eye.v1.TransactionStatus
-	50, // 49: eye.v1.ListTransactionsRequest.from:type_name -> google.protobuf.Timestamp
-	50, // 50: eye.v1.ListTransactionsRequest.to:type_name -> google.protobuf.Timestamp
-	8,  // 51: eye.v1.ListTransactionsResponse.transactions:type_name -> eye.v1.Transaction
-	54, // 52: eye.v1.Portfolio.DataEntry.value:type_name -> google.protobuf.Any
-	9,  // 53: eye.v1.PortfolioService.CreatePortfolio:input_type -> eye.v1.CreatePortfolioRequest
-	10, // 54: eye.v1.PortfolioService.GetPortfolio:input_type -> eye.v1.GetPortfolioRequest
-	11, // 55: eye.v1.PortfolioService.UpdatePortfolio:input_type -> eye.v1.UpdatePortfolioRequest
-	12, // 56: eye.v1.PortfolioService.DeletePortfolio:input_type -> eye.v1.DeletePortfolioRequest
-	13, // 57: eye.v1.PortfolioService.ListPortfolios:input_type -> eye.v1.ListPortfoliosRequest
-	15, // 58: eye.v1.PortfolioService.CalculatePortfolioValue:input_type -> eye.v1.CalculatePortfolioValueRequest
-	17, // 59: eye.v1.PortfolioService.GetPortfolioPerformance:input_type -> eye.v1.GetPortfolioPerformanceRequest
-	19, // 60: eye.v1.PortfolioService.CreateHolding:input_type -> eye.v1.CreateHoldingRequest
-	20, // 61: eye.v1.PortfolioService.GetHolding:input_type -> eye.v1.GetHoldingRequest
-	21, // 62: eye.v1.PortfolioService.UpdateHolding:input_type -> eye.v1.UpdateHoldingRequest
-	22, // 63: eye.v1.PortfolioService.DeleteHolding:input_type -> eye.v1.DeleteHoldingRequest
-	24, // 64: eye.v1.PortfolioService.ImportPositions:input_type -> eye.v1.ImportPositionsRequest
-	28, // 65: eye.v1.PortfolioService.ImportTransactions:input_type -> eye.v1.ImportTransactionsRequest
-	31, // 66: eye.v1.PortfolioService.ListHoldings:input_type -> eye.v1.ListHoldingsRequest
-	33, // 67: eye.v1.PortfolioService.CreateAccount:input_type -> eye.v1.CreateAccountRequest
-	34, // 68: eye.v1.PortfolioService.GetAccount:input_type -> eye.v1.GetAccountRequest
-	35, // 69: eye.v1.PortfolioService.UpdateAccount:input_type -> eye.v1.UpdateAccountRequest
-	36, // 70: eye.v1.PortfolioService.DeleteAccount:input_type -> eye.v1.DeleteAccountRequest
-	37, // 71: eye.v1.PortfolioService.ListAccounts:input_type -> eye.v1.ListAccountsRequest
-	39, // 72: eye.v1.PortfolioService.CreateTransaction:input_type -> eye.v1.CreateTransactionRequest
-	40, // 73: eye.v1.PortfolioService.GetTransaction:input_type -> eye.v1.GetTransactionRequest
-	41, // 74: eye.v1.PortfolioService.UpdateTransaction:input_type -> eye.v1.UpdateTransactionRequest
-	42, // 75: eye.v1.PortfolioService.ListTransactions:input_type -> eye.v1.ListTransactionsRequest
-	44, // 76: eye.v1.PortfolioService.SyncAccount:input_type -> eye.v1.SyncAccountRequest
-	5,  // 77: eye.v1.PortfolioService.CreatePortfolio:output_type -> eye.v1.Portfolio
-	5,  // 78: eye.v1.PortfolioService.GetPortfolio:output_type -> eye.v1.Portfolio
-	5,  // 79: eye.v1.PortfolioService.UpdatePortfolio:output_type -> eye.v1.Portfolio
-	55, // 80: eye.v1.PortfolioService.DeletePortfolio:output_type -> google.protobuf.Empty
-	14, // 81: eye.v1.PortfolioService.ListPortfolios:output_type -> eye.v1.ListPortfoliosResponse
-	16, // 82: eye.v1.PortfolioService.CalculatePortfolioValue:output_type -> eye.v1.PortfolioValueResponse
-	18, // 83: eye.v1.PortfolioService.GetPortfolioPerformance:output_type -> eye.v1.PortfolioPerformanceResponse
-	6,  // 84: eye.v1.PortfolioService.CreateHolding:output_type -> eye.v1.Holding
-	6,  // 85: eye.v1.PortfolioService.GetHolding:output_type -> eye.v1.Holding
-	6,  // 86: eye.v1.PortfolioService.UpdateHolding:output_type -> eye.v1.Holding
-	55, // 87: eye.v1.PortfolioService.DeleteHolding:output_type -> google.protobuf.Empty
-	26, // 88: eye.v1.PortfolioService.ImportPositions:output_type -> eye.v1.ImportPositionsResponse
-	30, // 89: eye.v1.PortfolioService.ImportTransactions:output_type -> eye.v1.ImportTransactionsResponse
-	32, // 90: eye.v1.PortfolioService.ListHoldings:output_type -> eye.v1.ListHoldingsResponse
-	7,  // 91: eye.v1.PortfolioService.CreateAccount:output_type -> eye.v1.Account
-	7,  // 92: eye.v1.PortfolioService.GetAccount:output_type -> eye.v1.Account
-	7,  // 93: eye.v1.PortfolioService.UpdateAccount:output_type -> eye.v1.Account
-	55, // 94: eye.v1.PortfolioService.DeleteAccount:output_type -> google.protobuf.Empty
-	38, // 95: eye.v1.PortfolioService.ListAccounts:output_type -> eye.v1.ListAccountsResponse
-	8,  // 96: eye.v1.PortfolioService.CreateTransaction:output_type -> eye.v1.Transaction
-	8,  // 97: eye.v1.PortfolioService.GetTransaction:output_type -> eye.v1.Transaction
-	8,  // 98: eye.v1.PortfolioService.UpdateTransaction:output_type -> eye.v1.Transaction
-	43, // 99: eye.v1.PortfolioService.ListTransactions:output_type -> eye.v1.ListTransactionsResponse
-	45, // 100: eye.v1.PortfolioService.SyncAccount:output_type -> eye.v1.SyncAccountResponse
-	77, // [77:101] is the sub-list for method output_type
-	53, // [53:77] is the sub-list for method input_type
-	53, // [53:53] is the sub-list for extension type_name
-	53, // [53:53] is the sub-list for extension extendee
-	0,  // [0:53] is the sub-list for field type_name
+	8,  // 43: eye.v1.ListAccountsResponse.accounts:type_name -> eye.v1.Account
+	42, // 44: eye.v1.ListProvidersResponse.providers:type_name -> eye.v1.Provider
+	5,  // 45: eye.v1.Provider.kinds:type_name -> eye.v1.ProviderKind
+	43, // 46: eye.v1.Provider.fields:type_name -> eye.v1.ProviderField
+	44, // 47: eye.v1.Provider.tiers:type_name -> eye.v1.ProviderTier
+	9,  // 48: eye.v1.CreateTransactionRequest.transaction:type_name -> eye.v1.Transaction
+	9,  // 49: eye.v1.UpdateTransactionRequest.transaction:type_name -> eye.v1.Transaction
+	57, // 50: eye.v1.UpdateTransactionRequest.update_mask:type_name -> google.protobuf.FieldMask
+	2,  // 51: eye.v1.ListTransactionsRequest.type:type_name -> eye.v1.TransactionType
+	3,  // 52: eye.v1.ListTransactionsRequest.status:type_name -> eye.v1.TransactionStatus
+	56, // 53: eye.v1.ListTransactionsRequest.from:type_name -> google.protobuf.Timestamp
+	56, // 54: eye.v1.ListTransactionsRequest.to:type_name -> google.protobuf.Timestamp
+	9,  // 55: eye.v1.ListTransactionsResponse.transactions:type_name -> eye.v1.Transaction
+	60, // 56: eye.v1.Portfolio.DataEntry.value:type_name -> google.protobuf.Any
+	10, // 57: eye.v1.PortfolioService.CreatePortfolio:input_type -> eye.v1.CreatePortfolioRequest
+	11, // 58: eye.v1.PortfolioService.GetPortfolio:input_type -> eye.v1.GetPortfolioRequest
+	12, // 59: eye.v1.PortfolioService.UpdatePortfolio:input_type -> eye.v1.UpdatePortfolioRequest
+	13, // 60: eye.v1.PortfolioService.DeletePortfolio:input_type -> eye.v1.DeletePortfolioRequest
+	14, // 61: eye.v1.PortfolioService.ListPortfolios:input_type -> eye.v1.ListPortfoliosRequest
+	16, // 62: eye.v1.PortfolioService.CalculatePortfolioValue:input_type -> eye.v1.CalculatePortfolioValueRequest
+	18, // 63: eye.v1.PortfolioService.GetPortfolioPerformance:input_type -> eye.v1.GetPortfolioPerformanceRequest
+	20, // 64: eye.v1.PortfolioService.CreateHolding:input_type -> eye.v1.CreateHoldingRequest
+	21, // 65: eye.v1.PortfolioService.GetHolding:input_type -> eye.v1.GetHoldingRequest
+	22, // 66: eye.v1.PortfolioService.UpdateHolding:input_type -> eye.v1.UpdateHoldingRequest
+	23, // 67: eye.v1.PortfolioService.DeleteHolding:input_type -> eye.v1.DeleteHoldingRequest
+	25, // 68: eye.v1.PortfolioService.ImportPositions:input_type -> eye.v1.ImportPositionsRequest
+	29, // 69: eye.v1.PortfolioService.ImportTransactions:input_type -> eye.v1.ImportTransactionsRequest
+	32, // 70: eye.v1.PortfolioService.ListHoldings:input_type -> eye.v1.ListHoldingsRequest
+	34, // 71: eye.v1.PortfolioService.CreateAccount:input_type -> eye.v1.CreateAccountRequest
+	35, // 72: eye.v1.PortfolioService.GetAccount:input_type -> eye.v1.GetAccountRequest
+	36, // 73: eye.v1.PortfolioService.UpdateAccount:input_type -> eye.v1.UpdateAccountRequest
+	37, // 74: eye.v1.PortfolioService.DeleteAccount:input_type -> eye.v1.DeleteAccountRequest
+	38, // 75: eye.v1.PortfolioService.ListAccounts:input_type -> eye.v1.ListAccountsRequest
+	40, // 76: eye.v1.PortfolioService.ListProviders:input_type -> eye.v1.ListProvidersRequest
+	45, // 77: eye.v1.PortfolioService.CreateTransaction:input_type -> eye.v1.CreateTransactionRequest
+	46, // 78: eye.v1.PortfolioService.GetTransaction:input_type -> eye.v1.GetTransactionRequest
+	47, // 79: eye.v1.PortfolioService.UpdateTransaction:input_type -> eye.v1.UpdateTransactionRequest
+	48, // 80: eye.v1.PortfolioService.ListTransactions:input_type -> eye.v1.ListTransactionsRequest
+	50, // 81: eye.v1.PortfolioService.SyncAccount:input_type -> eye.v1.SyncAccountRequest
+	6,  // 82: eye.v1.PortfolioService.CreatePortfolio:output_type -> eye.v1.Portfolio
+	6,  // 83: eye.v1.PortfolioService.GetPortfolio:output_type -> eye.v1.Portfolio
+	6,  // 84: eye.v1.PortfolioService.UpdatePortfolio:output_type -> eye.v1.Portfolio
+	61, // 85: eye.v1.PortfolioService.DeletePortfolio:output_type -> google.protobuf.Empty
+	15, // 86: eye.v1.PortfolioService.ListPortfolios:output_type -> eye.v1.ListPortfoliosResponse
+	17, // 87: eye.v1.PortfolioService.CalculatePortfolioValue:output_type -> eye.v1.PortfolioValueResponse
+	19, // 88: eye.v1.PortfolioService.GetPortfolioPerformance:output_type -> eye.v1.PortfolioPerformanceResponse
+	7,  // 89: eye.v1.PortfolioService.CreateHolding:output_type -> eye.v1.Holding
+	7,  // 90: eye.v1.PortfolioService.GetHolding:output_type -> eye.v1.Holding
+	7,  // 91: eye.v1.PortfolioService.UpdateHolding:output_type -> eye.v1.Holding
+	61, // 92: eye.v1.PortfolioService.DeleteHolding:output_type -> google.protobuf.Empty
+	27, // 93: eye.v1.PortfolioService.ImportPositions:output_type -> eye.v1.ImportPositionsResponse
+	31, // 94: eye.v1.PortfolioService.ImportTransactions:output_type -> eye.v1.ImportTransactionsResponse
+	33, // 95: eye.v1.PortfolioService.ListHoldings:output_type -> eye.v1.ListHoldingsResponse
+	8,  // 96: eye.v1.PortfolioService.CreateAccount:output_type -> eye.v1.Account
+	8,  // 97: eye.v1.PortfolioService.GetAccount:output_type -> eye.v1.Account
+	8,  // 98: eye.v1.PortfolioService.UpdateAccount:output_type -> eye.v1.Account
+	61, // 99: eye.v1.PortfolioService.DeleteAccount:output_type -> google.protobuf.Empty
+	39, // 100: eye.v1.PortfolioService.ListAccounts:output_type -> eye.v1.ListAccountsResponse
+	41, // 101: eye.v1.PortfolioService.ListProviders:output_type -> eye.v1.ListProvidersResponse
+	9,  // 102: eye.v1.PortfolioService.CreateTransaction:output_type -> eye.v1.Transaction
+	9,  // 103: eye.v1.PortfolioService.GetTransaction:output_type -> eye.v1.Transaction
+	9,  // 104: eye.v1.PortfolioService.UpdateTransaction:output_type -> eye.v1.Transaction
+	49, // 105: eye.v1.PortfolioService.ListTransactions:output_type -> eye.v1.ListTransactionsResponse
+	51, // 106: eye.v1.PortfolioService.SyncAccount:output_type -> eye.v1.SyncAccountResponse
+	82, // [82:107] is the sub-list for method output_type
+	57, // [57:82] is the sub-list for method input_type
+	57, // [57:57] is the sub-list for extension type_name
+	57, // [57:57] is the sub-list for extension extendee
+	0,  // [0:57] is the sub-list for field type_name
 }
 
 func init() { file_v1_portfolio_proto_init() }
@@ -3748,14 +4222,14 @@ func file_v1_portfolio_proto_init() {
 	file_v1_portfolio_proto_msgTypes[24].OneofWrappers = []any{}
 	file_v1_portfolio_proto_msgTypes[26].OneofWrappers = []any{}
 	file_v1_portfolio_proto_msgTypes[32].OneofWrappers = []any{}
-	file_v1_portfolio_proto_msgTypes[37].OneofWrappers = []any{}
+	file_v1_portfolio_proto_msgTypes[42].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_portfolio_proto_rawDesc), len(file_v1_portfolio_proto_rawDesc)),
-			NumEnums:      5,
-			NumMessages:   45,
+			NumEnums:      6,
+			NumMessages:   50,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

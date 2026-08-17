@@ -53,6 +53,7 @@ type Handler struct {
 	walletSyncer   entity.WalletSyncer  // optional; nil if not configured
 	syncerSource   WalletSyncerSource   // optional; takes precedence over walletSyncer
 	exchangeSource ExchangeSyncerSource // optional; resolves per-account exchange syncers
+	providers      ProviderCatalog      // optional; describes the providers an account may name
 	log            *slog.Logger
 }
 

@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -160,6 +161,30 @@ var defaultLimits = map[string]Limit{
 // second is slow enough to be safe with an unknown quota and fast enough that
 // a periodic sync still finishes.
 var fallbackLimit = Limit{RPS: 1, Burst: 1}
+
+// Plans returns the built-in plans for a provider, keyed by tier name — "" for
+// the free keyed plan, "pro" and "keyless" for what the table names explicitly.
+//
+// Read by the provider catalogue, so a person choosing a tier in a form is
+// choosing from the same table the limiter looks up. Anywhere else the choices
+// would be a second copy, and a plan the limiter does not know is a plan that
+// silently falls back.
+//
+// A provider absent from the table has no entry here either: it is metered by
+// fallbackLimit, and offering "" as a plan would suggest a published free tier
+// that nobody wrote down.
+func Plans(provider string) map[string]Limit {
+	plans := make(map[string]Limit)
+	for key, limit := range defaultLimits {
+		switch {
+		case key == provider:
+			plans[""] = limit
+		case strings.HasPrefix(key, provider+":"):
+			plans[strings.TrimPrefix(key, provider+":")] = limit
+		}
+	}
+	return plans
+}
 
 // Usage is one credential's spend within one period.
 type Usage struct {

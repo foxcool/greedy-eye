@@ -91,6 +91,9 @@ const (
 	// PortfolioServiceListAccountsProcedure is the fully-qualified name of the PortfolioService's
 	// ListAccounts RPC.
 	PortfolioServiceListAccountsProcedure = "/eye.v1.PortfolioService/ListAccounts"
+	// PortfolioServiceListProvidersProcedure is the fully-qualified name of the PortfolioService's
+	// ListProviders RPC.
+	PortfolioServiceListProvidersProcedure = "/eye.v1.PortfolioService/ListProviders"
 	// PortfolioServiceCreateTransactionProcedure is the fully-qualified name of the PortfolioService's
 	// CreateTransaction RPC.
 	PortfolioServiceCreateTransactionProcedure = "/eye.v1.PortfolioService/CreateTransaction"
@@ -136,6 +139,14 @@ type PortfolioServiceClient interface {
 	UpdateAccount(context.Context, *connect.Request[v1.UpdateAccountRequest]) (*connect.Response[v1.Account], error)
 	DeleteAccount(context.Context, *connect.Request[v1.DeleteAccountRequest]) (*connect.Response[emptypb.Empty], error)
 	ListAccounts(context.Context, *connect.Request[v1.ListAccountsRequest]) (*connect.Response[v1.ListAccountsResponse], error)
+	// ListProviders returns the external providers this build can talk to and
+	// what each of them needs in accounts.data.
+	//
+	// Read-only and secret-free: it describes the shape of a credential, never a
+	// credential. It exists so an account form stops guessing — the slugs, the
+	// chains, the plans and the extra fields are the ones the resolver and the
+	// rate limiter actually use, rather than a second copy that drifts.
+	ListProviders(context.Context, *connect.Request[v1.ListProvidersRequest]) (*connect.Response[v1.ListProvidersResponse], error)
 	// --- Transaction CRUD ---
 	CreateTransaction(context.Context, *connect.Request[v1.CreateTransactionRequest]) (*connect.Response[v1.Transaction], error)
 	GetTransaction(context.Context, *connect.Request[v1.GetTransactionRequest]) (*connect.Response[v1.Transaction], error)
@@ -270,6 +281,12 @@ func NewPortfolioServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(portfolioServiceMethods.ByName("ListAccounts")),
 			connect.WithClientOptions(opts...),
 		),
+		listProviders: connect.NewClient[v1.ListProvidersRequest, v1.ListProvidersResponse](
+			httpClient,
+			baseURL+PortfolioServiceListProvidersProcedure,
+			connect.WithSchema(portfolioServiceMethods.ByName("ListProviders")),
+			connect.WithClientOptions(opts...),
+		),
 		createTransaction: connect.NewClient[v1.CreateTransactionRequest, v1.Transaction](
 			httpClient,
 			baseURL+PortfolioServiceCreateTransactionProcedure,
@@ -324,6 +341,7 @@ type portfolioServiceClient struct {
 	updateAccount           *connect.Client[v1.UpdateAccountRequest, v1.Account]
 	deleteAccount           *connect.Client[v1.DeleteAccountRequest, emptypb.Empty]
 	listAccounts            *connect.Client[v1.ListAccountsRequest, v1.ListAccountsResponse]
+	listProviders           *connect.Client[v1.ListProvidersRequest, v1.ListProvidersResponse]
 	createTransaction       *connect.Client[v1.CreateTransactionRequest, v1.Transaction]
 	getTransaction          *connect.Client[v1.GetTransactionRequest, v1.Transaction]
 	updateTransaction       *connect.Client[v1.UpdateTransactionRequest, v1.Transaction]
@@ -426,6 +444,11 @@ func (c *portfolioServiceClient) ListAccounts(ctx context.Context, req *connect.
 	return c.listAccounts.CallUnary(ctx, req)
 }
 
+// ListProviders calls eye.v1.PortfolioService.ListProviders.
+func (c *portfolioServiceClient) ListProviders(ctx context.Context, req *connect.Request[v1.ListProvidersRequest]) (*connect.Response[v1.ListProvidersResponse], error) {
+	return c.listProviders.CallUnary(ctx, req)
+}
+
 // CreateTransaction calls eye.v1.PortfolioService.CreateTransaction.
 func (c *portfolioServiceClient) CreateTransaction(ctx context.Context, req *connect.Request[v1.CreateTransactionRequest]) (*connect.Response[v1.Transaction], error) {
 	return c.createTransaction.CallUnary(ctx, req)
@@ -479,6 +502,14 @@ type PortfolioServiceHandler interface {
 	UpdateAccount(context.Context, *connect.Request[v1.UpdateAccountRequest]) (*connect.Response[v1.Account], error)
 	DeleteAccount(context.Context, *connect.Request[v1.DeleteAccountRequest]) (*connect.Response[emptypb.Empty], error)
 	ListAccounts(context.Context, *connect.Request[v1.ListAccountsRequest]) (*connect.Response[v1.ListAccountsResponse], error)
+	// ListProviders returns the external providers this build can talk to and
+	// what each of them needs in accounts.data.
+	//
+	// Read-only and secret-free: it describes the shape of a credential, never a
+	// credential. It exists so an account form stops guessing — the slugs, the
+	// chains, the plans and the extra fields are the ones the resolver and the
+	// rate limiter actually use, rather than a second copy that drifts.
+	ListProviders(context.Context, *connect.Request[v1.ListProvidersRequest]) (*connect.Response[v1.ListProvidersResponse], error)
 	// --- Transaction CRUD ---
 	CreateTransaction(context.Context, *connect.Request[v1.CreateTransactionRequest]) (*connect.Response[v1.Transaction], error)
 	GetTransaction(context.Context, *connect.Request[v1.GetTransactionRequest]) (*connect.Response[v1.Transaction], error)
@@ -609,6 +640,12 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 		connect.WithSchema(portfolioServiceMethods.ByName("ListAccounts")),
 		connect.WithHandlerOptions(opts...),
 	)
+	portfolioServiceListProvidersHandler := connect.NewUnaryHandler(
+		PortfolioServiceListProvidersProcedure,
+		svc.ListProviders,
+		connect.WithSchema(portfolioServiceMethods.ByName("ListProviders")),
+		connect.WithHandlerOptions(opts...),
+	)
 	portfolioServiceCreateTransactionHandler := connect.NewUnaryHandler(
 		PortfolioServiceCreateTransactionProcedure,
 		svc.CreateTransaction,
@@ -679,6 +716,8 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 			portfolioServiceDeleteAccountHandler.ServeHTTP(w, r)
 		case PortfolioServiceListAccountsProcedure:
 			portfolioServiceListAccountsHandler.ServeHTTP(w, r)
+		case PortfolioServiceListProvidersProcedure:
+			portfolioServiceListProvidersHandler.ServeHTTP(w, r)
 		case PortfolioServiceCreateTransactionProcedure:
 			portfolioServiceCreateTransactionHandler.ServeHTTP(w, r)
 		case PortfolioServiceGetTransactionProcedure:
@@ -772,6 +811,10 @@ func (UnimplementedPortfolioServiceHandler) DeleteAccount(context.Context, *conn
 
 func (UnimplementedPortfolioServiceHandler) ListAccounts(context.Context, *connect.Request[v1.ListAccountsRequest]) (*connect.Response[v1.ListAccountsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.ListAccounts is not implemented"))
+}
+
+func (UnimplementedPortfolioServiceHandler) ListProviders(context.Context, *connect.Request[v1.ListProvidersRequest]) (*connect.Response[v1.ListProvidersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.ListProviders is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) CreateTransaction(context.Context, *connect.Request[v1.CreateTransactionRequest]) (*connect.Response[v1.Transaction], error) {
