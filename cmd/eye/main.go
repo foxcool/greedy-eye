@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -108,7 +111,10 @@ func run() error {
 	// Spend is persisted because plan allowances are monthly: a deploy would
 	// otherwise hand the process a fresh quota while the provider keeps
 	// counting, and the real limit would arrive as a surprise.
-	rateLimits := ratelimit.NewRegistry(rateLimitOverrides(config),
+	// No operator overrides from configuration: a custom budget belongs to the
+	// account that owns the key (see accountLimit). Built-in plans live in
+	// internal/adapter/ratelimit.
+	rateLimits := ratelimit.NewRegistry(nil,
 		ratelimit.WithUsageStore(postgres.NewProviderUsageStore(pool)))
 	if err := rateLimits.Start(context.Background()); err != nil {
 		return fmt.Errorf("restore provider usage: %w", err)
@@ -120,33 +126,6 @@ func run() error {
 			log.Error("Failed to persist provider usage", slog.Any("error", err))
 		}
 	}()
-
-	// Initialize price providers.
-	cgCred := ratelimit.Credential{
-		Provider: coingecko.ProviderName,
-		APIKey:   config.CoinGecko.APIKey,
-		Tier:     coingeckoTier(config.CoinGecko.Pro),
-	}
-	cgClient := coingecko.NewClient(coingecko.Config{
-		APIKey: config.CoinGecko.APIKey,
-		// One tier, resolved once: it picks the host, the auth header and the
-		// plan allowance, and those three disagreeing is a 429 on every call.
-		Tier:      cgCred.Tier,
-		Transport: rateLimits.Transport(cgCred, nil),
-		Budget:    rateLimits.Budget(cgCred),
-	})
-
-	// Initialize optional Moralis wallet syncer
-	var walletSyncer entity.WalletSyncer
-	if apiKey := config.Moralis.APIKey; apiKey != "" {
-		moralisClient := moralisadapter.NewClient(moralisadapter.Config{
-			APIKey: apiKey,
-			Transport: rateLimits.Transport(ratelimit.Credential{
-				Provider: moralisadapter.ProviderName, APIKey: apiKey,
-			}, nil),
-		})
-		walletSyncer = moralisadapter.NewWalletSyncer(moralisClient)
-	}
 
 	// Initialize accounts.data encryption at rest (ADR-005)
 	encryptor, err := buildEncryptor(config, log)
@@ -163,42 +142,69 @@ func run() error {
 	// Converge rows sealed under a key being rotated out. No-op with one key.
 	startRekey(context.Background(), pool, encryptor, log)
 
-	// The trust anchor for the broker API, if this instance has been given one.
-	// Read once at boot so a missing or unreadable file stops the process here,
-	// where it reads as configuration, instead of surfacing hours later as a
-	// TLS handshake error inside a price sweep.
-	tinvestRootCA, err := loadTInvestRootCA(config.TInvest.RootCAFile)
-	if err != nil {
-		return err
-	}
-
-	// Env-configured price providers stay the fallback registry; the resolver
-	// overlays them with credentials stored in accounts (system → user).
-	envPriceProviders := map[string]marketdata.PriceProvider{
-		coingecko.ProviderName: coingecko.NewProvider(cgClient),
-		binanceadapter.ProviderName: binanceadapter.NewProvider(
-			binanceadapter.NewClient(binanceadapter.Config{
-				APIKey:    config.Binance.APIKey,
-				APISecret: config.Binance.APISecret,
-				Sandbox:   config.Binance.Sandbox,
-				Transport: rateLimits.Transport(ratelimit.Credential{
-					Provider: binanceadapter.ProviderName, APIKey: config.Binance.APIKey,
-				}, nil),
-			}),
-		),
-		// Keyless and free, so it is registered unconditionally: without a
-		// RUB/USD rate a rouble-quoted instrument has a price and still
-		// contributes nothing to a USD total.
+	// Sources that need no credential. Registered unconditionally because there
+	// is nothing to configure and nothing to keep secret: without a RUB/USD rate
+	// a rouble-quoted instrument has a price and still contributes nothing to a
+	// USD total, and a portfolio holding Russian shares reads zero without MOEX.
+	//
+	// Everything that DOES need a key comes from an account. An account naming
+	// one of these slugs still wins over the entry here — that is how a free
+	// feed gets throttled after an enforcement notice.
+	keylessPriceProviders := map[string]marketdata.PriceProvider{
 		cbradapter.ProviderName: cbradapter.NewProvider(cbradapter.NewClient(cbradapter.Config{
 			Transport: rateLimits.Transport(ratelimit.Credential{Provider: cbradapter.ProviderName}, nil),
 		})),
-		// Also keyless and free. Registered unconditionally for the same
-		// reason as CBR: a portfolio holding Russian shares reads zero
-		// without it, and there is nothing per-user to configure.
 		moexadapter.ProviderName: moexadapter.NewProvider(moexadapter.NewClient(moexadapter.Config{
 			Transport: rateLimits.Transport(ratelimit.Credential{Provider: moexadapter.ProviderName}, nil),
 		})),
 	}
+	// Chain readers that need no credential. Each ignores the account it is
+	// handed, so it can be built with none — which is the point: a syncer is
+	// chosen from accounts carrying onchain_lookup, and a wallet account holds
+	// only an address. Without these a fresh instance reads no chain at all
+	// until somebody hand-creates a service row per ecosystem.
+	keylessWalletSyncers := map[string]credentials.WalletProvider{
+		esploraadapter.ProviderName: {
+			Factory: func(*entity.Account) (entity.WalletSyncer, error) {
+				return esploraadapter.NewWalletSyncer(esploraadapter.NewClient(esploraadapter.Config{
+					Transport: rateLimits.Transport(ratelimit.Credential{Provider: esploraadapter.ProviderName}, nil),
+				})), nil
+			},
+			Chains:         esploraadapter.SupportedChains(),
+			HandlesAddress: esploraadapter.HandlesAddress,
+		},
+		cosmosadapter.ProviderName: {
+			Factory: func(*entity.Account) (entity.WalletSyncer, error) {
+				return cosmosadapter.NewWalletSyncer(cosmosadapter.NewClient(cosmosadapter.Config{
+					Transport: rateLimits.Transport(ratelimit.Credential{Provider: cosmosadapter.ProviderName}, nil),
+				})), nil
+			},
+			Chains:         cosmosadapter.SupportedChains(),
+			HandlesAddress: cosmosadapter.HandlesAddress,
+		},
+		tzktadapter.ProviderName: {
+			Factory: func(*entity.Account) (entity.WalletSyncer, error) {
+				return tzktadapter.NewWalletSyncer(tzktadapter.NewClient(tzktadapter.Config{
+					Transport: rateLimits.Transport(ratelimit.Credential{Provider: tzktadapter.ProviderName}, nil),
+				})), nil
+			},
+			Chains:         tzktadapter.SupportedChains(),
+			HandlesAddress: tzktadapter.HandlesAddress,
+		},
+		// TON answers without a key, on a much tighter allowance
+		// (defaultLimits carries "tonapi:keyless"). An account with a key still
+		// overrides this and gets the keyed rate.
+		tonapiadapter.ProviderName: {
+			Factory: func(*entity.Account) (entity.WalletSyncer, error) {
+				return tonapiadapter.NewWalletSyncer(tonapiadapter.NewClient(tonapiadapter.Config{
+					Transport: rateLimits.Transport(ratelimit.Credential{Provider: tonapiadapter.ProviderName}, nil),
+				})), nil
+			},
+			Chains:         tonapiadapter.SupportedChains(),
+			HandlesAddress: tonapiadapter.HandlesAddress,
+		},
+	}
+
 	credResolver := credentials.NewResolver(credentials.Config{
 		Source: portfolioStore,
 		// Wallet providers are routed by chain: every non-EVM ecosystem
@@ -358,12 +364,18 @@ func run() error {
 			// keeps working. Leaving the slug unregistered instead would report
 			// the provider as simply absent, which is the silence that let stale
 			// env credentials serve the sweep for days (personal-cpw).
+			//
+			// The trust anchor travels with the account, in data["root_ca"].
+			// The host's chain terminates in a root no standard store carries,
+			// so reaching this API means an operator deciding to trust that
+			// authority — a decision that belongs beside the token it is used
+			// with, not in the service's own configuration.
 			tinvestadapter.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
 				// The verified transport is built first and the rate limiter
 				// wraps it. The other order would hand NewClient a ready
 				// Transport, which takes precedence over the anchor and would
 				// leave the connection trusting only the system store.
-				base, err := tinvestadapter.TLSTransport(tinvestRootCA)
+				base, err := tinvestadapter.TLSTransport([]byte(a.Data["root_ca"]))
 				if err != nil {
 					return nil, err
 				}
@@ -377,15 +389,15 @@ func run() error {
 				return tinvestadapter.NewProvider(client), nil
 			},
 		},
-		// The env syncer is Moralis too (deprecated path, g27), so it carries
-		// the same chain coverage — without it a Substrate account would fall
-		// back onto an EVM-only syncer.
-		EnvWalletSyncer:            walletSyncer,
-		EnvWalletSyncerChains:      moralisadapter.SupportedChains(),
-		EnvWalletSyncerAddressFunc: moralisadapter.HandlesAddress,
-		EnvPriceProviders:          envPriceProviders,
-		Log:                        log,
+		// Readers that need no credential. Without these a fresh instance syncs
+		// nothing at all: a syncer is chosen from accounts carrying
+		// onchain_lookup, and the wallet account holds only an address.
+		KeylessWalletSyncers:  keylessWalletSyncers,
+		KeylessPriceProviders: keylessPriceProviders,
+		Log:                   log,
 	})
+
+	logProviderInventory(context.Background(), credResolver, log)
 
 	// Register Connect handlers
 	userStore := postgres.NewUserStore(pool)
@@ -394,10 +406,6 @@ func run() error {
 		loggingInterceptor(log),
 	)
 	mdHandler := marketdata.NewHandler(mdStore, log).
-		WithProvider(coingecko.ProviderName, envPriceProviders[coingecko.ProviderName]).
-		WithProvider(binanceadapter.ProviderName, envPriceProviders[binanceadapter.ProviderName]).
-		WithProvider(cbradapter.ProviderName, envPriceProviders[cbradapter.ProviderName]).
-		WithProvider(moexadapter.ProviderName, envPriceProviders[moexadapter.ProviderName]).
 		WithProviderSource(credResolver).
 		// The sweep interval is what a provider divides its remaining plan
 		// allowance by, so it comes from the cron spec rather than a second
@@ -424,7 +432,6 @@ func run() error {
 			pHandler := portfolio.NewHandler(portfolioStore, log).
 				WithMarketDataClient(mdHandler).
 				WithSettingsClient(settingsHandler).
-				WithWalletSyncer(walletSyncer).
 				WithWalletSyncerSource(credResolver).
 				WithExchangeSyncerSource(credResolver)
 			path, handler := apiv1connect.NewPortfolioServiceHandler(pHandler, interceptor)
@@ -564,29 +571,28 @@ func loggingInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {
 	}
 }
 
-// rateLimitOverrides converts the operator-facing config section into the
-// limiter's own type. A provider absent here keeps its built-in default, so
-// the section is only ever a correction — and so is each field: the registry
-// applies only the ones an operator actually wrote.
+// logProviderInventory names the price sources unattended work can reach right
+// now, once, at startup.
 //
-// Volume travels with rate. Carrying only RPS and Burst is what left an
-// operator able to slow a provider down but unable to cap what it spends, which
-// on a plan metered by volume is not a smaller version of the same control — it
-// is no control at all.
-func rateLimitOverrides(config *Config) map[string]ratelimit.Limit {
-	if len(config.RateLimit) == 0 {
-		return nil
+// Credentials no longer come from configuration, so a missing one stops being a
+// boot-time error and becomes silence hours later inside a sweep. One line here
+// is the difference between "this instance prices nothing until you add a key"
+// and an operator wondering why the numbers stopped moving.
+//
+// Resolved with no user in context — deliberately the scheduler's own view,
+// because that is the one that has been wrong before.
+func logProviderInventory(ctx context.Context, resolver *credentials.Resolver, log *slog.Logger) {
+	providers, err := resolver.PriceProvidersFor(ctx, "")
+	if err != nil {
+		log.Error("could not take stock of price providers", slog.Any("error", err))
+		return
 	}
-	out := make(map[string]ratelimit.Limit, len(config.RateLimit))
-	for provider, l := range config.RateLimit {
-		out[provider] = ratelimit.Limit{
-			RPS:    l.RPS,
-			Burst:  l.Burst,
-			Quota:  l.Quota,
-			Period: ratelimit.QuotaPeriod(l.Period),
-		}
+	slugs := slices.Sorted(maps.Keys(providers))
+	if len(slugs) == 0 {
+		log.Warn("no price provider is reachable: unattended pricing will do nothing until an account carries a credential")
+		return
 	}
-	return out
+	log.Info("price providers reachable without a user", slog.Any("providers", slugs))
 }
 
 // accountCred is the rate-limit credential behind an account-backed client.
@@ -598,7 +604,72 @@ func accountCred(provider string, a *entity.Account) ratelimit.Credential {
 	if tier == "" && a.Data["pro"] == "true" {
 		tier = "pro"
 	}
-	return ratelimit.Credential{Provider: provider, APIKey: a.Data["api_key"], Tier: tier}
+	return ratelimit.Credential{
+		Provider: provider,
+		APIKey:   a.Data["api_key"],
+		Tier:     tier,
+		Limit:    accountLimit(a),
+	}
+}
+
+// accountLimit reads a custom request budget out of the account, beside the key
+// and the tier it belongs to.
+//
+// The plan is the key's, so the numbers that carve it up live with the key. An
+// operator running two deployments off one credential gives each its share here;
+// nothing else can, because the two instances cannot see each other's spend.
+//
+// A malformed field is dropped with a warning rather than refusing to start.
+// This arrives from the database while the process is running — an account can
+// be edited at any moment — so the alternative to ignoring one bad value is a
+// service that will not boot because somebody mistyped a number in a form.
+func accountLimit(a *entity.Account) ratelimit.Limit {
+	var l ratelimit.Limit
+	l.RPS = accountFloat(a, "rps")
+	l.Burst = accountInt(a, "burst")
+
+	quota := accountInt(a, "quota")
+	period := ratelimit.QuotaPeriod(strings.TrimSpace(a.Data["period"]))
+	switch {
+	case quota <= 0:
+	case period == ratelimit.QuotaDay || period == ratelimit.QuotaMonth:
+		l.Quota, l.Period = quota, period
+	default:
+		// A volume with no window never resets: the counters roll on a period
+		// boundary that does not exist, so the allowance would be spent once and
+		// the provider would go quiet until someone noticed.
+		slog.Warn("account quota ignored: it needs a period",
+			slog.String("account_id", a.ID), slog.String("period", a.Data["period"]))
+	}
+	return l
+}
+
+func accountInt(a *entity.Account, key string) int {
+	raw := strings.TrimSpace(a.Data[key])
+	if raw == "" {
+		return 0
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 0 {
+		slog.Warn("account rate limit field ignored: not a positive number",
+			slog.String("account_id", a.ID), slog.String("field", key), slog.String("value", raw))
+		return 0
+	}
+	return v
+}
+
+func accountFloat(a *entity.Account, key string) float64 {
+	raw := strings.TrimSpace(a.Data[key])
+	if raw == "" {
+		return 0
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil || v < 0 {
+		slog.Warn("account rate limit field ignored: not a positive number",
+			slog.String("account_id", a.ID), slog.String("field", key), slog.String("value", raw))
+		return 0
+	}
+	return v
 }
 
 // sweepWindow is how long the price job waits between runs, read off its own
@@ -616,11 +687,3 @@ func sweepWindow(spec string) time.Duration {
 	return sched.Next(first).Sub(first)
 }
 
-// coingeckoTier maps the env-configured pro flag onto a plan tier. Empty means
-// the free keyed plan, whose 10k monthly allowance is the built-in default.
-func coingeckoTier(pro bool) string {
-	if pro {
-		return coingecko.TierPro
-	}
-	return ""
-}

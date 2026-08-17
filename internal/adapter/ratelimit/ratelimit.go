@@ -84,6 +84,16 @@ type Credential struct {
 	// free keyed plan with one. Accounts carry it in data["tier"], so a plan
 	// change is a settings edit rather than a release.
 	Tier string
+	// Limit overrides the plan the tier resolves to, field by field; a zero
+	// field means "leave the plan's value alone".
+	//
+	// It belongs to the credential because a plan does: the allowance is that
+	// key's, and the operator who owns the key is the one who knows how much of
+	// it this deployment may spend. Two deployments sharing one key cannot see
+	// each other's spend, so each is told its share here rather than each
+	// assuming it owns the whole plan — which is how CoinGecko's month ran out
+	// on 2026-08-11 with both instances still reporting room.
+	Limit Limit
 }
 
 // tier resolves the plan name used to look up a limit.
@@ -442,19 +452,30 @@ func (r *Registry) limitFor(c Credential) Limit {
 	}
 
 	if o, ok := r.overrides[c.Provider]; ok {
-		if o.RPS > 0 {
-			limit.RPS = o.RPS
-		}
-		if o.Burst > 0 {
-			limit.Burst = o.Burst
-		}
-		// A quota can only be set deliberately, and it comes with its period.
-		if o.Quota > 0 {
-			limit.Quota = o.Quota
-			limit.Period = o.Period
-		}
+		applyOverride(&limit, o)
 	}
+	// The credential's own override wins last: it is the most specific thing
+	// anyone said about this key.
+	applyOverride(&limit, c.Limit)
 	return limit
+}
+
+// applyOverride merges the fields an operator actually wrote. A zero field is
+// silence, not an instruction — returning an override wholesale is what once
+// let a surface carrying no quota disable volume accounting for a whole
+// provider, which is the protection this package exists for.
+func applyOverride(limit *Limit, o Limit) {
+	if o.RPS > 0 {
+		limit.RPS = o.RPS
+	}
+	if o.Burst > 0 {
+		limit.Burst = o.Burst
+	}
+	// A quota can only be set deliberately, and it comes with its period.
+	if o.Quota > 0 && o.Period != QuotaNone {
+		limit.Quota = o.Quota
+		limit.Period = o.Period
+	}
 }
 
 // periodStart truncates a moment to the beginning of its quota period, in UTC —

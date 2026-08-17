@@ -1,7 +1,12 @@
 // Package credentials resolves provider clients from account credentials
-// stored in the database, falling back to env-configured clients. Resolution
-// order per the account-capabilities design: the user's own account with the
-// capability → an admin-shared system account → env fallback.
+// stored in the database. Resolution order per the account-capabilities
+// design: the user's own account with the capability → an admin-shared system
+// account → for unattended work, the sole operator's own.
+//
+// Credentials do not come from configuration. A key names a plan, a plan names
+// money, and both belong to whoever owns the account — not to the service that
+// happens to run beside them (personal-s05). Sources needing no credential at
+// all are the exception and are registered directly; see KeylessPriceProviders.
 package credentials
 
 import (
@@ -26,6 +31,10 @@ const DataProviderKey = "provider"
 type AccountSource interface {
 	ListUserAccountsByCapability(ctx context.Context, userID string, capability entity.AccountCapability) ([]*entity.Account, error)
 	ListSystemAccountsByCapability(ctx context.Context, capability entity.AccountCapability) ([]*entity.Account, error)
+	// ListCapabilityOwners returns the users holding an account with the
+	// capability. Unattended work reads it to tell a single-operator instance
+	// from a shared one.
+	ListCapabilityOwners(ctx context.Context, capability entity.AccountCapability) ([]string, error)
 }
 
 // WalletSyncerFactory builds a wallet syncer from account credentials.
@@ -88,15 +97,33 @@ type Config struct {
 	ExchangeSyncers map[string]ExchangeSyncerFactory // keyed by provider slug
 	PriceProviders  map[string]PriceProviderFactory  // keyed by provider slug
 
-	// EnvWalletSyncer is the deprecated env-configured fallback (g27). Its
-	// routing is declared separately because, unlike account-based providers,
-	// it carries no provider slug to look it up by; empty means catch-all.
-	EnvWalletSyncer            entity.WalletSyncer // may be nil
-	EnvWalletSyncerChains      []string
-	EnvWalletSyncerAddressFunc func(address string) bool
+	// KeylessWalletSyncers are chain readers that need no credential: public
+	// block explorers and RPC endpoints. Registered unconditionally for the same
+	// reason as the price feeds below — there is nothing to configure and
+	// nothing to keep secret.
+	//
+	// It matters more here than it looks. A wallet syncer is chosen from the
+	// accounts carrying onchain_lookup, so before this a fresh instance synced
+	// NOTHING until somebody hand-created a service row per ecosystem. The
+	// wallet account holds the address; it never names the reader.
+	//
+	// An account naming the same slug still wins, which is how one of these gets
+	// throttled or pointed elsewhere.
+	KeylessWalletSyncers map[string]WalletProvider // may be empty
 
-	EnvPriceProviders map[string]marketdata.PriceProvider // may be empty
-	Log               *slog.Logger
+	// KeylessPriceProviders are sources that need no credential at all: a public
+	// feed anyone may read. They are registered unconditionally, because there
+	// is nothing to configure and nothing to keep secret — without the CBR rate
+	// a rouble-quoted instrument has a price and still contributes nothing to a
+	// USD total.
+	//
+	// An account naming the same provider still wins: that is how someone
+	// throttles a free feed after an enforcement notice, or gives one
+	// deployment a smaller share. Registering by default and overriding by
+	// account beats seeding a row — accounts.user_id is NOT NULL, and a fresh
+	// instance has no user to own one.
+	KeylessPriceProviders map[string]marketdata.PriceProvider // may be empty
+	Log                   *slog.Logger
 }
 
 // Resolver resolves per-account provider clients with an in-memory cache
@@ -106,9 +133,6 @@ type Resolver struct {
 
 	mu    sync.Mutex
 	cache map[string]cacheEntry // "<kind>:<account_id>" → built client
-
-	warnMu     sync.Mutex
-	warnedEnvs map[string]bool // env-fallback warnings already emitted, keyed by kind/slug
 }
 
 type cacheEntry struct {
@@ -117,22 +141,7 @@ type cacheEntry struct {
 }
 
 func NewResolver(cfg Config) *Resolver {
-	return &Resolver{cfg: cfg, cache: map[string]cacheEntry{}, warnedEnvs: map[string]bool{}}
-}
-
-// warnEnvFallback logs once per process per key that an env-configured client
-// was used instead of account-based credentials. Env keys are deprecated
-// (g27): migrate them into system accounts.
-func (r *Resolver) warnEnvFallback(key string) {
-	r.warnMu.Lock()
-	defer r.warnMu.Unlock()
-	if r.warnedEnvs[key] {
-		return
-	}
-	r.warnedEnvs[key] = true
-	if r.cfg.Log != nil {
-		r.cfg.Log.Warn("env provider credentials used (deprecated); migrate to a system account", slog.String("provider", key))
-	}
+	return &Resolver{cfg: cfg, cache: map[string]cacheEntry{}}
 }
 
 // accountsFor returns candidate accounts for the capability in resolution
@@ -150,7 +159,52 @@ func (r *Resolver) accountsFor(ctx context.Context, userID string, capability en
 	if err != nil {
 		return nil, fmt.Errorf("list system accounts: %w", err)
 	}
-	return append(candidates, system...), nil
+	candidates = append(candidates, system...)
+
+	if userID == "" && len(candidates) == 0 {
+		owned, err := r.soleOperatorAccounts(ctx, capability)
+		if err != nil {
+			return nil, err
+		}
+		candidates = append(candidates, owned...)
+	}
+	return candidates, nil
+}
+
+// soleOperatorAccounts returns the credentials of the one person who holds them,
+// for work that runs with nobody in context.
+//
+// Unattended jobs see only accounts carrying system_scopes, and setting those
+// requires the admin role — which no RPC grants, so on a self-hosted instance
+// there is no supported way to reach it. The result was a deadlock with a
+// silent failure mode: prod 2026-07-25 had fresh keys sitting in accounts while
+// the sweep quietly went on using stale environment ones.
+//
+// On an instance with a single operator the distinction between "their account"
+// and "the system's account" is ceremony, and it is the ceremony that produced
+// the deadlock. With several credential holders it stops being ceremony — one
+// person's plan must not be spent on everyone's behalf — so the fallback
+// declines, and says so rather than leaving an operator to wonder why the sweep
+// found nothing.
+func (r *Resolver) soleOperatorAccounts(ctx context.Context, capability entity.AccountCapability) ([]*entity.Account, error) {
+	owners, err := r.cfg.Source.ListCapabilityOwners(ctx, capability)
+	if err != nil {
+		return nil, fmt.Errorf("list capability owners: %w", err)
+	}
+	if len(owners) != 1 {
+		if len(owners) > 1 && r.cfg.Log != nil {
+			r.cfg.Log.Warn("unattended work found no system account and will not choose between operators",
+				slog.String("capability", string(capability)),
+				slog.Int("credential_holders", len(owners)))
+		}
+		return nil, nil
+	}
+
+	own, err := r.cfg.Source.ListUserAccountsByCapability(ctx, owners[0], capability)
+	if err != nil {
+		return nil, fmt.Errorf("list sole operator accounts: %w", err)
+	}
+	return own, nil
 }
 
 // clientFor returns the cached client for the account, rebuilding it when the
@@ -195,21 +249,24 @@ func (r *Resolver) WalletSyncerFor(ctx context.Context, userID, address string, 
 		return client.(entity.WalletSyncer), nil
 	}
 
-	if r.cfg.EnvWalletSyncer == nil {
-		return nil, nil
+	// Nobody's account claims this address, so fall back to the readers that
+	// need no credential. Routing still decides: a keyless reader serves its own
+	// ecosystem and no other.
+	for slug, provider := range r.cfg.KeylessWalletSyncers {
+		if !provider.matches(address, chains) {
+			continue
+		}
+		syncer, err := provider.Factory(nil)
+		if err != nil {
+			return nil, fmt.Errorf("build keyless wallet syncer %s: %w", slug, err)
+		}
+		return syncer, nil
 	}
-	// The env syncer is subject to the same routing: falling back to an
-	// EVM-only syncer for a Substrate account would report an empty wallet
-	// rather than an error, which is worse than having no syncer at all.
-	env := WalletProvider{
-		Chains:         r.cfg.EnvWalletSyncerChains,
-		HandlesAddress: r.cfg.EnvWalletSyncerAddressFunc,
-	}
-	if !env.matches(address, chains) {
-		return nil, nil
-	}
-	r.warnEnvFallback("wallet_syncer")
-	return r.cfg.EnvWalletSyncer, nil
+
+	// Still nothing, and that is the answer. There is no catch-all: one would
+	// reach for an EVM syncer on a Substrate address and report an empty wallet,
+	// which reads as "you hold nothing" rather than as an error.
+	return nil, nil
 }
 
 // ExchangeSyncerForAccount builds an exchange syncer from the account's own
@@ -229,11 +286,11 @@ func (r *Resolver) ExchangeSyncerForAccount(a *entity.Account) (entity.ExchangeS
 }
 
 // PriceProvidersFor resolves the effective price provider registry for the
-// user: env-configured providers overlaid by system-shared and then the
-// user's own account credentials (most specific wins per provider slug).
+// user: credential-free sources overlaid by system-shared accounts and then the
+// user's own (most specific wins per provider slug).
 func (r *Resolver) PriceProvidersFor(ctx context.Context, userID string) (map[string]marketdata.PriceProvider, error) {
-	providers := make(map[string]marketdata.PriceProvider, len(r.cfg.EnvPriceProviders))
-	maps.Copy(providers, r.cfg.EnvPriceProviders)
+	providers := make(map[string]marketdata.PriceProvider, len(r.cfg.KeylessPriceProviders))
+	maps.Copy(providers, r.cfg.KeylessPriceProviders)
 
 	candidates, err := r.accountsFor(ctx, userID, entity.CapabilityMarketData)
 	if err != nil {
@@ -270,12 +327,6 @@ func (r *Resolver) PriceProvidersFor(ctx context.Context, userID string) (map[st
 		}
 		providers[slug] = client.(marketdata.PriceProvider)
 		accountBacked[slug] = true
-	}
-
-	for slug := range r.cfg.EnvPriceProviders {
-		if !accountBacked[slug] {
-			r.warnEnvFallback(slug)
-		}
 	}
 
 	return providers, nil

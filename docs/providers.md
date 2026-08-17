@@ -203,53 +203,47 @@ with one. Moving to a paid plan is therefore a settings edit, not a release,
 and the numbers behind each tier stay in code where they can carry the
 reasoning that produced them.
 
-To throttle a provider deployment-wide, without a rebuild — after an
-enforcement notice, say:
+A custom request budget lives on the account too, beside the key it belongs to:
 
 ```yaml
-ratelimit:
-  subscan:
-    rps: 1.8   # fractional values are meaningful: 0.5 is one request per 2s
-    burst: 1   # keep at 1 for per-second meters; bursts are what trip them
+data:
+  provider: coingecko
+  api_key: CG-...
+  tier: pro        # omit for the provider's free plan
+  rps: "1.2"       # fractional values are meaningful: 0.5 is one request per 2s
+  burst: "1"       # keep at 1 for per-second meters; bursts are what trip them
+  quota: "2000"    # what THIS deployment may spend
+  period: month    # or "day"; required whenever quota is set
 ```
 
-This applies to **every credential** on that provider, a user's own account
-included. That is deliberate: providers meter rate per IP as much as per key,
-and the whole process shares one address, so a rate one account is told to
-respect is a rate all of them have to respect.
-
-Fields left unset keep the tier's value, so naming a burst does not silently
-zero the rate.
+Every field is optional and an omitted one leaves the plan's own value alone, so
+naming a burst does not silently zero the rate. A field that cannot be read is
+dropped with a warning rather than refusing to start: this arrives from the
+database while the process runs, and a mistyped number in a form must not take
+the service down.
 
 ### Sharing one plan between deployments
 
-The same section carries volume:
+`quota` is the field that matters when one key serves more than one instance.
 
-```yaml
-ratelimit:
-  coingecko:
-    quota: 2000     # what THIS deployment may spend
-    period: month   # or "day"; required whenever quota is set
-```
-
-This used to be forbidden, on the grounds that a volume allowance belongs to
-the key and is that account's money, which no operator setting should touch.
-That reasoning held while one key meant one deployment. It stopped holding on
-2026-08-11: dev and production ran the same CoinGecko key, each counted spend
-into its own database, each divided the remaining allowance as though it owned
-all 10,000 calls — and the plan ran dry with both instances still reporting
-room, then answered 429 for four days while they kept asking.
+It used to be forbidden to touch a volume allowance at all, on the grounds that
+it is the account's plan and the account's money. That reasoning held while one
+key meant one deployment. It stopped holding on 2026-08-11: dev and production
+ran the same CoinGecko key, each counted spend into its own database, each
+divided the remaining allowance as though it owned all 10,000 calls — and the
+plan ran dry with both instances still reporting room, then answered 429 for
+four days.
 
 So the setting does not raise or lower the plan. It declares **this
-deployment's share of it**, which is a fact about the deployment and belongs
-next to the other deployment-wide knobs. Set it below the plan on every
-instance that shares a key; leave it unset and the provider's own plan applies
-whole, which is right when the key is not shared.
+deployment's share** of it, and it lives with the key because nothing else
+knows which key is being shared. Set it below the plan on every instance that
+shares one; leave it unset and the provider's own plan applies whole, which is
+right when the key is not shared.
 
-A quota with no `period` is refused at startup. It would never roll over —
-the counters reset on a boundary that does not exist — so the allowance would
-be spent once and that provider would stay silent for the life of the
-deployment, surfacing days later as "prices stopped updating".
+A `quota` with no `period` is ignored, loudly. It would never roll over — the
+counters reset on a boundary that does not exist — so the allowance would be
+spent once and that provider would stay silent until someone noticed, surfacing
+days later as "prices stopped updating".
 
 Repeated refusals are also self-limiting now: each 429 that no successful
 response has interrupted doubles the pause, up to a couple of hours. That

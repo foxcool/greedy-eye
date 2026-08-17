@@ -158,9 +158,9 @@ pre-ADR-003 8-service design and no longer exist.
 
 ### External Adapters Status
 
-The credentials resolver builds per-account clients from stored credentials,
-falling back to env-configured clients (env fallback is deprecated — being
-migrated to system accounts).
+The credentials resolver builds per-account clients from stored credentials. No
+credential comes from configuration: a key names a plan, a plan names money, and
+both belong to the account rather than to the service running beside it.
 
 | Adapter | Provider | Status |
 |---------|----------|--------|
@@ -173,7 +173,7 @@ migrated to system accounts).
 
 - **Account capabilities & system scopes**: credential model on accounts, admin-shared system scopes, RPC + FE UI.
 - **Encryption at rest (ADR-005)**: AES-256-GCM + per-record HKDF for `accounts.data`; write-only masked secrets over the API.
-- **Credentials resolver**: per-account adapter factories replacing startup singletons; env fallback deprecated.
+- **Credentials resolver**: per-account adapter factories replacing startup singletons; credentials come only from accounts.
 - **Ownership audit (IDOR)**: every by-ID / list RPC enforces caller ownership; `user_id` overrides admin-only.
 - **Account sync**: wallet balances (Moralis) and exchange balances (Binance, signed `GET /api/v3/account`).
 
@@ -277,11 +277,13 @@ EYE_LOG_LEVEL=INFO            # DEBUG, INFO, WARN, ERROR
 EYE_SECURITY_MASTERKEY=...    # openssl rand -base64 32
 # mid-rotation it looks like: EYE_SECURITY_MASTERKEY=<new>,<old>
 
-# External API keys (env fallback — deprecated, prefer system accounts)
-EYE_MORALIS_APIKEY=your_key
-EYE_COINGECKO_APIKEY=your_key
-EYE_BINANCE_APIKEY=your_key
-EYE_BINANCE_APISECRET=your_secret
+# No provider API keys here. A credential is entered as an ACCOUNT, through the
+# UI or MCP, and carries its own tier and limits in data. Unattended work uses
+# the sole operator's accounts when nobody granted a system scope, so a
+# single-user instance needs no admin role to get its sweep running.
+#
+# A fresh instance therefore prices nothing until someone enters a key — which
+# is the honest state, rather than a variable quietly working until it does not.
 
 # Telegram notifications
 EYE_TELEGRAM_TOKEN=your_token
@@ -294,23 +296,10 @@ EYE_SCHEDULER_PRICEFETCHCRON="0 * * * *"  # empty = price job off
 # left of its monthly plan by it. Shortening it makes each sweep smaller, not
 # the month more expensive.
 
-# Provider request budget (see docs/providers.md)
-# Plans belong to accounts, not to this file: an account's data.tier picks the
-# rate AND the volume allowance for its own key. Nothing here can change a
-# user's plan.
-#
-# These knobs throttle the whole deployment's rate towards one provider, which
-# is the right scope for an enforcement notice — providers meter rate per IP as
-# much as per key, and the process has one address. They do not touch anyone's
-# monthly allowance.
-EYE_RATELIMIT_SUBSCAN_RPS=1.8
-EYE_RATELIMIT_SUBSCAN_BURST=1
-
-# Credentials for the deprecated env-configured provider path (no account row).
-# EYE_COINGECKO_PRO selects the paid host and plan for THAT client only —
-# accounts carry their own tier.
-EYE_COINGECKO_APIKEY=your_key
-EYE_COINGECKO_PRO=false
+# Provider request budgets are NOT set here. A plan belongs to the key it was
+# issued for, so both the rate and the volume live on the provider account,
+# beside that key — see docs/providers.md. This file configures the service,
+# not the providers it talks to.
 
 # Observability
 EYE_SENTRY_DSN=your_dsn

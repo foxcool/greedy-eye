@@ -939,6 +939,47 @@ func (s *PortfolioStore) ListUserAccountsByCapability(ctx context.Context, userI
 	return s.listAccountsByCapabilityColumn(ctx, "capabilities", capability, userID)
 }
 
+// ListCapabilityOwners returns the ids of users holding at least one account
+// with the capability.
+//
+// Unattended work asks this to find out whether the instance has one operator
+// or several. Counting USERS would answer a different question: an instance
+// accumulates test accounts, invitees and smoke-test rows, none of which decide
+// whether a sweep may use somebody's key. Counting who actually holds a
+// credential does.
+func (s *PortfolioStore) ListCapabilityOwners(ctx context.Context, capability entity.AccountCapability) ([]string, error) {
+	if capability == "" {
+		return nil, fmt.Errorf("%w: capability is required", store.ErrInvalidArgument)
+	}
+	capJSON, err := json.Marshal([]entity.AccountCapability{capability})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal capability: %w", err)
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT user_id
+		FROM accounts
+		WHERE capabilities @> $1 AND user_id IS NOT NULL
+		ORDER BY user_id`, capJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list capability owners: %w", err)
+	}
+	defer rows.Close()
+
+	owners := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan capability owner: %w", err)
+		}
+		owners = append(owners, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate capability owners: %w", err)
+	}
+	return owners, nil
+}
+
 // listAccountsByCapabilityColumn queries accounts whose jsonb capability
 // column contains the capability, optionally scoped to one user.
 func (s *PortfolioStore) listAccountsByCapabilityColumn(ctx context.Context, column string, capability entity.AccountCapability, userID string) ([]*entity.Account, error) {
