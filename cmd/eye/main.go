@@ -335,13 +335,26 @@ func loggingInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {
 //
 // Resolved with no user in context — deliberately the scheduler's own view,
 // because that is the one that has been wrong before.
+//
+// It names what it passed over as well as what it reached. The version that
+// reported only the reachable providers printed a correct, complete and
+// reassuring line on an instance whose one live crypto source sat unused for six
+// days (personal-cvdk): a list of what worked cannot show an absence.
 func logProviderInventory(ctx context.Context, resolver *credentials.Resolver, log *slog.Logger) {
-	providers, err := resolver.PriceProvidersFor(ctx, "")
+	inventory, err := resolver.PriceInventoryFor(ctx, "")
 	if err != nil {
 		log.Error("could not take stock of price providers", slog.Any("error", err))
 		return
 	}
-	slugs := slices.Sorted(maps.Keys(providers))
+
+	for _, s := range inventory.Skipped {
+		log.Warn("an account carrying market data is not used by unattended work",
+			slog.String("provider", s.Provider),
+			slog.String("account_id", s.AccountID),
+			slog.String("reason", s.Reason))
+	}
+
+	slugs := slices.Sorted(maps.Keys(inventory.Providers))
 	if len(slugs) == 0 {
 		log.Warn("no price provider is reachable: unattended pricing will do nothing until an account carries a credential")
 		return
