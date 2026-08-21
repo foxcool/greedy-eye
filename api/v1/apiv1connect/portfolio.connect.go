@@ -52,6 +52,9 @@ const (
 	// PortfolioServiceCalculatePortfolioValueProcedure is the fully-qualified name of the
 	// PortfolioService's CalculatePortfolioValue RPC.
 	PortfolioServiceCalculatePortfolioValueProcedure = "/eye.v1.PortfolioService/CalculatePortfolioValue"
+	// PortfolioServiceListUnpricedHoldingsProcedure is the fully-qualified name of the
+	// PortfolioService's ListUnpricedHoldings RPC.
+	PortfolioServiceListUnpricedHoldingsProcedure = "/eye.v1.PortfolioService/ListUnpricedHoldings"
 	// PortfolioServiceGetPortfolioPerformanceProcedure is the fully-qualified name of the
 	// PortfolioService's GetPortfolioPerformance RPC.
 	PortfolioServiceGetPortfolioPerformanceProcedure = "/eye.v1.PortfolioService/GetPortfolioPerformance"
@@ -121,6 +124,17 @@ type PortfolioServiceClient interface {
 	ListPortfolios(context.Context, *connect.Request[v1.ListPortfoliosRequest]) (*connect.Response[v1.ListPortfoliosResponse], error)
 	// --- Portfolio business logic ---
 	CalculatePortfolioValue(context.Context, *connect.Request[v1.CalculatePortfolioValueRequest]) (*connect.Response[v1.PortfolioValueResponse], error)
+	// ListUnpricedHoldings walks the positions a valuation left out of the total.
+	//
+	// `ValuationCoverage.unpriced` is a sample: it stops at a cap while the count
+	// stays exact, because that block travels in every valuation response. This
+	// is the same information as a query, so the tail has somewhere to be asked
+	// for. The sample belongs to the summary; the list belongs here.
+	//
+	// The result is computed the same way the total is, on the spot. Nothing
+	// stores "unpriced" — it is what the pricing path concludes — so this cannot
+	// disagree with the valuation it explains.
+	ListUnpricedHoldings(context.Context, *connect.Request[v1.ListUnpricedHoldingsRequest]) (*connect.Response[v1.ListUnpricedHoldingsResponse], error)
 	GetPortfolioPerformance(context.Context, *connect.Request[v1.GetPortfolioPerformanceRequest]) (*connect.Response[v1.PortfolioPerformanceResponse], error)
 	// --- Holding CRUD ---
 	CreateHolding(context.Context, *connect.Request[v1.CreateHoldingRequest]) (*connect.Response[v1.Holding], error)
@@ -201,6 +215,12 @@ func NewPortfolioServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			httpClient,
 			baseURL+PortfolioServiceCalculatePortfolioValueProcedure,
 			connect.WithSchema(portfolioServiceMethods.ByName("CalculatePortfolioValue")),
+			connect.WithClientOptions(opts...),
+		),
+		listUnpricedHoldings: connect.NewClient[v1.ListUnpricedHoldingsRequest, v1.ListUnpricedHoldingsResponse](
+			httpClient,
+			baseURL+PortfolioServiceListUnpricedHoldingsProcedure,
+			connect.WithSchema(portfolioServiceMethods.ByName("ListUnpricedHoldings")),
 			connect.WithClientOptions(opts...),
 		),
 		getPortfolioPerformance: connect.NewClient[v1.GetPortfolioPerformanceRequest, v1.PortfolioPerformanceResponse](
@@ -328,6 +348,7 @@ type portfolioServiceClient struct {
 	deletePortfolio         *connect.Client[v1.DeletePortfolioRequest, emptypb.Empty]
 	listPortfolios          *connect.Client[v1.ListPortfoliosRequest, v1.ListPortfoliosResponse]
 	calculatePortfolioValue *connect.Client[v1.CalculatePortfolioValueRequest, v1.PortfolioValueResponse]
+	listUnpricedHoldings    *connect.Client[v1.ListUnpricedHoldingsRequest, v1.ListUnpricedHoldingsResponse]
 	getPortfolioPerformance *connect.Client[v1.GetPortfolioPerformanceRequest, v1.PortfolioPerformanceResponse]
 	createHolding           *connect.Client[v1.CreateHoldingRequest, v1.Holding]
 	getHolding              *connect.Client[v1.GetHoldingRequest, v1.Holding]
@@ -377,6 +398,11 @@ func (c *portfolioServiceClient) ListPortfolios(ctx context.Context, req *connec
 // CalculatePortfolioValue calls eye.v1.PortfolioService.CalculatePortfolioValue.
 func (c *portfolioServiceClient) CalculatePortfolioValue(ctx context.Context, req *connect.Request[v1.CalculatePortfolioValueRequest]) (*connect.Response[v1.PortfolioValueResponse], error) {
 	return c.calculatePortfolioValue.CallUnary(ctx, req)
+}
+
+// ListUnpricedHoldings calls eye.v1.PortfolioService.ListUnpricedHoldings.
+func (c *portfolioServiceClient) ListUnpricedHoldings(ctx context.Context, req *connect.Request[v1.ListUnpricedHoldingsRequest]) (*connect.Response[v1.ListUnpricedHoldingsResponse], error) {
+	return c.listUnpricedHoldings.CallUnary(ctx, req)
 }
 
 // GetPortfolioPerformance calls eye.v1.PortfolioService.GetPortfolioPerformance.
@@ -484,6 +510,17 @@ type PortfolioServiceHandler interface {
 	ListPortfolios(context.Context, *connect.Request[v1.ListPortfoliosRequest]) (*connect.Response[v1.ListPortfoliosResponse], error)
 	// --- Portfolio business logic ---
 	CalculatePortfolioValue(context.Context, *connect.Request[v1.CalculatePortfolioValueRequest]) (*connect.Response[v1.PortfolioValueResponse], error)
+	// ListUnpricedHoldings walks the positions a valuation left out of the total.
+	//
+	// `ValuationCoverage.unpriced` is a sample: it stops at a cap while the count
+	// stays exact, because that block travels in every valuation response. This
+	// is the same information as a query, so the tail has somewhere to be asked
+	// for. The sample belongs to the summary; the list belongs here.
+	//
+	// The result is computed the same way the total is, on the spot. Nothing
+	// stores "unpriced" — it is what the pricing path concludes — so this cannot
+	// disagree with the valuation it explains.
+	ListUnpricedHoldings(context.Context, *connect.Request[v1.ListUnpricedHoldingsRequest]) (*connect.Response[v1.ListUnpricedHoldingsResponse], error)
 	GetPortfolioPerformance(context.Context, *connect.Request[v1.GetPortfolioPerformanceRequest]) (*connect.Response[v1.PortfolioPerformanceResponse], error)
 	// --- Holding CRUD ---
 	CreateHolding(context.Context, *connect.Request[v1.CreateHoldingRequest]) (*connect.Response[v1.Holding], error)
@@ -560,6 +597,12 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 		PortfolioServiceCalculatePortfolioValueProcedure,
 		svc.CalculatePortfolioValue,
 		connect.WithSchema(portfolioServiceMethods.ByName("CalculatePortfolioValue")),
+		connect.WithHandlerOptions(opts...),
+	)
+	portfolioServiceListUnpricedHoldingsHandler := connect.NewUnaryHandler(
+		PortfolioServiceListUnpricedHoldingsProcedure,
+		svc.ListUnpricedHoldings,
+		connect.WithSchema(portfolioServiceMethods.ByName("ListUnpricedHoldings")),
 		connect.WithHandlerOptions(opts...),
 	)
 	portfolioServiceGetPortfolioPerformanceHandler := connect.NewUnaryHandler(
@@ -690,6 +733,8 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 			portfolioServiceListPortfoliosHandler.ServeHTTP(w, r)
 		case PortfolioServiceCalculatePortfolioValueProcedure:
 			portfolioServiceCalculatePortfolioValueHandler.ServeHTTP(w, r)
+		case PortfolioServiceListUnpricedHoldingsProcedure:
+			portfolioServiceListUnpricedHoldingsHandler.ServeHTTP(w, r)
 		case PortfolioServiceGetPortfolioPerformanceProcedure:
 			portfolioServiceGetPortfolioPerformanceHandler.ServeHTTP(w, r)
 		case PortfolioServiceCreateHoldingProcedure:
@@ -759,6 +804,10 @@ func (UnimplementedPortfolioServiceHandler) ListPortfolios(context.Context, *con
 
 func (UnimplementedPortfolioServiceHandler) CalculatePortfolioValue(context.Context, *connect.Request[v1.CalculatePortfolioValueRequest]) (*connect.Response[v1.PortfolioValueResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.CalculatePortfolioValue is not implemented"))
+}
+
+func (UnimplementedPortfolioServiceHandler) ListUnpricedHoldings(context.Context, *connect.Request[v1.ListUnpricedHoldingsRequest]) (*connect.Response[v1.ListUnpricedHoldingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.ListUnpricedHoldings is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) GetPortfolioPerformance(context.Context, *connect.Request[v1.GetPortfolioPerformanceRequest]) (*connect.Response[v1.PortfolioPerformanceResponse], error) {

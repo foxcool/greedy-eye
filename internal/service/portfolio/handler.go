@@ -2,6 +2,7 @@ package portfolio
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -451,6 +452,24 @@ func (h *Handler) describeUnpriced(ctx context.Context, holdings []unpricedHoldi
 		truncated = true
 	}
 
+	return h.labelUnpriced(ctx, listed), truncated
+}
+
+// labelUnpriced turns classified holdings into their wire form: symbol resolved,
+// and NO_QUOTE sharpened to NEVER_PRICED where the attempt log says every source
+// has already been asked.
+//
+// Shared by the coverage sample and by ListUnpricedHoldings so the two describe
+// the same holding the same way. They differ in how many rows they carry, which
+// is a paging question, not a labelling one.
+//
+// A failed asset lookup degrades to an empty symbol rather than failing the
+// call: the asset_id still identifies the position, and losing a whole valuation
+// over a display label would be a worse trade than a missing name.
+func (h *Handler) labelUnpriced(ctx context.Context, listed []unpricedHolding) []*apiv1.UnpricedHolding {
+	if len(listed) == 0 {
+		return nil
+	}
 	exhausted := h.exhaustedSources(ctx, listed)
 
 	out := make([]*apiv1.UnpricedHolding, 0, len(listed))
@@ -475,7 +494,7 @@ func (h *Handler) describeUnpriced(ctx context.Context, holdings []unpricedHoldi
 		}
 		out = append(out, item)
 	}
-	return out, truncated
+	return out
 }
 
 // exhaustedSources returns, for each disclosed asset that every source has been
@@ -954,6 +973,136 @@ func (h *Handler) ListHoldings(ctx context.Context, req *connect.Request[apiv1.L
 	return connect.NewResponse(&apiv1.ListHoldingsResponse{
 		Holdings:      protoHoldings,
 		NextPageToken: nextPageToken,
+	}), nil
+}
+
+// defaultUnpricedPageSize is what one page of the worklist holds when the caller
+// does not say. Larger than the coverage sample on purpose: this endpoint exists
+// to be walked, and a small page turns a 71-row tail into many round trips.
+const defaultUnpricedPageSize = 100
+
+// maxUnpricedPageSize bounds what a caller can ask for in one response. The cap
+// this RPC exists to relieve was a cap with no relief valve; this one has the
+// page token.
+const maxUnpricedPageSize = 500
+
+// ListUnpricedHoldings walks the positions a valuation leaves out of its total.
+//
+// Why this is a query and not a bigger array in the coverage block: that block
+// rides along on every valuation, called by the FE, the MCP server and the
+// sweep, so an unbounded per-holding list there is a response-size problem.
+// Capping it was right. Capping it with no way to ask for the rest was not —
+// the list is a worklist, every row is an asset to bind, a market to add or a
+// verdict to reach, and a tail nobody can request is a tail nobody works.
+//
+// Unpricedness is not stored anywhere: it is what the pricing path concludes
+// about a holding, so it is recomputed here exactly as the valuation computes
+// it. That costs a full walk per page and buys the guarantee that this list
+// cannot disagree with the total it explains.
+//
+// Paging therefore filters after reading: the store cannot select "unpriced",
+// so each store page is classified and only the survivors fill the response
+// page. The token is a holding id — the same cursor the store already orders
+// by — which keeps it stable while the answer underneath changes. A holding
+// that gets priced between two calls simply stops appearing; a page can come
+// back shorter than asked without meaning the walk is over. Only an empty
+// next_page_token means that.
+func (h *Handler) ListUnpricedHoldings(ctx context.Context, req *connect.Request[apiv1.ListUnpricedHoldingsRequest]) (*connect.Response[apiv1.ListUnpricedHoldingsResponse], error) {
+	if h.mdClient == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("market data client not configured"))
+	}
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+	}
+
+	opts := ListHoldingsOpts{UserID: user.ID, PageSize: holdingsPageSize}
+	if req.Msg.PortfolioId != nil && *req.Msg.PortfolioId != "" {
+		// Naming a portfolio asserts ownership of it; leaving it out scopes to
+		// everything this user owns, which UserID already does. Checking here
+		// keeps a foreign id a NotFound rather than an empty page, which would
+		// read as "that portfolio has no gaps".
+		if _, err := h.ownedPortfolio(ctx, *req.Msg.PortfolioId); err != nil {
+			return nil, err
+		}
+		opts.PortfolioID = *req.Msg.PortfolioId
+	}
+	if req.Msg.PageToken != nil {
+		opts.PageToken = *req.Msg.PageToken
+	}
+
+	want := defaultUnpricedPageSize
+	if req.Msg.PageSize != nil && *req.Msg.PageSize > 0 {
+		want = int(*req.Msg.PageSize)
+		if want > maxUnpricedPageSize {
+			want = maxUnpricedPageSize
+		}
+	}
+
+	quoteAssetID := defaultQuoteAsset
+	if req.Msg.QuoteAssetId != nil && *req.Msg.QuoteAssetId != "" {
+		quoteAssetID = *req.Msg.QuoteAssetId
+	}
+
+	var (
+		found []unpricedHolding
+		next  string
+	)
+	for len(found) < want {
+		page, nextToken, err := h.store.ListHoldings(ctx, opts)
+		if err != nil {
+			return nil, toConnectError(err)
+		}
+		for _, hld := range page {
+			// Quarantine is a decision, not a missing price. An excluded holding
+			// is out of the total on purpose and is disclosed by its own counter,
+			// so mixing it into this worklist would merge two axes the coverage
+			// block keeps apart.
+			if hld.Excluded {
+				continue
+			}
+			priced, err := h.unitPrice(ctx, hld.AssetID, quoteAssetID)
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get price for %s: %w", hld.AssetID, err))
+			}
+			if priced.outcome == outcomePriced {
+				continue
+			}
+			reason := priced.outcome.reason()
+			if req.Msg.Reason != nil && *req.Msg.Reason != apiv1.UnpricedReason_UNPRICED_REASON_UNSPECIFIED && reason != *req.Msg.Reason {
+				continue
+			}
+			found = append(found, unpricedHolding{holding: hld, reason: reason})
+		}
+		if nextToken == "" || len(page) == 0 {
+			// The store is exhausted: whatever survived is the end of the walk,
+			// unless the trim below has to hold some of it back.
+			next = ""
+			break
+		}
+		opts.PageToken = nextToken
+		next = nextToken
+	}
+
+	// Trim to the requested size and resume from the last row actually returned.
+	//
+	// The cursor names a row that WAS returned, not the first one held back,
+	// because the store compares strictly (`h.id > token`): a token naming the
+	// next row would skip it, silently dropping exactly the position this
+	// endpoint exists to surface. Encoded the way the store encodes its own
+	// tokens, since that is what it will decode.
+	if len(found) > want {
+		found = found[:want]
+		next = base64.StdEncoding.EncodeToString([]byte(found[len(found)-1].holding.ID))
+	}
+
+	// NEVER_PRICED needs the attempt log, and asking per asset in the loop above
+	// would be one call per row. Same batched question describeUnpriced asks.
+	out := h.labelUnpriced(ctx, found)
+
+	return connect.NewResponse(&apiv1.ListUnpricedHoldingsResponse{
+		Holdings:      out,
+		NextPageToken: next,
 	}), nil
 }
 
