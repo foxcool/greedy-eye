@@ -2,6 +2,7 @@ package portfolio
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -1100,6 +1101,152 @@ func TestCalculatePortfolioValue_CrossRate(t *testing.T) {
 	assert.Equal(t, uint32(2), resp.Msg.Decimals)
 }
 
+// unpricedReq builds a request, since every field on it is optional.
+func unpricedReq(portfolioID string, pageSize int32, token string) *connect.Request[apiv1.ListUnpricedHoldingsRequest] {
+	msg := &apiv1.ListUnpricedHoldingsRequest{}
+	if portfolioID != "" {
+		msg.PortfolioId = &portfolioID
+	}
+	if pageSize > 0 {
+		msg.PageSize = &pageSize
+	}
+	if token != "" {
+		msg.PageToken = &token
+	}
+	return connect.NewRequest(msg)
+}
+
+// TestListUnpricedHoldings_ResumesWithoutSkipping is the test this endpoint is
+// for. The store compares cursors strictly (`h.id > token`), so a page token
+// naming the first row NOT returned would skip that row on the next call — and
+// the skipped row is a position with no price, which is the entire subject of
+// the worklist. Losing one silently would reproduce the hole this RPC closes.
+func TestListUnpricedHoldings_ResumesWithoutSkipping(t *testing.T) {
+	const asset = "00000000-0000-0000-0000-0000000000c1"
+	rows := []*entity.Holding{
+		{ID: "00000000-0000-0000-0000-00000000aaa1", AssetID: asset, Amount: decimal.NewFromInt(1), Decimals: 0},
+		{ID: "00000000-0000-0000-0000-00000000aaa2", AssetID: asset, Amount: decimal.NewFromInt(1), Decimals: 0},
+		{ID: "00000000-0000-0000-0000-00000000aaa3", AssetID: asset, Amount: decimal.NewFromInt(1), Decimals: 0},
+	}
+
+	s := &mockStore{}
+	// One store page holds all three; the caller asks for two.
+	s.On("ListHoldings", mock.Anything, mock.MatchedBy(func(o ListHoldingsOpts) bool {
+		return o.PageToken == ""
+	})).Return(rows, "", nil)
+
+	md := &mockMDClient{}
+	// No quote at all: every row is unpriced.
+	md.On("GetLatestPrice", mock.Anything, mock.Anything).
+		Return((*connect.Response[apiv1.Price])(nil), connect.NewError(connect.CodeNotFound, errors.New("no price")))
+	md.On("GetAsset", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.Asset{Symbol: strPtr("TAIL")}), nil)
+	md.On("GetPricingStatus", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.GetPricingStatusResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+	resp, err := h.ListUnpricedHoldings(ctxWithUser(testUserID), unpricedReq("", 2, ""))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Holdings, 2)
+	require.NotEmpty(t, resp.Msg.NextPageToken, "a held-back row means the walk continues")
+
+	// The token must name the LAST RETURNED row, so that `id > token` lands on
+	// the third one rather than past it.
+	decoded, err := base64.StdEncoding.DecodeString(resp.Msg.NextPageToken)
+	require.NoError(t, err, "the token has to decode the way the store decodes it")
+	assert.Equal(t, rows[1].ID, string(decoded),
+		"cursor names the last returned row; naming the first withheld row would skip it under h.id > token")
+}
+
+// TestListUnpricedHoldings_SkipsPricedAndQuarantined: the worklist carries only
+// positions with no usable price. A quarantined holding is out of the total by
+// decision rather than for want of a quote, and merging the two axes here would
+// undo the distinction the coverage block is careful to keep.
+func TestListUnpricedHoldings_SkipsPricedAndQuarantined(t *testing.T) {
+	const (
+		goodAsset = "00000000-0000-0000-0000-0000000000d1"
+		deadAsset = "00000000-0000-0000-0000-0000000000d2"
+	)
+	s := &mockStore{}
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
+		{ID: "h-priced", AssetID: goodAsset, Amount: decimal.NewFromInt(1), Decimals: 0},
+		{ID: "h-quarantined", AssetID: deadAsset, Amount: decimal.NewFromInt(1), Decimals: 0, Excluded: true},
+		{ID: "h-unpriced", AssetID: deadAsset, Amount: decimal.NewFromInt(1), Decimals: 0},
+	}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("GetLatestPrice", mock.Anything, latestIn(goodAsset, "USD")).
+		Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil)
+	md.On("GetLatestPrice", mock.Anything, latestIn(deadAsset, "USD")).
+		Return((*connect.Response[apiv1.Price])(nil), connect.NewError(connect.CodeNotFound, errors.New("no price")))
+	md.On("GetAsset", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.Asset{Symbol: strPtr("DEAD")}), nil)
+	md.On("GetPricingStatus", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.GetPricingStatusResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+	resp, err := h.ListUnpricedHoldings(ctxWithUser(testUserID), unpricedReq("", 0, ""))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Holdings, 1, "the priced row and the quarantined row both stay out")
+	assert.Equal(t, "h-unpriced", resp.Msg.Holdings[0].HoldingId)
+	assert.Empty(t, resp.Msg.NextPageToken, "nothing held back, so the walk is over")
+}
+
+// TestListUnpricedHoldings_FiltersByReason: NEVER_PRICED is bindings and markets
+// to add, THIN_MARKET is a verdict to reach. Different work, so a caller can ask
+// for one kind and get a worklist for one sitting.
+func TestListUnpricedHoldings_FiltersByReason(t *testing.T) {
+	const (
+		noQuote = "00000000-0000-0000-0000-0000000000e1"
+		thin    = "00000000-0000-0000-0000-0000000000e2"
+	)
+	s := &mockStore{}
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
+		{ID: "h-noquote", AssetID: noQuote, Amount: decimal.NewFromInt(1), Decimals: 0},
+		{ID: "h-thin", AssetID: thin, Amount: decimal.NewFromInt(1), Decimals: 0},
+	}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("GetLatestPrice", mock.Anything, latestIn(noQuote, "USD")).
+		Return((*connect.Response[apiv1.Price])(nil), connect.NewError(connect.CodeNotFound, errors.New("no price")))
+	// A real quote with no market behind it: priced, but not usable.
+	md.On("GetLatestPrice", mock.Anything, latestIn(thin, "USD")).
+		Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD", Volume: strPtr("0")}), nil)
+	md.On("GetAsset", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.Asset{Symbol: strPtr("X")}), nil)
+	md.On("GetPricingStatus", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.GetPricingStatusResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+
+	want := apiv1.UnpricedReason_UNPRICED_REASON_NO_QUOTE
+	req := unpricedReq("", 0, "")
+	req.Msg.Reason = &want
+	resp, err := h.ListUnpricedHoldings(ctxWithUser(testUserID), req)
+	require.NoError(t, err)
+	for _, got := range resp.Msg.Holdings {
+		assert.NotEqual(t, apiv1.UnpricedReason_UNPRICED_REASON_THIN_MARKET, got.Reason,
+			"a thin-market row is a different piece of work and must not arrive under this filter")
+	}
+}
+
+// TestListUnpricedHoldings_ForeignPortfolioIsNotFound: naming somebody else's
+// portfolio has to fail rather than return an empty page, which would read as
+// "that portfolio has no gaps" — a false statement about data the caller cannot
+// see.
+func TestListUnpricedHoldings_ForeignPortfolioIsNotFound(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).
+		Return(testPortfolio(testPortfolioID), nil)
+
+	md := &mockMDClient{}
+	h := newHandler(s).WithMarketDataClient(md)
+
+	_, err := h.ListUnpricedHoldings(ctxWithUser("00000000-0000-0000-0000-00000000ffff"), unpricedReq(testPortfolioID, 0, ""))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+}
+
 // TestCalculatePortfolioValue_ReadsPastTheFirstPage: the store hands back one
 // page plus a cursor, and every holding beyond that page must still reach the
 // total.
@@ -1205,7 +1352,7 @@ func TestCalculatePortfolioValue_DisclosesExcluded(t *testing.T) {
 
 	md := &mockMDClient{}
 	md.On("GetLatestPrice", mock.Anything, latestIn(legitAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "300000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 3.0
-	md.On("GetLatestPrice", mock.Anything, latestIn(scamAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 1.0
+	md.On("GetLatestPrice", mock.Anything, latestIn(scamAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil)  // 1.0
 
 	h := newHandler(s).WithMarketDataClient(md)
 	resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
@@ -1296,8 +1443,8 @@ func TestCalculatePortfolioValue_GatesThinMarket(t *testing.T) {
 
 	md := &mockMDClient{}
 	md.On("GetLatestPrice", mock.Anything, latestIn(liquidAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "300000000", Decimals: 8, BaseAssetId: "USD", Volume: &bigVolume}), nil) // 3.0
-	md.On("GetLatestPrice", mock.Anything, latestIn(receiptAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 1.0, no volume reported
-	md.On("GetLatestPrice", mock.Anything, latestIn(thinAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "1391886", Decimals: 8, BaseAssetId: "USD", Volume: &thinVolume}), nil) // $0.01391886
+	md.On("GetLatestPrice", mock.Anything, latestIn(receiptAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil)                    // 1.0, no volume reported
+	md.On("GetLatestPrice", mock.Anything, latestIn(thinAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "1391886", Decimals: 8, BaseAssetId: "USD", Volume: &thinVolume}), nil)    // $0.01391886
 	symbol := "MNEP"
 	md.On("GetAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetAssetRequest]) bool {
 		return r.Msg.Id == thinAsset
