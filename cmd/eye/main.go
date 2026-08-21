@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -31,6 +32,20 @@ import (
 )
 
 const ServiceName = "EYE"
+
+// version is the build this binary was cut from, stamped at link time by
+// GoReleaser (see .goreleaser.yaml). It defaults to "dev" so an unstamped
+// binary says what it is instead of claiming a release it is not: a wrong
+// version is worse than an absent one, because it is believed.
+//
+// This exists because the Release Policy asks for the deployed claim to be
+// verified against production, and five deploys running could not be, for want
+// of any way to ask a live instance what it was. Behaviour was the only
+// evidence available, so "the pin says 0.8.1" and "the process serving traffic
+// is 0.8.1" stayed the same sentence — while prod went ten days without
+// refreshing a crypto price and the balance sweep kept it looking alive
+// (personal-yqwj, discovered from personal-cvdk).
+var version = "dev"
 
 func main() {
 	if err := run(); err != nil {
@@ -78,11 +93,14 @@ func run() error {
 	// Setup HTTP mux
 	mux := http.NewServeMux()
 
-	// Health endpoint
+	healthBody, err := healthPayload(version)
+	if err != nil {
+		return fmt.Errorf("encode health response: %w", err)
+	}
 	mux.HandleFunc("GET /eye/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write([]byte(`{"status":"ok","service":"greedy-eye"}`)); err != nil {
+		if _, err := w.Write(healthBody); err != nil {
 			log.Error("Failed to write health response", slog.Any("error", err))
 		}
 	})
@@ -146,6 +164,11 @@ func run() error {
 		KeylessPriceProviders: providers.KeylessPriceProviders(),
 		Log:                   log,
 	})
+
+	// Which build, then which sources. The two are asked in one breath and for
+	// the same reason: when the numbers stop moving, "is the fix even running"
+	// has to be answerable before "did it work".
+	log.Info("greedy-eye starting", slog.String("version", version))
 
 	logProviderInventory(context.Background(), credResolver, log)
 
@@ -323,6 +346,26 @@ func loggingInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {
 			return resp, err
 		}
 	}
+}
+
+// healthPayload is the body of GET /eye/health. It carries the build so that
+// "which version is serving this traffic" has an answer that does not depend on
+// inferring it from behaviour — the question five deploys running could not
+// settle, because the only evidence available was whether the numbers moved,
+// and a live process with a stale image moves some of them (personal-yqwj).
+//
+// status and service keep their names and values: something may already be
+// matching on them, and this is a health check.
+//
+// Encoded rather than concatenated, because ver arrives from a link-time flag:
+// a stray quote would otherwise serve a 200 with a broken body, which is worse
+// than an honest error at startup.
+func healthPayload(ver string) ([]byte, error) {
+	return json.Marshal(map[string]string{
+		"status":  "ok",
+		"service": "greedy-eye",
+		"version": ver,
+	})
 }
 
 // logProviderInventory names the price sources unattended work can reach right

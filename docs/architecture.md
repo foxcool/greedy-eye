@@ -264,7 +264,10 @@ graph TB
   - Technologies: Go, Connect-RPC, Protocol Buffers, h2c
   - Services: MarketDataService, PortfolioService, AutomationService, AnalyticsService,
     SettingsService
-  - Health check: `GET /eye/health`
+  - Health check: `GET /eye/health` — `{status, service, version}`. The version is stamped
+    at link time (`-X main.version`, GoReleaser); an unstamped build reports `dev` rather
+    than a tag it is not. It is also the first line the process logs, so which build is
+    serving can be established without inferring it from behaviour
 
 - **PostgreSQL Database**:
   - Purpose: Persistent storage with ACID guarantees
