@@ -180,6 +180,22 @@ service PortfolioService {
     };
   }
 
+  // ListUnpricedHoldings walks the positions a valuation left out of the total.
+  //
+  // `ValuationCoverage.unpriced` is a sample: it stops at a cap while the count
+  // stays exact, because that block travels in every valuation response. This
+  // is the same information as a query, so the tail has somewhere to be asked
+  // for. The sample belongs to the summary; the list belongs here.
+  //
+  // The result is computed the same way the total is, on the spot. Nothing
+  // stores "unpriced" — it is what the pricing path concludes — so this cannot
+  // disagree with the valuation it explains.
+  rpc ListUnpricedHoldings(ListUnpricedHoldingsRequest) returns (ListUnpricedHoldingsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/holdings/unpriced"
+    };
+  }
+
   rpc GetPortfolioPerformance(GetPortfolioPerformanceRequest) returns (PortfolioPerformanceResponse) {
     option (google.api.http) = {
       post: "/api/v1/portfolios/{portfolio_id}/performance"
@@ -379,6 +395,28 @@ message PortfolioValueResponse {
   // the total and which ones had no quote at all. Absence of a price is not a
   // valuation of zero, so unpriced positions are reported, never written down.
   ValuationCoverage coverage = 8;
+}
+
+message ListUnpricedHoldingsRequest {
+  // Optional. Empty means every portfolio the caller owns: the cursor orders by
+  // holding id across all of them, so one walk covers the whole worklist. A
+  // caller wanting one portfolio's tail passes it; a foreign id is NotFound.
+  optional string portfolio_id = 1;
+  // Optional. Filters to one kind of gap. The kinds are different work:
+  // NEVER_PRICED is bindings and markets to add, THIN_MARKET is a verdict its
+  // owner has to reach. Unset returns every unpriced holding.
+  optional UnpricedReason reason = 2;
+  optional int32 page_size = 3;
+  optional string page_token = 4;
+  // Optional. Defaults to USD. A holding is unpriced relative to a quote
+  // currency — there may be no path from its base to this one — so the answer
+  // is only meaningful beside the quote the valuation used.
+  optional string quote_asset_id = 5;
+}
+
+message ListUnpricedHoldingsResponse {
+  repeated UnpricedHolding holdings = 1;
+  string next_page_token = 2;
 }
 
 message GetPortfolioPerformanceRequest {
