@@ -1306,18 +1306,13 @@ System Quality
 - Resolution Plan: a versioned migration catalogue plus a revisions table (`personal-znvr`),
   baselined from the current declarative schema.
 
-#### Debt 7: A valuation reads one page of holdings
-
-- Description: `CalculatePortfolioValue` loads holdings with a single `ListHoldings` call at
-  `PageSize: 1000` and never pages (`internal/service/portfolio/handler.go`). The store honours the
-  size as given — there is no clamp — so the 1001st holding of a portfolio is simply not in the
-  loop.
-- Impact: The failure mode is the one §8.3 exists to forbid: positions leave the total with nothing
-  saying so, and `ValuationCoverage` cannot report them either, because they were never read.
-  Production 2026-08-18 carried 312 rows on one portfolio — 156 counted and 156 quarantined — and
-  the quarantined half grows on its own, since synced spam keeps arriving.
-- Resolution Plan: page the read (`personal-dek`), or move the partition into the query so the
-  total is computed over rows the database counted rather than rows one page happened to hold.
+> **Closed 2026-08-21** — a valuation no longer reads one page of holdings.
+> `allHoldings` follows the store's cursor to exhaustion, so a portfolio larger than one
+> page is valued over all of it (`internal/service/portfolio/handler.go`). The same read
+> backed two other paths that were quietly bounded the same way: portfolio performance,
+> and the existing-rows map in `upsertSyncedBalances` — where a missed row is not a
+> position left out of a total but a position **created twice**, because adoption never
+> saw the row it should have adopted.
 
 ---
 

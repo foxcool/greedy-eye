@@ -1100,6 +1100,91 @@ func TestCalculatePortfolioValue_CrossRate(t *testing.T) {
 	assert.Equal(t, uint32(2), resp.Msg.Decimals)
 }
 
+// TestCalculatePortfolioValue_ReadsPastTheFirstPage: the store hands back one
+// page plus a cursor, and every holding beyond that page must still reach the
+// total.
+//
+// This is the failure worth a test rather than a comment. The unpaged read did
+// not error, drop a row loudly, or shrink any count: the tail was simply never
+// fetched, so the positions were not excluded, not unpriced, and not disclosed —
+// the total just came out smaller, which reads as an outflow. Both counts are
+// asserted alongside the sum, because a version that fetched the tail and then
+// mislabelled it would pass a total-only check.
+func TestCalculatePortfolioValue_ReadsPastTheFirstPage(t *testing.T) {
+	const asset = "00000000-0000-0000-0000-0000000000b1"
+
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	// First call: no cursor yet, so the store returns a page and a token.
+	s.On("ListHoldings", mock.Anything, mock.MatchedBy(func(o ListHoldingsOpts) bool {
+		return o.PageToken == ""
+	})).Return([]*entity.Holding{
+		{ID: "h1", AssetID: asset, Amount: decimal.NewFromInt(100000000), Decimals: 8}, // 1.0
+	}, "cursor-1", nil).Once()
+	// Second call carries the cursor and ends the walk with an empty token.
+	s.On("ListHoldings", mock.Anything, mock.MatchedBy(func(o ListHoldingsOpts) bool {
+		return o.PageToken == "cursor-1"
+	})).Return([]*entity.Holding{
+		{ID: "h2", AssetID: asset, Amount: decimal.NewFromInt(200000000), Decimals: 8}, // 2.0
+	}, "", nil).Once()
+
+	md := &mockMDClient{}
+	md.On("GetLatestPrice", mock.Anything, latestIn(asset, "USD")).
+		Return(connect.NewResponse(&apiv1.Price{Last: "300000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 3.0
+
+	h := newHandler(s).WithMarketDataClient(md)
+	resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
+		PortfolioId: testPortfolioID,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "900", resp.Msg.TotalValueAmount, "(1.0 + 2.0) x 3.0 — the second page is in the total")
+	assert.Equal(t, uint32(2), resp.Msg.Coverage.GetPricedCount(), "both pages counted, not just the first")
+	assert.Equal(t, uint32(0), resp.Msg.Coverage.GetUnpricedCount())
+	s.AssertExpectations(t)
+}
+
+// TestAllHoldings_StopsOnAnEmptyPage: a store that repeats its cursor must not
+// spin forever.
+//
+// Not hypothetical politeness — the walk's only exit is what the store says, so
+// a cursor bug elsewhere would turn a valuation into an infinite loop holding a
+// request open. An empty page ends the walk regardless of the token.
+func TestAllHoldings_StopsOnAnEmptyPage(t *testing.T) {
+	s := &mockStore{}
+	s.On("ListHoldings", mock.Anything, mock.MatchedBy(func(o ListHoldingsOpts) bool {
+		return o.PageToken == ""
+	})).Return([]*entity.Holding{{ID: "h1"}}, "stuck", nil).Once()
+	// Same token back, and nothing in the page: the walk has to stop here.
+	s.On("ListHoldings", mock.Anything, mock.MatchedBy(func(o ListHoldingsOpts) bool {
+		return o.PageToken == "stuck"
+	})).Return([]*entity.Holding{}, "stuck", nil).Once()
+
+	h := newHandler(s)
+	got, err := h.allHoldings(context.Background(), ListHoldingsOpts{PortfolioID: testPortfolioID})
+	require.NoError(t, err)
+	assert.Len(t, got, 1)
+	s.AssertExpectations(t)
+}
+
+// TestAllHoldings_IgnoresCallerPaging: the caller asks for a set, so a PageSize
+// or PageToken it happens to carry must not silently bound the answer.
+func TestAllHoldings_IgnoresCallerPaging(t *testing.T) {
+	s := &mockStore{}
+	s.On("ListHoldings", mock.Anything, mock.MatchedBy(func(o ListHoldingsOpts) bool {
+		return o.PageSize == holdingsPageSize && o.PageToken == ""
+	})).Return([]*entity.Holding{{ID: "h1"}}, "", nil).Once()
+
+	h := newHandler(s)
+	got, err := h.allHoldings(context.Background(), ListHoldingsOpts{
+		PortfolioID: testPortfolioID,
+		PageSize:    1,
+		PageToken:   "somebody-elses-cursor",
+	})
+	require.NoError(t, err)
+	assert.Len(t, got, 1)
+	s.AssertExpectations(t)
+}
+
 // TestCalculatePortfolioValue_DisclosesExcluded: a quarantined holding stays out
 // of the total but is disclosed as excluded count and value, so the number never
 // silently diverges from the wallet.
