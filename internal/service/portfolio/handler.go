@@ -281,10 +281,7 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 	// Fetch all holdings (excluded included) and partition in code so the total
 	// can exclude the quarantined ones while still disclosing them — a silently
 	// shrunk total looks like a real outflow.
-	holdings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{
-		PortfolioID: req.Msg.PortfolioId,
-		PageSize:    1000,
-	})
+	holdings, err := h.allHoldings(ctx, ListHoldingsOpts{PortfolioID: req.Msg.PortfolioId})
 	if err != nil {
 		return nil, toConnectError(err)
 	}
@@ -376,6 +373,43 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 		ExcludedValueAmount: excludedAmount,
 		Coverage:            coverage,
 	}), nil
+}
+
+// holdingsPageSize is how many holdings one store round trip asks for. It is a
+// batch size, not a limit: allHoldings keeps asking until the store runs out.
+const holdingsPageSize = 1000
+
+// allHoldings reads every holding matching opts, following the store's cursor
+// instead of hoping one page covers the portfolio.
+//
+// The single-page read this replaces was the failure section 8.3 exists to
+// forbid. `ListHoldings` honours PageSize as given — there is no clamp — so a
+// portfolio larger than one page had its tail silently absent: not excluded,
+// not unpriced, just never read. A total computed that way looks like an
+// outflow, and `ValuationCoverage` cannot disclose the gap either, because
+// nothing knew the rows existed. Prod carried 312 rows on one portfolio against
+// a ceiling of 1000, and the quarantined half grows on its own as synced spam
+// arrives, so the margin was being consumed by nobody's decision.
+//
+// PageSize in opts is ignored; the caller asks for a set, not for a page.
+func (h *Handler) allHoldings(ctx context.Context, opts ListHoldingsOpts) ([]*entity.Holding, error) {
+	var all []*entity.Holding
+	opts.PageSize = holdingsPageSize
+	opts.PageToken = ""
+	for {
+		page, next, err := h.store.ListHoldings(ctx, opts)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page...)
+		// A store that keeps returning the same cursor would spin here. Guard on
+		// the page being empty as well as the token being blank: either one means
+		// there is nothing further to read.
+		if next == "" || len(page) == 0 {
+			return all, nil
+		}
+		opts.PageToken = next
+	}
 }
 
 // maxUnpricedDisclosed caps the per-holding detail in a coverage block: the
@@ -710,7 +744,7 @@ func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Requ
 		quoteAssetID = req.Msg.BenchmarkAssetId
 	}
 
-	holdings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{PortfolioID: req.Msg.PortfolioId, PageSize: 1000})
+	holdings, err := h.allHoldings(ctx, ListHoldingsOpts{PortfolioID: req.Msg.PortfolioId})
 	if err != nil {
 		return nil, toConnectError(err)
 	}
@@ -1465,7 +1499,10 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 	complete = complete && len(syncErrors) == 0
 
 	// Build existing holdings map for this account
-	existingHoldings, _, err := h.store.ListHoldings(ctx, ListHoldingsOpts{AccountID: account.ID, PageSize: 1000})
+	// Every existing row, not one page: a holding missed here is not adopted but
+	// created again, so an unpaged read turns into a duplicated position rather
+	// than a missing one.
+	existingHoldings, err := h.allHoldings(ctx, ListHoldingsOpts{AccountID: account.ID})
 	if err != nil {
 		return syncResult{}, toConnectError(err)
 	}
