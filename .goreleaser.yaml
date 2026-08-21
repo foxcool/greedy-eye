@@ -10,6 +10,15 @@ builds:
     binary: eye
     env:
       - CGO_ENABLED=0
+    # Stamp the tag into the binary so a running instance can say which build it
+    # is, on /eye/health and on its startup line. Without this the variable
+    # keeps its "dev" default, which is the honest answer for a local build and
+    # a lie for a release — hence the explicit flag rather than trusting a
+    # default. Overrides GoReleaser's default ldflags, which set main.version
+    # among others; -s -w are carried over from it to keep the binary stripped.
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
     goos:
       - linux
       - darwin

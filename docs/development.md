@@ -513,9 +513,22 @@ what it contains. Compatibility is recorded, not implied:
 - FE ↔ backend: by proto. Recorded in the release matrix alongside the deployed versions.
 
 **Release order.** Tag backend → wait for the GHCR image → bump the pinned version in
-the infra inventory → run the deploy playbook → verify the claim by direct RPC against
-production → only then bump the MCP dependency and tag MCP. Verification means checking
-that the new claim holds on live data, not that the container started.
+the infra inventory → run the deploy playbook → **confirm the build that is serving**
+→ verify the claim by direct RPC against production → only then bump the MCP dependency
+and tag MCP. Verification means checking that the new claim holds on live data, not that
+the container started.
+
+Confirming the build comes first because it is the step that says whether the rest of the
+verification is about this release at all. The binary is stamped at link time and reports
+itself in two places — the `version` field of `GET /eye/health`, and the `greedy-eye
+starting` line it logs before anything else. A local build reports `dev`; anything else is
+the tag it was cut from, and it must equal the version just pinned in the inventory. If it
+does not, the deploy did not land and every later observation is about the old image.
+
+This step exists because five releases running could not be verified: nothing in a live
+instance could say what it was, so "the pin says X" and "X is serving" were the same
+sentence, and a stale image kept answering health checks and sweeping balances while the
+prices it was supposed to fix stood still for ten days.
 
 **Schema.** `atlas schema apply` runs on deploy against the declarative `schema.hcl`.
 Before tagging, check `git diff <last-tag>..main -- schema.hcl`: an empty diff means the
