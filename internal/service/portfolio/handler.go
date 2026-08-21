@@ -1068,11 +1068,13 @@ func (h *Handler) ListUnpricedHoldings(ctx context.Context, req *connect.Request
 			if priced.outcome == outcomePriced {
 				continue
 			}
-			reason := priced.outcome.reason()
-			if req.Msg.Reason != nil && *req.Msg.Reason != apiv1.UnpricedReason_UNPRICED_REASON_UNSPECIFIED && reason != *req.Msg.Reason {
-				continue
-			}
-			found = append(found, unpricedHolding{holding: hld, reason: reason})
+			// Not filtered here: the reason is not final yet. The pricing path
+			// only distinguishes NO_QUOTE from THIN_MARKET, and NEVER_PRICED is
+			// a refinement labelUnpriced makes afterwards from the attempt log.
+			// Matching against the provisional value made reason=never_priced
+			// return nothing at all, and reason=no_quote return rows that are
+			// really NEVER_PRICED.
+			found = append(found, unpricedHolding{holding: hld, reason: priced.outcome.reason()})
 		}
 		if nextToken == "" || len(page) == 0 {
 			// The store is exhausted: whatever survived is the end of the walk,
@@ -1084,6 +1086,22 @@ func (h *Handler) ListUnpricedHoldings(ctx context.Context, req *connect.Request
 		next = nextToken
 	}
 
+	// Label before filtering and before trimming, because labelling is what
+	// decides a row's final reason: NEVER_PRICED is only known once the attempt
+	// log has been consulted. It is one batched call for the whole scan, the
+	// same question describeUnpriced asks.
+	out := h.labelUnpriced(ctx, found)
+
+	if req.Msg.Reason != nil && *req.Msg.Reason != apiv1.UnpricedReason_UNPRICED_REASON_UNSPECIFIED {
+		kept := out[:0]
+		for _, u := range out {
+			if u.GetReason() == *req.Msg.Reason {
+				kept = append(kept, u)
+			}
+		}
+		out = kept
+	}
+
 	// Trim to the requested size and resume from the last row actually returned.
 	//
 	// The cursor names a row that WAS returned, not the first one held back,
@@ -1091,14 +1109,10 @@ func (h *Handler) ListUnpricedHoldings(ctx context.Context, req *connect.Request
 	// next row would skip it, silently dropping exactly the position this
 	// endpoint exists to surface. Encoded the way the store encodes its own
 	// tokens, since that is what it will decode.
-	if len(found) > want {
-		found = found[:want]
-		next = base64.StdEncoding.EncodeToString([]byte(found[len(found)-1].holding.ID))
+	if len(out) > want {
+		out = out[:want]
+		next = base64.StdEncoding.EncodeToString([]byte(out[len(out)-1].GetHoldingId()))
 	}
-
-	// NEVER_PRICED needs the attempt log, and asking per asset in the loop above
-	// would be one call per row. Same batched question describeUnpriced asks.
-	out := h.labelUnpriced(ctx, found)
 
 	return connect.NewResponse(&apiv1.ListUnpricedHoldingsResponse{
 		Holdings:      out,

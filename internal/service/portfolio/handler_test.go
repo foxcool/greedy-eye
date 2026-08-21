@@ -1230,6 +1230,63 @@ func TestListUnpricedHoldings_FiltersByReason(t *testing.T) {
 	}
 }
 
+// TestListUnpricedHoldings_FiltersOnTheFinalReason guards a bug that shipped:
+// reason=never_priced returned nothing at all on production data that had 31
+// such rows.
+//
+// The cause is that a holding's reason is decided in two steps. The pricing path
+// only tells NO_QUOTE from THIN_MARKET; NEVER_PRICED is a refinement made later,
+// by labelUnpriced, from the attempt log. Filtering against the provisional
+// value therefore matched a reason that no row could yet carry — and, worse than
+// empty, reason=no_quote matched rows that would be relabelled NEVER_PRICED, so
+// it answered a question with the wrong list rather than none.
+func TestListUnpricedHoldings_FiltersOnTheFinalReason(t *testing.T) {
+	const asset = "00000000-0000-0000-0000-0000000000f1"
+
+	s := &mockStore{}
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
+		{ID: "h-never", AssetID: asset, Amount: decimal.NewFromInt(1), Decimals: 0},
+	}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("GetLatestPrice", mock.Anything, mock.Anything).
+		Return((*connect.Response[apiv1.Price])(nil), connect.NewError(connect.CodeNotFound, errors.New("no price")))
+	md.On("GetAsset", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.Asset{Symbol: strPtr("NEV")}), nil)
+	// The attempt log says every source was asked and none answered, which is
+	// what turns NO_QUOTE into NEVER_PRICED.
+	md.On("GetPricingStatus", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.GetPricingStatusResponse{
+			Statuses: []*apiv1.AssetPricingStatus{{
+				AssetId:      asset,
+				EverPriced:   false,
+				FirstAskedAt: timestamppb.New(time.Now().Add(-72 * time.Hour)),
+			}},
+		}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+
+	never := apiv1.UnpricedReason_UNPRICED_REASON_NEVER_PRICED
+	req := unpricedReq("", 0, "")
+	req.Msg.Reason = &never
+	resp, err := h.ListUnpricedHoldings(ctxWithUser(testUserID), req)
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Holdings, 1,
+		"a row the attempt log proves was never priced must match reason=never_priced")
+	assert.Equal(t, apiv1.UnpricedReason_UNPRICED_REASON_NEVER_PRICED, resp.Msg.Holdings[0].Reason)
+
+	// And the same row must NOT answer the weaker question, or a caller asking
+	// "what has nobody looked at yet" gets assets every source has already
+	// refused.
+	noQuote := apiv1.UnpricedReason_UNPRICED_REASON_NO_QUOTE
+	req2 := unpricedReq("", 0, "")
+	req2.Msg.Reason = &noQuote
+	resp2, err := h.ListUnpricedHoldings(ctxWithUser(testUserID), req2)
+	require.NoError(t, err)
+	assert.Empty(t, resp2.Msg.Holdings,
+		"a relabelled NEVER_PRICED row must not come back under no_quote")
+}
+
 // TestListUnpricedHoldings_ForeignPortfolioIsNotFound: naming somebody else's
 // portfolio has to fail rather than return an empty page, which would read as
 // "that portfolio has no gaps" — a false statement about data the caller cannot
