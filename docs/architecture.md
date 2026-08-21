@@ -196,7 +196,9 @@ graph TB
 
 **Selected Architectural Patterns:**
 - **Modular Monolith**: Balance between development simplicity and scalability
-- **4-service domain API**: MarketDataService, PortfolioService, AutomationService, AnalyticsService
+- **5 Connect services**: four domain services — MarketDataService, PortfolioService,
+  AutomationService, AnalyticsService — plus SettingsService, which stores per-user preferences
+  and owns no domain of its own
 - **Layered architecture**: handler → store interface → postgres implementation
 - **CQRS elements**: Separation of read and write operations in critical places
 
@@ -244,7 +246,7 @@ graph TB
 
     subgraph "External Services"
         Psina[👥 psina<br/>User Auth]
-        PriceAPI[💰 Price Data API<br/>CoinGecko, Binance]
+        PriceAPI[💰 Price Data API<br/>CoinGecko, Binance,<br/>CBR, MOEX, T-Invest]
         BlockchainAPI[🔎 Blockchain Data API<br/>Moralis]
     end
 
@@ -258,9 +260,10 @@ graph TB
 **Level 1 Containers:**
 
 - **greedy-eye binary**:
-  - Purpose: Single Go binary serving 4 domain services over Connect-RPC
+  - Purpose: Single Go binary serving five Connect-RPC services
   - Technologies: Go, Connect-RPC, Protocol Buffers, h2c
-  - Services: MarketDataService, PortfolioService, AutomationService, AnalyticsService
+  - Services: MarketDataService, PortfolioService, AutomationService, AnalyticsService,
+    SettingsService
   - Health check: `GET /eye/health`
 
 - **PostgreSQL Database**:
@@ -280,23 +283,26 @@ graph TB
         PS[PortfolioService<br/>portfolios, accounts<br/>holdings, transactions]
         AS[AutomationService<br/>rules + executions]
         ANS[AnalyticsService<br/>heatmaps]
+        SET[SettingsService<br/>per-user preferences]
     end
 
     subgraph "Store Interfaces"
         MDSI[marketdata.Store]
         PSI[portfolio.Store]
         ASI[automation.Store]
+        SETI[settings.Store]
     end
 
     subgraph "Postgres Implementations"
         MDSP[MarketDataStore]
         PSP[PortfolioStore]
         ASP[AutomationStore]
+        SETP[SettingsStore<br/>user_settings]
         SSP[UserStore<br/>users]
     end
 
     subgraph "External Adapters"
-        Prices[coingecko, binance<br/>prices]
+        Prices[coingecko, binance, cbr,<br/>moex, tinvest<br/>prices]
         Wallets[moralis, subscan, tonapi, solana,<br/>esplora, cosmos, tzkt, blockchair<br/>wallet balances]
         Telegram[telegram<br/>notifications]
     end
@@ -306,6 +312,7 @@ graph TB
         RL[ratelimit<br/>rate + quota budget]
     end
 
+    SET --> SETI --> SETP --> DB[(PostgreSQL)]
     MDS --> MDSI --> MDSP --> DB[(PostgreSQL)]
     PS  --> PSI  --> PSP  --> DB
     AS  --> ASI  --> ASP  --> DB
@@ -325,9 +332,13 @@ graph TB
 **MarketDataService** (`internal/service/marketdata/`):
 - RPCs implemented: CreateAsset, GetAsset, UpdateAsset, DeleteAsset, ListAssets,
   FindOrCreateAsset (by the composite identity, ADR-006), SetAssetVerdict (scam filter, ADR-007),
+  AddAssetRiskFlag / DeleteAssetRiskFlag (axis 2 of the risk model — a flag never moves a sum),
+  DeleteAssetExternalRef (unbind a wrong contract binding; there is no link RPC yet, ADR-006),
   CreatePrice, CreatePrices, GetLatestPrice, ListPriceHistory, ListPricesByInterval, DeletePrice,
   DeletePrices, FetchExternalPrices (via the credentials resolver: CoinGecko live, Binance batch
-  has issues)
+  has issues), GetPricingStatus (batched: what asking an asset's sources has produced, for the
+  positions a valuation reports as unpriced; an asset never asked about is absent rather than
+  reported empty)
 - RPCs stubbed: EnrichAssetData, FindSimilarAssets
 - Store: `MarketDataStore` (PostgreSQL) — assets, prices, `asset_external_refs`
 - Owns `ValuationCoverage` (ADR-008): the message lives here because it describes the price side
@@ -336,8 +347,12 @@ graph TB
 **PortfolioService** (`internal/service/portfolio/`):
 - RPCs implemented: full CRUD for Portfolio, Account, Holding, Transaction; DeleteHolding;
   CalculatePortfolioValue (with `ValuationCoverage`); SyncAccount (wallet balances across eight
-  ecosystems, exchange balances via Binance); ImportPositions / ImportTransactions
+  ecosystems, exchange balances via Binance); ImportPositions / ImportTransactions;
+  ListProviders (the adapter registry's descriptors — see External Adapters below)
 - RPCs stubbed: GetPortfolioPerformance
+- Account types (`AccountType`): `wallet`, `exchange`, `bank`, `broker`, `service` (a pure
+  data-provider credential with no holdings of its own — Moralis, CoinGecko, T-Invest as a quote
+  source), `manual`. The type is what `capabilities` are validated against.
 - **Manual accounts and import**: an account of type `manual` carries no credentials and holds
   hand-entered positions (`manual_positions` capability). Import is simulation-first — `dry_run=true`
   returns a per-item plan with no writes, and the same call with `dry_run=false` commits under one
@@ -373,10 +388,21 @@ graph TB
   (duplicated consciously; extract a shared pricing package on the third consumer)
 - Ownership enforced on the scope portfolio (`middleware.EnsureOwner`)
 
+**SettingsService** (`internal/service/settings/`):
+- RPCs implemented: GetSetting, SetSetting — a key/value store of the caller's own preferences,
+  keyed by name and schema version (`dashboard.v1`, `valuation.v1`)
+- The value is **JSON text, not `google.protobuf.Struct`**: Struct types every number as a double,
+  so an integer written by a client comes back as a float and nothing in the path notices. What
+  round-trips is the JSON document, not the byte string — storage is `jsonb`, which normalises
+  whitespace and does not preserve key order, so the field must not be hashed or diffed as text
+- The service does not own the shape of a value, only its size and that it parses
+- Ownership needs no `EnsureOwner`: the owner comes from the request context and there is no
+  `user_id` in the request body to forge, and no admin override to get wrong
+
 **User provisioning** (`internal/middleware/user.go` + `postgres.UserStore`):
 - Users are provisioned lazily from `X-User-Id`/`X-User-Email`/`X-User-Roles` headers set by the
   auth proxy (psina). Roles are per-request and never persisted (psina owns them). There is no
-  standalone settings/user Connect service.
+  user-management Connect service: this instance stores a reference to a user, not a user.
 
 **External Adapters** (Integration Layer):
 
@@ -393,9 +419,16 @@ form reads the registry rather than carrying a second copy of it. `internal/prov
 holds the description types alone, with no adapter code, so a handler can describe providers
 without linking them.
 
-- **Price Adapters** (`internal/adapter/coingecko/`, `internal/adapter/binance/`): CoinGecko (live
-  prices; tier-aware — the tier picks the host, the auth header and the plan allowance),
-  Binance (`ticker/price`; batch fails on invalid symbols — tracked separately)
+- **Price Adapters**: CoinGecko (`internal/adapter/coingecko/` — live prices; tier-aware: the tier
+  picks the host, the auth header and the plan allowance), Binance (`internal/adapter/binance/` —
+  `ticker/price`; batch fails on invalid symbols, tracked separately), and three sources for the
+  markets crypto feeds do not carry:
+
+  | Package | Covers | Notes |
+  |---|---|---|
+  | `cbr` | Bank of Russia daily FX rates | keyless; the authoritative RUB cross rate, without which a RUB-quoted instrument has a price and still adds nothing to a USD total. One print per business day — see the freshness policy in §8.3 |
+  | `moex` | MOEX ISS: shares, ETFs, bonds | keyless, ~15 min delayed, which is well inside what a valuation needs |
+  | `tinvest` | T-Invest: SPB Exchange listings, MOEX as a second opinion | needs a personal broker token on a `broker` account carrying `market_data`, **and** a trust anchor: the host chain is issued by a root no OS or Go distribution ships. The root is not vendored — it travels in `accounts.data["root_ca"]` and is trusted for this client alone, because which anchors a service accepts is an operator's decision. The quote's base currency belongs to the row, not the provider: one response mixes a dollar-quoted foreign share with a rouble-quoted domestic one |
 - **Exchange sync** (`internal/adapter/binance/`): Binance spot balances via the SIGNED
   `GET /api/v3/account` (HMAC-SHA256) → `entity.ExchangeSyncer`
 - **Blockchain Adapters** (all → `entity.WalletSyncer`), one package per ecosystem:
@@ -518,6 +551,15 @@ per-adapter drops (Moralis `possible_spam`, Solana `isJunk`), which silently del
 - Weights and thresholds live in `Weights` so they can be tuned from config without a release
 - The scheduler runs a periodic rescore (`internal/scheduler/rescore.go`)
 
+**Risk flags are a second axis, and they do not move the total** (`asset_risk_flags`,
+`AddAssetRiskFlag` / `DeleteAssetRiskFlag`). Identity answers "is this the thing it claims to be";
+a risk flag (`exploit`, `depeg`, `frozen_transfers`, `deprecation`, `delisting`,
+`sanctions_freeze`) answers "is holding it about to go badly", which is a forecast. A flag
+therefore never derives `holdings.excluded` and never enters `ValuationCoverage` — letting it
+subtract would make "this may go badly" read as "this is not real", and the reader of a total
+could not tell the two statements apart. `review_at` is required on write: a temporary flag with
+no review date hangs forever and devalues every other flag on the axis.
+
 **Asset identity resolution order** (why a counterfeit cannot inherit a real price):
 
 1. **Contract first.** A synced token resolves through
@@ -543,7 +585,23 @@ balances — including 594 956 units of a "USDT" that does not exist.
 - `capabilities` (`portfolio_sync`, `trading`, `market_data`, `onchain_lookup`) declare what the
   credentials may do, validated against account type.
 - `system_scopes` ⊆ capabilities marks user-agnostic capabilities (market_data, onchain_lookup) an
-  admin shares system-wide. The resolver resolves clients user → system → env.
+  admin shares system-wide. The resolver resolves clients user → system; there is no environment
+  tier left — a credential lives in an account or nowhere (v0.7.0).
+- **Unattended work falls back per provider, not per capability.** A job with nobody in context
+  sees system-scoped accounts, plus — when exactly one person holds the capability — that person's
+  own accounts *for the providers no scoped candidate covers*. An explicitly scoped account still
+  wins its own slug. The earlier rule fired only on an empty candidate list, which answers "this
+  instance has no system account at all" rather than "none for this provider", and a real instance
+  is almost always in the second state because scopes are granted one account at a time: prod
+  2026-08-11..17 refreshed no crypto price for six days with binance sitting unscoped behind three
+  scoped accounts, while every manual fetch worked because it carried a user id. The startup line
+  therefore names the accounts it **skipped** and why — a list of what worked cannot show an
+  absence (`Resolver.Skipped`, `internal/service/credentials/resolver.go`).
+- **Keyless readers are registered by default, not seeded.** Public feeds and explorers
+  (`KeylessPriceProviders`, `KeylessWalletSyncers`) need no credential, so a fresh instance reads
+  them without anyone creating a row — `accounts.user_id` is NOT NULL and a fresh instance has no
+  user to own one. An account naming the same slug still wins, which is how such a feed gets
+  throttled or given a smaller share of a plan.
 
 ---
 
@@ -567,8 +625,11 @@ API Client → MarketDataService → MarketDataStore → PostgreSQL
 API Client → MarketDataService/FetchExternalPrices → resolver → adapter → CreatePrices
   1. POST /eye.v1.MarketDataService/FetchExternalPrices
   2. Handler resolves the price providers for the caller (credentials resolver:
-     user account → system account → the sole operator's own, for unattended work)
-  3. Each provider (CoinGecko / Binance) fetches prices for the tracked assets
+     user account → system account → for unattended work, the sole operator's own
+     accounts, **for the providers no candidate covers** — the fallback is per
+     provider, not per capability, see §8.1)
+  3. Each provider (CoinGecko / Binance / CBR / MOEX / T-Invest) fetches prices for the
+     assets that are due
   4. Prices are bulk-inserted via CreatePrices
   5. Response: FetchExternalPricesResponse{prices_fetched, prices_stored, errors}
 ```
@@ -696,7 +757,8 @@ Cron / API Client → AutomationService/ExecuteRule
 │   │   ├── MarketDataService
 │   │   ├── PortfolioService
 │   │   ├── AutomationService
-│   │   └── AnalyticsService
+│   │   ├── AnalyticsService
+│   │   └── SettingsService
 │   └── Health: GET /eye/health
 ├── Database Container
 │   ├── PostgreSQL 17+
@@ -854,16 +916,20 @@ is not: one stale FX row would otherwise date every position converted through i
 **Background Scheduler (`internal/scheduler`):**
 - Single cron scheduler (robfig/cron/v3) inside the `eye` binary, gated by `scheduler.enabled`
 - Consumers: periodic automation rules (`RuleSchedule.CronExpression` + `Timezone`), external
-  price fetching (`scheduler.priceFetchCron`), the asset rescore pass that re-applies
-  scam-filter verdicts to the catalogue (`internal/scheduler/rescore.go`), and the balance sweep
-  (`scheduler.balanceSyncCron`)
+  price fetching (`scheduler.pricefetchcron`, hourly), the asset rescore pass that re-applies
+  scam-filter verdicts to the catalogue (`scheduler.rescorecron`, daily —
+  `internal/scheduler/rescore.go`), and the balance sweep (`scheduler.balancesynccron`, offset
+  half an hour from the price sweep so the two do not draw on one provider allowance in the same
+  minute)
+- **The scheduler keys are lowercase on purpose.** Env vars produce lowercase koanf keys, so a
+  camelCase default would shadow the override rather than be replaced by it (`cmd/eye/config.go`)
 - **The balance sweep re-reads amounts, not prices.** Without it nothing refreshed quantities on
   a schedule while the hourly price sweep kept re-pricing them, so a total moved every hour and
   stayed wrong — prod 2026-08-02 carried holdings whose `updated_at` was a week old. A number
   that moves is read as a number that is current
   - Selection is staleness-driven, not a flat pass: `ListStaleSyncTargets` returns syncable
-    accounts whose newest holding is older than `scheduler.balanceMaxAge` (12h default), stalest
-    first, capped by `scheduler.balanceAccountsPerSweep` (2). Freshness comes from the holdings
+    accounts whose newest holding is older than `scheduler.balancemaxage` (12h default), stalest
+    first, capped by `scheduler.balanceaccountspersweep` (2). Freshness comes from the holdings
     themselves, so it cannot claim a sync that never landed, and an account with no holdings sorts
     first. The cron interval is not the refresh rate — it is how often the system gets a chance
     to catch up, and what one fire does not reach stays due
@@ -913,7 +979,10 @@ is not: one stale FX row would otherwise date every position converted through i
 - **Decision**: Consolidate into 3 domain services: MarketDataService (assets + prices),
   PortfolioService (portfolios, accounts, holdings, transactions), AutomationService (rules + executions).
   A fourth, AnalyticsService, was added later (2026-07) for derived read-only views; it owns no
-  store, which is what keeps it a separate service rather than a fourth data owner.
+  store, which is what keeps it a separate service rather than a fourth data owner. A fifth,
+  SettingsService (2026-08), stores per-user preferences; it is not a domain service — it exists
+  because a dashboard layout must follow the user across devices, and putting that in one of the
+  three would give a domain a table that has nothing to do with it.
 - **Consequences**:
   - ➕ Simpler handler structure, fewer inter-service calls
   - ➕ Each service owns its store directly (no StorageService middleman)
@@ -1006,9 +1075,14 @@ is not: one stale FX row would otherwise date every position converted through i
   holdings); an `external_ref` column on `assets` (one asset maps to many provider IDs —
   1:N belongs in a mapping table, and a 1:1 column would die on the second source);
   prefixing symbol with venue in one field (loses clean symbol for search/display)
-- **Status of the ref table**: landed. Sync binds `("onchain:<chain>", address)` automatically
-  with `origin=auto`; manual, seeded and discovered refs (plus a link RPC) are still to come and
-  are needed by the first source with a dynamic instrument universe (T-Invest/FIGI, CMC)
+- **Status of the ref table**: landed, one rung of the ladder. Sync binds
+  `("onchain:<chain>", address)` automatically with `origin=auto`, and a wrong binding can be
+  removed (`DeleteAssetExternalRef`) — a contract bound before the identity rule existed still
+  routes every sync to whatever it was bound to, so the binding has to be visible and removable.
+  What is **not** built: there is no link RPC and nothing writes `origin=manual` or `origin=seed`;
+  the constants exist in `entity` and no code path produces them. The source that was expected to
+  force the ladder has meanwhile landed without it (T-Invest, 2026-08-10), so the gap is now
+  carried by a live provider rather than anticipated (`personal-avm`)
 
 ### ADR-007: The scam verdict belongs to the asset; exclusion is derived
 - **Status**: accepted
@@ -1179,33 +1253,19 @@ System Quality
   sequenced **after** the valuation work: a rule acting on a number that lies is worse than no
   rule.
 
-#### Debt 2: A quote is trusted without a market behind it
+> **Closed since 2026-08-01**, kept out of the list so it does not read as open:
+> a quote with no market behind it no longer values a holding (ADR-009,
+> `internal/marketdepth`), and a quote older than the freshness policy is named in the
+> coverage block instead of passing as current (§8.3, `internal/pricefresh`).
 
-- Description: A price is accepted at face value regardless of whether anything trades at it.
-  Market context is now collected — `prices.volume` and `prices.market_cap` are populated on both
-  the by-id and the by-contract path — but nothing reads them yet: the sum still counts every
-  quote equally.
-- Impact: An illiquid airdrop can dominate a portfolio total. On the dev instance one such token
-  accounted for 99% of the value of its price path.
-- Resolution Plan: read the distribution of volume across the real catalogue, pick the threshold
-  from those numbers rather than in advance, then gate the sum through the existing
-  `ValuationCoverage` — "unknown", not "zero".
-
-#### Debt 3: Price freshness is not checked
-
-- Description: A stored price is used as the current price no matter how old it is. There is no
-  staleness cutoff and no indication of a quote's age in a valuation.
-- Impact: A portfolio can be valued at prices from an arbitrary point in the past and look current.
-- Resolution Plan: an age cutoff, with stale holdings reported through the same coverage block.
-
-#### Debt 4: Lack of comprehensive monitoring
+#### Debt 2: Lack of comprehensive monitoring
 
 - Description: Health check plus structured logs; provider spend is reported on the sweep's own
   log line. No metrics system in-process.
 - Impact: Difficult to diagnose production issues; quota exhaustion is visible only in logs.
 - Resolution Plan: metrics endpoint + dashboards.
 
-#### Debt 5: No end-to-end test of the deployed shape
+#### Debt 3: No end-to-end test of the deployed shape
 
 - Description: Unit tests and store-level integration tests (testcontainers) exist. There is no
   test that runs the service the way it is deployed, and none at all for the microservice mode
@@ -1214,7 +1274,7 @@ System Quality
 - Resolution Plan: per-domain schemas and Postgres roles as an enforced service boundary, plus a
   distributed stand in CI.
 
-#### Debt 6: Volume-weighted provider budgets
+#### Debt 4: Volume-weighted provider budgets
 
 - Description: The quota accounting understands "one request = one unit". Moralis bills in
   compute units and Binance in request weight, so their daily budgets carry no `Quota` at all and
@@ -1223,12 +1283,38 @@ System Quality
 - Resolution Plan: weighted cost per call, and reading the provider's own remaining-budget headers
   where they exist (`X-MBX-USED-WEIGHT-*`).
 
-#### Debt 7: Catalogue mutations are not role-gated
+#### Debt 5: Catalogue mutations are not role-gated
 
 - Description: `assets` and `prices` are a shared catalogue that any authenticated user can
   mutate. With a single user this is harmless; it does not survive a second one.
 - Impact: Blocks multi-user operation.
 - Resolution Plan: RBAC on catalogue mutations; user-scoped assets stay private.
+
+#### Debt 6: No upgrade path for an instance that already has data
+
+- Description: `atlas schema apply` runs on deploy against the declarative `schema.hcl` and
+  computes its diff against whatever that instance currently holds. There is no revision table,
+  no versioned migration catalogue and no place for a backfill to live, so an instance cannot say
+  which schema it is on and a declarative apply will drop a column the target schema stops
+  describing.
+- Impact: Blocks anyone else running this — and blocks beta gate 4. Every deploy whose
+  `git diff <last-tag>..main -- schema.hcl` is non-empty is read by hand, once, by the only person
+  who knows what the plan should say.
+- Resolution Plan: a versioned migration catalogue plus a revisions table (`personal-znvr`),
+  baselined from the current declarative schema.
+
+#### Debt 7: A valuation reads one page of holdings
+
+- Description: `CalculatePortfolioValue` loads holdings with a single `ListHoldings` call at
+  `PageSize: 1000` and never pages (`internal/service/portfolio/handler.go`). The store honours the
+  size as given — there is no clamp — so the 1001st holding of a portfolio is simply not in the
+  loop.
+- Impact: The failure mode is the one §8.3 exists to forbid: positions leave the total with nothing
+  saying so, and `ValuationCoverage` cannot report them either, because they were never read.
+  Production 2026-08-18 carried 312 rows on one portfolio — 156 counted and 156 quarantined — and
+  the quarantined half grows on its own, since synced spam keeps arriving.
+- Resolution Plan: page the read (`personal-dek`), or move the partition into the query so the
+  total is computed over rows the database counted rather than rows one page happened to hold.
 
 ---
 
@@ -1255,7 +1341,7 @@ System Quality
 
 ---
 
-**Document Version**: 1.5
-**Last Updated**: 2026-08-01
+**Document Version**: 1.6
+**Last Updated**: 2026-08-18
 **Owner**: foxcool
 **Status**: Active
