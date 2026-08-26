@@ -97,6 +97,9 @@ const (
 	// MarketDataServiceGetPricingStatusProcedure is the fully-qualified name of the MarketDataService's
 	// GetPricingStatus RPC.
 	MarketDataServiceGetPricingStatusProcedure = "/eye.v1.MarketDataService/GetPricingStatus"
+	// MarketDataServiceGetSweepScheduleProcedure is the fully-qualified name of the MarketDataService's
+	// GetSweepSchedule RPC.
+	MarketDataServiceGetSweepScheduleProcedure = "/eye.v1.MarketDataService/GetSweepSchedule"
 )
 
 // MarketDataServiceClient is a client for the eye.v1.MarketDataService service.
@@ -158,6 +161,20 @@ type MarketDataServiceClient interface {
 	// record to report, and inventing an empty one would read as "asked, nothing
 	// came back", which is the opposite statement.
 	GetPricingStatus(context.Context, *connect.Request[v1.GetPricingStatusRequest]) (*connect.Response[v1.GetPricingStatusResponse], error)
+	// GetSweepSchedule reports when each price source is next due to be asked.
+	//
+	// The sweep's own summary cannot answer this. A run that asked nobody logs
+	// the same "fetched=0, stored=0" as a run with nothing to ask, so an instance
+	// whose whole catalogue is deferred until next Tuesday looks identical to one
+	// that is perfectly up to date. The difference lives in price_fetch_attempts,
+	// which until now no RPC could read: the only way to tell the two apart was a
+	// psql session on the host.
+	//
+	// Counted live against the attempt log rather than materialised, for the same
+	// reason ListUnpricedHoldings is: a second store of what is due would be a
+	// second source of truth about the schedule, free to disagree with the sweep
+	// it describes.
+	GetSweepSchedule(context.Context, *connect.Request[v1.GetSweepScheduleRequest]) (*connect.Response[v1.GetSweepScheduleResponse], error)
 }
 
 // NewMarketDataServiceClient constructs a client for the eye.v1.MarketDataService service. By
@@ -297,6 +314,12 @@ func NewMarketDataServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(marketDataServiceMethods.ByName("GetPricingStatus")),
 			connect.WithClientOptions(opts...),
 		),
+		getSweepSchedule: connect.NewClient[v1.GetSweepScheduleRequest, v1.GetSweepScheduleResponse](
+			httpClient,
+			baseURL+MarketDataServiceGetSweepScheduleProcedure,
+			connect.WithSchema(marketDataServiceMethods.ByName("GetSweepSchedule")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -323,6 +346,7 @@ type marketDataServiceClient struct {
 	deletePrices           *connect.Client[v1.DeletePricesRequest, emptypb.Empty]
 	fetchExternalPrices    *connect.Client[v1.FetchExternalPricesRequest, v1.FetchExternalPricesResponse]
 	getPricingStatus       *connect.Client[v1.GetPricingStatusRequest, v1.GetPricingStatusResponse]
+	getSweepSchedule       *connect.Client[v1.GetSweepScheduleRequest, v1.GetSweepScheduleResponse]
 }
 
 // CreateAsset calls eye.v1.MarketDataService.CreateAsset.
@@ -430,6 +454,11 @@ func (c *marketDataServiceClient) GetPricingStatus(ctx context.Context, req *con
 	return c.getPricingStatus.CallUnary(ctx, req)
 }
 
+// GetSweepSchedule calls eye.v1.MarketDataService.GetSweepSchedule.
+func (c *marketDataServiceClient) GetSweepSchedule(ctx context.Context, req *connect.Request[v1.GetSweepScheduleRequest]) (*connect.Response[v1.GetSweepScheduleResponse], error) {
+	return c.getSweepSchedule.CallUnary(ctx, req)
+}
+
 // MarketDataServiceHandler is an implementation of the eye.v1.MarketDataService service.
 type MarketDataServiceHandler interface {
 	// --- Asset CRUD ---
@@ -489,6 +518,20 @@ type MarketDataServiceHandler interface {
 	// record to report, and inventing an empty one would read as "asked, nothing
 	// came back", which is the opposite statement.
 	GetPricingStatus(context.Context, *connect.Request[v1.GetPricingStatusRequest]) (*connect.Response[v1.GetPricingStatusResponse], error)
+	// GetSweepSchedule reports when each price source is next due to be asked.
+	//
+	// The sweep's own summary cannot answer this. A run that asked nobody logs
+	// the same "fetched=0, stored=0" as a run with nothing to ask, so an instance
+	// whose whole catalogue is deferred until next Tuesday looks identical to one
+	// that is perfectly up to date. The difference lives in price_fetch_attempts,
+	// which until now no RPC could read: the only way to tell the two apart was a
+	// psql session on the host.
+	//
+	// Counted live against the attempt log rather than materialised, for the same
+	// reason ListUnpricedHoldings is: a second store of what is due would be a
+	// second source of truth about the schedule, free to disagree with the sweep
+	// it describes.
+	GetSweepSchedule(context.Context, *connect.Request[v1.GetSweepScheduleRequest]) (*connect.Response[v1.GetSweepScheduleResponse], error)
 }
 
 // NewMarketDataServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -624,6 +667,12 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 		connect.WithSchema(marketDataServiceMethods.ByName("GetPricingStatus")),
 		connect.WithHandlerOptions(opts...),
 	)
+	marketDataServiceGetSweepScheduleHandler := connect.NewUnaryHandler(
+		MarketDataServiceGetSweepScheduleProcedure,
+		svc.GetSweepSchedule,
+		connect.WithSchema(marketDataServiceMethods.ByName("GetSweepSchedule")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/eye.v1.MarketDataService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MarketDataServiceCreateAssetProcedure:
@@ -668,6 +717,8 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 			marketDataServiceFetchExternalPricesHandler.ServeHTTP(w, r)
 		case MarketDataServiceGetPricingStatusProcedure:
 			marketDataServiceGetPricingStatusHandler.ServeHTTP(w, r)
+		case MarketDataServiceGetSweepScheduleProcedure:
+			marketDataServiceGetSweepScheduleHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -759,4 +810,8 @@ func (UnimplementedMarketDataServiceHandler) FetchExternalPrices(context.Context
 
 func (UnimplementedMarketDataServiceHandler) GetPricingStatus(context.Context, *connect.Request[v1.GetPricingStatusRequest]) (*connect.Response[v1.GetPricingStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.GetPricingStatus is not implemented"))
+}
+
+func (UnimplementedMarketDataServiceHandler) GetSweepSchedule(context.Context, *connect.Request[v1.GetSweepScheduleRequest]) (*connect.Response[v1.GetSweepScheduleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.GetSweepSchedule is not implemented"))
 }

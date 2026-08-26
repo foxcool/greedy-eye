@@ -1249,3 +1249,113 @@ func TestPricingStatus(t *testing.T) {
 		assert.Empty(t, got)
 	})
 }
+
+// TestSweepSchedule covers the reading that tells a frozen queue from an idle
+// one: an instance whose whole catalogue is backed off produces exactly the
+// same empty selection as one that is fully current, and until this existed the
+// only way to tell them apart was a psql session on the host.
+//
+// The source id is unique to this test because the pool is shared: counting
+// another test's attempt rows would make the assertions depend on run order.
+func TestSweepSchedule(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+	now := time.Now()
+	source := "sched-" + uuid.NewString()[:8]
+
+	due := createTestAsset(t, s, "SchedDue")
+	deferred := createTestAsset(t, s, "SchedDeferred")
+	createTestAsset(t, s, "SchedNever")
+
+	// Priced three hours ago on a one-hour TTL: due again.
+	require.NoError(t, s.RecordPriceAttempts(ctx, marketdata.RecordAttemptsOpts{
+		SourceID: source,
+		At:       now.Add(-3 * time.Hour),
+		Priced:   []string{due.ID},
+		TTL:      time.Hour,
+	}))
+	// Missed, so pushed out past now: deferred.
+	require.NoError(t, s.RecordPriceAttempts(ctx, marketdata.RecordAttemptsOpts{
+		SourceID:   source,
+		At:         now,
+		Missed:     []string{deferred.ID},
+		TTL:        time.Hour,
+		MaxBackoff: 7 * 24 * time.Hour,
+	}))
+
+	t.Run("due, deferred and never-attempted are counted apart", func(t *testing.T) {
+		got, err := s.SweepSchedule(ctx, marketdata.SweepScheduleOpts{
+			SourceIDs: []string{source},
+			Now:       now,
+		})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+
+		sched := got[0]
+		assert.Equal(t, source, sched.SourceID)
+		assert.Equal(t, uint32(1), sched.DueNow)
+		assert.Equal(t, uint32(1), sched.Deferred)
+		// Every asset in the catalogue is never-attempted for a source id that
+		// only this test uses, minus the two it just recorded against.
+		assert.Greater(t, sched.NeverAttempted, uint32(0))
+		assert.False(t, sched.SoonestDue.IsZero(), "a deferred asset must date the queue")
+		assert.True(t, sched.SoonestDue.After(now))
+		assert.Equal(t, uint32(1), sched.MaxMisses)
+	})
+
+	t.Run("nothing deferred leaves the timestamps absent", func(t *testing.T) {
+		// Far enough in the future that the deferred row has come due too.
+		got, err := s.SweepSchedule(ctx, marketdata.SweepScheduleOpts{
+			SourceIDs: []string{source},
+			Now:       now.Add(30 * 24 * time.Hour),
+		})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+
+		assert.Equal(t, uint32(0), got[0].Deferred)
+		assert.True(t, got[0].SoonestDue.IsZero(),
+			"a zero time is how a caller recognises 'nothing is deferred'; a date would read as a fact")
+		assert.True(t, got[0].LatestDeferred.IsZero())
+	})
+
+	t.Run("a source never asked still gets a row", func(t *testing.T) {
+		// The most important thing this can report: silence from a source that
+		// was never asked must not be omitted, or it reads as absence of trouble.
+		unasked := "sched-" + uuid.NewString()[:8]
+		got, err := s.SweepSchedule(ctx, marketdata.SweepScheduleOpts{
+			SourceIDs: []string{unasked},
+			Now:       now,
+		})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, unasked, got[0].SourceID)
+		assert.Equal(t, uint32(0), got[0].DueNow)
+		assert.Greater(t, got[0].NeverAttempted, uint32(0))
+	})
+
+	t.Run("quarantined assets are not counted as work", func(t *testing.T) {
+		scam := createTestAsset(t, s, "SchedScam")
+		_, err := s.SetAssetVerdict(ctx, scam.ID, "scam", nil, nil, "curated")
+		require.NoError(t, err)
+
+		unasked := "sched-" + uuid.NewString()[:8]
+		withScam, err := s.SweepSchedule(ctx, marketdata.SweepScheduleOpts{
+			SourceIDs: []string{unasked},
+			Now:       now,
+		})
+		require.NoError(t, err)
+		require.Len(t, withScam, 1)
+
+		filtered, err := s.SweepSchedule(ctx, marketdata.SweepScheduleOpts{
+			SourceIDs:       []string{unasked},
+			Now:             now,
+			ExcludeVerdicts: []string{"scam", "impersonation"},
+		})
+		require.NoError(t, err)
+		require.Len(t, filtered, 1)
+
+		assert.Less(t, filtered[0].NeverAttempted, withScam[0].NeverAttempted,
+			"the sweep never asks about quarantined assets, so counting them would report work nobody intends to do")
+	})
+}

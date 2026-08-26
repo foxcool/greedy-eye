@@ -341,7 +341,9 @@ graph TB
   DeletePrices, FetchExternalPrices (via the credentials resolver: CoinGecko live, Binance batch
   has issues), GetPricingStatus (batched: what asking an asset's sources has produced, for the
   positions a valuation reports as unpriced; an asset never asked about is absent rather than
-  reported empty)
+  reported empty), GetSweepSchedule (per source: how many assets are due, deferred and
+  never attempted, how far the queue reaches, and why the sweep would skip the source — the
+  facts that tell a frozen schedule from an idle one, which the sweep's own summary cannot)
 - RPCs stubbed: EnrichAssetData, FindSimilarAssets
 - Store: `MarketDataStore` (PostgreSQL) — assets, prices, `asset_external_refs`
 - Owns `ValuationCoverage` (ADR-008): the message lives here because it describes the price side
@@ -900,6 +902,7 @@ is not: one stale FX row would otherwise date every position converted through i
 **Monitoring and Alerting:**
 - **Health Checks**: /health endpoint for all services
 - **Provider quota**: spend per credential persisted in `provider_usage`, reported on the sweep's own log line (no metrics system in-process yet)
+- **Sweep schedule**: `price_fetch_attempts` holds the per-source back-off. A sweep that selected nothing names each idle source with its reason (`nothing_due`, `all_deferred`, `budget_exhausted`) in its log line and in `FetchExternalPricesResponse.idle_sources`; `GetSweepSchedule` reports the same queue on demand. Before this, `fetched=0` meant both "everything is current" and "the whole catalogue is postponed", and telling them apart took a psql session on the host
 - **Error Tracking**: Structured logging with correlation IDs
 - **SLA Monitoring**: Response time SLA tracking
 

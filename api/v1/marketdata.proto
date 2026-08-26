@@ -439,6 +439,26 @@ service MarketDataService {
       body: "*"
     };
   }
+
+  // GetSweepSchedule reports when each price source is next due to be asked.
+  //
+  // The sweep's own summary cannot answer this. A run that asked nobody logs
+  // the same "fetched=0, stored=0" as a run with nothing to ask, so an instance
+  // whose whole catalogue is deferred until next Tuesday looks identical to one
+  // that is perfectly up to date. The difference lives in price_fetch_attempts,
+  // which until now no RPC could read: the only way to tell the two apart was a
+  // psql session on the host.
+  //
+  // Counted live against the attempt log rather than materialised, for the same
+  // reason ListUnpricedHoldings is: a second store of what is due would be a
+  // second source of truth about the schedule, free to disagree with the sweep
+  // it describes.
+  rpc GetSweepSchedule(GetSweepScheduleRequest) returns (GetSweepScheduleResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/prices/schedule"
+      body: "*"
+    };
+  }
 }
 
 // =============================================================================
@@ -634,6 +654,14 @@ message FetchExternalPricesResponse {
   int32 prices_fetched = 1;
   int32 prices_stored = 2;
   repeated string errors = 3;
+  // Sources this run selected nothing from, and why: "nothing_due",
+  // "all_deferred", "budget_exhausted", "unknown".
+  //
+  // Without it, prices_fetched=0 is the only thing an unattended sweep can say,
+  // and it means both "everything is current" and "the whole catalogue is
+  // backed off until next week" — the two states an instance most needs to tell
+  // apart, since one is health and the other is a week of silent staleness.
+  map<string, string> idle_sources = 4;
 }
 
 message GetPricingStatusRequest {
@@ -644,4 +672,43 @@ message GetPricingStatusResponse {
   // One entry per asset that has been asked about at least once, in no
   // particular order. Assets with no record are omitted, not zero-filled.
   repeated AssetPricingStatus statuses = 1;
+}
+
+message GetSweepScheduleRequest {
+  // Optional. Empty reports every source the instance can price with, which is
+  // the question an operator actually has: a single frozen source is invisible
+  // when you have to name it to see it.
+  optional string source_id = 1;
+}
+
+message GetSweepScheduleResponse {
+  repeated SourceSchedule sources = 1;
+}
+
+// SourceSchedule is one price source's queue, as the sweep would find it now.
+//
+// The counts partition the assets this source is allowed to be asked about:
+// due_now would be selected by the next run, deferred are held back by their
+// own back-off, never_attempted have no attempt row at all. Quarantined assets
+// are in none of them — the sweep never asks about those, so counting them here
+// would report work nobody intends to do.
+message SourceSchedule {
+  string source_id = 1;
+  uint32 due_now = 2;
+  uint32 deferred = 3;
+  uint32 never_attempted = 4;
+  // When the earliest deferred asset comes due. Absent when nothing is
+  // deferred, which is not the same as "due now" and must not render as one.
+  optional google.protobuf.Timestamp soonest_due = 5;
+  // The far end of the queue. A latest_deferred a week out is the signature of
+  // assets that have hit the back-off ceiling rather than drifted toward it.
+  optional google.protobuf.Timestamp latest_deferred = 6;
+  // The longest consecutive-miss streak against this source. It says how deep
+  // the back-off has been driven, which no timestamp shows on its own.
+  uint32 max_misses = 7;
+  // Why the sweep would skip this source entirely, when it would: an exhausted
+  // plan, a frozen bucket. Absent means the source would be asked. This is the
+  // same judgement the sweep makes, read from the same provider, not a second
+  // opinion computed here.
+  optional string skip_reason = 8;
 }

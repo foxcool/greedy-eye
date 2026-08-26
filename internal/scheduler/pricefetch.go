@@ -39,6 +39,13 @@ func (s *Scheduler) fetchPrices() {
 		slog.Int("stored", int(resp.Msg.GetPricesStored())),
 		slog.Duration("duration", time.Since(start)),
 	}
+	// A run that asked nobody used to log exactly what a run with nothing to
+	// ask logs. Naming the idle sources with their reason is what makes those
+	// two the different sentences they always were: "everything is current" and
+	// "the whole catalogue is postponed" both used to read as fetched=0.
+	if idle := resp.Msg.GetIdleSources(); len(idle) > 0 {
+		attrs = append(attrs, slog.Any("idle_sources", idle))
+	}
 	attrs = append(attrs, s.usageDelta(before)...)
 	s.log.Info("scheduler: prices fetched", attrs...)
 }
