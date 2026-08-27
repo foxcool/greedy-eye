@@ -338,8 +338,7 @@ graph TB
   AddAssetRiskFlag / DeleteAssetRiskFlag (axis 2 of the risk model — a flag never moves a sum),
   DeleteAssetExternalRef (unbind a wrong contract binding; there is no link RPC yet, ADR-006),
   CreatePrice, CreatePrices, GetLatestPrice, ListPriceHistory, ListPricesByInterval, DeletePrice,
-  DeletePrices, FetchExternalPrices (via the credentials resolver: CoinGecko live, Binance batch
-  has issues), GetPricingStatus (batched: what asking an asset's sources has produced, for the
+  DeletePrices, FetchExternalPrices (via the credentials resolver), GetPricingStatus (batched: what asking an asset's sources has produced, for the
   positions a valuation reports as unpriced; an asset never asked about is absent rather than
   reported empty), GetSweepSchedule (per source: how many assets are due, deferred and
   never attempted, how far the queue reaches, and why the sweep would skip the source — the
@@ -426,7 +425,8 @@ without linking them.
 
 - **Price Adapters**: CoinGecko (`internal/adapter/coingecko/` — live prices; tier-aware: the tier
   picks the host, the auth header and the plan allowance), Binance (`internal/adapter/binance/` —
-  `ticker/price`; batch fails on invalid symbols, tracked separately), and three sources for the
+  `ticker/price`; the request is confined to pairs listed TRADING in a cached `exchangeInfo`
+  snapshot, because Binance rejects a whole batch when one symbol is not tradable), and three sources for the
   markets crypto feeds do not carry:
 
   | Package | Covers | Notes |
@@ -902,6 +902,7 @@ is not: one stale FX row would otherwise date every position converted through i
 **Monitoring and Alerting:**
 - **Health Checks**: /health endpoint for all services
 - **Provider quota**: spend per credential persisted in `provider_usage`, reported on the sweep's own log line (no metrics system in-process yet)
+- **What counts as an attempt**: a miss is evidence about an ASSET, so only what a provider actually requested is recorded. The sweep selects per source but cannot know what a source covers, so each provider is handed the whole due list and reports the subset it asks for via `SelectiveProvider.Asked` (implemented by binance, coingecko, moex, tinvest, cbr). A transport-level failure records nothing at all: it is evidence about the source. Before this, MOEX carried 575 miss rows for crypto assets on dev and CBR 533, and 99.8% of the attempt log sat at the week-long back-off ceiling
 - **Sweep schedule**: `price_fetch_attempts` holds the per-source back-off. A sweep that selected nothing names each idle source with its reason (`nothing_due`, `all_deferred`, `budget_exhausted`) in its log line and in `FetchExternalPricesResponse.idle_sources`; `GetSweepSchedule` reports the same queue on demand. Before this, `fetched=0` meant both "everything is current" and "the whole catalogue is postponed", and telling them apart took a psql session on the host
 - **Error Tracking**: Structured logging with correlation IDs
 - **SLA Monitoring**: Response time SLA tracking

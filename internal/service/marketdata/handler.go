@@ -65,6 +65,36 @@ type HealthReportingProvider interface {
 	Unusable() (reason string, unusable bool)
 }
 
+// SelectiveProvider is implemented by providers that price only a subset of
+// what they are handed, and can say which subset before being asked.
+//
+// It exists because a miss is evidence about an ASSET, not about a request. The
+// sweep selects per source but cannot know what a source speaks for: MOEX is
+// handed the whole due list and prices the Moscow-listed part of it, Binance the
+// crypto part. Recording the remainder as misses files a provider's silence
+// against assets it was never asked about, and the back-off doubles per miss up
+// to a week — so on dev, moex carried 575 miss rows for crypto assets and cbr
+// 533, driving assets those sources never cover to the ceiling and freezing the
+// queue for the sources that DO cover them.
+//
+// Providers that do not implement it are asked about everything they are given,
+// which is the old behaviour and correct for a source with no such subset.
+type SelectiveProvider interface {
+	// Asked returns the subset of assets this provider will actually request,
+	// in the same order. Only these are recorded as attempts.
+	Asked(assets []*entity.Asset) []*entity.Asset
+}
+
+// askedOf reports which of the selected assets a provider will actually ask
+// about, so only those are credited with an attempt.
+func askedOf(p PriceProvider, assets []*entity.Asset) []*entity.Asset {
+	sp, ok := p.(SelectiveProvider)
+	if !ok {
+		return assets
+	}
+	return sp.Asked(assets)
+}
+
 // BudgetExemptProvider is implemented by providers whose request cost does not
 // grow with the number of assets in some subset — CoinGecko covers up to 250
 // curated coin ids in a single /coins/markets call. Those symbols bypass the
@@ -1138,10 +1168,21 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		results, err := provider.FetchPrices(ctx, assets)
 		if err != nil {
 			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
-			h.recordAttempts(ctx, name, assets, nil)
+			// A transport-level failure is evidence about the SOURCE, not about
+			// any asset in the batch: Binance answers 400 for the whole request
+			// when one symbol is not a tradable pair, and crediting every asset
+			// in it with a miss doubles the back-off of assets the provider
+			// would happily have priced. Their schedule must not move because
+			// they shared a request with a jetton (personal-7994).
 			continue
 		}
-		h.recordAttempts(ctx, name, assets, results)
+
+		// Only what this provider actually requested counts as an attempt. The
+		// rest was never asked, and a miss recorded against it would be one
+		// source's silence filed against an asset it does not cover. Asked AFTER
+		// the fetch on purpose: a provider that consults a cached listing set
+		// has it warm by now, so the first sweep filters as well as the tenth.
+		h.recordAttempts(ctx, name, askedOf(provider, assets), results)
 
 		totalFetched += len(results)
 		for i := range results {

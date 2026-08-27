@@ -1768,3 +1768,116 @@ func TestGetSweepSchedule_UnknownSourceIsNotFound(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 }
+
+// --- Tests: an attempt is only recorded where a request was made (personal-edtu) ---
+
+// selectiveProvider prices only the assets it is told to speak for, and reports
+// that subset through Asked — the way every real adapter now does.
+type selectiveProvider struct {
+	fakePriceProvider
+	speaksFor map[string]bool
+}
+
+func (s *selectiveProvider) Asked(assets []*entity.Asset) []*entity.Asset {
+	out := make([]*entity.Asset, 0, len(assets))
+	for _, a := range assets {
+		if s.speaksFor[a.ID] {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// The sweep selects per source but cannot know what a source covers, so a
+// provider is handed the whole due list. Recording the part it never requested
+// as misses files one source's silence against assets it does not cover: on dev
+// that was 575 miss rows of crypto against MOEX and 533 against CBR, each miss
+// doubling a back-off until the queue froze at the week-long ceiling.
+func TestFetchExternalPrices_UnaskedAssetsAreNotRecordedAsMisses(t *testing.T) {
+	s := &mockStore{}
+	expectExternalRefs(s)
+	expectBaseAsset(s)
+
+	covered := &entity.Asset{ID: "asset-covered", Symbol: "BTC", Market: entity.MarketCrypto}
+	foreign := &entity.Asset{ID: "asset-foreign", Symbol: "SBER", Market: "moex"}
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{covered, foreign}, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil).Maybe()
+
+	var recorded RecordAttemptsOpts
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { recorded = args.Get(1).(RecordAttemptsOpts) }).
+		Return(nil)
+
+	provider := &selectiveProvider{
+		fakePriceProvider: fakePriceProvider{prices: map[string]bool{"asset-covered": true}},
+		speaksFor:         map[string]bool{"asset-covered": true},
+	}
+	h := newHandler(s).WithProvider("fake", provider)
+
+	_, err := h.FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"asset-covered"}, recorded.Priced)
+	assert.Empty(t, recorded.Missed,
+		"an asset this provider never requested must not carry its silence")
+}
+
+// A provider that speaks for everything it is handed keeps the old behaviour:
+// a genuine miss is still a miss, and it is what drains an unlistable asset out
+// of the rotation.
+func TestFetchExternalPrices_GenuineMissIsStillRecorded(t *testing.T) {
+	s := &mockStore{}
+	expectExternalRefs(s)
+	expectBaseAsset(s)
+
+	priced := &entity.Asset{ID: "asset-priced", Symbol: "BTC", Market: entity.MarketCrypto}
+	silent := &entity.Asset{ID: "asset-silent", Symbol: "XYZ", Market: entity.MarketCrypto}
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{priced, silent}, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil).Maybe()
+
+	var recorded RecordAttemptsOpts
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { recorded = args.Get(1).(RecordAttemptsOpts) }).
+		Return(nil)
+
+	provider := &selectiveProvider{
+		fakePriceProvider: fakePriceProvider{prices: map[string]bool{"asset-priced": true}},
+		speaksFor:         map[string]bool{"asset-priced": true, "asset-silent": true},
+	}
+	h := newHandler(s).WithProvider("fake", provider)
+
+	_, err := h.FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"asset-priced"}, recorded.Priced)
+	assert.Equal(t, []string{"asset-silent"}, recorded.Missed,
+		"asked and unanswered is a real miss about that asset")
+}
+
+// A transport failure is evidence about the SOURCE, not about any asset in the
+// batch. Binance answers 400 for the whole request when one symbol is not a
+// tradable pair; crediting every asset in it with a miss doubled the back-off of
+// assets it would happily have priced, and the schedule they were pushed into
+// outlived the fix that brought the source back (personal-7994).
+func TestFetchExternalPrices_TransportFailureRecordsNoMisses(t *testing.T) {
+	s := &mockStore{}
+	expectExternalRefs(s)
+	expectBaseAsset(s)
+
+	asset := &entity.Asset{ID: "asset-1", Symbol: "BTC", Market: entity.MarketCrypto}
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{asset}, nil)
+
+	provider := &fakePriceProvider{fetchError: errors.New("unexpected status 400 from Binance")}
+	h := newHandler(s).WithProvider("fake", provider)
+
+	resp, err := h.FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.Msg.GetErrors(), "the failure is still reported")
+	s.AssertNotCalled(t, "RecordPriceAttempts", mock.Anything, mock.Anything)
+}
