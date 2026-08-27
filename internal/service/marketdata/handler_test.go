@@ -186,6 +186,11 @@ func (m *mockStore) RecordPriceAttempts(ctx context.Context, opts RecordAttempts
 	return m.Called(ctx, opts).Error(0)
 }
 
+func (m *mockStore) ResetPriceAttempts(ctx context.Context, sourceID string, at time.Time) (int64, error) {
+	args := m.Called(ctx, sourceID, at)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 func (m *mockStore) SweepSchedule(ctx context.Context, opts SweepScheduleOpts) ([]*entity.SourceSchedule, error) {
 	args := m.Called(ctx, opts)
 	if v := args.Get(0); v != nil {
@@ -1736,6 +1741,49 @@ func TestGetSweepSchedule_ReportsEverySource(t *testing.T) {
 	assert.Equal(t, uint32(3), resp.Msg.GetSources()[0].GetDueNow())
 	assert.Equal(t, uint32(7), resp.Msg.GetSources()[1].GetDeferred())
 	assert.Equal(t, uint32(9), resp.Msg.GetSources()[1].GetMaxMisses())
+}
+
+func TestResetSweepSchedule_ForgivesNamedSourcesOnly(t *testing.T) {
+	s := &mockStore{}
+	s.On("ResetPriceAttempts", mock.Anything, "a", mock.Anything).Return(int64(204), nil)
+
+	h := newHandler(s).
+		WithProvider("a", &fakePriceProvider{}).
+		WithProvider("b", &fakePriceProvider{})
+
+	resp, err := h.ResetSweepSchedule(context.Background(),
+		connect.NewRequest(&apiv1.ResetSweepScheduleRequest{SourceIds: []string{"a"}}))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]uint32{"a": 204}, resp.Msg.GetAssetsFreed())
+	s.AssertNotCalled(t, "ResetPriceAttempts", mock.Anything, "b", mock.Anything)
+}
+
+// An empty list is rejected rather than read as "every source": clearing the
+// whole instance's schedule is a bigger statement than clearing one source's,
+// and it should not be what a caller gets for omitting a field.
+func TestResetSweepSchedule_RequiresNamedSources(t *testing.T) {
+	s := &mockStore{}
+	h := newHandler(s).WithProvider("a", &fakePriceProvider{})
+
+	_, err := h.ResetSweepSchedule(context.Background(),
+		connect.NewRequest(&apiv1.ResetSweepScheduleRequest{}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	s.AssertNotCalled(t, "ResetPriceAttempts", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// A misspelled source must not report a confident zero: "freed nothing" and
+// "no such provider" are the two readings an operator most needs to tell apart,
+// since the first sends them looking for the problem somewhere else.
+func TestResetSweepSchedule_UnknownSourceIsNotAQuietZero(t *testing.T) {
+	s := &mockStore{}
+	h := newHandler(s).WithProvider("a", &fakePriceProvider{})
+
+	_, err := h.ResetSweepSchedule(context.Background(),
+		connect.NewRequest(&apiv1.ResetSweepScheduleRequest{SourceIds: []string{"moex"}}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	s.AssertNotCalled(t, "ResetPriceAttempts", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // soonest_due is absent rather than zero when nothing is deferred: a zero

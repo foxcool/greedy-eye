@@ -1472,6 +1472,46 @@ func (h *Handler) GetSweepSchedule(ctx context.Context, req *connect.Request[api
 	return connect.NewResponse(&apiv1.GetSweepScheduleResponse{Sources: out}), nil
 }
 
+// ResetSweepSchedule forgives the back-off accrued against the named sources.
+//
+// Validated against the resolved provider registry rather than applied blind:
+// a typo in a source name would otherwise report a confident zero, which reads
+// exactly like "the schedule was already clear" — the answer most likely to
+// send an operator looking for the problem somewhere else.
+func (h *Handler) ResetSweepSchedule(ctx context.Context, req *connect.Request[apiv1.ResetSweepScheduleRequest]) (*connect.Response[apiv1.ResetSweepScheduleResponse], error) {
+	want := req.Msg.GetSourceIds()
+	if len(want) == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("source_ids is required: name the sources to reset"))
+	}
+
+	providers, err := h.resolveProviders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range want {
+		if _, ok := providers[name]; !ok {
+			return nil, connect.NewError(connect.CodeNotFound,
+				fmt.Errorf("no price provider named %q", name))
+		}
+	}
+
+	// One timestamp for the whole call, so every source freed by it becomes due
+	// at the same instant rather than staggered by however long the loop took.
+	at := time.Now()
+	freed := make(map[string]uint32, len(want))
+	for _, name := range want {
+		n, err := h.store.ResetPriceAttempts(ctx, name, at)
+		if err != nil {
+			return nil, toConnectError(err)
+		}
+		freed[name] = uint32(n) // #nosec G115 -- rows freed for one source, bounded by the catalogue
+		h.log.Info("sweep schedule reset", "provider", name, "assets_freed", n)
+	}
+
+	return connect.NewResponse(&apiv1.ResetSweepScheduleResponse{AssetsFreed: freed}), nil
+}
+
 // resolveProviders returns the price registry as the caller's credentials
 // define it, falling back to the static env-configured one.
 //

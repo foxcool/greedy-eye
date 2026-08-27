@@ -1130,6 +1130,33 @@ func (s *MarketDataStore) RecordPriceAttempts(ctx context.Context, opts marketda
 	return nil
 }
 
+// ResetPriceAttempts forgives the back-off accrued against one source.
+//
+// The miss counter is the schedule's whole memory: next_attempt_at is derived
+// from it, so zeroing the counter without also moving the deadline would leave
+// the assets deferred until a date computed from a history just disclaimed.
+// Both move together, and the attempt timestamps are deliberately left alone —
+// what was asked and when is a fact; only the conclusion drawn from it is
+// being withdrawn.
+func (s *MarketDataStore) ResetPriceAttempts(ctx context.Context, sourceID string, at time.Time) (int64, error) {
+	if sourceID == "" {
+		return 0, fmt.Errorf("%w: source_id is required", store.ErrInvalidArgument)
+	}
+	if at.IsZero() {
+		at = time.Now()
+	}
+
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE price_fetch_attempts
+		SET misses = 0, next_attempt_at = $2::timestamptz
+		WHERE source_id = $1 AND (misses > 0 OR next_attempt_at > $2::timestamptz)`,
+		sourceID, at)
+	if err != nil {
+		return 0, fmt.Errorf("failed to reset price attempts: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // CreatePrice creates a new price record.
 func (s *MarketDataStore) CreatePrice(ctx context.Context, price *entity.StoredPrice) (*entity.StoredPrice, error) {
 	if price == nil {

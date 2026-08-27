@@ -793,6 +793,78 @@ func TestRecordPriceAttempts_MissBackoff(t *testing.T) {
 	})
 }
 
+// TestResetPriceAttempts: the accrued back-off is the schedule's whole memory,
+// so forgiving it has to move both the counter and the deadline. It must also
+// stay inside the source it names — one provider coming back says nothing about
+// another, and a reset that leaked across sources would spend every provider's
+// quota re-asking a catalogue nobody claimed was wrong.
+func TestResetPriceAttempts(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+	base := time.Now().Truncate(time.Second)
+
+	asset := createTestAsset(t, s, "ResetAsset")
+
+	read := func(source string) (time.Time, int) {
+		t.Helper()
+		var next time.Time
+		var misses int
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT next_attempt_at, misses FROM price_fetch_attempts
+			 WHERE asset_id = $1 AND source_id = $2`, asset.ID, source).Scan(&next, &misses))
+		return next, misses
+	}
+
+	// Drive both sources to the cap, so the reset has something to forgive and
+	// a neighbour that must survive it untouched.
+	for _, source := range []string{"coingecko", "moex"} {
+		for range 4 {
+			require.NoError(t, s.RecordPriceAttempts(ctx, marketdata.RecordAttemptsOpts{
+				SourceID: source, At: base, Missed: []string{asset.ID},
+				TTL: time.Hour, MaxBackoff: 4 * time.Hour,
+			}))
+		}
+	}
+	_, misses := read("coingecko")
+	require.Equal(t, 4, misses, "precondition: back-off has accrued")
+
+	at := base.Add(time.Minute)
+	freed, err := s.ResetPriceAttempts(ctx, "coingecko", at)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), freed, "reports how many assets it freed")
+
+	next, misses := read("coingecko")
+	assert.Zero(t, misses, "the miss counter is forgiven")
+	assert.WithinDuration(t, at, next, time.Second,
+		"and the deadline moves with it: zeroing the counter alone would leave the "+
+			"asset deferred until a date computed from history just disclaimed")
+
+	next, misses = read("moex")
+	assert.Equal(t, 4, misses, "a reset does not cross into another source")
+	assert.WithinDuration(t, base.Add(4*time.Hour), next, time.Second)
+
+	t.Run("the attempt record itself survives", func(t *testing.T) {
+		var attemptedAt time.Time
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT attempted_at FROM price_fetch_attempts
+			 WHERE asset_id = $1 AND source_id = 'coingecko'`, asset.ID).Scan(&attemptedAt))
+		assert.WithinDuration(t, base, attemptedAt, time.Second,
+			"what was asked and when is a fact; only the conclusion is withdrawn")
+	})
+
+	t.Run("a clear schedule frees nothing", func(t *testing.T) {
+		freed, err := s.ResetPriceAttempts(ctx, "coingecko", at)
+		require.NoError(t, err)
+		assert.Zero(t, freed, "zero is a real answer: the schedule was not the problem")
+	})
+
+	t.Run("source is required", func(t *testing.T) {
+		_, err := s.ResetPriceAttempts(ctx, "", at)
+		require.ErrorIs(t, err, store.ErrInvalidArgument)
+	})
+}
+
 // TestCreatePrices_TwoSourcesSameInstant: two providers may record the same
 // asset at the same moment. The old UNIQUE(asset_id, timestamp) index made that
 // a constraint violation, which the sweep then reported as a failed fetch.
