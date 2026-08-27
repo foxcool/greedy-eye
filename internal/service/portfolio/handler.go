@@ -306,6 +306,17 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 	// The same statement about the other axis. A quote can outlive its market —
 	// a delisted security keeps its last print forever — and until it is dated,
 	// nothing tells that apart from a price observed a minute ago.
+	//
+	// Fresh quotes only, and for the reason the amounts line above gives: an age
+	// is a symptom only where something was responsible for updating. A quote
+	// past the freshness policy is one nothing is refreshing any more — the
+	// sweep asks and the source no longer answers for that asset — so letting it
+	// date the total freezes the field on the one position that stopped being
+	// covered, and stops it reporting the sweep it exists to watch. Those rows
+	// are not dropped or hidden: they stay in the total and are counted in
+	// StaleCount below, which is where "how much of this is doubtful" belongs.
+	// Dating and disclosure answer different questions and must not share a
+	// number.
 	var oldestQuote time.Time
 	freshness := pricefresh.PolicyFrom(ctx, h.setClient, h.log)
 	valuedAt := time.Now()
@@ -337,13 +348,14 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 		if hld.Source.Swept() {
 			oldestAmount = olderOf(oldestAmount, hld.UpdatedAt)
 		}
-		oldestQuote = olderOf(oldestQuote, priced.quotedAt)
 		// A stale quote still counts toward the total: see ValuationCoverage on
 		// why naming it beats removing it. Counted per holding, not per asset —
 		// two positions in the same delisted security are two positions whose
-		// value is in question.
+		// value is in question. It does not date the total; see oldestQuote.
 		if freshness.StaleAt(priced.quotedAt, valuedAt) {
 			coverage.StaleCount++
+		} else {
+			oldestQuote = olderOf(oldestQuote, priced.quotedAt)
 		}
 
 		// value = (amount / 10^holding.Decimals) * unitPrice

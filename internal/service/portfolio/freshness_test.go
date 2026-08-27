@@ -95,8 +95,60 @@ func TestCalculatePortfolioValue_StaleQuoteStaysInTheTotalAndIsCounted(t *testin
 	assert.Equal(t, uint32(2), msg.Coverage.GetPricedCount())
 	assert.Equal(t, uint32(1), msg.Coverage.GetStaleCount())
 	require.NotNil(t, msg.Coverage.GetPricesAsOf())
-	assert.WithinDuration(t, stale, msg.Coverage.GetPricesAsOf().AsTime(), time.Second,
-		"the oldest quote dates the whole total, the way the oldest amount does")
+	assert.WithinDuration(t, fresh, msg.Coverage.GetPricesAsOf().AsTime(), time.Second,
+		"the oldest FRESH quote dates the total: a quote nothing refreshes any more would pin "+
+			"this field on the one position that stopped being covered")
+}
+
+// The two fields answer different questions and must not be read off one number:
+// StaleCount says how much of the total is doubtful, PricesAsOf says how current
+// the part that is still covered is. Measured on prod 2026-08-27: after the sweep
+// schedule thawed, prices_as_of still read 2026-08-11 because one position whose
+// source had quietly stopped quoting it dated the whole portfolio.
+func TestCalculatePortfolioValue_StaleQuoteDoesNotDateTheTotal(t *testing.T) {
+	const otherAsset = "01926d35-6a1e-7005-8005-000000000002"
+	stale := time.Now().Add(-67 * 24 * time.Hour)
+	fresh := time.Now().Add(-30 * time.Minute)
+
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return(twoHoldings(testAssetID, otherAsset), "", nil)
+
+	md := &mockMDClient{}
+	priceFor(md, testAssetID, stale)
+	priceFor(md, otherAsset, fresh)
+
+	msg := valuation(t, newHandler(s).WithMarketDataClient(md))
+
+	require.NotNil(t, msg.Coverage.GetPricesAsOf())
+	assert.True(t, msg.Coverage.GetPricesAsOf().AsTime().After(stale.Add(time.Hour)),
+		"the stale quote must not date the total")
+	assert.Equal(t, uint32(1), msg.Coverage.GetStaleCount(),
+		"and it must still be disclosed — dating and disclosure are separate")
+}
+
+// Every quote stale: the field goes absent rather than reporting a date nothing
+// stands behind. Absent already means "no priced holding to date" downstream, and
+// a portfolio whose every source went quiet is that case, not a fresh one.
+func TestCalculatePortfolioValue_AllQuotesStaleLeavesPricesAsOfUnset(t *testing.T) {
+	const otherAsset = "01926d35-6a1e-7005-8005-000000000002"
+	stale := time.Now().Add(-67 * 24 * time.Hour)
+	older := time.Now().Add(-90 * 24 * time.Hour)
+
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return(twoHoldings(testAssetID, otherAsset), "", nil)
+
+	md := &mockMDClient{}
+	priceFor(md, testAssetID, stale)
+	priceFor(md, otherAsset, older)
+
+	msg := valuation(t, newHandler(s).WithMarketDataClient(md))
+
+	assert.Nil(t, msg.Coverage.GetPricesAsOf(),
+		"no fresh quote behind the total, so there is no date to give")
+	assert.Equal(t, uint32(2), msg.Coverage.GetStaleCount(),
+		"both are still in the total and both are still named")
 }
 
 func TestCalculatePortfolioValue_FreshQuotesCountNoStaleness(t *testing.T) {
