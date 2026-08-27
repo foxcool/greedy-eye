@@ -65,6 +65,36 @@ type HealthReportingProvider interface {
 	Unusable() (reason string, unusable bool)
 }
 
+// SelectiveProvider is implemented by providers that price only a subset of
+// what they are handed, and can say which subset before being asked.
+//
+// It exists because a miss is evidence about an ASSET, not about a request. The
+// sweep selects per source but cannot know what a source speaks for: MOEX is
+// handed the whole due list and prices the Moscow-listed part of it, Binance the
+// crypto part. Recording the remainder as misses files a provider's silence
+// against assets it was never asked about, and the back-off doubles per miss up
+// to a week — so on dev, moex carried 575 miss rows for crypto assets and cbr
+// 533, driving assets those sources never cover to the ceiling and freezing the
+// queue for the sources that DO cover them.
+//
+// Providers that do not implement it are asked about everything they are given,
+// which is the old behaviour and correct for a source with no such subset.
+type SelectiveProvider interface {
+	// Asked returns the subset of assets this provider will actually request,
+	// in the same order. Only these are recorded as attempts.
+	Asked(assets []*entity.Asset) []*entity.Asset
+}
+
+// askedOf reports which of the selected assets a provider will actually ask
+// about, so only those are credited with an attempt.
+func askedOf(p PriceProvider, assets []*entity.Asset) []*entity.Asset {
+	sp, ok := p.(SelectiveProvider)
+	if !ok {
+		return assets
+	}
+	return sp.Asked(assets)
+}
+
 // BudgetExemptProvider is implemented by providers whose request cost does not
 // grow with the number of assets in some subset — CoinGecko covers up to 250
 // curated coin ids in a single /coins/markets call. Those symbols bypass the
@@ -1021,22 +1051,9 @@ var quarantineVerdicts = []string{
 // request is an unattended sweep and takes only what is due, oldest first,
 // within what the plan can afford until the next sweep.
 func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[apiv1.FetchExternalPricesRequest]) (*connect.Response[apiv1.FetchExternalPricesResponse], error) {
-	// Resolve the effective provider registry from stored credentials of the
-	// calling user; the static env-configured registry is the fallback.
-	providers := h.providers
-	if h.providerSource != nil {
-		userID := ""
-		if user, ok := middleware.UserFromContext(ctx); ok {
-			userID = user.ID
-		}
-		resolved, err := h.providerSource.PriceProvidersFor(ctx, userID)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("resolve price providers: %w", err))
-		}
-		providers = resolved
-	}
-	if len(providers) == 0 {
-		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("no price providers configured"))
+	providers, err := h.resolveProviders(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Reconciliation reads exactly the assets it names. Paging the catalogue and
@@ -1060,6 +1077,9 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	var allPrices []*entity.StoredPrice
 	var fetchErrs []string
 	var totalFetched int
+	// Sources this run had nothing to ask, keyed by why. Reported so an
+	// unattended sweep can say "postponed" rather than only "zero".
+	idleSources := map[string]string{}
 
 	// Cache base asset UUIDs to avoid repeated lookups across providers. Keyed by
 	// symbol AND type: identity is composite, and two providers naming the same
@@ -1091,15 +1111,29 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		// Selection is per source because freshness is: an asset Binance priced
 		// a minute ago is still stale for CoinGecko.
 		assets := named
+		outcome := outcomeSelected
 		if assets == nil {
 			var err error
-			assets, err = h.refreshTargets(ctx, name, provider)
+			assets, outcome, err = h.refreshTargets(ctx, name, provider)
 			if err != nil {
 				fetchErrs = append(fetchErrs, fmt.Sprintf("%s: select targets: %v", name, err))
 				continue
 			}
 		}
 		if len(assets) == 0 {
+			// Named with its reason, the way a skipped provider already is. A
+			// sweep that selected nobody used to be indistinguishable from one
+			// with nothing to select, and that silence is what let prod age a
+			// week while every surface reported health.
+			deferredUntil := ""
+			if outcome == outcomeAllDeferred {
+				if until := h.soonestDue(ctx, name); !until.IsZero() {
+					deferredUntil = until.Format(time.RFC3339)
+				}
+			}
+			h.log.Info("price sweep: nothing selected",
+				"provider", name, "reason", string(outcome), "soonest_due", deferredUntil)
+			idleSources[name] = string(outcome)
 			continue
 		}
 		// Resolve base asset UUID for this provider (create the asset if it doesn't exist yet).
@@ -1134,10 +1168,21 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		results, err := provider.FetchPrices(ctx, assets)
 		if err != nil {
 			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
-			h.recordAttempts(ctx, name, assets, nil)
+			// A transport-level failure is evidence about the SOURCE, not about
+			// any asset in the batch: Binance answers 400 for the whole request
+			// when one symbol is not a tradable pair, and crediting every asset
+			// in it with a miss doubles the back-off of assets the provider
+			// would happily have priced. Their schedule must not move because
+			// they shared a request with a jetton (personal-7994).
 			continue
 		}
-		h.recordAttempts(ctx, name, assets, results)
+
+		// Only what this provider actually requested counts as an attempt. The
+		// rest was never asked, and a miss recorded against it would be one
+		// source's silence filed against an asset it does not cover. Asked AFTER
+		// the fetch on purpose: a provider that consults a cached listing set
+		// has it warm by now, so the first sweep filters as well as the tenth.
+		h.recordAttempts(ctx, name, askedOf(provider, assets), results)
 
 		totalFetched += len(results)
 		for i := range results {
@@ -1175,6 +1220,7 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		PricesFetched: int32(totalFetched), // #nosec G115 -- count of fetched prices, bounded by request size
 		PricesStored:  int32(stored),       // #nosec G115 -- count of rows stored, bounded by request size
 		Errors:        fetchErrs,
+		IdleSources:   idleSources,
 	}), nil
 }
 
@@ -1186,7 +1232,7 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 // one /coins/markets call covers them however many there are, and they carry
 // most of the portfolio's value, so budgeting them would cost freshness and
 // save nothing.
-func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PriceProvider) ([]*entity.Asset, error) {
+func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PriceProvider) ([]*entity.Asset, selectionOutcome, error) {
 	now := time.Now()
 	base := StalePricingOpts{
 		SourceID:        sourceID,
@@ -1205,7 +1251,7 @@ func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PricePr
 		free.Symbols = exempt
 		got, err := h.store.ListStalePricingTargets(ctx, free)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		targets = append(targets, got...)
 	}
@@ -1221,16 +1267,72 @@ func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PricePr
 				// CBR answers zero permanently, because its whole feed is the
 				// one exempt document. Whether a provider can be asked at all
 				// is HealthReportingProvider's question, asked before this.
-				return targets, nil
+				return targets, outcomeBudgetZero, nil
 			}
 			budgeted.Limit = n
 		}
 	}
 	got, err := h.store.ListStalePricingTargets(ctx, budgeted)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return append(targets, got...), nil
+	targets = append(targets, got...)
+	if len(targets) > 0 {
+		return targets, outcomeSelected, nil
+	}
+
+	// Nothing came back, and the empty slice cannot say which silence this is:
+	// a catalogue backed off until next week produces exactly the same empty
+	// slice as one that is entirely up to date. Asking the schedule is the only
+	// way to tell, and it is only asked on the empty path — a sweep that found
+	// work pays nothing for this.
+	return targets, h.explainEmptySelection(ctx, sourceID, now), nil
+}
+
+// selectionOutcome says why a sweep selected what it did, so the log can tell
+// "nothing was due" from "everything is postponed".
+type selectionOutcome string
+
+const (
+	outcomeSelected    selectionOutcome = "selected"
+	outcomeNothingDue  selectionOutcome = "nothing_due"
+	outcomeAllDeferred selectionOutcome = "all_deferred"
+	outcomeBudgetZero  selectionOutcome = "budget_exhausted"
+	outcomeUnknown     selectionOutcome = "unknown"
+)
+
+// soonestDue reports when this source's earliest deferred asset comes due, for
+// the log line that says how long a frozen queue stays frozen. Zero when
+// unknown — a log line is not worth failing a sweep over.
+func (h *Handler) soonestDue(ctx context.Context, sourceID string) time.Time {
+	scheds, err := h.store.SweepSchedule(ctx, SweepScheduleOpts{
+		SourceIDs:       []string{sourceID},
+		Now:             time.Now(),
+		ExcludeVerdicts: quarantineVerdicts,
+	})
+	if err != nil || len(scheds) == 0 {
+		return time.Time{}
+	}
+	return scheds[0].SoonestDue
+}
+
+// explainEmptySelection asks the attempt log why a selection came back empty.
+//
+// Best-effort by design: this runs to produce a log line, and failing to
+// explain an empty sweep must not fail the sweep itself.
+func (h *Handler) explainEmptySelection(ctx context.Context, sourceID string, now time.Time) selectionOutcome {
+	scheds, err := h.store.SweepSchedule(ctx, SweepScheduleOpts{
+		SourceIDs:       []string{sourceID},
+		Now:             now,
+		ExcludeVerdicts: quarantineVerdicts,
+	})
+	if err != nil || len(scheds) == 0 {
+		return outcomeUnknown
+	}
+	if scheds[0].Deferred > 0 {
+		return outcomeAllDeferred
+	}
+	return outcomeNothingDue
 }
 
 // attachExternalRefs loads the assets' identities in external namespaces so a
@@ -1297,6 +1399,102 @@ func (h *Handler) GetPricingStatus(ctx context.Context, req *connect.Request[api
 		out = append(out, item)
 	}
 	return connect.NewResponse(&apiv1.GetPricingStatusResponse{Statuses: out}), nil
+}
+
+// GetSweepSchedule reports, per source, the queue the next sweep would find.
+//
+// This exists because the sweep's own summary cannot tell two states apart: a
+// run that asked nobody logs the same "fetched=0, stored=0" as a run with
+// nothing to ask. The facts that separate them live in price_fetch_attempts,
+// and until now reading them meant a psql session on the host — which is to
+// say, an instance could sit with its whole catalogue backed off for a week
+// and look healthy from every surface anyone actually consults.
+//
+// The counts come from the attempt log; skip_reason comes from the provider
+// itself, so the answer is the sweep's own judgement rather than a second one
+// computed here and free to drift from it.
+func (h *Handler) GetSweepSchedule(ctx context.Context, req *connect.Request[apiv1.GetSweepScheduleRequest]) (*connect.Response[apiv1.GetSweepScheduleResponse], error) {
+	providers, err := h.resolveProviders(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	sourceIDs := make([]string, 0, len(providers))
+	for name := range providers {
+		if want := req.Msg.GetSourceId(); want != "" && want != name {
+			continue
+		}
+		sourceIDs = append(sourceIDs, name)
+	}
+	if len(sourceIDs) == 0 {
+		return nil, connect.NewError(connect.CodeNotFound,
+			fmt.Errorf("no price provider named %q", req.Msg.GetSourceId()))
+	}
+	slices.Sort(sourceIDs)
+
+	schedules, err := h.store.SweepSchedule(ctx, SweepScheduleOpts{
+		SourceIDs:       sourceIDs,
+		Now:             time.Now(),
+		ExcludeVerdicts: quarantineVerdicts,
+	})
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
+	out := make([]*apiv1.SourceSchedule, 0, len(schedules))
+	for _, sched := range schedules {
+		item := &apiv1.SourceSchedule{
+			SourceId:       sched.SourceID,
+			DueNow:         sched.DueNow,
+			Deferred:       sched.Deferred,
+			NeverAttempted: sched.NeverAttempted,
+			MaxMisses:      sched.MaxMisses,
+		}
+		if !sched.SoonestDue.IsZero() {
+			item.SoonestDue = timestamppb.New(sched.SoonestDue)
+		}
+		if !sched.LatestDeferred.IsZero() {
+			item.LatestDeferred = timestamppb.New(sched.LatestDeferred)
+		}
+		// Asked of the provider rather than inferred: "would this be skipped"
+		// is a question only the provider can answer, and answering it here
+		// from the counts would be a guess dressed as a fact.
+		if p, ok := providers[sched.SourceID]; ok {
+			if hp, ok := p.(HealthReportingProvider); ok {
+				if reason, unusable := hp.Unusable(); unusable {
+					item.SkipReason = &reason
+				}
+			}
+		}
+		out = append(out, item)
+	}
+
+	return connect.NewResponse(&apiv1.GetSweepScheduleResponse{Sources: out}), nil
+}
+
+// resolveProviders returns the price registry as the caller's credentials
+// define it, falling back to the static env-configured one.
+//
+// Shared by the sweep and by GetSweepSchedule on purpose: a schedule computed
+// against a different set of providers than the one that does the fetching
+// would answer a question about an instance that does not exist.
+func (h *Handler) resolveProviders(ctx context.Context) (map[string]PriceProvider, error) {
+	providers := h.providers
+	if h.providerSource != nil {
+		userID := ""
+		if user, ok := middleware.UserFromContext(ctx); ok {
+			userID = user.ID
+		}
+		resolved, err := h.providerSource.PriceProvidersFor(ctx, userID)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("resolve price providers: %w", err))
+		}
+		providers = resolved
+	}
+	if len(providers) == 0 {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("no price providers configured"))
+	}
+	return providers, nil
 }
 
 // recordAttempts marks what was asked of a source and what came back, so the

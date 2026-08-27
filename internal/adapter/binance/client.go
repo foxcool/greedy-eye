@@ -111,6 +111,58 @@ func (c *Client) WithBaseURL(baseURL string) *Client {
 // does not make an unknown symbol free, it bounds what one costs.
 const tickerBatchSize = 100
 
+// exchangeInfoSymbol is the subset of GET /api/v3/exchangeInfo we consume.
+type exchangeInfoSymbol struct {
+	Symbol string `json:"symbol"`
+	Status string `json:"status"`
+}
+
+type exchangeInfoResponse struct {
+	Symbols []exchangeInfoSymbol `json:"symbols"`
+}
+
+// ListTradableSymbols returns every spot pair currently in TRADING status.
+//
+// This is the universe a price request has to stay inside: Binance rejects a
+// whole batch when one symbol is not a tradable pair, so knowing the set up
+// front is what keeps an airdropped jetton from costing the batch it shares.
+//
+// showPermissionSets=false trims the response from ~17MB to ~6.6MB (measured
+// 2026-08-26); it is still a full-universe download, which is why the caller
+// caches it rather than asking per sweep. BREAK status is excluded: the pair
+// exists but is halted, and asking for it is a request spent to learn nothing.
+func (c *Client) ListTradableSymbols(ctx context.Context) ([]string, error) {
+	url := c.baseURL + "/api/v3/exchangeInfo?permissions=SPOT&showPermissionSets=false"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status %d from Binance exchangeInfo", resp.StatusCode)
+	}
+
+	var out exchangeInfoResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("decode exchangeInfo: %w", err)
+	}
+
+	symbols := make([]string, 0, len(out.Symbols))
+	for _, sym := range out.Symbols {
+		if sym.Status == "TRADING" {
+			symbols = append(symbols, sym.Symbol)
+		}
+	}
+	return symbols, nil
+}
+
 // GetTickerPrices fetches current prices for the given symbols.
 // Uses the public GET /api/v3/ticker/price endpoint — no auth required.
 // Pass multiple symbols as a JSON array: symbols=["BTCUSDT","ETHUSDT"].

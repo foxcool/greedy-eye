@@ -355,6 +355,24 @@ func hasPrice(q Quote) bool {
 		(q.Prev.Valid && q.Prev.Decimal.IsPositive())
 }
 
+// Asked reports which of these assets MOEX is actually asked about.
+//
+// The sweep selects per source but cannot know what a source covers, so MOEX is
+// handed the whole due list — most of which is crypto it has never quoted.
+// Recording those as misses filed MOEX's silence against assets it does not
+// cover: measured on dev, 575 miss rows for crypto assets, driving them to the
+// week-long back-off ceiling and freezing the queue for the sources that DO
+// cover them.
+func (p *Provider) Asked(assets []*entity.Asset) []*entity.Asset {
+	out := make([]*entity.Asset, 0, len(assets))
+	for _, a := range assets {
+		if p.speaksFor(a) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // speaksFor reports whether this provider prices the asset at all.
 //
 // Selection is by market, not by ticker shape: assets.market is the listing

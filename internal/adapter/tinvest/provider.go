@@ -286,6 +286,22 @@ func provenanceOf(lp LastPrice) entity.PriceProvenance {
 	return entity.PriceProvenanceAppraised
 }
 
+// Asked reports which of these assets T-Invest is actually asked about.
+//
+// Both of FetchPrices' filters apply, and the second matters as much as the
+// first: an asset with no FIGI binding is never priced here, so recording it as
+// a miss would blame the venue for a binding we have not made. The remedy for
+// an unbound asset is DiscoverRefs, not a back-off.
+func (p *Provider) Asked(assets []*entity.Asset) []*entity.Asset {
+	out := make([]*entity.Asset, 0, len(assets))
+	for _, a := range assets {
+		if p.speaksFor(a) && figiOf(a) != "" {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // speaksFor reports whether this provider prices the asset at all.
 func (p *Provider) speaksFor(a *entity.Asset) bool {
 	if a == nil || a.Symbol == "" {

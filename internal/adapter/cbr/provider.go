@@ -154,6 +154,23 @@ func unitInUSD(rates *Rates, usdInRUB decimal.Decimal, symbol string) (decimal.D
 	return rubPerUnit.Div(usdInRUB), true
 }
 
+// Asked reports which of these assets the CBR feed is actually asked about.
+//
+// The daily set is one document covering every currency in it, so the sweep
+// hands this provider the whole due list and it reads the forex rows out. The
+// rest was never asked: recording them as misses filed the central bank's
+// silence against crypto it has no opinion on — 533 such rows on dev, each one
+// pushing an asset further into a back-off it did not earn.
+func (p *Provider) Asked(assets []*entity.Asset) []*entity.Asset {
+	out := make([]*entity.Asset, 0, len(assets))
+	for _, a := range assets {
+		if currencyAsset(a) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // currencyAsset reports whether the asset is a currency this feed may speak
 // for: typed forex, and not a row standing for one specific on-chain contract.
 // The type carries the claim; the market rules out a token that typed itself

@@ -186,6 +186,14 @@ func (m *mockStore) RecordPriceAttempts(ctx context.Context, opts RecordAttempts
 	return m.Called(ctx, opts).Error(0)
 }
 
+func (m *mockStore) SweepSchedule(ctx context.Context, opts SweepScheduleOpts) ([]*entity.SourceSchedule, error) {
+	args := m.Called(ctx, opts)
+	if v := args.Get(0); v != nil {
+		return v.([]*entity.SourceSchedule), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockStore) PricingStatus(ctx context.Context, assetIDs []string) ([]*entity.AssetPricingStatus, error) {
 	args := m.Called(ctx, assetIDs)
 	if v := args.Get(0); v != nil {
@@ -1483,6 +1491,9 @@ func TestFetchExternalPrices_QuarantinedExcluded(t *testing.T) {
 	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {
 		return assert.ObjectsAreEqual([]string{"scam", "impersonation"}, o.ExcludeVerdicts)
 	})).Return([]*entity.Asset{}, nil)
+	// An empty selection is explained rather than passed over in silence.
+	s.On("SweepSchedule", mock.Anything, mock.Anything).
+		Return([]*entity.SourceSchedule{{SourceID: "fake"}}, nil)
 
 	h := newHandler(s).WithProvider("fake", &fakePriceProvider{})
 
@@ -1613,4 +1624,260 @@ func TestFetchExternalPrices_ReconciliationIgnoresHealth(t *testing.T) {
 		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a1"}}))
 	require.NoError(t, err)
 	assert.NotEmpty(t, p.asked, "an explicitly named asset is still asked for")
+}
+
+// --- Tests: an empty sweep says which silence it is (personal-2du9) ---
+
+// A sweep that selected nothing because the provider's plan is spent must say
+// so. Before this, the run logged the same "fetched=0" as a sweep with nothing
+// to ask, and the two states are not remotely the same: one is health, the
+// other is a source that has stopped contributing.
+func TestFetchExternalPrices_BudgetExhaustedIsNamed(t *testing.T) {
+	s := &mockStore{}
+	expectExternalRefs(s)
+	// Exempt symbols are selected uncapped; the budgeted pass never runs,
+	// because the budget yields nothing.
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{}, nil).Maybe()
+
+	h := newHandler(s).WithProvider("metered", &fakePriceProvider{budget: 0, hasBudget: true})
+	h.refreshWindow = time.Hour
+
+	resp, err := h.FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+	assert.Equal(t, "budget_exhausted", resp.Msg.GetIdleSources()["metered"])
+	// The schedule is not consulted on this path: the budget already explains
+	// the emptiness, and asking would spend a query to learn nothing.
+	s.AssertNotCalled(t, "SweepSchedule", mock.Anything, mock.Anything)
+}
+
+// The other empty sweep: the budget is fine, the schedule is not. Everything
+// this source could be asked about is deferred, which reads identically to
+// "nothing due" until the attempt log is consulted.
+func TestFetchExternalPrices_AllDeferredIsNamed(t *testing.T) {
+	s := &mockStore{}
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{}, nil)
+	s.On("SweepSchedule", mock.Anything, mock.MatchedBy(func(o SweepScheduleOpts) bool {
+		return assert.ObjectsAreEqual([]string{"fake"}, o.SourceIDs)
+	})).Return([]*entity.SourceSchedule{{SourceID: "fake", Deferred: 12}}, nil)
+
+	h := newHandler(s).WithProvider("fake", &fakePriceProvider{})
+
+	resp, err := h.FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+	assert.Equal(t, "all_deferred", resp.Msg.GetIdleSources()["fake"])
+}
+
+// The reassuring case has to stay distinguishable from the two above, or the
+// field is just noise: nothing deferred means nothing was due.
+func TestFetchExternalPrices_NothingDueIsNamed(t *testing.T) {
+	s := &mockStore{}
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{}, nil)
+	s.On("SweepSchedule", mock.Anything, mock.Anything).
+		Return([]*entity.SourceSchedule{{SourceID: "fake", DueNow: 0, Deferred: 0}}, nil)
+
+	h := newHandler(s).WithProvider("fake", &fakePriceProvider{})
+
+	resp, err := h.FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+	assert.Equal(t, "nothing_due", resp.Msg.GetIdleSources()["fake"])
+}
+
+// A sweep that found work reports no idle source at all — and pays nothing for
+// the explanation, which only the empty path asks for.
+func TestFetchExternalPrices_WorkingSweepReportsNoIdleSource(t *testing.T) {
+	s := &mockStore{}
+	expectExternalRefs(s)
+	expectBaseAsset(s)
+	asset := &entity.Asset{ID: "asset-1", Symbol: "BTC", Market: entity.MarketCrypto}
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{asset}, nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil).Maybe()
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil).Maybe()
+
+	h := newHandler(s).WithProvider("fake", &fakePriceProvider{prices: map[string]bool{"asset-1": true}})
+
+	resp, err := h.FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetIdleSources())
+	s.AssertNotCalled(t, "SweepSchedule", mock.Anything, mock.Anything)
+}
+
+// --- Tests: GetSweepSchedule ---
+
+// The RPC reports every source the instance can price with, so a single frozen
+// source is visible without having to name it first.
+func TestGetSweepSchedule_ReportsEverySource(t *testing.T) {
+	s := &mockStore{}
+	s.On("SweepSchedule", mock.Anything, mock.MatchedBy(func(o SweepScheduleOpts) bool {
+		return assert.ObjectsAreEqual([]string{"a", "b"}, o.SourceIDs) &&
+			assert.ObjectsAreEqual(quarantineVerdicts, o.ExcludeVerdicts)
+	})).Return([]*entity.SourceSchedule{
+		{SourceID: "a", DueNow: 3},
+		{SourceID: "b", Deferred: 7, MaxMisses: 9},
+	}, nil)
+
+	h := newHandler(s).
+		WithProvider("a", &fakePriceProvider{}).
+		WithProvider("b", &fakePriceProvider{})
+
+	resp, err := h.GetSweepSchedule(context.Background(),
+		connect.NewRequest(&apiv1.GetSweepScheduleRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetSources(), 2)
+	assert.Equal(t, uint32(3), resp.Msg.GetSources()[0].GetDueNow())
+	assert.Equal(t, uint32(7), resp.Msg.GetSources()[1].GetDeferred())
+	assert.Equal(t, uint32(9), resp.Msg.GetSources()[1].GetMaxMisses())
+}
+
+// soonest_due is absent rather than zero when nothing is deferred: a zero
+// timestamp renders as a date in 1970, which reads as a fact instead of as the
+// absence of one.
+func TestGetSweepSchedule_AbsentTimestampsStayAbsent(t *testing.T) {
+	s := &mockStore{}
+	s.On("SweepSchedule", mock.Anything, mock.Anything).
+		Return([]*entity.SourceSchedule{{SourceID: "a", DueNow: 1}}, nil)
+
+	h := newHandler(s).WithProvider("a", &fakePriceProvider{})
+
+	resp, err := h.GetSweepSchedule(context.Background(),
+		connect.NewRequest(&apiv1.GetSweepScheduleRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetSources(), 1)
+	assert.Nil(t, resp.Msg.GetSources()[0].SoonestDue)
+	assert.Nil(t, resp.Msg.GetSources()[0].LatestDeferred)
+}
+
+// An unknown source is NotFound rather than an empty list: an empty answer to
+// "how is source X doing" reads as "fine".
+func TestGetSweepSchedule_UnknownSourceIsNotFound(t *testing.T) {
+	s := &mockStore{}
+	h := newHandler(s).WithProvider("a", &fakePriceProvider{})
+
+	name := "nosuch"
+	_, err := h.GetSweepSchedule(context.Background(),
+		connect.NewRequest(&apiv1.GetSweepScheduleRequest{SourceId: &name}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+}
+
+// --- Tests: an attempt is only recorded where a request was made (personal-edtu) ---
+
+// selectiveProvider prices only the assets it is told to speak for, and reports
+// that subset through Asked — the way every real adapter now does.
+type selectiveProvider struct {
+	fakePriceProvider
+	speaksFor map[string]bool
+}
+
+func (s *selectiveProvider) Asked(assets []*entity.Asset) []*entity.Asset {
+	out := make([]*entity.Asset, 0, len(assets))
+	for _, a := range assets {
+		if s.speaksFor[a.ID] {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// The sweep selects per source but cannot know what a source covers, so a
+// provider is handed the whole due list. Recording the part it never requested
+// as misses files one source's silence against assets it does not cover: on dev
+// that was 575 miss rows of crypto against MOEX and 533 against CBR, each miss
+// doubling a back-off until the queue froze at the week-long ceiling.
+func TestFetchExternalPrices_UnaskedAssetsAreNotRecordedAsMisses(t *testing.T) {
+	s := &mockStore{}
+	expectExternalRefs(s)
+	expectBaseAsset(s)
+
+	covered := &entity.Asset{ID: "asset-covered", Symbol: "BTC", Market: entity.MarketCrypto}
+	foreign := &entity.Asset{ID: "asset-foreign", Symbol: "SBER", Market: "moex"}
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{covered, foreign}, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil).Maybe()
+
+	var recorded RecordAttemptsOpts
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { recorded = args.Get(1).(RecordAttemptsOpts) }).
+		Return(nil)
+
+	provider := &selectiveProvider{
+		fakePriceProvider: fakePriceProvider{prices: map[string]bool{"asset-covered": true}},
+		speaksFor:         map[string]bool{"asset-covered": true},
+	}
+	h := newHandler(s).WithProvider("fake", provider)
+
+	_, err := h.FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"asset-covered"}, recorded.Priced)
+	assert.Empty(t, recorded.Missed,
+		"an asset this provider never requested must not carry its silence")
+}
+
+// A provider that speaks for everything it is handed keeps the old behaviour:
+// a genuine miss is still a miss, and it is what drains an unlistable asset out
+// of the rotation.
+func TestFetchExternalPrices_GenuineMissIsStillRecorded(t *testing.T) {
+	s := &mockStore{}
+	expectExternalRefs(s)
+	expectBaseAsset(s)
+
+	priced := &entity.Asset{ID: "asset-priced", Symbol: "BTC", Market: entity.MarketCrypto}
+	silent := &entity.Asset{ID: "asset-silent", Symbol: "XYZ", Market: entity.MarketCrypto}
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{priced, silent}, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil).Maybe()
+
+	var recorded RecordAttemptsOpts
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { recorded = args.Get(1).(RecordAttemptsOpts) }).
+		Return(nil)
+
+	provider := &selectiveProvider{
+		fakePriceProvider: fakePriceProvider{prices: map[string]bool{"asset-priced": true}},
+		speaksFor:         map[string]bool{"asset-priced": true, "asset-silent": true},
+	}
+	h := newHandler(s).WithProvider("fake", provider)
+
+	_, err := h.FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"asset-priced"}, recorded.Priced)
+	assert.Equal(t, []string{"asset-silent"}, recorded.Missed,
+		"asked and unanswered is a real miss about that asset")
+}
+
+// A transport failure is evidence about the SOURCE, not about any asset in the
+// batch. Binance answers 400 for the whole request when one symbol is not a
+// tradable pair; crediting every asset in it with a miss doubled the back-off of
+// assets it would happily have priced, and the schedule they were pushed into
+// outlived the fix that brought the source back (personal-7994).
+func TestFetchExternalPrices_TransportFailureRecordsNoMisses(t *testing.T) {
+	s := &mockStore{}
+	expectExternalRefs(s)
+	expectBaseAsset(s)
+
+	asset := &entity.Asset{ID: "asset-1", Symbol: "BTC", Market: entity.MarketCrypto}
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{asset}, nil)
+
+	provider := &fakePriceProvider{fetchError: errors.New("unexpected status 400 from Binance")}
+	h := newHandler(s).WithProvider("fake", provider)
+
+	resp, err := h.FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.Msg.GetErrors(), "the failure is still reported")
+	s.AssertNotCalled(t, "RecordPriceAttempts", mock.Anything, mock.Anything)
 }

@@ -36,6 +36,11 @@ type Store interface {
 	// nothing recorded to report, and an empty status would read as "asked, and
 	// nothing came back", which is the opposite claim.
 	PricingStatus(ctx context.Context, assetIDs []string) ([]*entity.AssetPricingStatus, error)
+	// SweepSchedule aggregates the attempt log into what the next sweep would
+	// find: how many assets are due, how many are held back by their own
+	// back-off, how far out the queue reaches. Counted from the same table the
+	// selection reads, so it cannot disagree with the sweep it describes.
+	SweepSchedule(ctx context.Context, opts SweepScheduleOpts) ([]*entity.SourceSchedule, error)
 	// SetAssetVerdict writes an identity verdict (scam-filtering axis 1). A user
 	// verdict (source "user:*") is terminal: an automated write never overwrites
 	// one. The bool reports whether the row was written.
@@ -118,6 +123,19 @@ type StalePricingOpts struct {
 	ExcludeSymbols []string
 	// ExcludeVerdicts drops assets quarantined from the portfolio sums. Pricing
 	// money that is not counted buys nothing.
+	ExcludeVerdicts []string
+}
+
+// SweepScheduleOpts selects which sources to report a queue for.
+type SweepScheduleOpts struct {
+	// SourceIDs limits the report to these sources. Empty reports every source
+	// present in the attempt log.
+	SourceIDs []string
+	// Now is the boundary between due and deferred, the same comparison
+	// ListStalePricingTargets makes.
+	Now time.Time
+	// ExcludeVerdicts drops quarantined assets, matching what the sweep itself
+	// selects. Counting them would report work nobody intends to do.
 	ExcludeVerdicts []string
 }
 

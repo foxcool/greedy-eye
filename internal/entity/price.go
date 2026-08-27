@@ -40,13 +40,13 @@ type StoredPrice struct {
 	// stored as text.
 	BaseSymbol string
 	Interval   string
-	Decimals    uint32
-	Last        decimal.Decimal
-	Open        decimal.NullDecimal
-	High        decimal.NullDecimal
-	Low         decimal.NullDecimal
-	Close       decimal.NullDecimal
-	Volume      decimal.NullDecimal
+	Decimals   uint32
+	Last       decimal.Decimal
+	Open       decimal.NullDecimal
+	High       decimal.NullDecimal
+	Low        decimal.NullDecimal
+	Close      decimal.NullDecimal
+	Volume     decimal.NullDecimal
 	// MarketCap is the quote's market context, not a property of the asset: the
 	// same asset carries a different cap at every instant, so it belongs to the
 	// price row that observed it. Null means the source did not report one —
@@ -110,4 +110,41 @@ type AssetPricingStatus struct {
 	LastAskedAt  time.Time
 	// SourcesAsked is how many distinct sources have been asked.
 	SourcesAsked uint32
+}
+
+// SourceSchedule is one price source's queue as the next sweep would find it.
+//
+// It answers the question the sweep's own summary cannot: a run that asked
+// nobody and a run with nothing to ask both report zero fetched and zero
+// stored, so a catalogue deferred until next week is indistinguishable from one
+// that is fully current. The counts here partition the assets the source is
+// allowed to be asked about, which makes the two states different sentences.
+//
+// It is a reading of the attempt log, not a plan: the actual next sweep also
+// applies the provider's budget on top, so DueNow is an upper bound on what
+// would be asked, not a promise.
+type SourceSchedule struct {
+	SourceID string
+	// DueNow is how many assets the next sweep could select: their next attempt
+	// is not in the future.
+	DueNow uint32
+	// Deferred is how many are held back by their own back-off.
+	Deferred uint32
+	// NeverAttempted is how many have no attempt row for this source at all.
+	// They sort ahead of everything else, so a large count here means a sweep
+	// that has not yet reached the tail rather than one that is stuck.
+	NeverAttempted uint32
+	// SoonestDue is when the earliest deferred asset comes due. Zero when
+	// nothing is deferred — which is not the same as "due now", and callers
+	// must not render it as a date.
+	SoonestDue time.Time
+	// LatestDeferred is the far end of the queue. A week out is the signature of
+	// assets that have hit the back-off ceiling rather than drifted toward it.
+	LatestDeferred time.Time
+	// MaxMisses is the longest consecutive-miss streak against this source, so
+	// how deep the back-off has been driven is visible without reading dates.
+	MaxMisses uint32
+	// SkipReason is why the sweep would skip this source entirely, when it
+	// would. Empty means it would be asked.
+	SkipReason string
 }

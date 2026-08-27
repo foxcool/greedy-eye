@@ -197,6 +197,41 @@ func (p *Provider) BaseAssetType() entity.AssetType { return entity.AssetTypeFor
 //     "onchain:<chain>" external ref
 //  3. Unknown symbols, contracts with no chain, and chains CoinGecko does not
 //     list → skipped, because a guessed platform prices somebody else's token
+//
+// Asked reports which of these assets CoinGecko is actually asked about: a
+// curated native coin, or a contract this adapter can route to a platform.
+//
+// The remainder is dropped by FetchPrices without a request — a token with no
+// contract tag, one whose chain is unknown, one on a chain CoinGecko does not
+// list. Recording those as misses charges the provider's silence to assets it
+// was never handed, and the back-off doubles per miss up to a week.
+//
+// It mirrors the split in FetchPrices rather than sharing it, because the two
+// answer different questions: this one only needs to know WHETHER an asset is
+// routable, the other needs the route. Keeping the predicate in one place would
+// mean building the whole platform grouping twice per sweep.
+func (p *Provider) Asked(assets []*entity.Asset) []*entity.Asset {
+	out := make([]*entity.Asset, 0, len(assets))
+	for _, a := range assets {
+		if _, ok := nativeCoinID[strings.ToLower(a.Symbol)]; ok && a.Market == entity.MarketCrypto {
+			out = append(out, a)
+			continue
+		}
+		if contractTag(a.Tags) == "" {
+			continue
+		}
+		chain, ok := onchainChain(a)
+		if !ok {
+			continue
+		}
+		if _, ok := chainPlatform[chain]; !ok {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
 func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]entity.StoredPrice, error) {
 	if len(assets) == 0 {
 		return nil, nil
