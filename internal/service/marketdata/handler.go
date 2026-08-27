@@ -1505,7 +1505,7 @@ func (h *Handler) ResetSweepSchedule(ctx context.Context, req *connect.Request[a
 		if err != nil {
 			return nil, toConnectError(err)
 		}
-		freed[name] = uint32(n)
+		freed[name] = uint32(n) // #nosec G115 -- rows freed for one source, bounded by the catalogue
 		h.log.Info("sweep schedule reset", "provider", name, "assets_freed", n)
 	}
 
