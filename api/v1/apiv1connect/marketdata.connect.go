@@ -100,6 +100,9 @@ const (
 	// MarketDataServiceGetSweepScheduleProcedure is the fully-qualified name of the MarketDataService's
 	// GetSweepSchedule RPC.
 	MarketDataServiceGetSweepScheduleProcedure = "/eye.v1.MarketDataService/GetSweepSchedule"
+	// MarketDataServiceResetSweepScheduleProcedure is the fully-qualified name of the
+	// MarketDataService's ResetSweepSchedule RPC.
+	MarketDataServiceResetSweepScheduleProcedure = "/eye.v1.MarketDataService/ResetSweepSchedule"
 )
 
 // MarketDataServiceClient is a client for the eye.v1.MarketDataService service.
@@ -175,6 +178,28 @@ type MarketDataServiceClient interface {
 	// second source of truth about the schedule, free to disagree with the sweep
 	// it describes.
 	GetSweepSchedule(context.Context, *connect.Request[v1.GetSweepScheduleRequest]) (*connect.Response[v1.GetSweepScheduleResponse], error)
+	// ResetSweepSchedule forgives the back-off accrued against a price source, so
+	// its assets become due again instead of waiting out a deferral earned under
+	// conditions that no longer hold.
+	//
+	// A miss is read as "this source does not price this asset", and the schedule
+	// acts on that for up to a week. Misses collected while the source was
+	// unreachable, or while it was being asked for assets it never covered, say
+	// nothing about the asset but are indistinguishable from misses that do —
+	// so they outlive the fix that stops them, and the instance goes on deferring
+	// assets the source would price today. That is the shape prod was in on
+	// 2026-08-18: a correct fix, deployed, with no observable effect for days.
+	//
+	// This is deliberately an operator's statement, not an inference. The service
+	// cannot tell a source that was unreachable from one that genuinely lists
+	// nothing, so it does not guess: resetting withdraws the CONCLUSION drawn
+	// from the attempt log without touching the log itself, and asserts nothing
+	// about whether a price exists. The next sweep finds out.
+	//
+	// Paired with GetSweepSchedule on purpose — one entity, read by one RPC and
+	// withdrawn by another. Folding it into FetchExternalPrices as a flag would
+	// hide a schedule mutation inside a call whose name promises prices.
+	ResetSweepSchedule(context.Context, *connect.Request[v1.ResetSweepScheduleRequest]) (*connect.Response[v1.ResetSweepScheduleResponse], error)
 }
 
 // NewMarketDataServiceClient constructs a client for the eye.v1.MarketDataService service. By
@@ -320,6 +345,12 @@ func NewMarketDataServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(marketDataServiceMethods.ByName("GetSweepSchedule")),
 			connect.WithClientOptions(opts...),
 		),
+		resetSweepSchedule: connect.NewClient[v1.ResetSweepScheduleRequest, v1.ResetSweepScheduleResponse](
+			httpClient,
+			baseURL+MarketDataServiceResetSweepScheduleProcedure,
+			connect.WithSchema(marketDataServiceMethods.ByName("ResetSweepSchedule")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -347,6 +378,7 @@ type marketDataServiceClient struct {
 	fetchExternalPrices    *connect.Client[v1.FetchExternalPricesRequest, v1.FetchExternalPricesResponse]
 	getPricingStatus       *connect.Client[v1.GetPricingStatusRequest, v1.GetPricingStatusResponse]
 	getSweepSchedule       *connect.Client[v1.GetSweepScheduleRequest, v1.GetSweepScheduleResponse]
+	resetSweepSchedule     *connect.Client[v1.ResetSweepScheduleRequest, v1.ResetSweepScheduleResponse]
 }
 
 // CreateAsset calls eye.v1.MarketDataService.CreateAsset.
@@ -459,6 +491,11 @@ func (c *marketDataServiceClient) GetSweepSchedule(ctx context.Context, req *con
 	return c.getSweepSchedule.CallUnary(ctx, req)
 }
 
+// ResetSweepSchedule calls eye.v1.MarketDataService.ResetSweepSchedule.
+func (c *marketDataServiceClient) ResetSweepSchedule(ctx context.Context, req *connect.Request[v1.ResetSweepScheduleRequest]) (*connect.Response[v1.ResetSweepScheduleResponse], error) {
+	return c.resetSweepSchedule.CallUnary(ctx, req)
+}
+
 // MarketDataServiceHandler is an implementation of the eye.v1.MarketDataService service.
 type MarketDataServiceHandler interface {
 	// --- Asset CRUD ---
@@ -532,6 +569,28 @@ type MarketDataServiceHandler interface {
 	// second source of truth about the schedule, free to disagree with the sweep
 	// it describes.
 	GetSweepSchedule(context.Context, *connect.Request[v1.GetSweepScheduleRequest]) (*connect.Response[v1.GetSweepScheduleResponse], error)
+	// ResetSweepSchedule forgives the back-off accrued against a price source, so
+	// its assets become due again instead of waiting out a deferral earned under
+	// conditions that no longer hold.
+	//
+	// A miss is read as "this source does not price this asset", and the schedule
+	// acts on that for up to a week. Misses collected while the source was
+	// unreachable, or while it was being asked for assets it never covered, say
+	// nothing about the asset but are indistinguishable from misses that do —
+	// so they outlive the fix that stops them, and the instance goes on deferring
+	// assets the source would price today. That is the shape prod was in on
+	// 2026-08-18: a correct fix, deployed, with no observable effect for days.
+	//
+	// This is deliberately an operator's statement, not an inference. The service
+	// cannot tell a source that was unreachable from one that genuinely lists
+	// nothing, so it does not guess: resetting withdraws the CONCLUSION drawn
+	// from the attempt log without touching the log itself, and asserts nothing
+	// about whether a price exists. The next sweep finds out.
+	//
+	// Paired with GetSweepSchedule on purpose — one entity, read by one RPC and
+	// withdrawn by another. Folding it into FetchExternalPrices as a flag would
+	// hide a schedule mutation inside a call whose name promises prices.
+	ResetSweepSchedule(context.Context, *connect.Request[v1.ResetSweepScheduleRequest]) (*connect.Response[v1.ResetSweepScheduleResponse], error)
 }
 
 // NewMarketDataServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -673,6 +732,12 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 		connect.WithSchema(marketDataServiceMethods.ByName("GetSweepSchedule")),
 		connect.WithHandlerOptions(opts...),
 	)
+	marketDataServiceResetSweepScheduleHandler := connect.NewUnaryHandler(
+		MarketDataServiceResetSweepScheduleProcedure,
+		svc.ResetSweepSchedule,
+		connect.WithSchema(marketDataServiceMethods.ByName("ResetSweepSchedule")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/eye.v1.MarketDataService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MarketDataServiceCreateAssetProcedure:
@@ -719,6 +784,8 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 			marketDataServiceGetPricingStatusHandler.ServeHTTP(w, r)
 		case MarketDataServiceGetSweepScheduleProcedure:
 			marketDataServiceGetSweepScheduleHandler.ServeHTTP(w, r)
+		case MarketDataServiceResetSweepScheduleProcedure:
+			marketDataServiceResetSweepScheduleHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -814,4 +881,8 @@ func (UnimplementedMarketDataServiceHandler) GetPricingStatus(context.Context, *
 
 func (UnimplementedMarketDataServiceHandler) GetSweepSchedule(context.Context, *connect.Request[v1.GetSweepScheduleRequest]) (*connect.Response[v1.GetSweepScheduleResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.GetSweepSchedule is not implemented"))
+}
+
+func (UnimplementedMarketDataServiceHandler) ResetSweepSchedule(context.Context, *connect.Request[v1.ResetSweepScheduleRequest]) (*connect.Response[v1.ResetSweepScheduleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.ResetSweepSchedule is not implemented"))
 }

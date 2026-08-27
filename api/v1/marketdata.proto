@@ -459,6 +459,34 @@ service MarketDataService {
       body: "*"
     };
   }
+
+  // ResetSweepSchedule forgives the back-off accrued against a price source, so
+  // its assets become due again instead of waiting out a deferral earned under
+  // conditions that no longer hold.
+  //
+  // A miss is read as "this source does not price this asset", and the schedule
+  // acts on that for up to a week. Misses collected while the source was
+  // unreachable, or while it was being asked for assets it never covered, say
+  // nothing about the asset but are indistinguishable from misses that do —
+  // so they outlive the fix that stops them, and the instance goes on deferring
+  // assets the source would price today. That is the shape prod was in on
+  // 2026-08-18: a correct fix, deployed, with no observable effect for days.
+  //
+  // This is deliberately an operator's statement, not an inference. The service
+  // cannot tell a source that was unreachable from one that genuinely lists
+  // nothing, so it does not guess: resetting withdraws the CONCLUSION drawn
+  // from the attempt log without touching the log itself, and asserts nothing
+  // about whether a price exists. The next sweep finds out.
+  //
+  // Paired with GetSweepSchedule on purpose — one entity, read by one RPC and
+  // withdrawn by another. Folding it into FetchExternalPrices as a flag would
+  // hide a schedule mutation inside a call whose name promises prices.
+  rpc ResetSweepSchedule(ResetSweepScheduleRequest) returns (ResetSweepScheduleResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/prices/schedule/reset"
+      body: "*"
+    };
+  }
 }
 
 // =============================================================================
@@ -683,6 +711,22 @@ message GetSweepScheduleRequest {
 
 message GetSweepScheduleResponse {
   repeated SourceSchedule sources = 1;
+}
+
+message ResetSweepScheduleRequest {
+  // Sources to forgive. Required, and required to be named: an empty list is
+  // rejected rather than read as "all". Clearing every source's schedule at
+  // once is a bigger statement than clearing one, and a default that big should
+  // not be what a caller gets for leaving a field out.
+  repeated string source_ids = 1;
+}
+
+message ResetSweepScheduleResponse {
+  // Assets freed per source: how many rows stopped being deferred. Zero is a
+  // real answer — the source's schedule was already clear — and it is why this
+  // reports counts instead of an empty success: an operator who resets a source
+  // to unstick prices needs to know whether the schedule was ever the problem.
+  map<string, uint32> assets_freed = 1;
 }
 
 // SourceSchedule is one price source's queue, as the sweep would find it now.

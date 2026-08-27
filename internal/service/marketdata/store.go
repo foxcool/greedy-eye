@@ -30,6 +30,12 @@ type Store interface {
 	// the next attempt out exponentially, so assets the provider does not list
 	// drain out of the rotation instead of blocking its head.
 	RecordPriceAttempts(ctx context.Context, opts RecordAttemptsOpts) error
+	// ResetPriceAttempts forgives the back-off accrued against one source: the
+	// miss counter goes to zero and every asset it holds becomes due now. It
+	// does not delete the rows — attempted_at and succeeded_at stay, because
+	// they are the record of what was asked and when, and only the schedule
+	// derived from them is wrong. Returns how many assets were freed.
+	ResetPriceAttempts(ctx context.Context, sourceID string, at time.Time) (int64, error)
 	// PricingStatus reads the attempt log back for the given assets: whether any
 	// source ever priced each one, over what period it has been asked about, and
 	// by how many sources. Assets with no attempt record are omitted — there is
