@@ -40,8 +40,9 @@ func observedAt(p *apiv1.Price, at time.Time) *apiv1.Price {
 func TestHeatmap_ReportsStaleQuotes(t *testing.T) {
 	st, md := fixture()
 	stale := time.Now().Add(-67 * 24 * time.Hour)
+	fresh := time.Now().Add(-time.Hour)
 	md.latest["eth|USD"] = observedAt(price("eth", "USD", "200000", 2), stale)
-	md.latest["btc|USD"] = observedAt(price("btc", "USD", "4000000", 2), time.Now().Add(-time.Hour))
+	md.latest["btc|USD"] = observedAt(price("btc", "USD", "4000000", 2), fresh)
 
 	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
 	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
@@ -52,7 +53,9 @@ func TestHeatmap_ReportsStaleQuotes(t *testing.T) {
 	assert.Equal(t, uint32(1), cov.GetStaleCount())
 	assert.Len(t, resp.Msg.Nodes, 2, "a stale tile is still drawn: it is labelled, not hidden")
 	require.NotNil(t, cov.GetPricesAsOf())
-	assert.WithinDuration(t, stale, cov.GetPricesAsOf().AsTime(), time.Second)
+	assert.WithinDuration(t, fresh, cov.GetPricesAsOf().AsTime(), time.Second,
+		"the oldest FRESH quote dates the map, matching CalculatePortfolioValue: a quote nothing "+
+			"refreshes any more would pin this on the tile that stopped being covered")
 }
 
 // Pricing is cached per asset, but the question the count answers is about

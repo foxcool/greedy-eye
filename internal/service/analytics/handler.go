@@ -163,6 +163,10 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 	var oldestAmount time.Time
 	// And the same for the price axis: a tile drawn from a quote that outlived
 	// its market looks exactly like one drawn from this morning's print.
+	// Fresh quotes only, matching CalculatePortfolioValue — a quote past the
+	// policy is one nothing refreshes any more, and letting it date the map
+	// freezes the field on the position that stopped being covered. Stale rows
+	// stay on the map and are counted in StaleCount instead.
 	var oldestQuote time.Time
 	freshness := pricefresh.PolicyFrom(ctx, h.setClient, h.log)
 	drawnAt := time.Now()
@@ -195,12 +199,14 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 		if hld.Source.Swept() {
 			oldestAmount = olderOf(oldestAmount, hld.UpdatedAt)
 		}
-		oldestQuote = olderOf(oldestQuote, ap.quotedAt)
 		// Counted per holding even though pricing is cached per asset: the
 		// question is how many POSITIONS on this map rest on a quote that may no
 		// longer be a price, and two positions in one dead security are two.
+		// A stale quote does not date the map; see oldestQuote.
 		if freshness.StaleAt(ap.quotedAt, drawnAt) {
 			coverage.StaleCount++
+		} else {
+			oldestQuote = olderOf(oldestQuote, ap.quotedAt)
 		}
 		key := leafKey{assetID: hld.AssetID}
 		if grouped {
