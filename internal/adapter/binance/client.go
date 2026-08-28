@@ -27,10 +27,19 @@ type Client struct {
 	httpClient *http.Client
 }
 
-// TickerPrice is the price data returned by GET /api/v3/ticker/price.
+// TickerPrice is the subset of GET /api/v3/ticker/24hr this client consumes.
+//
+// QuoteVolume, not Volume: the pair's 24h turnover denominated in the QUOTE
+// asset (USDT), which is the unit marketdepth.Thin compares against MinVolume
+// after converting the base. Binance's `volume` field is denominated in the base
+// coin instead, where 1,000 SHIB and 1,000 BTC weigh the same — a number that
+// cannot be a market size.
 type TickerPrice struct {
 	Symbol string `json:"symbol"`
-	Price  string `json:"price"` // Binance returns price as decimal string
+	Price  string `json:"lastPrice"` // Binance returns price as decimal string
+	// QuoteVolume is absent from a response that predates this struct's use of
+	// /ticker/24hr; an empty string is "not reported", not "zero".
+	QuoteVolume string `json:"quoteVolume"`
 }
 
 // Config holds Binance client configuration
@@ -109,7 +118,15 @@ func (c *Client) WithBaseURL(baseURL string) *Client {
 // with symbols=["BTCUSDT","NOTAREALCOINUSDT"]. Asking for the entire stale set
 // at once therefore makes every price hostage to the worst entry in it. Batching
 // does not make an unknown symbol free, it bounds what one costs.
-const tickerBatchSize = 100
+//
+// Twenty, not a hundred, because /api/v3/ticker/24hr prices its weight in steps
+// and the first one is where the bargain is (documented weights, checked
+// 2026-08-28): 1–20 symbols cost 2, 21–100 cost 40, 101+ cost 80. Eighty-three
+// assets are therefore 5 requests at 2 rather than 1 request at 40 — four times
+// cheaper in the budget that is actually metered, and cheaper than the flat 4
+// this client paid on /ticker/price before. More requests, less weight; the RPS
+// limiter has room for both.
+const tickerBatchSize = 20
 
 // exchangeInfoSymbol is the subset of GET /api/v3/exchangeInfo we consume.
 type exchangeInfoSymbol struct {
@@ -163,8 +180,13 @@ func (c *Client) ListTradableSymbols(ctx context.Context) ([]string, error) {
 	return symbols, nil
 }
 
-// GetTickerPrices fetches current prices for the given symbols.
-// Uses the public GET /api/v3/ticker/price endpoint — no auth required.
+// GetTickerPrices fetches current prices and 24h turnover for the given symbols.
+// Uses the public GET /api/v3/ticker/24hr endpoint — no auth required.
+//
+// It reads 24hr rather than the cheaper /ticker/price because that endpoint
+// reports no volume at all, and a quote with no reported volume is not thin
+// (marketdepth.Thin) — so every Binance-priced asset passed the ADR-009 gate
+// without ever being measured.
 // Pass multiple symbols as a JSON array: symbols=["BTCUSDT","ETHUSDT"].
 //
 // A batch that fails costs its own symbols and no others; an error is returned
@@ -202,7 +224,7 @@ func (c *Client) tickerPriceBatch(ctx context.Context, symbols []string) ([]Tick
 		return nil, fmt.Errorf("encode symbols: %w", err)
 	}
 
-	url := c.baseURL + "/api/v3/ticker/price?symbols=" + strings.ReplaceAll(string(encoded), " ", "")
+	url := c.baseURL + "/api/v3/ticker/24hr?symbols=" + strings.ReplaceAll(string(encoded), " ", "")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

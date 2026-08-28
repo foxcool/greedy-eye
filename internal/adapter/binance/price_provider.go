@@ -106,6 +106,25 @@ func (p *Provider) BaseAssetType() entity.AssetType { return entity.AssetTypeCry
 // This is the floor. The fix above it is the binding: an asset on the global
 // crypto market is priced only once DiscoverRefs has tied it to a listed pair
 // that nothing else claims (personal-psu.2 / personal-avm.1).
+// reportedVolume scales Binance's 24h quote turnover the way the price beside it
+// is scaled, because marketdepth.Thin divides both by the same Decimals.
+//
+// An unparseable or non-positive figure is left unreported rather than stored as
+// zero. The distinction is load-bearing: a reported zero counts as thin and drops
+// the holding out of the total, while "not reported" leaves it in — and a parse
+// failure is our ignorance, not evidence about the market. Same rule as
+// coingecko.reported.
+func reportedVolume(raw string) decimal.NullDecimal {
+	if raw == "" {
+		return decimal.NullDecimal{}
+	}
+	v, err := decimal.NewFromString(raw)
+	if err != nil || !v.IsPositive() {
+		return decimal.NullDecimal{}
+	}
+	return decimal.NullDecimal{Decimal: v.Shift(int32(priceDecimals)).Round(0), Valid: true}
+}
+
 func (p *Provider) speaksFor(a *entity.Asset) bool {
 	return a != nil && entity.NormalizeMarket(a.Market) == entity.MarketCrypto
 }
@@ -310,6 +329,7 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 			Interval:  interval,
 			Decimals:  priceDecimals,
 			Last:      last,
+			Volume:    reportedVolume(t.QuoteVolume),
 			Timestamp: now,
 		})
 	}
