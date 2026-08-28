@@ -16,12 +16,14 @@ package pricefresh
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
+	"github.com/foxcool/greedy-eye/internal/entity"
 )
 
 // SettingKey is where an instance's valuation rules are stored. The name lives
@@ -41,23 +43,39 @@ const SettingKey = "valuation.v1"
 // that outlived its market, which is months old, not hours.
 const DefaultMaxAge = 48 * time.Hour
 
-// Policy is the freshness rule in force for one valuation.
+// Policy is the rule set in force for one valuation.
 type Policy struct {
 	// MaxAge is how old a quote may be and still count as current. Zero means
 	// DefaultMaxAge.
 	MaxAge time.Duration
+	// DisplayCurrency is the asset a total is expressed in when the caller does
+	// not name one. Empty means DefaultDisplayCurrency.
+	//
+	// It rides this document rather than one of its own because it is the same
+	// kind of statement: the rules a valuation runs under, chosen by whoever
+	// owns the numbers. A person who reads their portfolio in roubles has said
+	// something about every total the instance produces, not about one request.
+	DisplayCurrency string
 }
+
+// DefaultDisplayCurrency is the asset a total is expressed in when nothing says
+// otherwise. A symbol rather than a UUID: the catalogue row it names differs per
+// instance, and every caller already resolves a quote asset by ticker.
+const DefaultDisplayCurrency = "USD"
 
 // DefaultPolicy is what a caller uses when the instance has never been
 // configured, or when the settings service is not reachable from it.
-func DefaultPolicy() Policy { return Policy{MaxAge: DefaultMaxAge} }
+func DefaultPolicy() Policy {
+	return Policy{MaxAge: DefaultMaxAge, DisplayCurrency: DefaultDisplayCurrency}
+}
 
 // settingValue is the stored shape of the valuation setting. The duration is a
 // string ("48h") rather than a number: a bare number leaves the unit to a
 // convention nobody reads, and the value is JSON text precisely so numbers do
 // not get retyped along the way.
 type settingValue struct {
-	PriceMaxAge string `json:"price_max_age"`
+	PriceMaxAge     string `json:"price_max_age"`
+	DisplayCurrency string `json:"display_currency,omitempty"`
 }
 
 // ParsePolicy reads a stored valuation setting. An empty or absent value is not
@@ -70,23 +88,46 @@ func ParsePolicy(raw []byte) (Policy, error) {
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return DefaultPolicy(), fmt.Errorf("parse valuation setting: %w", err)
 	}
-	if v.PriceMaxAge == "" {
-		return DefaultPolicy(), nil
+
+	// The two fields fail independently. A broken duration must not silently
+	// revert a currency somebody chose, and vice versa: each falls back to its
+	// own default and the error names which one was unreadable.
+	out := DefaultPolicy()
+	var errs []error
+
+	if v.PriceMaxAge != "" {
+		switch d, err := time.ParseDuration(v.PriceMaxAge); {
+		case err != nil:
+			errs = append(errs, fmt.Errorf("parse price_max_age %q: %w", v.PriceMaxAge, err))
+		case d <= 0:
+			errs = append(errs, fmt.Errorf("price_max_age must be positive, got %q", v.PriceMaxAge))
+		default:
+			out.MaxAge = d
+		}
 	}
-	d, err := time.ParseDuration(v.PriceMaxAge)
-	if err != nil {
-		return DefaultPolicy(), fmt.Errorf("parse price_max_age %q: %w", v.PriceMaxAge, err)
+
+	// Only the shape is checked here. Whether the symbol names a row in this
+	// instance's catalogue is the resolver's question, and it answers loudly:
+	// an unknown ticker fails the valuation rather than quietly reverting to
+	// dollars, which would report one currency's number under another's name.
+	if v.DisplayCurrency != "" {
+		if cur := entity.NormalizeSymbol(v.DisplayCurrency); cur == "" {
+			errs = append(errs, fmt.Errorf("display_currency %q is blank", v.DisplayCurrency))
+		} else {
+			out.DisplayCurrency = cur
+		}
 	}
-	if d <= 0 {
-		return DefaultPolicy(), fmt.Errorf("price_max_age must be positive, got %q", v.PriceMaxAge)
-	}
-	return Policy{MaxAge: d}, nil
+
+	return out, errors.Join(errs...)
 }
 
 // Encode renders a policy back into the stored shape, so a caller writing the
 // setting and a caller reading it agree on the field without restating it.
 func (p Policy) Encode() ([]byte, error) {
-	return json.Marshal(settingValue{PriceMaxAge: p.maxAge().String()})
+	return json.Marshal(settingValue{
+		PriceMaxAge:     p.maxAge().String(),
+		DisplayCurrency: p.displayCurrency(),
+	})
 }
 
 // SettingReader is the one call this package needs from the settings service.
@@ -163,3 +204,17 @@ func (p Policy) maxAge() time.Duration {
 	}
 	return p.MaxAge
 }
+
+// DisplayCurrency is the symbol a total is expressed in under this policy,
+// substituting the default for an unset one so callers need not repeat it.
+func (p Policy) displayCurrency() string {
+	if p.DisplayCurrency == "" {
+		return DefaultDisplayCurrency
+	}
+	return p.DisplayCurrency
+}
+
+// QuoteAsset returns the asset a valuation should be expressed in when the
+// caller named none. Exported because that choice belongs to the policy, not to
+// a constant repeated in every service that produces a total.
+func (p Policy) QuoteAsset() string { return p.displayCurrency() }

@@ -20,10 +20,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// defaultQuoteAsset is the symbol used when the caller omits quote_asset_id.
-// The marketdata handler resolves it to a UUID via GetAssetBySymbol.
-const defaultQuoteAsset = "USD"
-
 // maxHoldings caps how many holdings a single heatmap reads.
 const maxHoldings = 1000
 
@@ -134,9 +130,14 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 	opts.PageSize = maxHoldings
 	opts.HideExcluded = true
 
+	// One read of the valuation policy, used for both the currency the map is
+	// drawn in and the freshness rule below: the heatmap and the total must
+	// answer under the same statement about how this instance reports money.
+	valuation := pricefresh.PolicyFrom(ctx, h.setClient, h.log)
+
 	quoteAssetID := msg.QuoteAssetId
 	if quoteAssetID == "" {
-		quoteAssetID = defaultQuoteAsset
+		quoteAssetID = valuation.QuoteAsset()
 	}
 	from := time.Now().Add(-windowDuration(msg.Window))
 
@@ -168,7 +169,7 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 	// freezes the field on the position that stopped being covered. Stale rows
 	// stay on the map and are counted in StaleCount instead.
 	var oldestQuote time.Time
-	freshness := pricefresh.PolicyFrom(ctx, h.setClient, h.log)
+
 	drawnAt := time.Now()
 
 	for _, hld := range holdings {
@@ -203,7 +204,7 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 		// question is how many POSITIONS on this map rest on a quote that may no
 		// longer be a price, and two positions in one dead security are two.
 		// A stale quote does not date the map; see oldestQuote.
-		if freshness.StaleAt(ap.quotedAt, drawnAt) {
+		if valuation.StaleAt(ap.quotedAt, drawnAt) {
 			coverage.StaleCount++
 		} else {
 			oldestQuote = olderOf(oldestQuote, ap.quotedAt)

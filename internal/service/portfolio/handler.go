@@ -27,10 +27,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// defaultQuoteAsset is the symbol used when the caller omits quote_asset_id.
-// The marketdata handler resolves it to a UUID via GetAssetBySymbol.
-const defaultQuoteAsset = "USD"
-
 // WalletSyncerSource resolves a wallet syncer from stored account credentials
 // for a given user, able to sync the requested chains (see
 // internal/service/credentials). An empty chains list means auto-discovery,
@@ -274,9 +270,15 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 		return nil, err
 	}
 
+	// The policy carries both rules this valuation runs under: how old a quote
+	// may be, and what currency the total is expressed in when the caller names
+	// none. One read, because they are one statement about how this instance
+	// reports money.
+	valuation := pricefresh.PolicyFrom(ctx, h.setClient, h.log)
+
 	quoteAssetID := req.Msg.QuoteAssetId
 	if quoteAssetID == "" {
-		quoteAssetID = defaultQuoteAsset
+		quoteAssetID = valuation.QuoteAsset()
 	}
 
 	// Fetch all holdings (excluded included) and partition in code so the total
@@ -318,7 +320,6 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 	// Dating and disclosure answer different questions and must not share a
 	// number.
 	var oldestQuote time.Time
-	freshness := pricefresh.PolicyFrom(ctx, h.setClient, h.log)
 	valuedAt := time.Now()
 
 	for _, hld := range holdings {
@@ -352,7 +353,7 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 		// why naming it beats removing it. Counted per holding, not per asset —
 		// two positions in the same delisted security are two positions whose
 		// value is in question. It does not date the total; see oldestQuote.
-		if freshness.StaleAt(priced.quotedAt, valuedAt) {
+		if valuation.StaleAt(priced.quotedAt, valuedAt) {
 			coverage.StaleCount++
 		} else {
 			oldestQuote = olderOf(oldestQuote, priced.quotedAt)
@@ -614,7 +615,7 @@ func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Requ
 		from = req.Msg.From.AsTime()
 	}
 
-	quoteAssetID := defaultQuoteAsset
+	quoteAssetID := pricefresh.PolicyFrom(ctx, h.setClient, h.log).QuoteAsset()
 	if req.Msg.BenchmarkAssetId != "" {
 		quoteAssetID = req.Msg.BenchmarkAssetId
 	}
@@ -895,7 +896,7 @@ func (h *Handler) ListUnpricedHoldings(ctx context.Context, req *connect.Request
 		}
 	}
 
-	quoteAssetID := defaultQuoteAsset
+	quoteAssetID := pricefresh.PolicyFrom(ctx, h.setClient, h.log).QuoteAsset()
 	if req.Msg.QuoteAssetId != nil && *req.Msg.QuoteAssetId != "" {
 		quoteAssetID = *req.Msg.QuoteAssetId
 	}

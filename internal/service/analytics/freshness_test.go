@@ -151,3 +151,39 @@ func TestHeatmap_NoAttemptRecordStaysNoQuote(t *testing.T) {
 	require.Len(t, resp.Msg.Coverage.GetUnpriced(), 1)
 	assert.Equal(t, apiv1.UnpricedReason_UNPRICED_REASON_NO_QUOTE, resp.Msg.Coverage.GetUnpriced()[0].GetReason())
 }
+
+// The map is drawn in the same currency the total is expressed in, and both read
+// it from the same setting. A heatmap in dollars beside a total in roubles is
+// the divergence TestTotalAndHeatmapAgree exists to prevent, moved from the
+// pricing rule to the currency it is applied in.
+func TestHeatmap_DisplayCurrencyComesFromTheSetting(t *testing.T) {
+	st, md := fixture()
+	// The same asset priced in two currencies, so which one the map picks is
+	// visible in the number rather than only in the absence of one.
+	md.latest["eth|USD"] = price("eth", "USD", "200000", 2)
+	md.latest["eth|RUB"] = price("eth", "RUB", "16000000", 2)
+	md.latest["btc|USD"] = price("btc", "USD", "4000000", 2)
+	md.latest["btc|RUB"] = price("btc", "RUB", "320000000", 2)
+
+	base := NewHandler(st, testLogger()).WithMarketDataClient(md)
+
+	sizeOf := func(t *testing.T, h *Handler) float64 {
+		t.Helper()
+		resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
+		require.NoError(t, err)
+		var total float64
+		for _, n := range resp.Msg.Nodes {
+			total += n.Size
+		}
+		return total
+	}
+
+	inDollars := sizeOf(t, base)
+	require.NotZero(t, inDollars, "the fixture prices in dollars by default")
+
+	h := base.WithSettingsClient(&fakeSettings{value: `{"display_currency":"RUB"}`})
+	inRoubles := sizeOf(t, h)
+
+	assert.InDelta(t, inDollars*80, inRoubles, 1e-6,
+		"the map is drawn in the configured currency, at that currency's prices")
+}
