@@ -42,6 +42,13 @@ type TickerPrice struct {
 	QuoteVolume string `json:"quoteVolume"`
 }
 
+// highPrice and lowPrice are deliberately NOT read from this response. They are
+// 24-hour extremes, and these rows are written with Interval "latest" — a
+// snapshot. Putting a daily range on a point-in-time row would make High and Low
+// mean something different here than in every other row that carries them.
+// Volume is the exception on purpose: marketdepth.Thin asks for 24h turnover
+// beside the latest price, and coingecko already answers it the same way.
+
 // Config holds Binance client configuration
 type Config struct {
 	APIKey    string

@@ -611,14 +611,40 @@ func TestFetchPrices_ThinMarketNowReachesTheGate(t *testing.T) {
 		"a market this small must be visible as such to ADR-009")
 }
 
-// TestFetchPrices_UnreportedVolumeStaysUnreported: silence is not zero. A zero
-// counts as thin and drops the holding out of the total; absence leaves it in.
-// Aave receipt tokens have no market of their own by construction, and reporting
-// zero for them would remove real money from the number.
+// TestFetchPrices_ZeroTurnoverIsAClaim: a TRADING pair that answers with no
+// turnover has an order book nobody touched in 24 hours. That is a measurement,
+// and ADR-009 exists to keep exactly such a market out of a total — so it must
+// reach the row as a zero, not be softened into silence.
+func TestFetchPrices_ZeroTurnoverIsAClaim(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v3/exchangeInfo" {
+			writeExchangeInfo(w, "BTCUSDT")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]TickerPrice{
+			{Symbol: "BTCUSDT", Price: "67000.00000000", QuoteVolume: "0.00000000"},
+		})
+	}))
+	defer srv.Close()
+
+	prices, err := NewProvider(newTestClient(srv.URL)).FetchPrices(
+		context.Background(), testAssets()[:1])
+	require.NoError(t, err)
+	require.Len(t, prices, 1)
+	require.True(t, prices[0].Volume.Valid, "zero turnover is measured, not missing")
+	assert.True(t, prices[0].Volume.Decimal.IsZero())
+	assert.True(t, prices[0].Last.IsPositive(), "the price itself still stands")
+}
+
+// TestFetchPrices_UnreportedVolumeStaysUnreported: what we cannot trust must read
+// as unreported, never as a dead market. A negative or unparseable figure is our
+// ignorance, and an unreported volume is deliberately not thin — Aave receipt
+// tokens have no market of their own by construction, and calling them thin would
+// remove real money from the number.
 func TestFetchPrices_UnreportedVolumeStaysUnreported(t *testing.T) {
 	for _, tc := range []struct{ name, quoteVolume string }{
 		{"absent", ""},
-		{"zero", "0"},
 		{"negative", "-1"},
 		{"unparseable", "n/a"},
 	} {

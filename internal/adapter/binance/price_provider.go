@@ -109,17 +109,24 @@ func (p *Provider) BaseAssetType() entity.AssetType { return entity.AssetTypeCry
 // reportedVolume scales Binance's 24h quote turnover the way the price beside it
 // is scaled, because marketdepth.Thin divides both by the same Decimals.
 //
-// An unparseable or non-positive figure is left unreported rather than stored as
-// zero. The distinction is load-bearing: a reported zero counts as thin and drops
-// the holding out of the total, while "not reported" leaves it in — and a parse
-// failure is our ignorance, not evidence about the market. Same rule as
-// coingecko.reported.
+// ZERO IS KEPT. It is a measurement, not a silence: this provider only ever asks
+// about pairs it found TRADING in exchangeInfo, so a pair that answers with no
+// turnover has an order book nobody touched in 24 hours — exactly the market
+// ADR-009 exists to keep out of a total. T-Invest already writes an explicit zero
+// for the same reason (tinvest/provider.go:250), and marketdepth.Thin already
+// says a reported non-positive volume counts as thin.
+//
+// This is deliberately NOT coingecko.reported, which discards zero and negative
+// alike. That rule answers a different problem: CoinGecko returns market_cap = -1
+// as a sentinel, so its non-positive figures are garbage rather than
+// measurements. Here only the garbage is dropped — negative and unparseable are
+// our ignorance, and ignorance must not read as a dead market.
 func reportedVolume(raw string) decimal.NullDecimal {
 	if raw == "" {
 		return decimal.NullDecimal{}
 	}
 	v, err := decimal.NewFromString(raw)
-	if err != nil || !v.IsPositive() {
+	if err != nil || v.IsNegative() {
 		return decimal.NullDecimal{}
 	}
 	return decimal.NullDecimal{Decimal: v.Shift(int32(priceDecimals)).Round(0), Valid: true}

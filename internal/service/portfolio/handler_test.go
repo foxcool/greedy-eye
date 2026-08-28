@@ -1595,11 +1595,11 @@ func TestCalculatePortfolioValue_FreshCrossBeatsStaleDirect(t *testing.T) {
 }
 
 // TestCalculatePortfolioValue_ThinGateReadsAnyVolumeBearingQuote: the freshest
-// quote is not always the one carrying the evidence. Binance reports no volume
-// at all, and marketdepth.Thin reads an absent volume as "no claim" — so
-// selecting on freshness alone would let a volume-less row displace the one
-// saying "$40,655 a day" and disarm ADR-009 by accident. The gate reads every
-// candidate, not just the chosen one.
+// quote is not always the one carrying the evidence. A source may quote a pair
+// without measuring it, and marketdepth.Thin reads an absent volume as "no
+// claim" — so selecting on freshness alone would let a volume-less row displace
+// the one saying "$40,655 a day" and disarm ADR-009 by accident. The gate reads
+// every candidate, not just the chosen one.
 func TestCalculatePortfolioValue_ThinGateReadsAnyVolumeBearingQuote(t *testing.T) {
 	const (
 		mnep     = "00000000-0000-0000-0000-0000000000a3"
