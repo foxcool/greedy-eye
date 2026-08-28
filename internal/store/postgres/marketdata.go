@@ -208,27 +208,16 @@ func (s *MarketDataStore) GetAsset(ctx context.Context, id string) (*entity.Asse
 // The lookup is the FULL composite identity (symbol, market, type), with the
 // market implied by the type exactly as CreateAsset implies it. That is not a
 // refinement — it is the write path read back correctly. Anything narrower asks
-// a wider question than the one that was written, and every extra row sharing
-// the ticker then answers "ambiguous" instead of naming a row.
+// a wider question than the one that was written, so every extra row sharing the
+// ticker answers "ambiguous" instead of naming a row, and a quote currency
+// resolved by an ambiguous ticker is a base that can silently become a different
+// base.
 //
-// Dev 2026-08-14 is the proof of what the wider question costs. Correcting
-// Binance's quote currency from forex to cryptocurrency (commit 0f5c100) left
-// the old USDT row in place, and the correction minted a twin instead of
-// updating the row. Every sweep afterwards threw away Binance's whole batch on
-// "symbol USDT is ambiguous" — for two months, unnoticed until CoinGecko's quota
-// ran out and there was no second source left to notice it with. A quote
-// currency resolved by an ambiguous ticker is a base that can silently become a
-// different base.
-//
-// This asks for an exact row and creates that exact row when it is missing, so
-// there is no question left for a second row to make ambiguous. It REPLACES an
-// earlier scoping by type alone, which was kept because legacy rows had been
-// backfilled to 'crypto' regardless of type: USD sat at (USD, crypto, forex)
-// while a fresh one would be created at (USD, forex, forex), so matching on
-// market would have missed the row every stored price points at. That objection
-// is settled by moving USD onto the forex market rather than by widening the
-// lookup — a currency on the crypto market both reads as a fake token and
-// collides with impostors minted by whoever pays the gas.
+// It REPLACES an earlier scoping by type alone, kept because legacy rows had
+// been backfilled to 'crypto' regardless of type: matching on market would have
+// missed the row every stored price pointed at. That objection is settled by
+// moving those rows rather than by widening the lookup — see ADR-010, which also
+// records what the wider question cost.
 func (s *MarketDataStore) GetOrCreateAssetBySymbol(ctx context.Context, symbol, nameIfNew string, typ entity.AssetType) (*entity.Asset, error) {
 	market := entity.DefaultMarket(typ)
 	if market == "" {

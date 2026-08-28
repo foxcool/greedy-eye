@@ -229,13 +229,7 @@ enum UnpricedReason {
   // a gap in front of the asset — nobody has priced it. This is a gap between
   // two currencies, and the position is fully priced in its own pair; only the
   // conversion is missing, so the fix is one rate rather than coverage for the
-  // asset.
-  //
-  // Reported because the collapse of the two hid a live failure for months. A
-  // USDT twin split the identity so that Binance quoted into one row while the
-  // USDT/USD rate was written against the other; 74 holdings dropped out of the
-  // total reading exactly like assets nobody had ever priced, which is what kept
-  // anyone from looking.
+  // asset. See ADR-010 for what collapsing them cost.
   UNPRICED_REASON_NO_CROSS_RATE = 4;
 }
 

@@ -14,13 +14,9 @@ const (
 	NoQuote
 	ThinMarket
 	// NoCrossRate is the asset being quoted in a base with no rate to the
-	// requested currency, in either direction.
-	//
-	// It is kept apart from NoQuote because the two ask for opposite work, and
-	// because collapsing them hid a live failure for months: a USDT twin split
-	// the identity so Binance quoted into one row while the USDT/USD rate was
-	// written against the other, and 74 holdings left the total reading exactly
-	// like assets nobody had ever priced.
+	// requested currency, in either direction. Kept apart from NoQuote because
+	// the two ask for opposite work: one exchange rate, versus coverage for the
+	// asset. See ADR-010 for what collapsing them cost.
 	NoCrossRate
 )
 

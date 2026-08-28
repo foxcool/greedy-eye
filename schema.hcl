@@ -594,11 +594,8 @@ table "prices" {
   }
   column "base_asset_id" {
     # What this price is quoted AGAINST — the other side of the pair, not the
-    # currency a portfolio is displayed in. The two are different questions and
-    # were conflated for months (ADR-010): USDT is a real quote currency Binance
-    # trades in, while USD is what a total is rendered in, and an instance may
-    # render in roubles without any pair changing. The display choice lives in
-    # the valuation.v1 setting; this column is the pair.
+    # currency a portfolio is displayed in. The display choice lives in the
+    # valuation.v1 setting; this column is the pair. See ADR-010.
     type = uuid
     null = false
   }
@@ -612,10 +609,8 @@ table "prices" {
   # divide by it happily — one such row is enough to make every conversion
   # through that asset return 1.
   #
-  # It is enforced here rather than in code because the write path is not one
-  # place: five provider adapters and the manual price endpoint all insert here,
-  # and a rule that has to be remembered in six places is a rule that will be
-  # forgotten in one. Verified clean before it was added: zero such rows.
+  # Enforced here rather than in code because the write path is six places: five
+  # provider adapters and the manual price endpoint.
   check "price_pair_is_not_self" {
     expr = "asset_id <> base_asset_id"
   }

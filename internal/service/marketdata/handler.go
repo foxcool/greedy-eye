@@ -1038,14 +1038,16 @@ type baseAssetKey struct {
 // quotableBase reports whether a resolved row may serve as a quote currency,
 // naming the reason when it may not.
 //
+// It is the guard on resolveBase below: a base is resolved once per provider per
+// sweep and denominates every price in the batch, so a wrong base is not one bad
+// row but a whole source priced against something nobody vouched for.
+//
 // Two rows are refused. One on a CONTRACT market stands for a specific
-// unverified contract — minted by whoever paid the gas — and dev 2026-08-04
-// showed what that means for a lookup by ticker: syncing a whale wallet pulled
-// in a counterfeit "US Dollar" token. A base is resolved on every sweep, so
-// letting a contract row answer for a ticker hands anybody the denominator of a
-// whole source. One of an UNQUOTABLE type is refused for the plainer reason that
-// a price is a ratio between an instrument and a currency: a share of a fund is
-// not something other things are worth an amount of.
+// unverified contract, minted by whoever paid the gas — dev 2026-08-04 showed
+// what that means for a lookup by ticker, when syncing a whale wallet pulled in
+// a counterfeit "US Dollar" token. One of an UNQUOTABLE type is refused for the
+// plainer reason that a price is a ratio between an instrument and a currency: a
+// share of a fund is not something other things are worth an amount of.
 func quotableBase(a *entity.Asset) error {
 	if a == nil {
 		return fmt.Errorf("%w: no asset resolved", store.ErrInvalidArgument)
@@ -1164,14 +1166,10 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			idleSources[name] = string(outcome)
 			continue
 		}
-		// Resolve base asset UUID for this provider (create the asset if it doesn't exist yet).
-		//
-		// A base that does not resolve to a quotable row is refused rather than
-		// used. Every price this provider writes is denominated in it, and every
-		// valuation reads it back, so a wrong base is not one bad row — it is a
-		// whole source silently priced against something nobody vouched for.
-		// Refusing costs this provider's batch; accepting costs the meaning of
-		// every number in it.
+		// Resolve base asset UUID for this provider (create the asset if it doesn't
+		// exist yet). A row that quotableBase refuses fails the batch rather than
+		// being used: refusing costs this provider's prices, accepting costs the
+		// meaning of every number in them.
 		resolveBase := func(sym string) (string, error) {
 			key := baseAssetKey{symbol: strings.ToUpper(sym), typ: provider.BaseAssetType()}
 			if id, ok := baseAssetCache[key]; ok {

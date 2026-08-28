@@ -37,11 +37,9 @@ type assetPricing struct {
 // market-depth gate reads every candidate that reports a volume rather than only
 // the chosen one. See that package for why each is the way it is.
 //
-// The two surfaces sharing one implementation is the point. They used to carry a
-// copy each, and TestTotalAndHeatmapAgree existed to make a divergence loud: a
-// total and a map that disagree are способ #6 moved between two backend
-// services. The test still guards the agreement; the extraction removes the way
-// to break it.
+// Sharing one implementation is the point: a total and a map that disagree are
+// one number with two authors. TestTotalAndHeatmapAgree still guards the
+// agreement; the extraction removes the way to break it.
 func (h *Handler) assetPricing(ctx context.Context, cache map[string]*assetPricing, assetID, quoteAssetID string, from time.Time) (*assetPricing, error) {
 	if ap, ok := cache[assetID]; ok {
 		return ap, nil

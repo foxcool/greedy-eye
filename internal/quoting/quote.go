@@ -1,17 +1,11 @@
 // Package quoting answers one question about an asset: what is it worth per
 // token in a given quote currency, and which stored price row says so?
 //
-// It exists because two surfaces asked it independently. The portfolio total
-// (portfolio.unitPrice) and the heatmap (analytics.assetPricing) each resolved a
-// quote, each applied the market-depth gate and each classified the failure,
-// from two copies of the same code. Ф0 already paid for that shape once: способ
-// #6 was the frontend recomputing a total by its own rules, and the rule that
-// came out of it was «у числа один автор» — applied to the frontend, and not
-// between two backend services. TestTotalAndHeatmapAgree was written to make a
-// divergence loud; this package is what removes the way to create one.
-//
-// It is a sibling of pricefresh and marketdepth: a small package carrying one
-// pricing rule, reading a narrow port rather than a service client.
+// It is the one implementation of that rule, shared by the portfolio total and
+// the heatmap so the two cannot answer differently. A sibling of pricefresh and
+// marketdepth: one small package carrying one pricing rule, reading a narrow
+// port rather than a service client. See ADR-010 for why the base of a pair is
+// not the currency of a total.
 package quoting
 
 import (
@@ -108,12 +102,9 @@ func Candidates(ctx context.Context, r PriceReader, log *slog.Logger, assetID, q
 // Freshest picks the most recently observed candidate. A quote with no timestamp
 // sorts oldest: it cannot claim currency it never stated.
 //
-// That is a correction, not a preference. Resolution used to be ordered by path —
-// a direct quote first, a cross only if no direct one existed — so one stale
-// direct row shadowed every fresher row the catalogue held, from any source,
-// permanently. Prod 2026-08-14 is the proof: Binance wrote BTC/USDT hourly and
-// current while CoinGecko's BTC/USD had been frozen since the 11th by a 429, and
-// the total and the map both showed the frozen number.
+// Ordering by recency rather than by path is a correction: a direct quote used to
+// win over a converted one, so a single stale direct row shadowed every fresher
+// row in the catalogue, permanently.
 //
 // Panics on an empty slice; callers check Candidates for emptiness first, which
 // is the unpriced case and has its own answer.
