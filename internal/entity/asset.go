@@ -151,6 +151,17 @@ func ContractMarket(chain, address string) string {
 	return NormalizeMarket(OnchainSource(chain) + "/" + address)
 }
 
+// IsContractMarket reports whether a market names one specific contract rather
+// than a venue an authority assigns listings on.
+//
+// The distinction matters wherever an asset has to be trusted rather than merely
+// found. A contract market is minted by whoever pays the gas, so a row on one
+// stands for a token nobody has vouched for — fine as an identity for a holding,
+// never acceptable as a quote currency, which every valuation resolves against.
+func IsContractMarket(market string) bool {
+	return strings.HasPrefix(NormalizeMarket(market), onchainPrefix)
+}
+
 // AssetRiskFlag is a situational-risk flag on a real asset (scam-filtering
 // axis 2): exploit, depeg, freeze, delisting, sanctions. Unlike an identity
 // verdict it does not exclude the asset from sums — the value is real. ReviewAt

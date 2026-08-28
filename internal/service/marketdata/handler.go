@@ -1035,6 +1035,34 @@ type baseAssetKey struct {
 	typ    entity.AssetType
 }
 
+// quotableBase reports whether a resolved row may serve as a quote currency,
+// naming the reason when it may not.
+//
+// Two rows are refused. One on a CONTRACT market stands for a specific
+// unverified contract — minted by whoever paid the gas — and dev 2026-08-04
+// showed what that means for a lookup by ticker: syncing a whale wallet pulled
+// in a counterfeit "US Dollar" token. A base is resolved on every sweep, so
+// letting a contract row answer for a ticker hands anybody the denominator of a
+// whole source. One of an UNQUOTABLE type is refused for the plainer reason that
+// a price is a ratio between an instrument and a currency: a share of a fund is
+// not something other things are worth an amount of.
+func quotableBase(a *entity.Asset) error {
+	if a == nil {
+		return fmt.Errorf("%w: no asset resolved", store.ErrInvalidArgument)
+	}
+	if entity.IsContractMarket(a.Market) {
+		return fmt.Errorf("%w: %s resolves to contract market %s, which cannot be a quote currency",
+			store.ErrInvalidArgument, a.Symbol, a.Market)
+	}
+	switch a.Type {
+	case entity.AssetTypeForex, entity.AssetTypeCryptocurrency:
+		return nil
+	default:
+		return fmt.Errorf("%w: %s resolves to an asset of type %d, which cannot be a quote currency",
+			store.ErrInvalidArgument, a.Symbol, a.Type)
+	}
+}
+
 // quarantineVerdicts are excluded from unattended pricing: their holdings are
 // already excluded from the portfolio sums, so a price for them buys nothing.
 var quarantineVerdicts = []string{
@@ -1137,6 +1165,13 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			continue
 		}
 		// Resolve base asset UUID for this provider (create the asset if it doesn't exist yet).
+		//
+		// A base that does not resolve to a quotable row is refused rather than
+		// used. Every price this provider writes is denominated in it, and every
+		// valuation reads it back, so a wrong base is not one bad row — it is a
+		// whole source silently priced against something nobody vouched for.
+		// Refusing costs this provider's batch; accepting costs the meaning of
+		// every number in it.
 		resolveBase := func(sym string) (string, error) {
 			key := baseAssetKey{symbol: strings.ToUpper(sym), typ: provider.BaseAssetType()}
 			if id, ok := baseAssetCache[key]; ok {
@@ -1144,6 +1179,9 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			}
 			baseAsset, err := h.store.GetOrCreateAssetBySymbol(ctx, key.symbol, key.symbol, key.typ)
 			if err != nil {
+				return "", fmt.Errorf("resolve base asset %s: %w", key.symbol, err)
+			}
+			if err := quotableBase(baseAsset); err != nil {
 				return "", fmt.Errorf("resolve base asset %s: %w", key.symbol, err)
 			}
 			baseAssetCache[key] = baseAsset.ID
