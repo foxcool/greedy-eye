@@ -575,12 +575,12 @@ type pricing struct {
 //
 // A non-nil error signals an unexpected failure, not an unpriced holding.
 func (h *Handler) unitPrice(ctx context.Context, assetID, quoteAssetID string) (pricing, error) {
-	candidates, err := quoting.Candidates(ctx, h.mdClient, h.log, assetID, quoteAssetID)
+	candidates, missing, err := quoting.Candidates(ctx, h.mdClient, h.log, assetID, quoteAssetID)
 	if err != nil {
 		return pricing{outcome: quoting.NoQuote}, err
 	}
 	if len(candidates) == 0 {
-		return pricing{outcome: quoting.NoQuote}, nil
+		return pricing{outcome: missing}, nil
 	}
 
 	if _, thin := quoting.AnyThin(candidates); thin {

@@ -56,13 +56,20 @@ type Quote struct {
 // quoted straight in the quote asset. They are the same row whenever the
 // freshest print is already in the quote asset, and then there is only one
 // candidate and nothing to choose between.
-func Candidates(ctx context.Context, r PriceReader, log *slog.Logger, assetID, quoteAssetID string) ([]Quote, error) {
+//
+// When nothing comes back, the second return says which absence it is. An asset
+// nobody has priced (NoQuote) and one priced in a base this valuation cannot
+// convert from (NoCrossRate) look identical in a total and ask for opposite
+// work: coverage for the asset in the first case, a single missing rate in the
+// second. Collapsing them hid a live failure for months — see NoCrossRate.
+func Candidates(ctx context.Context, r PriceReader, log *slog.Logger, assetID, quoteAssetID string) ([]Quote, Outcome, error) {
 	one := decimal.NewFromInt(1)
 	var out []Quote
+	missing := NoQuote
 
 	baseID, value, row, ok, err := LatestAnyBase(ctx, r, log, assetID)
 	if err != nil {
-		return nil, err
+		return nil, NoQuote, err
 	}
 	direct := ok && baseID == quoteAssetID
 	switch {
@@ -71,23 +78,31 @@ func Candidates(ctx context.Context, r PriceReader, log *slog.Logger, assetID, q
 	case ok:
 		rate, hasRate, err := CrossRate(ctx, r, log, baseID, quoteAssetID)
 		if err != nil {
-			return nil, err
+			return nil, NoQuote, err
 		}
 		if hasRate {
 			out = append(out, Quote{Unit: value.Mul(rate), Row: row, Rate: rate, BaseID: baseID, ValueBase: value})
+		} else {
+			// The asset IS quoted; only the conversion is missing. Provisional:
+			// a price quoted straight in the quote asset, found below, still
+			// prices it and clears this.
+			missing = NoCrossRate
 		}
 	}
 
 	if !direct {
 		unit, row, ok, err := RealPrice(ctx, r, log, assetID, quoteAssetID)
 		if err != nil {
-			return nil, err
+			return nil, NoQuote, err
 		}
 		if ok {
 			out = append(out, Quote{Unit: unit, Row: row, Rate: one, BaseID: quoteAssetID, ValueBase: unit})
 		}
 	}
-	return out, nil
+	if len(out) > 0 {
+		return out, Priced, nil
+	}
+	return nil, missing, nil
 }
 
 // Freshest picks the most recently observed candidate. A quote with no timestamp

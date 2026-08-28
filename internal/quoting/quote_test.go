@@ -57,6 +57,7 @@ func TestCandidates(t *testing.T) {
 		latest  map[string]*apiv1.Price
 		want    []string // expected candidate unit prices, in resolution order
 		freshes string   // unit price of the candidate Freshest must pick; "" when none
+		missing Outcome  // which absence is reported when nothing was found
 		reason  string
 	}{
 		{
@@ -122,6 +123,7 @@ func TestCandidates(t *testing.T) {
 			},
 			want:    nil,
 			freshes: "",
+			missing: NoCrossRate,
 			reason:  "74 holdings looked unquoted while the only thing missing was the cross rate",
 		},
 		{
@@ -129,6 +131,7 @@ func TestCandidates(t *testing.T) {
 			latest:  map[string]*apiv1.Price{},
 			want:    nil,
 			freshes: "",
+			missing: NoQuote,
 			reason:  "nobody has ever quoted it",
 		},
 		{
@@ -147,8 +150,11 @@ func TestCandidates(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := &fakeReader{latest: tt.latest}
-			got, err := Candidates(context.Background(), r, testLogger(), assetOf(tt.latest), "usd")
+			got, missing, err := Candidates(context.Background(), r, testLogger(), assetOf(tt.latest), "usd")
 			require.NoError(t, err)
+			if len(got) > 0 {
+				assert.Equal(t, Priced, missing, "candidates were found, so nothing is missing")
+			}
 
 			units := make([]string, 0, len(got))
 			for _, c := range got {
@@ -158,6 +164,8 @@ func TestCandidates(t *testing.T) {
 
 			if tt.freshes == "" {
 				assert.Empty(t, got, "nothing to choose between")
+				assert.Equal(t, tt.missing, missing,
+					"which absence this is, is the thing the coverage block reports")
 				return
 			}
 			assert.Equal(t, tt.freshes, Freshest(got).Unit.String(), tt.reason)
@@ -193,7 +201,7 @@ func TestCandidatesValueBase(t *testing.T) {
 		"eur|usd": price("eur", "usd", "110", 2, at),
 	}}
 
-	got, err := Candidates(context.Background(), r, testLogger(), "sol", "usd")
+	got, _, err := Candidates(context.Background(), r, testLogger(), "sol", "usd")
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 
@@ -279,7 +287,7 @@ func TestUnparseableLastIsNotAnError(t *testing.T) {
 		"eth|usd": price("eth", "usd", "not-a-number", 2, at),
 	}}
 
-	got, err := Candidates(context.Background(), r, testLogger(), "eth", "usd")
+	got, _, err := Candidates(context.Background(), r, testLogger(), "eth", "usd")
 	require.NoError(t, err)
 	assert.Empty(t, got, "an unparseable price leaves the asset unpriced, it does not fail the request")
 }
@@ -288,7 +296,7 @@ func TestUnparseableLastIsNotAnError(t *testing.T) {
 // is not silently an unpriced holding.
 func TestReaderErrorPropagates(t *testing.T) {
 	r := &fakeReader{err: connect.NewError(connect.CodeUnavailable, errors.New("market data down"))}
-	_, err := Candidates(context.Background(), r, testLogger(), "eth", "usd")
+	_, _, err := Candidates(context.Background(), r, testLogger(), "eth", "usd")
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeUnavailable, connect.CodeOf(err))
 }
@@ -297,4 +305,34 @@ func TestOutcomeReason(t *testing.T) {
 	assert.Equal(t, apiv1.UnpricedReason_UNPRICED_REASON_THIN_MARKET, ThinMarket.Reason())
 	assert.Equal(t, apiv1.UnpricedReason_UNPRICED_REASON_NO_QUOTE, NoQuote.Reason(),
 		"no price row anywhere is the outcome of every path that simply fails to find one")
+}
+
+// TestNoCrossRateYieldsToADirectQuote pins that the missing-rate verdict is
+// provisional. The any-base path can fail to convert while a price quoted
+// straight in the quote asset still exists — the asset is priced, and reporting
+// NO_CROSS_RATE for it would be a false alarm about a holding that entered the
+// total.
+func TestNoCrossRateYieldsToADirectQuote(t *testing.T) {
+	at := time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC)
+	r := &fakeReader{latest: map[string]*apiv1.Price{
+		// Freshest print is in a base nothing converts...
+		"ai|": price("ai", "usdt-crypto", "150", 2, at),
+		// ...but the catalogue also holds a direct USD row.
+		"ai|usd": price("ai", "usd", "140", 2, at),
+	}}
+
+	got, missing, err := Candidates(context.Background(), r, testLogger(), "ai", "usd")
+	require.NoError(t, err)
+
+	require.Len(t, got, 1, "the direct row still prices it")
+	assert.Equal(t, "1.4", got[0].Unit.String())
+	assert.Equal(t, Priced, missing, "a priced asset reports no absence at all")
+}
+
+// TestNoCrossRateReason pins the wire value the coverage block carries, which is
+// the whole point of splitting it from NO_QUOTE: the two ask for opposite work.
+func TestNoCrossRateReason(t *testing.T) {
+	assert.Equal(t, apiv1.UnpricedReason_UNPRICED_REASON_NO_CROSS_RATE, NoCrossRate.Reason())
+	assert.NotEqual(t, NoQuote.Reason(), NoCrossRate.Reason(),
+		"an unconvertible price is not the same fact as no price")
 }

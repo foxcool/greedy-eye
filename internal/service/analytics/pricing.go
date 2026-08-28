@@ -53,11 +53,12 @@ func (h *Handler) assetPricing(ctx context.Context, cache map[string]*assetPrici
 		return nil, err
 	}
 
-	candidates, err := quoting.Candidates(ctx, h.mdClient, h.log, assetID, quoteAssetID)
+	candidates, missing, err := quoting.Candidates(ctx, h.mdClient, h.log, assetID, quoteAssetID)
 	if err != nil {
 		return nil, err
 	}
 	if len(candidates) == 0 {
+		ap.reason = missing.Reason()
 		return ap, nil
 	}
 	if thin, isThin := quoting.AnyThin(candidates); isThin {
