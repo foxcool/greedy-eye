@@ -307,7 +307,7 @@ graph TB
     subgraph "External Adapters"
         Prices[coingecko, binance, cbr,<br/>moex, tinvest<br/>prices]
         Wallets[moralis, subscan, tonapi, solana,<br/>esplora, cosmos, tzkt, blockchair<br/>wallet balances]
-        Telegram[telegram<br/>notifications]
+        Telegram[telegram<br/>notifications — NOT WIRED]
     end
 
     subgraph "Domain Logic"
@@ -454,7 +454,10 @@ without linking them.
   already includes what is locked or staked, so summing them doubles the largest position on a
   staking-heavy account.
 
-- **Messenger Adapters** (`internal/adapter/telegram/`): Telegram (notifications)
+- **Messenger Adapters** (`internal/adapter/telegram/`): Telegram — **client only, wired to
+  nothing.** The package compiles and is tested, but no service imports it and there is no
+  notification path in the codebase. It is ahead of its consumer, not left over from one:
+  `greedy-eye-68z` (portfolio change notifications) is the ticket that would use it
 - **Rate budget** (`internal/adapter/ratelimit/`): a process-wide registry of token buckets keyed by
   provider + digest of the API key, injected into every adapter client as an `http.RoundTripper`.
   Because clients are per-account and short-lived, a limiter inside a client paces one account and
@@ -821,7 +824,7 @@ Cron / API Client → AutomationService/ExecuteRule
 **Caching:**
 - **Price Data**: Caching current prices with TTL
 - **Portfolio Calculations**: Caching portfolio calculations
-- **Session Data**: In-memory caching of Telegram Bot sessions
+- **Session Data**: planned with the Telegram bot (`greedy-eye-68z`); no such cache exists today
 
 **Query Optimization:**
 - **Database Indexing**: Indexes on foreign keys and timestamp fields
@@ -1088,8 +1091,9 @@ somebody chose, since that would report one currency's number under another curr
   - ➖ Symbol-only lookups become ambiguous once a ticker exists on two markets; callers
     must then resolve by ID or market
   - ➖ That backfill put USD on `crypto` and kept `market` out of quote-currency resolution
-    for two years, which is how a USDT twin came to be minted (ADR-010). Resolution now uses
-    the full composite; the backfilled row was moved rather than the key widened
+    for the six weeks this ADR stood, which is how a USDT twin came to be minted on dev
+    (ADR-010). Resolution now uses the full composite; the backfilled row is moved rather
+    than the key widened
 - **Rejected**: market = price source (duplicates every asset per provider, fragments
   holdings); an `external_ref` column on `assets` (one asset maps to many provider IDs —
   1:N belongs in a mapping table, and a 1:1 column would die on the second source);
@@ -1205,14 +1209,27 @@ somebody chose, since that would report one currency's number under another curr
   type=forex)` — a fake tradeable crypto asset, standing in the catalogue where anyone might
   sum it, and colliding with counterfeit "US Dollar" tokens minted by whoever pays the gas.
 
-  Conflating the two cost real money and two months of silence. Correcting Binance's quote
-  currency from forex to cryptocurrency (`0f5c100`, 2026-06-04) minted a USDT twin rather than
-  updating the row, because `market` was deliberately excluded from the identity key — excluded
-  precisely because USD sat on the wrong market and matching on it would have missed the row
-  every stored price points at. The twin split the identity: Binance quoted into one row while
-  CoinGecko wrote the USDT/USD rate against the other. 74 holdings across 8 assets left the
-  total, reporting `NO_QUOTE` — indistinguishable from assets nobody had ever priced, which is
-  what kept anyone from looking. The rate existed the whole time.
+  Conflating the two cost real money and two months of silence **on dev**. Correcting
+  Binance's quote currency from forex to cryptocurrency (`0f5c100`, 2026-06-04) minted a USDT
+  twin rather than updating the row, because `market` was deliberately excluded from the
+  identity key — excluded precisely because USD sat on the wrong market and matching on it
+  would have missed the row every stored price points at. The twin split the identity: Binance
+  quoted into one row while CoinGecko wrote the USDT/USD rate against the other. 74 holdings
+  across 8 assets left the total, reporting `NO_QUOTE` — indistinguishable from assets nobody
+  had ever priced, which is what kept anyone from looking. The rate existed the whole time.
+
+  **Which shape an instance is in is a question about that instance, not about the software.**
+  Measured 2026-08-28:
+
+  | | dev | prod |
+  |---|---|---|
+  | USD row | `(USD, crypto, forex)` — needs moving | `(USD, forex, forex)` — already right |
+  | USDT forex twin | present, 1,354 price rows | absent |
+  | prices on the USD row | 67,536 | not counted; nothing points at a wrong row |
+  | holdings reporting `NO_QUOTE` | 74 across 8 assets | 0 |
+
+  Prod was built after the backfill and never carried the defect. Every number in the dev
+  column is a dev number; none of them describes the software.
 - **Decision**: they are two questions and get two homes.
 
   The **quote side of a pair is any asset**, and stays `prices.base_asset_id`. A row in
@@ -1238,10 +1255,21 @@ somebody chose, since that would report one currency's number under another curr
     not a coverage gap
   - ➕ An owner can read their portfolio in roubles without any pair changing
   - ➕ Pair identity becomes reliable, which is what arbitrage will need
-  - ➖ The USD row must be moved by hand in psql **before** the code ships: afterwards
-    `resolveBase` looks up `(USD, forex, forex)`, finds nothing, and mints a second USD while
-    67,536 prices still point at the old one. Atlas applies unattended here with no revisions
-    table, so the data move cannot travel inside it
+  - ➖ **Conditional on the instance**: one whose USD does not already sit on
+    `market='forex'` must have that row moved by hand in psql **before** the code ships.
+    Afterwards `resolveBase` looks up `(USD, forex, forex)`, finds nothing, and mints a second
+    USD while every stored price still points at the old one. Atlas applies unattended here
+    with no revisions table, so the data move cannot travel inside it. Check before deploying,
+    do not assume — dev needed the move, prod did not:
+
+    ```sql
+    SELECT symbol, market, type, count(*) FROM assets
+    WHERE symbol IN ('USD','USDT') AND market NOT LIKE 'onchain:%'
+    GROUP BY 1,2,3 ORDER BY 1,2;
+    ```
+
+    One `(USD, forex, forex)` row and one `(USDT, crypto, cryptocurrency)` row means the
+    instance is already in the target shape and there is nothing to move
   - ➖ A display currency the catalogue does not hold fails the valuation rather than falling
     back to dollars — deliberate, since the quiet fallback would report one currency's number
     under another currency's name
