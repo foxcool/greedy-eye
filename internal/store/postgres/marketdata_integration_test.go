@@ -752,6 +752,39 @@ func TestGetOrCreateAssetBySymbol_RejectsTypeWithoutDefaultMarket(t *testing.T) 
 		"a ticker with no implied market is not an identity")
 }
 
+// TestPriceCannotQuoteAnAssetAgainstItself pins the CHECK behind the pair.
+//
+// A price is a ratio between two different things. A row quoting an asset
+// against itself says "1" in a shape that reads like data, and crossRate would
+// divide by it happily — one such row is enough to make every conversion through
+// that asset return 1, silently and everywhere.
+//
+// The rule lives in the database because the write path does not: five provider
+// adapters and the manual price endpoint all insert here.
+func TestPriceCannotQuoteAnAssetAgainstItself(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	asset := createTestAsset(t, s, "Self Quoting Coin")
+
+	_, err := s.CreatePrice(ctx, &entity.StoredPrice{
+		SourceID:    "test",
+		AssetID:     asset.ID,
+		BaseAssetID: asset.ID,
+		Interval:    "latest",
+		Decimals:    4,
+		Last:        decimal.NewFromInt(10000),
+		Timestamp:   time.Now(),
+	})
+	require.Error(t, err, "an asset priced against itself is not a quote")
+
+	// A pair of two different assets is of course still accepted, so the
+	// constraint is not simply refusing everything.
+	other := createTestAsset(t, s, "Ordinary Base Coin")
+	createTestPrice(t, s, asset.ID, other.ID, "test")
+}
+
 // assetIDs is a readability helper for asserting on selection order.
 func assetIDs(assets []*entity.Asset) []string {
 	ids := make([]string, 0, len(assets))
