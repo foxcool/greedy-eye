@@ -16,9 +16,9 @@ import (
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
-	"github.com/foxcool/greedy-eye/internal/marketdepth"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/pricefresh"
+	"github.com/foxcool/greedy-eye/internal/quoting"
 	"github.com/foxcool/greedy-eye/internal/scamfilter"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/shopspring/decimal"
@@ -331,17 +331,17 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 			// Quarantine is its own axis: an excluded holding is out of the total
 			// by decision, not for lack of a quote, so it stays out of coverage.
 			excludedCount++
-			if priced.outcome == outcomePriced {
+			if priced.outcome == quoting.Priced {
 				excludedTotal = excludedTotal.Add(hld.Amount.Shift(-decI32(hld.Decimals)).Mul(priced.unit))
 			}
 			continue
 		}
-		if priced.outcome != outcomePriced {
+		if priced.outcome != quoting.Priced {
 			// No usable price: report the holding instead of letting it contribute
 			// zero. Zero is an assertion about the market; this is missing data —
 			// either no quote at all, or a quote with no market behind it.
 			coverage.UnpricedCount++
-			unpriced = append(unpriced, unpricedHolding{holding: hld, reason: priced.outcome.reason()})
+			unpriced = append(unpriced, unpricedHolding{holding: hld, reason: priced.outcome.Reason()})
 			continue
 		}
 		coverage.PricedCount++
@@ -559,196 +559,40 @@ func (h *Handler) exhaustedSources(ctx context.Context, listed []unpricedHolding
 // row it came from is gone.
 type pricing struct {
 	unit     decimal.Decimal
-	outcome  priceOutcome
+	outcome  quoting.Outcome
 	quotedAt time.Time // zero when unpriced, or when the quote carried no time
-}
-
-// priceOutcome says whether a holding could be valued, and if not, why. The proto
-// enum is the wire shape; this is the domain one, so the pricing code never has to
-// spell UNPRICED_REASON_UNSPECIFIED to mean success.
-type priceOutcome int
-
-const (
-	outcomePriced priceOutcome = iota
-	outcomeNoQuote
-	outcomeThinMarket
-)
-
-func (o priceOutcome) reason() apiv1.UnpricedReason {
-	if o == outcomeThinMarket {
-		return apiv1.UnpricedReason_UNPRICED_REASON_THIN_MARKET
-	}
-	return apiv1.UnpricedReason_UNPRICED_REASON_NO_QUOTE
-}
-
-// quote is one usable way to express an asset in the quote currency: the price
-// row it rests on, the rate that converts that row's base, and the per-token
-// value that falls out.
-type quote struct {
-	unit decimal.Decimal
-	row  *apiv1.Price
-	rate decimal.Decimal
 }
 
 // unitPrice returns the per-token price of assetID expressed in quoteAssetID as a
 // real-unit decimal (i.e. already divided by the price's decimals).
 //
 // A position is priced in whatever pair it actually trades in (USDT, RUB, BTC, …); the
-// quote currency is not assumed. Among the ways to express it, the FRESHEST wins.
-//
-// That is a correction, not a preference. Resolution used to be ordered by path —
-// a direct quote first, a cross only if no direct one existed — so one stale
-// direct row shadowed every fresher row the catalogue held, from any source,
-// permanently. Prod 2026-08-14 is the proof: Binance wrote BTC/USDT hourly and
-// current while CoinGecko's BTC/USD had been frozen since the 11th by a 429, and
-// the total and the map both showed the frozen number. Storing prices from
-// several sources buys nothing if the read discards all but one of them, which
-// is the whole of personal-psu on the side nobody was looking at.
-//
-// A quote that survives selection still has to have a market behind it: MNEP priced
-// $4,175 of airdropped tokens off a $40k/day market until this gate existed. The gate
-// reads EVERY candidate that reports a volume, not only the one whose number is used,
-// because the freshest row is not always the one carrying the evidence — Binance
-// reports no volume at all, and letting its row displace a CoinGecko row that says
-// "$40k a day" would disarm ADR-009 by accident. The rate is applied per candidate,
-// since volume is denominated in that candidate's own base. The cross rate itself is
-// never gated: it is a currency pair, and judging it would take down everything
-// priced through it.
+// quote currency is not assumed. Among the ways to express it, the FRESHEST wins,
+// and every candidate that reports a volume has to clear the market-depth gate.
+// Both rules, and why each is the way it is, live in internal/quoting — the
+// heatmap resolves its prices through the same code, so the total and the map
+// cannot answer under different rules.
 //
 // A non-nil error signals an unexpected failure, not an unpriced holding.
 func (h *Handler) unitPrice(ctx context.Context, assetID, quoteAssetID string) (pricing, error) {
-	candidates, err := h.quotes(ctx, assetID, quoteAssetID)
+	candidates, err := quoting.Candidates(ctx, h.mdClient, h.log, assetID, quoteAssetID)
 	if err != nil {
-		return pricing{outcome: outcomeNoQuote}, err
+		return pricing{outcome: quoting.NoQuote}, err
 	}
 	if len(candidates) == 0 {
-		return pricing{outcome: outcomeNoQuote}, nil
+		return pricing{outcome: quoting.NoQuote}, nil
 	}
 
-	for _, c := range candidates {
-		if marketdepth.Thin(c.row, c.rate) {
-			return pricing{outcome: outcomeThinMarket}, nil
-		}
+	if _, thin := quoting.AnyThin(candidates); thin {
+		return pricing{outcome: quoting.ThinMarket}, nil
 	}
 
-	best := freshestQuote(candidates)
+	best := quoting.Freshest(candidates)
 	// Dated by the asset's own quote, not by the cross rate. The rate is a
 	// currency pair on the same footing as the market-depth gate above: judging
 	// it here would let one stale FX row date every position converted through
 	// it, which says nothing about whether THIS asset still trades.
-	return pricing{unit: best.unit, outcome: outcomePriced, quotedAt: pricefresh.QuotedAt(best.row)}, nil
-}
-
-// quotes collects every way this asset can be expressed in quoteAssetID: its own
-// freshest print converted from whatever pair it trades in, and a price quoted
-// straight in the quote asset. They are the same row whenever the freshest print
-// is already in the quote asset, and then there is only one candidate and
-// nothing to choose between.
-func (h *Handler) quotes(ctx context.Context, assetID, quoteAssetID string) ([]quote, error) {
-	one := decimal.NewFromInt(1)
-	var out []quote
-
-	baseID, value, row, ok, err := h.latestAnyBase(ctx, assetID)
-	if err != nil {
-		return nil, err
-	}
-	direct := ok && baseID == quoteAssetID
-	switch {
-	case direct:
-		out = append(out, quote{unit: value, row: row, rate: one})
-	case ok:
-		rate, hasRate, err := h.crossRate(ctx, baseID, quoteAssetID)
-		if err != nil {
-			return nil, err
-		}
-		if hasRate {
-			out = append(out, quote{unit: value.Mul(rate), row: row, rate: rate})
-		}
-	}
-
-	if !direct {
-		unit, row, ok, err := h.realPrice(ctx, assetID, quoteAssetID)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			out = append(out, quote{unit: unit, row: row, rate: one})
-		}
-	}
-	return out, nil
-}
-
-// freshestQuote picks the most recently observed candidate. A quote with no
-// timestamp sorts oldest: it cannot claim currency it never stated.
-func freshestQuote(candidates []quote) quote {
-	best := candidates[0]
-	for _, c := range candidates[1:] {
-		if pricefresh.QuotedAt(c.row).After(pricefresh.QuotedAt(best.row)) {
-			best = c
-		}
-	}
-	return best
-}
-
-// crossRate returns how many units of quoteID one unit of baseID is worth, using a
-// direct baseID/quoteID price or, failing that, the inverse quoteID/baseID price.
-func (h *Handler) crossRate(ctx context.Context, baseID, quoteID string) (decimal.Decimal, bool, error) {
-	// The price row itself is discarded here on purpose: a currency pair is not
-	// subject to the market-depth gate (see unitPrice).
-	if r, _, ok, err := h.realPrice(ctx, baseID, quoteID); err != nil || ok {
-		return r, ok, err
-	}
-	inv, _, ok, err := h.realPrice(ctx, quoteID, baseID)
-	if err != nil || !ok || inv.IsZero() {
-		return decimal.Zero, false, err
-	}
-	return decimal.NewFromInt(1).Div(inv), true, nil
-}
-
-// latestAnyBase returns the asset's most recent price regardless of base, as the base
-// asset ID, the real-unit value and the price row it came from. ok is false when no
-// price exists.
-func (h *Handler) latestAnyBase(ctx context.Context, assetID string) (string, decimal.Decimal, *apiv1.Price, bool, error) {
-	resp, err := h.mdClient.GetLatestPrice(ctx, connect.NewRequest(&apiv1.GetLatestPriceRequest{
-		AssetId: assetID, // BaseAssetId omitted → latest in any base
-	}))
-	if err != nil {
-		if connect.CodeOf(err) == connect.CodeNotFound {
-			return "", decimal.Zero, nil, false, nil
-		}
-		return "", decimal.Zero, nil, false, err
-	}
-	last, err := decimal.NewFromString(resp.Msg.Last)
-	if err != nil {
-		h.log.Warn("skip price with unparseable last",
-			"asset_id", assetID, "base_asset_id", resp.Msg.BaseAssetId, "last", resp.Msg.Last, "error", err)
-		return "", decimal.Zero, nil, false, nil
-	}
-	return resp.Msg.BaseAssetId, last.Shift(-decI32(resp.Msg.Decimals)), resp.Msg, true, nil
-}
-
-// realPrice returns the latest price of assetID in baseID as a real-unit decimal
-// (value = last / 10^decimals), together with the price row it was read from — the
-// caller needs the market context on it, not just the number. ok is false when no
-// price exists (NotFound) or the stored value is unparseable; a non-nil error is
-// returned only for unexpected failures.
-func (h *Handler) realPrice(ctx context.Context, assetID, baseID string) (decimal.Decimal, *apiv1.Price, bool, error) {
-	resp, err := h.mdClient.GetLatestPrice(ctx, connect.NewRequest(&apiv1.GetLatestPriceRequest{
-		AssetId: assetID, BaseAssetId: baseID,
-	}))
-	if err != nil {
-		if connect.CodeOf(err) == connect.CodeNotFound {
-			return decimal.Zero, nil, false, nil
-		}
-		return decimal.Zero, nil, false, err
-	}
-	last, err := decimal.NewFromString(resp.Msg.Last)
-	if err != nil {
-		h.log.Warn("skip price with unparseable last",
-			"asset_id", assetID, "base_asset_id", baseID, "last", resp.Msg.Last, "error", err)
-		return decimal.Zero, nil, false, nil
-	}
-	return last.Shift(-decI32(resp.Msg.Decimals)), resp.Msg, true, nil
+	return pricing{unit: best.Unit, outcome: quoting.Priced, quotedAt: pricefresh.QuotedAt(best.Row)}, nil
 }
 
 // GetPortfolioPerformance calculates return over a time range using stored price history.
@@ -1077,7 +921,7 @@ func (h *Handler) ListUnpricedHoldings(ctx context.Context, req *connect.Request
 			if err != nil {
 				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get price for %s: %w", hld.AssetID, err))
 			}
-			if priced.outcome == outcomePriced {
+			if priced.outcome == quoting.Priced {
 				continue
 			}
 			// Not filtered here: the reason is not final yet. The pricing path
@@ -1086,7 +930,7 @@ func (h *Handler) ListUnpricedHoldings(ctx context.Context, req *connect.Request
 			// Matching against the provisional value made reason=never_priced
 			// return nothing at all, and reason=no_quote return rows that are
 			// really NEVER_PRICED.
-			found = append(found, unpricedHolding{holding: hld, reason: priced.outcome.reason()})
+			found = append(found, unpricedHolding{holding: hld, reason: priced.outcome.Reason()})
 		}
 		if nextToken == "" || len(page) == 0 {
 			// The store is exhausted: whatever survived is the end of the walk,
