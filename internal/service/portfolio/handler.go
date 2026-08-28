@@ -280,6 +280,12 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 	if quoteAssetID == "" {
 		quoteAssetID = valuation.QuoteAsset()
 	}
+	// Resolved once, before any holding is priced: the policy names the currency
+	// by ticker while price rows carry a UUID. See quoting.ResolveQuote.
+	quoteAssetID, err := quoting.ResolveQuote(ctx, h.mdClient, quoteAssetID)
+	if err != nil {
+		return nil, err
+	}
 
 	// Fetch all holdings (excluded included) and partition in code so the total
 	// can exclude the quarantined ones while still disclosing them — a silently
@@ -619,6 +625,10 @@ func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Requ
 	if req.Msg.BenchmarkAssetId != "" {
 		quoteAssetID = req.Msg.BenchmarkAssetId
 	}
+	quoteAssetID, err := quoting.ResolveQuote(ctx, h.mdClient, quoteAssetID)
+	if err != nil {
+		return nil, err
+	}
 
 	holdings, err := h.allHoldings(ctx, ListHoldingsOpts{PortfolioID: req.Msg.PortfolioId})
 	if err != nil {
@@ -899,6 +909,10 @@ func (h *Handler) ListUnpricedHoldings(ctx context.Context, req *connect.Request
 	quoteAssetID := pricefresh.PolicyFrom(ctx, h.setClient, h.log).QuoteAsset()
 	if req.Msg.QuoteAssetId != nil && *req.Msg.QuoteAssetId != "" {
 		quoteAssetID = *req.Msg.QuoteAssetId
+	}
+	quoteAssetID, err := quoting.ResolveQuote(ctx, h.mdClient, quoteAssetID)
+	if err != nil {
+		return nil, err
 	}
 
 	var (

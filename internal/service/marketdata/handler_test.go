@@ -330,6 +330,9 @@ func TestGetAsset_MissingID(t *testing.T) {
 func TestGetAsset_NotFound(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAsset", mock.Anything, "id-x").Return(nil, store.ErrNotFound)
+	// Not a UUID, so it resolves as a ticker — the path GetLatestPrice
+	// has always taken and GetAsset now takes too.
+	s.On("GetAssetBySymbol", mock.Anything, "id-x").Return(testAsset("id-x"), nil)
 	h := newHandler(s)
 
 	_, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "id-x"}))
@@ -340,6 +343,9 @@ func TestGetAsset_NotFound(t *testing.T) {
 func TestGetAsset_OK(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
+	// Not a UUID, so it resolves as a ticker — the path GetLatestPrice
+	// has always taken and GetAsset now takes too.
+	s.On("GetAssetBySymbol", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
 	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return(nil, nil)
 	expectRiskFlags(s)
 	h := newHandler(s)
@@ -356,6 +362,9 @@ func TestGetAsset_OK(t *testing.T) {
 func TestGetAsset_CarriesTheBindings(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
+	// Not a UUID, so it resolves as a ticker — the path GetLatestPrice
+	// has always taken and GetAsset now takes too.
+	s.On("GetAssetBySymbol", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
 	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return([]*entity.AssetExternalRef{
 		{ID: "ref-eth", AssetID: "id-1", Source: "onchain:ethereum", Ref: "0xreal", Origin: entity.RefOriginAuto},
 		{ID: "ref-poly", AssetID: "id-1", Source: "onchain:polygon", Ref: "0xfake", Origin: entity.RefOriginAuto},
@@ -375,6 +384,9 @@ func TestGetAsset_CarriesTheBindings(t *testing.T) {
 func TestGetAsset_SurvivesUnreadableBindings(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
+	// Not a UUID, so it resolves as a ticker — the path GetLatestPrice
+	// has always taken and GetAsset now takes too.
+	s.On("GetAssetBySymbol", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
 	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return(nil, assert.AnError)
 	expectRiskFlags(s)
 	h := newHandler(s)
@@ -382,6 +394,23 @@ func TestGetAsset_SurvivesUnreadableBindings(t *testing.T) {
 	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "id-1"}))
 	require.NoError(t, err)
 	assert.Empty(t, resp.Msg.ExternalRefs)
+}
+
+// TestGetAsset_ResolvesATicker: the display currency is named by symbol in the
+// valuation setting, and a valuation resolves it here once before pricing
+// anything. GetLatestPrice and ListPriceHistory already accepted a ticker; this
+// endpoint was the one that did not.
+func TestGetAsset_ResolvesATicker(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAssetBySymbol", mock.Anything, "USD").Return(testAsset("id-usd"), nil)
+	s.On("GetAsset", mock.Anything, "id-usd").Return(testAsset("id-usd"), nil)
+	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-usd"}).Return(nil, nil)
+	expectRiskFlags(s)
+	h := newHandler(s)
+
+	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "USD"}))
+	require.NoError(t, err)
+	assert.Equal(t, "id-usd", resp.Msg.Id, "the caller gets the id price rows are keyed by")
 }
 
 // --- Tests: DeleteAsset ---
@@ -1088,6 +1117,9 @@ func TestGetAsset_AttachesRiskFlags(t *testing.T) {
 	review := time.Now().Add(72 * time.Hour)
 	s := &mockStore{}
 	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
+	// Not a UUID, so it resolves as a ticker — the path GetLatestPrice
+	// has always taken and GetAsset now takes too.
+	s.On("GetAssetBySymbol", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
 	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return(nil, nil)
 	s.On("ListAssetRiskFlags", mock.Anything, "id-1").Return([]*entity.AssetRiskFlag{
 		{ID: "flag-1", AssetID: "id-1", Kind: "frozen_transfers", ActionHint: "hold", ReviewAt: &review},
@@ -1108,6 +1140,9 @@ func TestGetAsset_AttachesRiskFlags(t *testing.T) {
 func TestGetAsset_RiskFlagFailureKeepsAsset(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
+	// Not a UUID, so it resolves as a ticker — the path GetLatestPrice
+	// has always taken and GetAsset now takes too.
+	s.On("GetAssetBySymbol", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
 	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return(nil, nil)
 	s.On("ListAssetRiskFlags", mock.Anything, "id-1").Return(nil, assert.AnError)
 	h := newHandler(s)

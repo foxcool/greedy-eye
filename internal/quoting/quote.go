@@ -29,6 +29,33 @@ type PriceReader interface {
 	GetLatestPrice(context.Context, *connect.Request[apiv1.GetLatestPriceRequest]) (*connect.Response[apiv1.Price], error)
 }
 
+// AssetResolver is the second thing this package needs from market data: the
+// catalogue row a quote currency names. Satisfied by the same clients as
+// PriceReader.
+type AssetResolver interface {
+	GetAsset(context.Context, *connect.Request[apiv1.GetAssetRequest]) (*connect.Response[apiv1.Asset], error)
+}
+
+// ResolveQuote turns the asset a valuation is expressed in — a ticker from the
+// valuation policy, or an ID named by the request — into the UUID stored price
+// rows are keyed by.
+//
+// Call it ONCE per valuation, not once per holding. A price carries
+// base_asset_id as a UUID while the policy stores a symbol, so an unresolved
+// quote never equals the base of any row: every asset would take the cross-rate
+// path, spend two lookups discovering there is no USD/USD rate, and only then
+// find the direct quote it already had. Resolving up front also moves the
+// failure to where it can be read — an unknown display currency fails the
+// request naming itself, instead of turning every holding into NO_QUOTE, which
+// says "nobody priced these" about a catalogue that priced them all.
+func ResolveQuote(ctx context.Context, r AssetResolver, quoteAsset string) (string, error) {
+	resp, err := r.GetAsset(ctx, connect.NewRequest(&apiv1.GetAssetRequest{Id: quoteAsset}))
+	if err != nil {
+		return "", err
+	}
+	return resp.Msg.Id, nil
+}
+
 // Quote is one usable way to express an asset in the quote currency: the price
 // row it rests on, the rate converting that row's base, the per-token value that
 // falls out, and the base itself — the heatmap reads change in the pair the

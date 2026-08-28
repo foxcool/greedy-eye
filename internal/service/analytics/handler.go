@@ -14,6 +14,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/pricefresh"
+	"github.com/foxcool/greedy-eye/internal/quoting"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/shopspring/decimal"
@@ -138,6 +139,11 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 	quoteAssetID := msg.QuoteAssetId
 	if quoteAssetID == "" {
 		quoteAssetID = valuation.QuoteAsset()
+	}
+	// Resolved once, before any asset is priced. See quoting.ResolveQuote.
+	quoteAssetID, err := quoting.ResolveQuote(ctx, h.mdClient, quoteAssetID)
+	if err != nil {
+		return nil, err
 	}
 	from := time.Now().Add(-windowDuration(msg.Window))
 

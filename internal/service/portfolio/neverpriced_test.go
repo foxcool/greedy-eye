@@ -29,6 +29,8 @@ func unpricedFixture(t *testing.T) (*mockStore, *mockMDClient) {
 	md := &mockMDClient{}
 	md.On("GetLatestPrice", mock.Anything, mock.Anything).
 		Return(nil, connect.NewError(connect.CodeNotFound, assert.AnError))
+	md.On("GetAsset", mock.Anything, assetReq("USD")).
+		Return(connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil).Maybe()
 	md.On("GetAsset", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID, Symbol: strPtr("FXGD")}), nil)
 	return s, md
@@ -131,6 +133,8 @@ func TestUnpriced_ThinMarketIsNotReinterpreted(t *testing.T) {
 		AssetId: testAssetID, BaseAssetId: "usd", Last: "100", Decimals: 8, Volume: &thinVolume,
 		Timestamp: timestamppb.New(time.Now()),
 	}), nil)
+	md.On("GetAsset", mock.Anything, assetReq("USD")).
+		Return(connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil).Maybe()
 	md.On("GetAsset", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID, Symbol: strPtr("MNEP")}), nil)
 	pricingStatus(md, &apiv1.AssetPricingStatus{

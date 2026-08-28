@@ -202,7 +202,16 @@ func (h *Handler) GetAsset(ctx context.Context, req *connect.Request[apiv1.GetAs
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset ID is required"))
 	}
 
-	asset, err := h.store.GetAsset(ctx, req.Msg.Id)
+	// A ticker is accepted here for the same reason GetLatestPrice and
+	// ListPriceHistory accept one: a caller that knows a currency by its symbol
+	// should not have to learn its UUID first. This is the call a valuation uses
+	// to resolve its display currency once, before pricing anything.
+	id, err := h.resolveAssetID(ctx, req.Msg.Id)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
+	asset, err := h.store.GetAsset(ctx, id)
 	if err != nil {
 		return nil, toConnectError(err)
 	}

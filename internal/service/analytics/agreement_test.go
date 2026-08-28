@@ -116,6 +116,7 @@ func agreementFixture() (*fakeStore, *fakeMD) {
 			"ghost": {Id: "ghost", Name: "Ghost", Symbol: strPtr("GHOST")},
 			"orph":  {Id: "orph", Name: "Orphaned Quote", Symbol: strPtr("ORPH")},
 			"scam":  {Id: "scam", Name: "Counterfeit", Symbol: strPtr("USDT")},
+			"USD":   {Id: "USD", Name: "US Dollar", Symbol: strPtr("USD")},
 		},
 		latest: map[string]*apiv1.Price{
 			// Direct: a market deep enough to sell into.

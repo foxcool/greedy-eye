@@ -161,6 +161,10 @@ func fixture() (*fakeStore, *fakeMD) {
 		assets: map[string]*apiv1.Asset{
 			"eth": {Id: "eth", Name: "Ethereum", Symbol: strPtr("ETH")},
 			"btc": {Id: "btc", Name: "Bitcoin", Symbol: strPtr("BTC")},
+			// The display currency is a catalogue row like any other: the
+			// heatmap resolves it once before pricing anything.
+			"USD": {Id: "USD", Name: "US Dollar", Symbol: strPtr("USD")},
+			"RUB": {Id: "RUB", Name: "Russian Rouble", Symbol: strPtr("RUB")},
 		},
 		latest: map[string]*apiv1.Price{
 			"eth|USD": price("eth", "USD", "200000", 2),

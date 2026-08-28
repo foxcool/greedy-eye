@@ -25,13 +25,26 @@ func testLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard,
 type fakeReader struct {
 	latest map[string]*apiv1.Price
 	err    error
+	calls  int
+	// tickers models the service resolving a symbol to a UUID on every call
+	// (marketdata.resolveAssetID). Without it a fake makes an unresolved quote
+	// look unpriced, when what it really is, is priced expensively.
+	tickers map[string]string
+}
+
+func (f *fakeReader) alias(id string) string {
+	if to, ok := f.tickers[id]; ok {
+		return to
+	}
+	return id
 }
 
 func (f *fakeReader) GetLatestPrice(_ context.Context, req *connect.Request[apiv1.GetLatestPriceRequest]) (*connect.Response[apiv1.Price], error) {
+	f.calls++
 	if f.err != nil {
 		return nil, f.err
 	}
-	p, ok := f.latest[req.Msg.AssetId+"|"+req.Msg.BaseAssetId]
+	p, ok := f.latest[f.alias(req.Msg.AssetId)+"|"+f.alias(req.Msg.BaseAssetId)]
 	if !ok {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("no price"))
 	}
@@ -335,4 +348,72 @@ func TestNoCrossRateReason(t *testing.T) {
 	assert.Equal(t, apiv1.UnpricedReason_UNPRICED_REASON_NO_CROSS_RATE, NoCrossRate.Reason())
 	assert.NotEqual(t, NoQuote.Reason(), NoCrossRate.Reason(),
 		"an unconvertible price is not the same fact as no price")
+}
+
+// fakeAssets resolves a ticker to a catalogue row, the way the market data
+// service does. The ids are UUID-shaped because that is what price rows carry —
+// which is the whole point of the test below.
+type fakeAssets map[string]*apiv1.Asset
+
+func (f fakeAssets) GetAsset(_ context.Context, req *connect.Request[apiv1.GetAssetRequest]) (*connect.Response[apiv1.Asset], error) {
+	if a, ok := f[req.Msg.Id]; ok {
+		return connect.NewResponse(a), nil
+	}
+	return nil, connect.NewError(connect.CodeNotFound, errors.New("no such asset"))
+}
+
+// TestResolvedQuoteTakesTheDirectPath pins what resolving the display currency
+// up front buys, and it is not only speed.
+//
+// A price row carries base_asset_id as a UUID while the valuation policy names
+// the currency by ticker, so an unresolved quote never equals the base of any
+// row. `direct` was therefore unreachable on the default path: an asset already
+// quoted in the display currency still went looking for a cross rate, spent two
+// lookups discovering there is no USD/USD row — there cannot be one, CHECK
+// price_pair_is_not_self forbids it — and set the provisional NoCrossRate before
+// the direct quote it already had cleared it again.
+//
+// Resolved, the same asset is one lookup and never touches that branch, so
+// NoCrossRate goes back to meaning what it says.
+func TestResolvedQuoteTakesTheDirectPath(t *testing.T) {
+	const usdID = "019f99ff-2ad2-773d-a6a8-39b7e47c7770"
+	assets := fakeAssets{"USD": {Id: usdID, Name: "US Dollar"}}
+
+	quoteID, err := ResolveQuote(t.Context(), assets, "USD")
+	require.NoError(t, err)
+	require.Equal(t, usdID, quoteID, "the ticker resolves to the id price rows are keyed by")
+
+	rows := func() *fakeReader {
+		return &fakeReader{
+			tickers: map[string]string{"USD": usdID},
+			latest: map[string]*apiv1.Price{
+				"eth|":         price("eth", usdID, "200000", 2, time.Now()),
+				"eth|" + usdID: price("eth", usdID, "200000", 2, time.Now()),
+			},
+		}
+	}
+
+	resolved := rows()
+	got, outcome, err := Candidates(t.Context(), resolved, testLogger(), "eth", quoteID)
+	require.NoError(t, err)
+	require.Equal(t, Priced, outcome)
+	require.Len(t, got, 1)
+	assert.Equal(t, "2000", got[0].Unit.String())
+	assert.Equal(t, 1, resolved.calls, "a quote already in the display currency is one lookup")
+
+	// The same asset with the ticker passed through: still priced, because the
+	// service resolves the symbol on every call — but it pays for the cross-rate
+	// path first. That is the cost this resolution removes, per asset, per
+	// valuation.
+	unresolved := rows()
+	_, outcome, err = Candidates(t.Context(), unresolved, testLogger(), "eth", "USD")
+	require.NoError(t, err)
+	require.Equal(t, Priced, outcome)
+	assert.Equal(t, 4, unresolved.calls, "unresolved, the same answer costs four lookups")
+}
+
+func TestResolveQuoteFailsLoudly(t *testing.T) {
+	_, err := ResolveQuote(t.Context(), fakeAssets{}, "XYZ")
+	require.Error(t, err, "an unknown display currency fails the valuation instead of unpricing every holding")
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 }
