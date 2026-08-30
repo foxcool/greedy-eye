@@ -88,6 +88,7 @@ func volumePrice(asset, base, last, volume string, decimals uint32) *apiv1.Price
 //   - sol   priced through a cross rate (quoted in EUR, EUR/USD known)
 //   - mnep  a real quote off a market too thin to sell into (ADR-009)
 //   - ghost no quote in any base
+//   - orph  quoted, in a base nothing converts to USD (NO_CROSS_RATE)
 //   - scam  quarantined: out of the total by decision, and out of coverage,
 //     which is a different statement from unpriced
 func agreementFixture() (*fakeStore, *fakeMD) {
@@ -103,6 +104,7 @@ func agreementFixture() (*fakeStore, *fakeMD) {
 			{ID: "h-sol", AssetID: "sol", AccountID: "a1", PortfolioID: "p1", Amount: dec("1000"), Decimals: 2},
 			{ID: "h-mnep", AssetID: "mnep", AccountID: "a1", PortfolioID: "p1", Amount: dec("30000000"), Decimals: 2},
 			{ID: "h-ghost", AssetID: "ghost", AccountID: "a1", PortfolioID: "p1", Amount: dec("500"), Decimals: 2},
+			{ID: "h-orph", AssetID: "orph", AccountID: "a1", PortfolioID: "p1", Amount: dec("400"), Decimals: 2},
 			{ID: "h-scam", AssetID: "scam", AccountID: "a1", PortfolioID: "p1", Amount: dec("999"), Decimals: 2, Excluded: true},
 		},
 	}
@@ -112,7 +114,9 @@ func agreementFixture() (*fakeStore, *fakeMD) {
 			"sol":   {Id: "sol", Name: "Solana", Symbol: strPtr("SOL")},
 			"mnep":  {Id: "mnep", Name: "Minereum", Symbol: strPtr("MNEP")},
 			"ghost": {Id: "ghost", Name: "Ghost", Symbol: strPtr("GHOST")},
+			"orph":  {Id: "orph", Name: "Orphaned Quote", Symbol: strPtr("ORPH")},
 			"scam":  {Id: "scam", Name: "Counterfeit", Symbol: strPtr("USDT")},
+			"USD":   {Id: "USD", Name: "US Dollar", Symbol: strPtr("USD")},
 		},
 		latest: map[string]*apiv1.Price{
 			// Direct: a market deep enough to sell into.
@@ -128,6 +132,10 @@ func agreementFixture() (*fakeStore, *fakeMD) {
 			// visibly disagree rather than coincidentally match.
 			"scam|USD": volumePrice("scam", "USD", "100", "800000000", 2),
 			"scam|":    volumePrice("scam", "USD", "100", "800000000", 2),
+			// Quoted in a base with no rate to USD in either direction: the
+			// USDT-twin shape, where the asset is priced and only the
+			// conversion is missing.
+			"orph|": volumePrice("orph", "xyz", "10000", "900000000", 2),
 			// "ghost" deliberately absent from every key.
 		},
 		hist: map[string]*apiv1.Price{},
@@ -176,7 +184,13 @@ func TestTotalAndHeatmapAgree(t *testing.T) {
 
 	// Anchors, so that a change making both surfaces equally wrong still fails.
 	assert.Equal(t, uint32(2), vc.PricedCount, "eth direct + sol crossed")
-	assert.Equal(t, uint32(2), vc.UnpricedCount, "mnep thin + ghost unquoted")
+	assert.Equal(t, uint32(3), vc.UnpricedCount, "mnep thin + ghost unquoted + orph unconvertible")
+
+	// The reasons are compared as a multiset above; this names the one the
+	// split exists for, so a regression collapsing it back into NO_QUOTE fails
+	// here rather than silently agreeing on the wrong reason in both surfaces.
+	assert.Contains(t, unpricedReasons(vc), "orph:UNPRICED_REASON_NO_CROSS_RATE",
+		"an asset priced in an unconvertible base is not an asset nobody priced")
 	assert.Equal(t, uint32(1), valueResp.Msg.ExcludedCount, "the quarantined holding is disclosed")
 	assert.Equal(t, 5100.0, total.InexactFloat64(), "2 ETH at 2000, plus 10 SOL at 100 EUR crossed at 1.10")
 }

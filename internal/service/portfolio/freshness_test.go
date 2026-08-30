@@ -246,3 +246,82 @@ func TestCalculatePortfolioValue_QuoteWithoutATimeIsNotDated(t *testing.T) {
 	assert.Nil(t, msg.Coverage.GetPricesAsOf())
 	assert.Equal(t, "10000", msg.TotalValueAmount)
 }
+
+// The display currency is a setting for the same reason the freshness threshold
+// is: it states how this instance reports money, and that is the owner's choice
+// rather than a constant compiled in. A person who reads their portfolio in
+// roubles has said something about every total, not about one request.
+func TestCalculatePortfolioValue_DisplayCurrencyComesFromTheSetting(t *testing.T) {
+	// asked records the base every price lookup was made against, which is what
+	// the display currency actually decides.
+	askedFor := func(t *testing.T, h *Handler) []string {
+		t.Helper()
+		resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(
+			&apiv1.CalculatePortfolioValueRequest{PortfolioId: testPortfolioID}))
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		var bases []string
+		for _, c := range h.mdClient.(*mockMDClient).Calls {
+			if c.Method != "GetLatestPrice" {
+				continue
+			}
+			req := c.Arguments.Get(1).(*connect.Request[apiv1.GetLatestPriceRequest])
+			if b := req.Msg.BaseAssetId; b != "" {
+				bases = append(bases, b)
+			}
+		}
+		return bases
+	}
+
+	newFixture := func() *Handler {
+		s := &mockStore{}
+		s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+		s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
+			{ID: "h1", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: time.Now()},
+		}, "", nil)
+
+		md := &mockMDClient{}
+		// Quoted in something that is neither candidate currency, so the value
+		// only resolves through a cross rate — and the rate lookup names the
+		// currency the total is being expressed in.
+		md.On("GetLatestPrice", mock.Anything, mock.Anything).
+			Return(connect.NewResponse(pricedAt(time.Now())), nil)
+
+		return newHandler(s).WithMarketDataClient(md)
+	}
+
+	t.Run("no setting means dollars", func(t *testing.T) {
+		assert.Contains(t, askedFor(t, newFixture()), pricefresh.DefaultDisplayCurrency,
+			"an instance that never chose still reports in a named currency")
+	})
+
+	t.Run("a configured currency is what the total is expressed in", func(t *testing.T) {
+		h := newFixture().WithSettingsClient(&fakeSettings{value: `{"display_currency":"RUB"}`})
+		bases := askedFor(t, h)
+		assert.Contains(t, bases, "RUB", "the setting decides the quote asset")
+		assert.NotContains(t, bases, pricefresh.DefaultDisplayCurrency,
+			"and it replaces the default rather than being asked alongside it")
+	})
+
+	t.Run("an explicit request still wins over the setting", func(t *testing.T) {
+		h := newFixture().WithSettingsClient(&fakeSettings{value: `{"display_currency":"RUB"}`})
+		resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(
+			&apiv1.CalculatePortfolioValueRequest{PortfolioId: testPortfolioID, QuoteAssetId: "EUR"}))
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		var bases []string
+		for _, c := range h.mdClient.(*mockMDClient).Calls {
+			if c.Method != "GetLatestPrice" {
+				continue
+			}
+			req := c.Arguments.Get(1).(*connect.Request[apiv1.GetLatestPriceRequest])
+			if b := req.Msg.BaseAssetId; b != "" {
+				bases = append(bases, b)
+			}
+		}
+		assert.Contains(t, bases, "EUR", "the setting is a default, not an override")
+		assert.NotContains(t, bases, "RUB")
+	})
+}

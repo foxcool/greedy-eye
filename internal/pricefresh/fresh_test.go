@@ -154,6 +154,65 @@ func TestParsePolicy(t *testing.T) {
 	})
 }
 
+func TestParsePolicyDisplayCurrency(t *testing.T) {
+	t.Run("a configured currency is honoured", func(t *testing.T) {
+		p, err := ParsePolicy([]byte(`{"display_currency":"RUB"}`))
+		require.NoError(t, err)
+		assert.Equal(t, "RUB", p.QuoteAsset())
+	})
+
+	t.Run("never configured means dollars", func(t *testing.T) {
+		p, err := ParsePolicy([]byte(`{"price_max_age":"6h"}`))
+		require.NoError(t, err)
+		assert.Equal(t, DefaultDisplayCurrency, p.QuoteAsset(),
+			"an instance that never chose reports in the default, not in nothing")
+	})
+
+	t.Run("a ticker is normalized before it is an identity", func(t *testing.T) {
+		p, err := ParsePolicy([]byte(`{"display_currency":"  rub "}`))
+		require.NoError(t, err)
+		assert.Equal(t, "RUB", p.QuoteAsset())
+	})
+
+	t.Run("a blank currency returns the default and an error", func(t *testing.T) {
+		p, err := ParsePolicy([]byte(`{"display_currency":"   "}`))
+		require.Error(t, err)
+		assert.Equal(t, DefaultDisplayCurrency, p.QuoteAsset())
+	})
+
+	// The two fields are separate statements and fail separately. Reverting a
+	// currency somebody chose because a duration is malformed would report one
+	// currency's number under another currency's name — the failure mode the
+	// whole display/quote split exists to prevent.
+	t.Run("a broken duration does not revert a good currency", func(t *testing.T) {
+		p, err := ParsePolicy([]byte(`{"price_max_age":"two days","display_currency":"RUB"}`))
+		require.Error(t, err)
+		assert.Equal(t, DefaultMaxAge, p.MaxAge, "the broken half falls back")
+		assert.Equal(t, "RUB", p.QuoteAsset(), "the good half survives")
+	})
+
+	t.Run("a broken currency does not revert a good duration", func(t *testing.T) {
+		p, err := ParsePolicy([]byte(`{"price_max_age":"6h","display_currency":"  "}`))
+		require.Error(t, err)
+		assert.Equal(t, 6*time.Hour, p.MaxAge)
+		assert.Equal(t, DefaultDisplayCurrency, p.QuoteAsset())
+	})
+
+	t.Run("round trip carries both fields", func(t *testing.T) {
+		raw, err := Policy{MaxAge: 90 * time.Minute, DisplayCurrency: "EUR"}.Encode()
+		require.NoError(t, err)
+		p, err := ParsePolicy(raw)
+		require.NoError(t, err)
+		assert.Equal(t, 90*time.Minute, p.MaxAge)
+		assert.Equal(t, "EUR", p.QuoteAsset())
+	})
+
+	t.Run("an unset policy still names a currency", func(t *testing.T) {
+		assert.Equal(t, DefaultDisplayCurrency, Policy{}.QuoteAsset(),
+			"a zero policy must not resolve a quote asset to the empty string")
+	})
+}
+
 func TestQuotedAt(t *testing.T) {
 	t.Run("reports the observation time", func(t *testing.T) {
 		assert.Equal(t, now.Add(-time.Hour), QuotedAt(quoteAgo(time.Hour)).UTC())

@@ -29,13 +29,19 @@ const KeyDashboard = "dashboard.v1"
 
 // KeyValuation holds the rules a valuation is computed under, as JSON text:
 //
-//	{"price_max_age": "48h"}
+//	{"price_max_age": "48h", "display_currency": "USD"}
 //
-// Today that is the freshness threshold above which a quote stops counting as
-// current (personal-tlz). It is a setting rather than a constant because how
-// fresh a price must be depends on how often the instance sweeps for prices and
-// on which markets it holds — an instance of only continuously traded crypto can
-// demand hours, one holding instruments that print once a session cannot.
+// The threshold is where a quote stops counting as current (personal-tlz). It is
+// a setting rather than a constant because how fresh a price must be depends on
+// how often the instance sweeps for prices and on which markets it holds — an
+// instance of only continuously traded crypto can demand hours, one holding
+// instruments that print once a session cannot.
+//
+// The currency is what a total is expressed in when the request names none. It
+// belongs beside the threshold because it is the same kind of statement: how
+// this instance reports money, chosen by whoever owns the numbers rather than
+// per request. It is the currency a total is DISPLAYED in, which is not the base
+// a pair is quoted against — see ADR-010.
 //
 // The name is re-exported from the package that owns the value's meaning: this
 // service allowlists keys, it does not define what they contain.

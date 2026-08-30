@@ -330,6 +330,9 @@ func TestGetAsset_MissingID(t *testing.T) {
 func TestGetAsset_NotFound(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAsset", mock.Anything, "id-x").Return(nil, store.ErrNotFound)
+	// Not a UUID, so it resolves as a ticker — the path GetLatestPrice
+	// has always taken and GetAsset now takes too.
+	s.On("GetAssetBySymbol", mock.Anything, "id-x").Return(testAsset("id-x"), nil)
 	h := newHandler(s)
 
 	_, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "id-x"}))
@@ -340,6 +343,9 @@ func TestGetAsset_NotFound(t *testing.T) {
 func TestGetAsset_OK(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
+	// Not a UUID, so it resolves as a ticker — the path GetLatestPrice
+	// has always taken and GetAsset now takes too.
+	s.On("GetAssetBySymbol", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
 	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return(nil, nil)
 	expectRiskFlags(s)
 	h := newHandler(s)
@@ -356,6 +362,9 @@ func TestGetAsset_OK(t *testing.T) {
 func TestGetAsset_CarriesTheBindings(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
+	// Not a UUID, so it resolves as a ticker — the path GetLatestPrice
+	// has always taken and GetAsset now takes too.
+	s.On("GetAssetBySymbol", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
 	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return([]*entity.AssetExternalRef{
 		{ID: "ref-eth", AssetID: "id-1", Source: "onchain:ethereum", Ref: "0xreal", Origin: entity.RefOriginAuto},
 		{ID: "ref-poly", AssetID: "id-1", Source: "onchain:polygon", Ref: "0xfake", Origin: entity.RefOriginAuto},
@@ -375,6 +384,9 @@ func TestGetAsset_CarriesTheBindings(t *testing.T) {
 func TestGetAsset_SurvivesUnreadableBindings(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
+	// Not a UUID, so it resolves as a ticker — the path GetLatestPrice
+	// has always taken and GetAsset now takes too.
+	s.On("GetAssetBySymbol", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
 	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return(nil, assert.AnError)
 	expectRiskFlags(s)
 	h := newHandler(s)
@@ -382,6 +394,23 @@ func TestGetAsset_SurvivesUnreadableBindings(t *testing.T) {
 	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "id-1"}))
 	require.NoError(t, err)
 	assert.Empty(t, resp.Msg.ExternalRefs)
+}
+
+// TestGetAsset_ResolvesATicker: the display currency is named by symbol in the
+// valuation setting, and a valuation resolves it here once before pricing
+// anything. GetLatestPrice and ListPriceHistory already accepted a ticker; this
+// endpoint was the one that did not.
+func TestGetAsset_ResolvesATicker(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAssetBySymbol", mock.Anything, "USD").Return(testAsset("id-usd"), nil)
+	s.On("GetAsset", mock.Anything, "id-usd").Return(testAsset("id-usd"), nil)
+	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-usd"}).Return(nil, nil)
+	expectRiskFlags(s)
+	h := newHandler(s)
+
+	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "USD"}))
+	require.NoError(t, err)
+	assert.Equal(t, "id-usd", resp.Msg.Id, "the caller gets the id price rows are keyed by")
 }
 
 // --- Tests: DeleteAsset ---
@@ -1088,6 +1117,9 @@ func TestGetAsset_AttachesRiskFlags(t *testing.T) {
 	review := time.Now().Add(72 * time.Hour)
 	s := &mockStore{}
 	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
+	// Not a UUID, so it resolves as a ticker — the path GetLatestPrice
+	// has always taken and GetAsset now takes too.
+	s.On("GetAssetBySymbol", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
 	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return(nil, nil)
 	s.On("ListAssetRiskFlags", mock.Anything, "id-1").Return([]*entity.AssetRiskFlag{
 		{ID: "flag-1", AssetID: "id-1", Kind: "frozen_transfers", ActionHint: "hold", ReviewAt: &review},
@@ -1108,6 +1140,9 @@ func TestGetAsset_AttachesRiskFlags(t *testing.T) {
 func TestGetAsset_RiskFlagFailureKeepsAsset(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
+	// Not a UUID, so it resolves as a ticker — the path GetLatestPrice
+	// has always taken and GetAsset now takes too.
+	s.On("GetAssetBySymbol", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
 	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return(nil, nil)
 	s.On("ListAssetRiskFlags", mock.Anything, "id-1").Return(nil, assert.AnError)
 	h := newHandler(s)
@@ -1181,9 +1216,13 @@ func (f *fakePriceProvider) AssetBudget(_ time.Time, _ time.Duration) (int, bool
 }
 
 // expectBaseAsset lets the handler resolve the quote currency.
+// expectBaseAsset stubs the quote-currency resolution every sweep performs. The
+// row carries market and type because the real store's does: a base is checked
+// for being quotable before it is used, and a typeless row is not a shape the
+// catalogue can produce.
 func expectBaseAsset(s *mockStore) {
 	s.On("GetOrCreateAssetBySymbol", mock.Anything, "USD", "USD", entity.AssetTypeForex).
-		Return(&entity.Asset{ID: "usd-id", Symbol: "USD"}, nil)
+		Return(&entity.Asset{ID: "usd-id", Symbol: "USD", Market: "forex", Type: entity.AssetTypeForex}, nil)
 }
 
 // --- Tests: per-row base currency and provider ref discovery ---
@@ -1219,7 +1258,7 @@ func TestFetchExternalPrices_RowBaseOverridesProviderDefault(t *testing.T) {
 	expectBaseAsset(s)
 	expectExternalRefs(s)
 	s.On("GetOrCreateAssetBySymbol", mock.Anything, "RUB", "RUB", entity.AssetTypeForex).
-		Return(&entity.Asset{ID: "rub-id", Symbol: "RUB"}, nil)
+		Return(&entity.Asset{ID: "rub-id", Symbol: "RUB", Market: "forex", Type: entity.AssetTypeForex}, nil)
 	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{usd, rub}, "", nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
 
@@ -1928,4 +1967,81 @@ func TestFetchExternalPrices_TransportFailureRecordsNoMisses(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, resp.Msg.GetErrors(), "the failure is still reported")
 	s.AssertNotCalled(t, "RecordPriceAttempts", mock.Anything, mock.Anything)
+}
+
+// TestQuotableBase pins which resolved rows may denominate a provider's prices.
+// The guard runs once per sweep per provider, before anything is fetched, so a
+// row it lets through becomes the denominator of that source's whole batch.
+func TestQuotableBase(t *testing.T) {
+	tests := []struct {
+		name    string
+		asset   *entity.Asset
+		wantErr string
+		reason  string
+	}{
+		{
+			name:   "a forex currency is the ordinary case",
+			asset:  &entity.Asset{Symbol: "USD", Market: "forex", Type: entity.AssetTypeForex},
+			reason: "what CoinGecko, CBR, MOEX and T-Invest all quote in",
+		},
+		{
+			name:   "a crypto quote currency is equally ordinary",
+			asset:  &entity.Asset{Symbol: "USDT", Market: entity.MarketCrypto, Type: entity.AssetTypeCryptocurrency},
+			reason: "Binance quotes in USDT, and that is a real pair, not a display convention",
+		},
+		{
+			name: "a contract market cannot denominate anything",
+			asset: &entity.Asset{
+				Symbol: "USD",
+				Market: entity.ContractMarket("base", "0x306fb9107924a5e1ce254ef4522f6085d903e784"),
+				Type:   entity.AssetTypeCryptocurrency,
+			},
+			wantErr: "cannot be a quote currency",
+			reason:  "dev 2026-08-04: syncing a whale wallet minted a counterfeit \"US Dollar\" token",
+		},
+		{
+			name:    "a fund share is not a currency",
+			asset:   &entity.Asset{Symbol: "FXUS", Market: "moex", Type: entity.AssetTypeFund},
+			wantErr: "cannot be a quote currency",
+			reason:  "a price is a ratio between an instrument and a currency",
+		},
+		{
+			name:    "a stock is not a currency either",
+			asset:   &entity.Asset{Symbol: "AAPL", Market: "nasdaq", Type: entity.AssetTypeStock},
+			wantErr: "cannot be a quote currency",
+			reason:  "same reason, and the one a misconfigured provider is likeliest to hit",
+		},
+		{
+			name:    "nothing resolved at all",
+			asset:   nil,
+			wantErr: "no asset resolved",
+			reason:  "a nil row must not read as an acceptable base",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := quotableBase(tt.asset)
+			if tt.wantErr == "" {
+				require.NoError(t, err, tt.reason)
+				return
+			}
+			require.Error(t, err, tt.reason)
+			assert.ErrorIs(t, err, store.ErrInvalidArgument,
+				"a refused base is a bad argument, not a transport failure")
+			assert.Contains(t, err.Error(), tt.wantErr, tt.reason)
+		})
+	}
+}
+
+// TestQuotableBaseNamesTheOffendingRow pins that the refusal is diagnosable.
+// The twin cost two months precisely because the failure it caused named a
+// symbol and nothing about which row answered for it.
+func TestQuotableBaseNamesTheOffendingRow(t *testing.T) {
+	market := entity.ContractMarket("bsc", "0x037499ebb453c6c84f1888c783ef8b75a257bd29")
+	err := quotableBase(&entity.Asset{Symbol: "USD", Market: market, Type: entity.AssetTypeCryptocurrency})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "USD", "the ticker that was asked for")
+	assert.Contains(t, err.Error(), market, "and the row that answered")
 }

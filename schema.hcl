@@ -593,12 +593,26 @@ table "prices" {
     null = false
   }
   column "base_asset_id" {
+    # What this price is quoted AGAINST — the other side of the pair, not the
+    # currency a portfolio is displayed in. The display choice lives in the
+    # valuation.v1 setting; this column is the pair. See ADR-010.
     type = uuid
     null = false
   }
 
   primary_key {
     columns = [column.id]
+  }
+
+  # A price is a ratio between two different things. A row quoting an asset
+  # against itself says "1" in a shape that reads like data, and crossRate would
+  # divide by it happily — one such row is enough to make every conversion
+  # through that asset return 1.
+  #
+  # Enforced here rather than in code because the write path is six places: five
+  # provider adapters and the manual price endpoint.
+  check "price_pair_is_not_self" {
+    expr = "asset_id <> base_asset_id"
   }
 
   // Uniqueness is per (asset, source, instant, pair). The old (asset_id,

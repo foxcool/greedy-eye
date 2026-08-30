@@ -93,8 +93,8 @@ type UnpricedReason int32
 
 const (
 	UnpricedReason_UNPRICED_REASON_UNSPECIFIED UnpricedReason = 0
-	// No price row for the asset, or no path from its traded base to the quote,
-	// and nothing yet says whether anyone has looked.
+	// No price row for the asset in any base, and nothing yet says whether anyone
+	// has looked.
 	UnpricedReason_UNPRICED_REASON_NO_QUOTE UnpricedReason = 1
 	// A quote exists but the market behind it is too small to realise the position
 	// at that price. See ADR-009 for the threshold and the distribution it came from.
@@ -108,6 +108,15 @@ const (
 	// from NO_QUOTE is where the gap lives: NO_QUOTE can still be our own pipeline
 	// not having reached the asset, while this one has exhausted the sources it has.
 	UnpricedReason_UNPRICED_REASON_NEVER_PRICED UnpricedReason = 3
+	// The asset IS quoted, in a base this valuation cannot convert to the
+	// requested currency: no rate exists between them in either direction.
+	//
+	// Kept apart from NO_QUOTE because the two ask for opposite work. NO_QUOTE is
+	// a gap in front of the asset — nobody has priced it. This is a gap between
+	// two currencies, and the position is fully priced in its own pair; only the
+	// conversion is missing, so the fix is one rate rather than coverage for the
+	// asset. See ADR-010 for what collapsing them cost.
+	UnpricedReason_UNPRICED_REASON_NO_CROSS_RATE UnpricedReason = 4
 )
 
 // Enum value maps for UnpricedReason.
@@ -117,12 +126,14 @@ var (
 		1: "UNPRICED_REASON_NO_QUOTE",
 		2: "UNPRICED_REASON_THIN_MARKET",
 		3: "UNPRICED_REASON_NEVER_PRICED",
+		4: "UNPRICED_REASON_NO_CROSS_RATE",
 	}
 	UnpricedReason_value = map[string]int32{
-		"UNPRICED_REASON_UNSPECIFIED":  0,
-		"UNPRICED_REASON_NO_QUOTE":     1,
-		"UNPRICED_REASON_THIN_MARKET":  2,
-		"UNPRICED_REASON_NEVER_PRICED": 3,
+		"UNPRICED_REASON_UNSPECIFIED":   0,
+		"UNPRICED_REASON_NO_QUOTE":      1,
+		"UNPRICED_REASON_THIN_MARKET":   2,
+		"UNPRICED_REASON_NEVER_PRICED":  3,
+		"UNPRICED_REASON_NO_CROSS_RATE": 4,
 	}
 )
 
@@ -3232,12 +3243,13 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\x0fASSET_TYPE_BOND\x10\x03\x12\x18\n" +
 	"\x14ASSET_TYPE_COMMODITY\x10\x04\x12\x14\n" +
 	"\x10ASSET_TYPE_FOREX\x10\x05\x12\x13\n" +
-	"\x0fASSET_TYPE_FUND\x10\x06*\x92\x01\n" +
+	"\x0fASSET_TYPE_FUND\x10\x06*\xb5\x01\n" +
 	"\x0eUnpricedReason\x12\x1f\n" +
 	"\x1bUNPRICED_REASON_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18UNPRICED_REASON_NO_QUOTE\x10\x01\x12\x1f\n" +
 	"\x1bUNPRICED_REASON_THIN_MARKET\x10\x02\x12 \n" +
-	"\x1cUNPRICED_REASON_NEVER_PRICED\x10\x032\x8b\x15\n" +
+	"\x1cUNPRICED_REASON_NEVER_PRICED\x10\x03\x12!\n" +
+	"\x1dUNPRICED_REASON_NO_CROSS_RATE\x10\x042\x8b\x15\n" +
 	"\x11MarketDataService\x12W\n" +
 	"\vCreateAsset\x12\x1a.eye.v1.CreateAssetRequest\x1a\r.eye.v1.Asset\"\x1d\x82\xd3\xe4\x93\x02\x17:\x05asset\"\x0e/api/v1/assets\x12O\n" +
 	"\bGetAsset\x12\x17.eye.v1.GetAssetRequest\x1a\r.eye.v1.Asset\"\x1b\x82\xd3\xe4\x93\x02\x15\x12\x13/api/v1/assets/{id}\x12b\n" +

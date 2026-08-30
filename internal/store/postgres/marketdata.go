@@ -205,26 +205,26 @@ func (s *MarketDataStore) GetAsset(ctx context.Context, id string) (*entity.Asse
 // when creating. Safe under concurrent inserts: if a concurrent write wins the
 // race, the existing row is returned.
 //
-// The lookup is scoped by TYPE, and that is not a refinement — it is the write
-// path read back correctly. CreateAsset stores the row at
-// (symbol, DefaultMarket(type), type), so resolving it by symbol alone asks a
-// wider question than the one that was written, and any second row sharing the
-// ticker answers "ambiguous" from then on.
+// The lookup is the FULL composite identity (symbol, market, type), with the
+// market implied by the type exactly as CreateAsset implies it. That is not a
+// refinement — it is the write path read back correctly. Anything narrower asks
+// a wider question than the one that was written, so every extra row sharing the
+// ticker answers "ambiguous" instead of naming a row, and a quote currency
+// resolved by an ambiguous ticker is a base that can silently become a different
+// base.
 //
-// Dev 2026-08-14 is the proof. Correcting Binance's quote currency from forex to
-// cryptocurrency (commit 0f5c100) left the old USDT row in place, and because
-// type is part of the identity key the correction minted a twin instead of
-// updating the row. Every sweep afterwards threw away Binance's whole batch on
-// "symbol USDT is ambiguous" — for two months, unnoticed until CoinGecko's quota
-// ran out and there was no second source left to notice it with.
-//
-// Market is deliberately NOT part of the lookup. Legacy rows were backfilled to
-// 'crypto' regardless of type, so USD lives at (USD, crypto, forex) while a
-// fresh one would be created at (USD, forex, forex). Matching on market would
-// miss the existing row and mint a duplicate base asset — with every price ever
-// stored still pointing at the old one.
+// It REPLACES an earlier scoping by type alone, kept because legacy rows had
+// been backfilled to 'crypto' regardless of type: matching on market would have
+// missed the row every stored price pointed at. That objection is settled by
+// moving those rows rather than by widening the lookup — see ADR-010, which also
+// records what the wider question cost.
 func (s *MarketDataStore) GetOrCreateAssetBySymbol(ctx context.Context, symbol, nameIfNew string, typ entity.AssetType) (*entity.Asset, error) {
-	a, err := s.findAssetBySymbol(ctx, symbol, typ)
+	market := entity.DefaultMarket(typ)
+	if market == "" {
+		return nil, fmt.Errorf("%w: asset type %v has no default market to resolve %s in", store.ErrInvalidArgument, typ, symbol)
+	}
+
+	a, err := s.FindAssetByIdentity(ctx, symbol, market, typ)
 	if err == nil {
 		return a, nil
 	}
@@ -240,7 +240,7 @@ func (s *MarketDataStore) GetOrCreateAssetBySymbol(ctx context.Context, symbol, 
 	if err != nil {
 		// Concurrent insert: another process created it first — read back.
 		if errors.Is(err, store.ErrConstraint) {
-			return s.findAssetBySymbol(ctx, symbol, typ)
+			return s.FindAssetByIdentity(ctx, symbol, market, typ)
 		}
 		return nil, err
 	}

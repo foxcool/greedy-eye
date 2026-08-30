@@ -207,8 +207,8 @@ message ValuationCoverage {
 // market is a property of the asset its owner has to make a decision about.
 enum UnpricedReason {
   UNPRICED_REASON_UNSPECIFIED = 0;
-  // No price row for the asset, or no path from its traded base to the quote,
-  // and nothing yet says whether anyone has looked.
+  // No price row for the asset in any base, and nothing yet says whether anyone
+  // has looked.
   UNPRICED_REASON_NO_QUOTE = 1;
   // A quote exists but the market behind it is too small to realise the position
   // at that price. See ADR-009 for the threshold and the distribution it came from.
@@ -222,6 +222,15 @@ enum UnpricedReason {
   // from NO_QUOTE is where the gap lives: NO_QUOTE can still be our own pipeline
   // not having reached the asset, while this one has exhausted the sources it has.
   UNPRICED_REASON_NEVER_PRICED = 3;
+  // The asset IS quoted, in a base this valuation cannot convert to the
+  // requested currency: no rate exists between them in either direction.
+  //
+  // Kept apart from NO_QUOTE because the two ask for opposite work. NO_QUOTE is
+  // a gap in front of the asset — nobody has priced it. This is a gap between
+  // two currencies, and the position is fully priced in its own pair; only the
+  // conversion is missing, so the fix is one rate rather than coverage for the
+  // asset. See ADR-010 for what collapsing them cost.
+  UNPRICED_REASON_NO_CROSS_RATE = 4;
 }
 
 // UnpricedHolding names one position that could not be valued. There is no

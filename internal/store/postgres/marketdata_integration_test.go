@@ -622,6 +622,169 @@ func TestFindAssetByIdentity(t *testing.T) {
 	require.ErrorIs(t, err, store.ErrInvalidArgument)
 }
 
+// TestGetOrCreateAssetBySymbol_TwinUSDTAteBinanceBatches covers the identity key
+// a quote currency is resolved by.
+//
+// The incident: correcting Binance's quote currency from forex to cryptocurrency
+// (0f5c100, 2026-06-04) minted a USDT twin instead of updating the row, and with
+// symbol-only resolution every later sweep threw away Binance's whole batch on
+// "symbol USDT is ambiguous" — until 2026-08-04 (cbaee29) demoted contract rows
+// and 2026-08-14 (cc6e3d6) scoped the lookup by type. Those two closed the
+// ambiguity; what they left is that a twin can still be MINTED, and the wrong
+// one then answers for the ticker.
+//
+// So: one symbol on two types is two rows and neither goes ambiguous, and the
+// same (symbol, type) asked twice is one row.
+func TestGetOrCreateAssetBySymbol_TwinUSDTAteBinanceBatches(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	sym := "TWIN" + strings.ToUpper(uuid.NewString()[:6])
+
+	// The shape the incident created: the same ticker as a forex quote currency
+	// and as a crypto one. Before market entered the key this made every later
+	// lookup of the ticker ambiguous.
+	asForex, err := s.GetOrCreateAssetBySymbol(ctx, sym, sym, entity.AssetTypeForex)
+	require.NoError(t, err)
+	asCrypto, err := s.GetOrCreateAssetBySymbol(ctx, sym, sym, entity.AssetTypeCryptocurrency)
+	require.NoError(t, err, "the correction must resolve, not report the ticker ambiguous")
+
+	assert.NotEqual(t, asForex.ID, asCrypto.ID, "two kinds of the same ticker are two rows")
+	assert.Equal(t, "forex", asForex.Market)
+	assert.Equal(t, entity.MarketCrypto, asCrypto.Market)
+
+	// And the resolution has to keep working with both rows present: this is the
+	// call a sweep makes, hourly, per provider.
+	againForex, err := s.GetOrCreateAssetBySymbol(ctx, sym, sym, entity.AssetTypeForex)
+	require.NoError(t, err, "a sweep must not start failing because a twin exists")
+	assert.Equal(t, asForex.ID, againForex.ID, "the same (symbol, type) is the same row")
+
+	againCrypto, err := s.GetOrCreateAssetBySymbol(ctx, sym, sym, entity.AssetTypeCryptocurrency)
+	require.NoError(t, err)
+	assert.Equal(t, asCrypto.ID, againCrypto.ID, "asked twice, created once")
+
+	// Normalization travels with it, so a provider spelling its base in any case
+	// lands on the row every stored price points at.
+	lower, err := s.GetOrCreateAssetBySymbol(ctx, strings.ToLower(sym), sym, entity.AssetTypeCryptocurrency)
+	require.NoError(t, err)
+	assert.Equal(t, asCrypto.ID, lower.ID, "a ticker is normalized before it is an identity")
+}
+
+// TestGetOrCreateAssetBySymbol_LegacyMarketRowIsNotAdopted pins what adding
+// market to the identity key actually changes.
+//
+// A row sharing the symbol AND the type but sitting on another market is the one
+// case the type filter cannot separate: it is a single named candidate, so the
+// symbol lookup returns it, confidently and wrongly. That is how USD came to be
+// resolved at (USD, crypto, forex) — a currency on the crypto market, which both
+// reads as a fake token and stands where an impostor minted by whoever pays the
+// gas would collide with it.
+//
+// Resolving by the full identity means such a row is no longer adopted: the
+// caller gets the row its own write path would have created. The legacy row
+// keeps its prices and is moved deliberately, in psql, not silently by a sweep.
+func TestGetOrCreateAssetBySymbol_LegacyMarketRowIsNotAdopted(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	sym := "LGCY" + strings.ToUpper(uuid.NewString()[:6])
+
+	// The shape the legacy backfill left behind: a forex currency parked on the
+	// crypto market, where a fresh one would be created on 'forex'.
+	legacy, err := s.CreateAsset(ctx, &entity.Asset{
+		Symbol: sym,
+		Name:   "Legacy " + sym,
+		Market: entity.MarketCrypto,
+		Type:   entity.AssetTypeForex,
+	})
+	require.NoError(t, err)
+	require.Equal(t, entity.MarketCrypto, legacy.Market)
+
+	got, err := s.GetOrCreateAssetBySymbol(ctx, sym, sym, entity.AssetTypeForex)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, legacy.ID, got.ID,
+		"a row on another market is not the row the write path targets")
+	assert.Equal(t, "forex", got.Market,
+		"resolution lands where CreateAsset would have put it")
+}
+
+// TestGetOrCreateAssetBySymbol_ContractRowDoesNotAnswerForATicker pins that a
+// row minted by whoever paid the gas cannot be handed back as a quote currency.
+// Dev 2026-08-04: syncing a whale wallet pulled in a counterfeit "US Dollar"
+// token, and a base is resolved on every sweep.
+func TestGetOrCreateAssetBySymbol_ContractRowDoesNotAnswerForATicker(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	sym := "FAKE" + strings.ToUpper(uuid.NewString()[:6])
+
+	counterfeit, err := s.CreateAsset(ctx, &entity.Asset{
+		Symbol: sym,
+		Name:   "Counterfeit " + sym,
+		Market: entity.ContractMarket("bsc", "0x037499ebb453c6c84f1888c783ef8b75a257bd29"),
+		Type:   entity.AssetTypeCryptocurrency,
+	})
+	require.NoError(t, err)
+
+	got, err := s.GetOrCreateAssetBySymbol(ctx, sym, sym, entity.AssetTypeCryptocurrency)
+	require.NoError(t, err)
+	assert.NotEqual(t, counterfeit.ID, got.ID,
+		"the contract row must not be adopted as the quote currency")
+	assert.Equal(t, entity.MarketCrypto, got.Market,
+		"a fresh row on the global market is created instead")
+	assert.False(t, entity.IsContractMarket(got.Market))
+}
+
+// TestGetOrCreateAssetBySymbol_RejectsTypeWithoutDefaultMarket pins that a type
+// with no implied venue is refused rather than guessed at. Stocks, bonds and
+// funds are listed per-exchange, so there is no single row a bare ticker means.
+func TestGetOrCreateAssetBySymbol_RejectsTypeWithoutDefaultMarket(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	_, err := s.GetOrCreateAssetBySymbol(ctx, "AAPL", "Apple", entity.AssetTypeStock)
+	require.ErrorIs(t, err, store.ErrInvalidArgument,
+		"a ticker with no implied market is not an identity")
+}
+
+// TestPriceCannotQuoteAnAssetAgainstItself pins the CHECK behind the pair.
+//
+// A price is a ratio between two different things. A row quoting an asset
+// against itself says "1" in a shape that reads like data, and crossRate would
+// divide by it happily — one such row is enough to make every conversion through
+// that asset return 1, silently and everywhere.
+//
+// The rule lives in the database because the write path does not: five provider
+// adapters and the manual price endpoint all insert here.
+func TestPriceCannotQuoteAnAssetAgainstItself(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	asset := createTestAsset(t, s, "Self Quoting Coin")
+
+	_, err := s.CreatePrice(ctx, &entity.StoredPrice{
+		SourceID:    "test",
+		AssetID:     asset.ID,
+		BaseAssetID: asset.ID,
+		Interval:    "latest",
+		Decimals:    4,
+		Last:        decimal.NewFromInt(10000),
+		Timestamp:   time.Now(),
+	})
+	require.Error(t, err, "an asset priced against itself is not a quote")
+
+	// A pair of two different assets is of course still accepted, so the
+	// constraint is not simply refusing everything.
+	other := createTestAsset(t, s, "Ordinary Base Coin")
+	createTestPrice(t, s, asset.ID, other.ID, "test")
+}
+
 // assetIDs is a readability helper for asserting on selection order.
 func assetIDs(assets []*entity.Asset) []string {
 	ids := make([]string, 0, len(assets))

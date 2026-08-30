@@ -1139,6 +1139,8 @@ func TestListUnpricedHoldings_ResumesWithoutSkipping(t *testing.T) {
 	// No quote at all: every row is unpriced.
 	md.On("GetLatestPrice", mock.Anything, mock.Anything).
 		Return((*connect.Response[apiv1.Price])(nil), connect.NewError(connect.CodeNotFound, errors.New("no price")))
+	md.On("GetAsset", mock.Anything, assetReq("USD")).
+		Return(connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil).Maybe()
 	md.On("GetAsset", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.Asset{Symbol: strPtr("TAIL")}), nil)
 	md.On("GetPricingStatus", mock.Anything, mock.Anything).
@@ -1179,6 +1181,10 @@ func TestListUnpricedHoldings_SkipsPricedAndQuarantined(t *testing.T) {
 		Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil)
 	md.On("GetLatestPrice", mock.Anything, latestIn(deadAsset, "USD")).
 		Return((*connect.Response[apiv1.Price])(nil), connect.NewError(connect.CodeNotFound, errors.New("no price")))
+	md.On("GetAsset", mock.Anything, assetReq("USD")).
+		Return(connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil)
+	md.On("GetAsset", mock.Anything, assetReq("USD")).
+		Return(connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil).Maybe()
 	md.On("GetAsset", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.Asset{Symbol: strPtr("DEAD")}), nil)
 	md.On("GetPricingStatus", mock.Anything, mock.Anything).
@@ -1212,6 +1218,8 @@ func TestListUnpricedHoldings_FiltersByReason(t *testing.T) {
 	// A real quote with no market behind it: priced, but not usable.
 	md.On("GetLatestPrice", mock.Anything, latestIn(thin, "USD")).
 		Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD", Volume: strPtr("0")}), nil)
+	md.On("GetAsset", mock.Anything, assetReq("USD")).
+		Return(connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil).Maybe()
 	md.On("GetAsset", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.Asset{Symbol: strPtr("X")}), nil)
 	md.On("GetPricingStatus", mock.Anything, mock.Anything).
@@ -1251,6 +1259,8 @@ func TestListUnpricedHoldings_FiltersOnTheFinalReason(t *testing.T) {
 	md := &mockMDClient{}
 	md.On("GetLatestPrice", mock.Anything, mock.Anything).
 		Return((*connect.Response[apiv1.Price])(nil), connect.NewError(connect.CodeNotFound, errors.New("no price")))
+	md.On("GetAsset", mock.Anything, assetReq("USD")).
+		Return(connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil).Maybe()
 	md.On("GetAsset", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.Asset{Symbol: strPtr("NEV")}), nil)
 	// The attempt log says every source was asked and none answered, which is
@@ -1447,6 +1457,8 @@ func TestCalculatePortfolioValue_ReportsUnpricedCoverage(t *testing.T) {
 	})).Return(nil, connect.NewError(connect.CodeNotFound, errors.New("not found")))
 	md.On("GetLatestPrice", mock.Anything, latestIn(scamAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 1.0
 	symbol := "FXUS"
+	md.On("GetAsset", mock.Anything, assetReq("USD")).
+		Return(connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil).Maybe()
 	md.On("GetAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetAssetRequest]) bool {
 		return r.Msg.Id == unpricedAsset
 	})).Return(connect.NewResponse(&apiv1.Asset{Id: unpricedAsset, Symbol: &symbol}), nil)
@@ -1503,6 +1515,8 @@ func TestCalculatePortfolioValue_GatesThinMarket(t *testing.T) {
 	md.On("GetLatestPrice", mock.Anything, latestIn(receiptAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil)                    // 1.0, no volume reported
 	md.On("GetLatestPrice", mock.Anything, latestIn(thinAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "1391886", Decimals: 8, BaseAssetId: "USD", Volume: &thinVolume}), nil)    // $0.01391886
 	symbol := "MNEP"
+	md.On("GetAsset", mock.Anything, assetReq("USD")).
+		Return(connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil).Maybe()
 	md.On("GetAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetAssetRequest]) bool {
 		return r.Msg.Id == thinAsset
 	})).Return(connect.NewResponse(&apiv1.Asset{Id: thinAsset, Symbol: &symbol}), nil)
@@ -1618,6 +1632,8 @@ func TestCalculatePortfolioValue_ThinGateReadsAnyVolumeBearingQuote(t *testing.T
 		Last: "100000000", Decimals: 8, BaseAssetId: "USD", Timestamp: fresh,
 	}), nil)
 	symbol := "MNEP"
+	md.On("GetAsset", mock.Anything, assetReq("USD")).
+		Return(connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil).Maybe()
 	md.On("GetAsset", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.Asset{Id: mnep, Symbol: &symbol}), nil)
 
@@ -1655,6 +1671,8 @@ func TestCalculatePortfolioValue_UnpricedListIsCapped(t *testing.T) {
 	md := &mockMDClient{}
 	md.On("GetLatestPrice", mock.Anything, mock.Anything).
 		Return(nil, connect.NewError(connect.CodeNotFound, errors.New("not found")))
+	md.On("GetAsset", mock.Anything, assetReq("USD")).
+		Return(connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil).Maybe()
 	md.On("GetAsset", mock.Anything, mock.Anything).
 		Return(nil, connect.NewError(connect.CodeNotFound, errors.New("asset gone")))
 
@@ -1722,12 +1740,29 @@ func (m *mockMDClient) CreateAsset(ctx context.Context, req *connect.Request[api
 	return nil, args.Error(1)
 }
 
+// GetAsset resolves to a catalogue row echoing the id asked for when no
+// expectation is registered. Every valuation now resolves its display currency
+// once before pricing anything (quoting.ResolveQuote), and a test about staleness
+// or coverage should not have to stub the currency it never mentions. Tests that
+// are about GetAsset set an expectation, and it wins.
 func (m *mockMDClient) GetAsset(ctx context.Context, req *connect.Request[apiv1.GetAssetRequest]) (*connect.Response[apiv1.Asset], error) {
+	if !m.expects("GetAsset") {
+		return connect.NewResponse(&apiv1.Asset{Id: req.Msg.Id}), nil
+	}
 	args := m.Called(ctx, req)
 	if v := args.Get(0); v != nil {
 		return v.(*connect.Response[apiv1.Asset]), args.Error(1)
 	}
 	return nil, args.Error(1)
+}
+
+func (m *mockMDClient) expects(method string) bool {
+	for _, c := range m.ExpectedCalls {
+		if c.Method == method {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *mockMDClient) FindOrCreateAsset(ctx context.Context, req *connect.Request[apiv1.FindOrCreateAssetRequest]) (*connect.Response[apiv1.FindOrCreateAssetResponse], error) {
@@ -1773,6 +1808,15 @@ func (m *mockMDClient) GetLatestPrice(ctx context.Context, req *connect.Request[
 // the newest print before it wants a particular pair. For an asset whose only
 // row IS in the quote asset both questions have the same answer, which is why
 // one expectation serves both.
+// assetReq matches the resolution of one asset id, so a catch-all GetAsset stub
+// answering for labels does not also answer for the display currency — that one
+// has to come back carrying an id.
+func assetReq(id string) any {
+	return mock.MatchedBy(func(r *connect.Request[apiv1.GetAssetRequest]) bool {
+		return r.Msg.Id == id
+	})
+}
+
 func latestIn(asset, base string) any {
 	return mock.MatchedBy(func(r *connect.Request[apiv1.GetLatestPriceRequest]) bool {
 		return r.Msg.AssetId == asset && (r.Msg.BaseAssetId == base || r.Msg.BaseAssetId == "")
@@ -2617,6 +2661,8 @@ func TestImportPositions_FullSnapshotPlan(t *testing.T) {
 	md.On("FindOrCreateAsset", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: &apiv1.Asset{Id: testAssetID}}), nil)
 	sym := "GONE"
+	md.On("GetAsset", mock.Anything, assetReq("USD")).
+		Return(connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil).Maybe()
 	md.On("GetAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetAssetRequest]) bool {
 		return r.Msg.Id == absentAssetID
 	})).Return(connect.NewResponse(&apiv1.Asset{Id: absentAssetID, Symbol: &sym}), nil)
@@ -2659,6 +2705,8 @@ func TestImportPositions_FullSnapshotCommitDeletes(t *testing.T) {
 	md := &mockMDClient{}
 	md.On("FindOrCreateAsset", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: &apiv1.Asset{Id: testAssetID}}), nil)
+	md.On("GetAsset", mock.Anything, assetReq("USD")).
+		Return(connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil).Maybe()
 	md.On("GetAsset", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.Asset{Id: absentAssetID}), nil)
 

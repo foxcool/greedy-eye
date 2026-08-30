@@ -307,7 +307,7 @@ graph TB
     subgraph "External Adapters"
         Prices[coingecko, binance, cbr,<br/>moex, tinvest<br/>prices]
         Wallets[moralis, subscan, tonapi, solana,<br/>esplora, cosmos, tzkt, blockchair<br/>wallet balances]
-        Telegram[telegram<br/>notifications]
+        Telegram[telegram<br/>notifications — NOT WIRED]
     end
 
     subgraph "Domain Logic"
@@ -454,7 +454,10 @@ without linking them.
   already includes what is locked or staked, so summing them doubles the largest position on a
   staking-heavy account.
 
-- **Messenger Adapters** (`internal/adapter/telegram/`): Telegram (notifications)
+- **Messenger Adapters** (`internal/adapter/telegram/`): Telegram — **client only, wired to
+  nothing.** The package compiles and is tested, but no service imports it and there is no
+  notification path in the codebase. It is ahead of its consumer, not left over from one:
+  `greedy-eye-68z` (portfolio change notifications) is the ticket that would use it
 - **Rate budget** (`internal/adapter/ratelimit/`): a process-wide registry of token buckets keyed by
   provider + digest of the API key, injected into every adapter client as an `http.RoundTripper`.
   Because clients are per-account and short-lived, a limiter inside a client paces one account and
@@ -702,6 +705,8 @@ zeroed while still held.
 ```text
 API Client → PortfolioService/CalculatePortfolioValue
   1. Load holdings, skip excluded ones (they are reported separately)
+  1a. Read valuation.v1: the freshness threshold AND the display currency the
+      total is expressed in when the request names none (ADR-010)
   2. For each holding, resolve a unit price in the quote asset
   3. Check the market behind that price: under $100k of 24h volume it does not value
      the holding (ADR-009). A source that reported no volume is not a reason to drop it
@@ -819,7 +824,7 @@ Cron / API Client → AutomationService/ExecuteRule
 **Caching:**
 - **Price Data**: Caching current prices with TTL
 - **Portfolio Calculations**: Caching portfolio calculations
-- **Session Data**: In-memory caching of Telegram Bot sessions
+- **Session Data**: planned with the Telegram bot (`greedy-eye-68z`); no such cache exists today
 
 **Query Optimization:**
 - **Database Indexing**: Indexes on foreign keys and timestamp fields
@@ -839,6 +844,7 @@ corrections:
 | Asset judged a scam or impersonation | `holdings.excluded`, derived from the asset verdict | Reported alongside the total; the position keeps syncing and stays visible in quarantine |
 | A quote that outlived its market | `ValuationCoverage.stale_count` and `prices_as_of` | Same block; the position stays **in** the total and is named, because removing it would move the number on every provider outage |
 | Every source asked, none ever answered | `UnpricedReason.NEVER_PRICED` + `asked_since`, read from `price_fetch_attempts` | Same block as a missing quote, separated from it: `NO_QUOTE` can still be our pipeline not having looked, this one has exhausted the sources it has |
+| Priced, but in a currency we cannot convert from | `UnpricedReason.NO_CROSS_RATE` in the same block (ADR-010) | Same place, separated from a missing quote because it asks for opposite work: one exchange rate, not coverage for the asset. Collapsing the two hid 74 holdings for months |
 
 Rules that follow from this:
 
@@ -878,6 +884,12 @@ The threshold is stored per user under the `valuation.v1` setting rather than co
 it depends on the sweep cadence and the markets an instance actually holds. It is applied to the
 asset's **own** quote only, never to the cross rate — for the same reason the market-depth gate
 is not: one stale FX row would otherwise date every position converted through it.
+
+**Display currency** (same setting, `display_currency`): what a total is expressed in when the
+request names no quote asset. It sits beside the threshold because it is the same kind of
+statement — how this instance reports money — and it is *not* the base a pair is quoted against
+(ADR-010). The two fields parse independently: a malformed duration must not revert a currency
+somebody chose, since that would report one currency's number under another currency's name.
 
 ### 8.4 Data Management
 
@@ -1078,6 +1090,10 @@ is not: one stale FX row would otherwise date every position converted through i
   - ➕ Existing rows backfilled via column default `'crypto'`; no data migration needed
   - ➖ Symbol-only lookups become ambiguous once a ticker exists on two markets; callers
     must then resolve by ID or market
+  - ➖ That backfill put USD on `crypto` and kept `market` out of quote-currency resolution
+    for the six weeks this ADR stood, which is how a USDT twin came to be minted on dev
+    (ADR-010). Resolution now uses the full composite; the backfilled row is moved rather
+    than the key widened
 - **Rejected**: market = price source (duplicates every asset per provider, fragments
   holdings); an `external_ref` column on `assets` (one asset maps to many provider IDs —
   1:N belongs in a mapping table, and a 1:1 column would die on the second source);
@@ -1183,6 +1199,88 @@ is not: one stale FX row would otherwise date every position converted through i
   and it makes a property of the price into a property of the position); a configuration knob
   for the threshold (one documented number whose change is a code change with a test beats a
   setting nobody can re-derive)
+
+### ADR-010: The base of a pair and the currency of a total are different things
+- **Status**: accepted
+- **Context**: `prices.base_asset_id` is what a quote is denominated in — the other side of a
+  traded pair (USDT on Binance, RUB on MOEX). It was also, by omission, the currency a
+  portfolio total was rendered in: valuation asked for prices against a hardcoded `"USD"`. To
+  make that resolvable, USD was minted as a row in `assets` at `(symbol=USD, market=crypto,
+  type=forex)` — a fake tradeable crypto asset, standing in the catalogue where anyone might
+  sum it, and colliding with counterfeit "US Dollar" tokens minted by whoever pays the gas.
+
+  Conflating the two cost real money and two months of silence **on dev**. Correcting
+  Binance's quote currency from forex to cryptocurrency (`0f5c100`, 2026-06-04) minted a USDT
+  twin rather than updating the row, because `market` was deliberately excluded from the
+  identity key — excluded precisely because USD sat on the wrong market and matching on it
+  would have missed the row every stored price points at. The twin split the identity: Binance
+  quoted into one row while CoinGecko wrote the USDT/USD rate against the other. 74 holdings
+  across 8 assets left the total, reporting `NO_QUOTE` — indistinguishable from assets nobody
+  had ever priced, which is what kept anyone from looking. The rate existed the whole time.
+
+  **Which shape an instance is in is a question about that instance, not about the software.**
+  Measured 2026-08-28:
+
+  | | dev | prod |
+  |---|---|---|
+  | USD row | `(USD, crypto, forex)` — needs moving | `(USD, forex, forex)` — already right |
+  | USDT forex twin | present, 1,354 price rows | absent |
+  | prices on the USD row | 67,536 | not counted; nothing points at a wrong row |
+  | holdings reporting `NO_QUOTE` | 74 across 8 assets | 0 |
+
+  Prod was built after the backfill and never carried the defect. Every number in the dev
+  column is a dev number; none of them describes the software.
+- **Decision**: they are two questions and get two homes.
+
+  The **quote side of a pair is any asset**, and stays `prices.base_asset_id`. A row in
+  `prices` *is* the pair; USDT/USD is a real market on Kraken and Coinbase, not a display
+  convention. A base must be quotable: not on a contract market, not of a non-currency type —
+  enforced in `resolveBase` before a provider is asked for anything, since one base
+  denominates that source's whole batch.
+
+  The **display currency is a setting**, `display_currency` in `valuation.v1`, beside the
+  freshness threshold. It is the same kind of statement: how this instance reports money,
+  chosen by whoever owns the numbers rather than per request.
+
+  USD stays in `assets` but moves to `market='forex'`, where it is an ordinary forex asset
+  like RUB and the 53 currencies CBR already quotes. The premise "USD is not an asset" is half
+  right: it is not a *crypto* asset. With that settled, `market` enters the identity key of
+  `GetOrCreateAssetBySymbol`, closing the hole the twin came through.
+
+  A `CHECK (asset_id <> base_asset_id)` guards the pair itself: a row quoting an asset against
+  itself says "1" in a shape that reads like data, and `crossRate` would divide by it happily.
+- **Consequences**:
+  - ➕ The 74 holdings price again, and `UNPRICED_REASON_NO_CROSS_RATE` makes the failure mode
+    that hid them legible: "priced, in a currency we cannot convert from" is a missing rate,
+    not a coverage gap
+  - ➕ An owner can read their portfolio in roubles without any pair changing
+  - ➕ Pair identity becomes reliable, which is what arbitrage will need
+  - ➖ **Conditional on the instance**: one whose USD does not already sit on
+    `market='forex'` must have that row moved by hand in psql **before** the code ships.
+    Afterwards `resolveBase` looks up `(USD, forex, forex)`, finds nothing, and mints a second
+    USD while every stored price still points at the old one. Atlas applies unattended here
+    with no revisions table, so the data move cannot travel inside it. Check before deploying,
+    do not assume — dev needed the move, prod did not:
+
+    ```sql
+    SELECT symbol, market, type, count(*) FROM assets
+    WHERE symbol IN ('USD','USDT') AND market NOT LIKE 'onchain:%'
+    GROUP BY 1,2,3 ORDER BY 1,2;
+    ```
+
+    One `(USD, forex, forex)` row and one `(USDT, crypto, cryptocurrency)` row means the
+    instance is already in the target shape and there is nothing to move
+  - ➖ A display currency the catalogue does not hold fails the valuation rather than falling
+    back to dollars — deliberate, since the quiet fallback would report one currency's number
+    under another currency's name
+- **Rejected**: a separate `fx_rates` table (splits the single FX path — `crossRate` is written
+  over `prices` and CBR already writes RUB/USD as ordinary price rows — and puts the very pair
+  arbitrage asks about into a table with no volume, provenance or source); an `is_display_only`
+  flag on `assets` (USD stays a catalogue row, still resolvable, still a sweep target, still
+  able to hold holdings — one more flag every reader must remember, which is the disease
+  `market` was excluded from the key to treat); hardcoding USDT = 1 USD (a stablecoin depeg is
+  exactly the event a portfolio tool exists for, and a nailed-down constant has no author: it
+  passes `pricefresh` never stale and `marketdepth` with no volume)
 
 ---
 

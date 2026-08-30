@@ -202,7 +202,16 @@ func (h *Handler) GetAsset(ctx context.Context, req *connect.Request[apiv1.GetAs
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset ID is required"))
 	}
 
-	asset, err := h.store.GetAsset(ctx, req.Msg.Id)
+	// A ticker is accepted here for the same reason GetLatestPrice and
+	// ListPriceHistory accept one: a caller that knows a currency by its symbol
+	// should not have to learn its UUID first. This is the call a valuation uses
+	// to resolve its display currency once, before pricing anything.
+	id, err := h.resolveAssetID(ctx, req.Msg.Id)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+
+	asset, err := h.store.GetAsset(ctx, id)
 	if err != nil {
 		return nil, toConnectError(err)
 	}
@@ -1035,6 +1044,36 @@ type baseAssetKey struct {
 	typ    entity.AssetType
 }
 
+// quotableBase reports whether a resolved row may serve as a quote currency,
+// naming the reason when it may not.
+//
+// It is the guard on resolveBase below: a base is resolved once per provider per
+// sweep and denominates every price in the batch, so a wrong base is not one bad
+// row but a whole source priced against something nobody vouched for.
+//
+// Two rows are refused. One on a CONTRACT market stands for a specific
+// unverified contract, minted by whoever paid the gas — dev 2026-08-04 showed
+// what that means for a lookup by ticker, when syncing a whale wallet pulled in
+// a counterfeit "US Dollar" token. One of an UNQUOTABLE type is refused for the
+// plainer reason that a price is a ratio between an instrument and a currency: a
+// share of a fund is not something other things are worth an amount of.
+func quotableBase(a *entity.Asset) error {
+	if a == nil {
+		return fmt.Errorf("%w: no asset resolved", store.ErrInvalidArgument)
+	}
+	if entity.IsContractMarket(a.Market) {
+		return fmt.Errorf("%w: %s resolves to contract market %s, which cannot be a quote currency",
+			store.ErrInvalidArgument, a.Symbol, a.Market)
+	}
+	switch a.Type {
+	case entity.AssetTypeForex, entity.AssetTypeCryptocurrency:
+		return nil
+	default:
+		return fmt.Errorf("%w: %s resolves to an asset of type %d, which cannot be a quote currency",
+			store.ErrInvalidArgument, a.Symbol, a.Type)
+	}
+}
+
 // quarantineVerdicts are excluded from unattended pricing: their holdings are
 // already excluded from the portfolio sums, so a price for them buys nothing.
 var quarantineVerdicts = []string{
@@ -1136,7 +1175,10 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			idleSources[name] = string(outcome)
 			continue
 		}
-		// Resolve base asset UUID for this provider (create the asset if it doesn't exist yet).
+		// Resolve base asset UUID for this provider (create the asset if it doesn't
+		// exist yet). A row that quotableBase refuses fails the batch rather than
+		// being used: refusing costs this provider's prices, accepting costs the
+		// meaning of every number in them.
 		resolveBase := func(sym string) (string, error) {
 			key := baseAssetKey{symbol: strings.ToUpper(sym), typ: provider.BaseAssetType()}
 			if id, ok := baseAssetCache[key]; ok {
@@ -1144,6 +1186,9 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			}
 			baseAsset, err := h.store.GetOrCreateAssetBySymbol(ctx, key.symbol, key.symbol, key.typ)
 			if err != nil {
+				return "", fmt.Errorf("resolve base asset %s: %w", key.symbol, err)
+			}
+			if err := quotableBase(baseAsset); err != nil {
 				return "", fmt.Errorf("resolve base asset %s: %w", key.symbol, err)
 			}
 			baseAssetCache[key] = baseAsset.ID
