@@ -151,10 +151,15 @@ func Freshest(candidates []Quote) Quote {
 // priced $4,175 of airdropped tokens off a $40k/day market until this gate
 // existed. It reads EVERY candidate that reports a volume, not only the one
 // whose number is used, because the freshest row is not always the one carrying
-// the evidence — Binance reports no volume at all, and letting its row displace
-// a CoinGecko row that says "$40k a day" would disarm ADR-009 by accident. The
+// the evidence: a source may quote a pair without measuring it, and letting that
+// row displace one that says "$40k a day" would disarm ADR-009 by accident. The
 // rate is applied per candidate, since volume is denominated in that
 // candidate's own base.
+//
+// Being an OR, the gate can only tighten as sources start reporting: an asset
+// whose book is thin on one venue and deep on another now leaves the total. That
+// is the intended direction — the question is whether THIS position can be
+// realised, not whether some market for it exists somewhere.
 func AnyThin(candidates []Quote) (Quote, bool) {
 	for _, c := range candidates {
 		if marketdepth.Thin(c.Row, c.Rate) {

@@ -106,6 +106,32 @@ func (p *Provider) BaseAssetType() entity.AssetType { return entity.AssetTypeCry
 // This is the floor. The fix above it is the binding: an asset on the global
 // crypto market is priced only once DiscoverRefs has tied it to a listed pair
 // that nothing else claims (personal-psu.2 / personal-avm.1).
+// reportedVolume scales Binance's 24h quote turnover the way the price beside it
+// is scaled, because marketdepth.Thin divides both by the same Decimals.
+//
+// ZERO IS KEPT. It is a measurement, not a silence: this provider only ever asks
+// about pairs it found TRADING in exchangeInfo, so a pair that answers with no
+// turnover has an order book nobody touched in 24 hours — exactly the market
+// ADR-009 exists to keep out of a total. T-Invest already writes an explicit zero
+// for the same reason (tinvest/provider.go:250), and marketdepth.Thin already
+// says a reported non-positive volume counts as thin.
+//
+// This is deliberately NOT coingecko.reported, which discards zero and negative
+// alike. That rule answers a different problem: CoinGecko returns market_cap = -1
+// as a sentinel, so its non-positive figures are garbage rather than
+// measurements. Here only the garbage is dropped — negative and unparseable are
+// our ignorance, and ignorance must not read as a dead market.
+func reportedVolume(raw string) decimal.NullDecimal {
+	if raw == "" {
+		return decimal.NullDecimal{}
+	}
+	v, err := decimal.NewFromString(raw)
+	if err != nil || v.IsNegative() {
+		return decimal.NullDecimal{}
+	}
+	return decimal.NullDecimal{Decimal: v.Shift(int32(priceDecimals)).Round(0), Valid: true}
+}
+
 func (p *Provider) speaksFor(a *entity.Asset) bool {
 	return a != nil && entity.NormalizeMarket(a.Market) == entity.MarketCrypto
 }
@@ -310,6 +336,7 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 			Interval:  interval,
 			Decimals:  priceDecimals,
 			Last:      last,
+			Volume:    reportedVolume(t.QuoteVolume),
 			Timestamp: now,
 		})
 	}

@@ -287,7 +287,7 @@ func TestAnyThin(t *testing.T) {
 	t.Run("no volume reported is not thin", func(t *testing.T) {
 		silent := Quote{Row: price("btc", "usdt", "6000000", 2, at), Rate: one}
 		_, isThin := AnyThin([]Quote{silent})
-		assert.False(t, isThin, "Binance reports no volume; absence of evidence is not evidence")
+		assert.False(t, isThin, "a source that measured nothing makes no claim; absence of evidence is not evidence")
 	})
 }
 

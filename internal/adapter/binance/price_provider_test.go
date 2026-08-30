@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/marketdepth"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -63,11 +65,11 @@ func TestFetchPrices_OK(t *testing.T) {
 			writeExchangeInfo(w, "BTCUSDT", "ETHUSDT")
 			return
 		}
-		assert.Equal(t, "/api/v3/ticker/price", r.URL.Path)
+		assert.Equal(t, "/api/v3/ticker/24hr", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode([]TickerPrice{
-			{Symbol: "BTCUSDT", Price: "67000.12345678"},
-			{Symbol: "ETHUSDT", Price: "3500.00000000"},
+			{Symbol: "BTCUSDT", Price: "67000.12345678", QuoteVolume: "1500000000.00"},
+			{Symbol: "ETHUSDT", Price: "3500.00000000", QuoteVolume: "800000000.00"},
 		})
 	}))
 	defer srv.Close()
@@ -525,4 +527,156 @@ func TestProviderIsARefDiscoverer(t *testing.T) {
 	var _ interface {
 		DiscoverRefs(context.Context, []*entity.Asset) ([]entity.AssetExternalRef, error)
 	} = NewProvider(newTestClient("http://example.invalid"))
+}
+
+// TestFetchPrices_ReportsQuoteVolume pins what this adapter started reporting and
+// why it is the quote side.
+//
+// Before /ticker/24hr, Binance prices carried no volume at all, and a quote with
+// no reported volume is deliberately NOT thin (marketdepth.Thin) — so the ADR-009
+// gate never fired on a single Binance-priced asset. The number has to be the
+// pair's turnover in USDT, because that is what Thin compares against MinVolume
+// after converting the base; `volume`, denominated in the base coin, would weigh
+// 1,000 SHIB the same as 1,000 BTC.
+func TestFetchPrices_ReportsQuoteVolume(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v3/exchangeInfo" {
+			writeExchangeInfo(w, "BTCUSDT", "ETHUSDT")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		// `volume` is the base-denominated figure the adapter must NOT read: BTC
+		// turns over ~22k coins against $1.5bn, so reading the wrong field would
+		// call the deepest market on the venue thin.
+		_, _ = w.Write([]byte(`[
+			{"symbol":"BTCUSDT","lastPrice":"67000.00000000","volume":"22388.1","quoteVolume":"1500000000.00"},
+			{"symbol":"ETHUSDT","lastPrice":"3500.00000000","volume":"228571.4","quoteVolume":"800000000.00"}
+		]`))
+	}))
+	defer srv.Close()
+
+	prices, err := NewProvider(newTestClient(srv.URL)).FetchPrices(context.Background(), testAssets())
+	require.NoError(t, err)
+	require.Len(t, prices, 2)
+
+	byAsset := make(map[string]entity.StoredPrice, 2)
+	for _, sp := range prices {
+		byAsset[sp.AssetID] = sp
+	}
+
+	btc := byAsset["uuid-btc"]
+	require.True(t, btc.Volume.Valid, "a reported turnover must reach the row")
+	assert.Equal(t, uint32(8), btc.Decimals)
+
+	// The invariant the gate rests on: marketdepth.Thin reads volume back with
+	// raw.Shift(-Decimals), so what it sees must be the turnover as reported.
+	// Store it on any other scale and ADR-009 compares dollars to satoshis.
+	for _, sp := range prices {
+		read := sp.Volume.Decimal.Shift(-int32(sp.Decimals))
+		assert.Equal(t, map[string]string{
+			"uuid-btc": "1500000000",
+			"uuid-eth": "800000000",
+		}[sp.AssetID], read.String(), "volume must read back as the reported turnover")
+		assert.True(t, read.GreaterThan(decimal.NewFromInt(marketdepth.MinVolume)),
+			"both are deep markets and must clear the gate")
+	}
+}
+
+// TestFetchPrices_ThinMarketNowReaches_TheGate is the point of the whole change:
+// a Binance pair turning over less than MinVolume used to enter the total
+// unexamined, because the adapter reported no volume and an unreported volume is
+// not thin. Now the figure arrives and the gate can fire.
+func TestFetchPrices_ThinMarketNowReachesTheGate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v3/exchangeInfo" {
+			writeExchangeInfo(w, "BTCUSDT")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]TickerPrice{
+			// $40,655 a day — the MNEP shape that opened personal-6ae.
+			{Symbol: "BTCUSDT", Price: "67000.00000000", QuoteVolume: "40655.00"},
+		})
+	}))
+	defer srv.Close()
+
+	prices, err := NewProvider(newTestClient(srv.URL)).FetchPrices(
+		context.Background(), testAssets()[:1])
+	require.NoError(t, err)
+	require.Len(t, prices, 1)
+
+	read := prices[0].Volume.Decimal.Shift(-int32(prices[0].Decimals))
+	require.True(t, prices[0].Volume.Valid)
+	assert.True(t, read.LessThan(decimal.NewFromInt(marketdepth.MinVolume)),
+		"a market this small must be visible as such to ADR-009")
+}
+
+// TestFetchPrices_ZeroTurnoverIsAClaim: a TRADING pair that answers with no
+// turnover has an order book nobody touched in 24 hours. That is a measurement,
+// and ADR-009 exists to keep exactly such a market out of a total — so it must
+// reach the row as a zero, not be softened into silence.
+func TestFetchPrices_ZeroTurnoverIsAClaim(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v3/exchangeInfo" {
+			writeExchangeInfo(w, "BTCUSDT")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]TickerPrice{
+			{Symbol: "BTCUSDT", Price: "67000.00000000", QuoteVolume: "0.00000000"},
+		})
+	}))
+	defer srv.Close()
+
+	prices, err := NewProvider(newTestClient(srv.URL)).FetchPrices(
+		context.Background(), testAssets()[:1])
+	require.NoError(t, err)
+	require.Len(t, prices, 1)
+	require.True(t, prices[0].Volume.Valid, "zero turnover is measured, not missing")
+	assert.True(t, prices[0].Volume.Decimal.IsZero())
+	assert.True(t, prices[0].Last.IsPositive(), "the price itself still stands")
+}
+
+// TestFetchPrices_UnreportedVolumeStaysUnreported: what we cannot trust must read
+// as unreported, never as a dead market. A negative or unparseable figure is our
+// ignorance, and an unreported volume is deliberately not thin — Aave receipt
+// tokens have no market of their own by construction, and calling them thin would
+// remove real money from the number.
+func TestFetchPrices_UnreportedVolumeStaysUnreported(t *testing.T) {
+	for _, tc := range []struct{ name, quoteVolume string }{
+		{"absent", ""},
+		{"negative", "-1"},
+		{"unparseable", "n/a"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/v3/exchangeInfo" {
+					writeExchangeInfo(w, "BTCUSDT")
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode([]TickerPrice{
+					{Symbol: "BTCUSDT", Price: "67000.00000000", QuoteVolume: tc.quoteVolume},
+				})
+			}))
+			defer srv.Close()
+
+			prices, err := NewProvider(newTestClient(srv.URL)).FetchPrices(
+				context.Background(), testAssets()[:1])
+			require.NoError(t, err)
+			require.Len(t, prices, 1)
+			assert.False(t, prices[0].Volume.Valid,
+				"a figure we cannot trust must read as unreported, never as a market of zero")
+			assert.True(t, prices[0].Last.IsPositive(), "the price itself still stands")
+		})
+	}
+}
+
+// TestTickerBatchStaysUnderTheWeightStep: /api/v3/ticker/24hr prices its weight in
+// steps — 1-20 symbols cost 2, 21-100 cost 40 (documented, checked 2026-08-28).
+// The batch size is the difference between paying 2 and paying 40, so it is
+// pinned rather than left to drift back to the 100 that /ticker/price allowed.
+func TestTickerBatchStaysUnderTheWeightStep(t *testing.T) {
+	assert.LessOrEqual(t, tickerBatchSize, 20,
+		"above 20 symbols one request costs 20x the weight for the same answer")
 }
