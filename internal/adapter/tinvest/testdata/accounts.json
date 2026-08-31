@@ -1,0 +1,31 @@
+{
+  "accounts": [
+    {
+      "accessLevel": "ACCOUNT_ACCESS_LEVEL_READ_ONLY",
+      "closedDate": "1970-01-01T00:00:00Z",
+      "id": "acc-b71fbc27b96b",
+      "name": "account",
+      "openedDate": "2020-11-15T00:00:00Z",
+      "status": "ACCOUNT_STATUS_OPEN",
+      "type": "ACCOUNT_TYPE_TINKOFF"
+    },
+    {
+      "accessLevel": "ACCOUNT_ACCESS_LEVEL_READ_ONLY",
+      "closedDate": "1970-01-01T00:00:00Z",
+      "id": "acc-38618cfb7c2c",
+      "name": "account",
+      "openedDate": "2020-08-06T00:00:00Z",
+      "status": "ACCOUNT_STATUS_OPEN",
+      "type": "ACCOUNT_TYPE_INVEST_BOX"
+    },
+    {
+      "accessLevel": "ACCOUNT_ACCESS_LEVEL_READ_ONLY",
+      "closedDate": "1970-01-01T00:00:00Z",
+      "id": "acc-373db5a1b60c",
+      "name": "account",
+      "openedDate": "2025-10-04T00:00:00Z",
+      "status": "ACCOUNT_STATUS_OPEN",
+      "type": "ACCOUNT_TYPE_TINKOFF"
+    }
+  ]
+}

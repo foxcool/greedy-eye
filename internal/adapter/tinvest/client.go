@@ -38,7 +38,13 @@ import (
 const ProviderName = "tinvest"
 
 // RefSource is the namespace this provider's instrument ids live in, as stored
-// in asset_external_refs. The ref itself is a FIGI.
+// in asset_external_refs.
+//
+// The ref is whatever the API calls a FIGI, and the 2026-08-31 capture shows
+// that is three different things: a real Bloomberg FIGI, a synthetic T-Invest
+// id (TCS00A1055Y4, TCSB43821012), or — for blocked foreign paper with no FIGI
+// at all — the ISIN itself, repeated in the ticker field. All three are stable
+// within this provider, which is what the namespace makes sufficient.
 const RefSource = "tinvest"
 
 const defaultBaseURL = "https://invest-public-api.tinkoff.ru/rest"
@@ -49,8 +55,11 @@ const defaultBaseURL = "https://invest-public-api.tinkoff.ru/rest"
 const (
 	pathShares          = "/tinkoff.public.invest.api.contract.v1.InstrumentsService/Shares"
 	pathEtfs            = "/tinkoff.public.invest.api.contract.v1.InstrumentsService/Etfs"
+	pathBonds           = "/tinkoff.public.invest.api.contract.v1.InstrumentsService/Bonds"
 	pathLastPrices      = "/tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices"
 	pathTradingStatuses = "/tinkoff.public.invest.api.contract.v1.MarketDataService/GetTradingStatuses"
+	pathAccounts        = "/tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts"
+	pathPortfolio       = "/tinkoff.public.invest.api.contract.v1.OperationsService/GetPortfolio"
 )
 
 // instrumentStatusBase asks for the instruments available for trading through
@@ -257,8 +266,12 @@ func (q Quotation) Decimal() (decimal.Decimal, bool) {
 type Instrument struct {
 	FIGI string `json:"figi"`
 	// UID is the API's own identifier, stable across a FIGI reassignment.
-	UID       string `json:"uid"`
-	Ticker    string `json:"ticker"`
+	UID    string `json:"uid"`
+	Ticker string `json:"ticker"`
+	// Name is the instrument's human-readable name. Unused while this adapter
+	// only quoted prices; a position that creates a catalogue row needs it,
+	// because a ticker alone makes an asset nobody can recognise later.
+	Name      string `json:"name"`
 	ClassCode string `json:"classCode"`
 	// Currency is what the instrument is quoted in, lowercase in the API
 	// ("usd", "rub"). SPB quotes foreign shares in dollars and domestic paper in

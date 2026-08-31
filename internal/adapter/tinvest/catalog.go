@@ -99,10 +99,22 @@ func (c *catalog) ensure(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("tinvest instrument catalog: %w", err)
 	}
+	// Bonds join the universe because a bond POSITION needs a venue to take its
+	// market from, and the portfolio response carries no venue. Prices are a
+	// separate question: FetchPrices still speaks only for what it can quote.
+	bonds, err := c.client.Bonds(ctx)
+	if err != nil {
+		return fmt.Errorf("tinvest instrument catalog: %w", err)
+	}
 
-	byFIGI := make(map[string]Instrument, len(shares)+len(etfs))
-	byTicker := make(map[string][]Instrument, len(shares)+len(etfs))
-	for _, inst := range append(shares, etfs...) {
+	total := len(shares) + len(etfs) + len(bonds)
+	byFIGI := make(map[string]Instrument, total)
+	byTicker := make(map[string][]Instrument, total)
+	all := make([]Instrument, 0, total)
+	all = append(all, shares...)
+	all = append(all, etfs...)
+	all = append(all, bonds...)
+	for _, inst := range all {
 		if inst.FIGI == "" {
 			continue
 		}

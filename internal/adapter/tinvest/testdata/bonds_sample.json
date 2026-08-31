@@ -1,0 +1,401 @@
+{
+  "instruments": [
+    {
+      "aciValue": {
+        "currency": "rub",
+        "nano": 30000000,
+        "units": "32"
+      },
+      "amortizationFlag": false,
+      "apiTradeAvailableFlag": true,
+      "assetUid": "28887b0a-20a8-409d-b895-e9831a56152e",
+      "blockedTcaFlag": false,
+      "bondType": "BOND_TYPE_UNSPECIFIED",
+      "brand": {
+        "logoBaseColor": "#000000",
+        "logoName": "RU000A101RP4.png",
+        "textColor": "#ffffff"
+      },
+      "buyAvailableFlag": true,
+      "classCode": "TQCB",
+      "countryOfRisk": "KZ",
+      "countryOfRiskName": "Республика Казахстан",
+      "couponQuantityPerYear": 2,
+      "currency": "rub",
+      "dlong": {
+        "nano": 285700000,
+        "units": "0"
+      },
+      "dlongClient": {
+        "nano": 285700000,
+        "units": "0"
+      },
+      "dlongMin": {
+        "nano": 250000000,
+        "units": "0"
+      },
+      "exchange": "moex_weekend_plus_bonds",
+      "figi": "BBG00XH4W3N3",
+      "first1dayCandleDate": "2020-09-23T07:00:00Z",
+      "first1minCandleDate": "2020-09-23T11:09:00Z",
+      "floatingCouponFlag": false,
+      "forIisFlag": false,
+      "forQualInvestorFlag": false,
+      "initialNominal": {
+        "currency": "rub",
+        "nano": 0,
+        "units": "1000"
+      },
+      "isin": "RU000A101RZ3",
+      "issueKind": "non_documentary",
+      "issueSize": "10000000",
+      "issueSizePlan": "10000000",
+      "liquidityFlag": true,
+      "lot": 1,
+      "maturityDate": "2030-09-11T00:00:00Z",
+      "minPriceIncrement": {
+        "nano": 10000000,
+        "units": "0"
+      },
+      "name": "account",
+      "nominal": {
+        "currency": "rub",
+        "nano": 0,
+        "units": "1000"
+      },
+      "otcFlag": false,
+      "perpetualFlag": false,
+      "placementDate": "2020-09-23T00:00:00Z",
+      "placementPrice": {
+        "currency": "",
+        "nano": 0,
+        "units": "0"
+      },
+      "positionUid": "2c354d2c-98d0-4705-8370-92e604e31ece",
+      "realExchange": "REAL_EXCHANGE_MOEX",
+      "requiredTests": [
+        "bond"
+      ],
+      "riskLevel": "RISK_LEVEL_LOW",
+      "sector": "government",
+      "sellAvailableFlag": true,
+      "shortEnabledFlag": false,
+      "stateRegDate": "2020-07-16T00:00:00Z",
+      "subordinatedFlag": false,
+      "ticker": "RU000A101RZ3",
+      "tradingStatus": "SECURITY_TRADING_STATUS_NORMAL_TRADING",
+      "uid": "2dd3b003-aca2-4920-89ce-8d827c637372",
+      "weekendFlag": false
+    },
+    {
+      "aciValue": {
+        "currency": "rub",
+        "nano": 330000000,
+        "units": "8"
+      },
+      "amortizationFlag": true,
+      "apiTradeAvailableFlag": true,
+      "assetUid": "35414d91-6cd4-4bc9-9941-cc5e1b57c4be",
+      "blockedTcaFlag": false,
+      "bondType": "BOND_TYPE_UNSPECIFIED",
+      "brand": {
+        "logoBaseColor": "#00c160",
+        "logoName": "RU000A106CM2.png",
+        "textColor": "#ffffff"
+      },
+      "buyAvailableFlag": true,
+      "classCode": "TQCB",
+      "countryOfRisk": "RU",
+      "countryOfRiskName": "Российская Федерация",
+      "couponQuantityPerYear": 12,
+      "currency": "rub",
+      "exchange": "moex_weekend_plus_bonds",
+      "figi": "TCSM3270FEY9",
+      "first1dayCandleDate": "2026-06-17T00:00:00Z",
+      "first1minCandleDate": "2026-06-17T13:32:00Z",
+      "floatingCouponFlag": true,
+      "forIisFlag": true,
+      "forQualInvestorFlag": true,
+      "initialNominal": {
+        "currency": "rub",
+        "nano": 0,
+        "units": "1000"
+      },
+      "isin": "RU000A10FEY9",
+      "issueKind": "non_documentary",
+      "issueSize": "76486",
+      "issueSizePlan": "150000",
+      "liquidityFlag": true,
+      "lot": 1,
+      "maturityDate": "2029-06-01T00:00:00Z",
+      "minPriceIncrement": {
+        "nano": 10000000,
+        "units": "0"
+      },
+      "name": "account",
+      "nominal": {
+        "currency": "rub",
+        "nano": 0,
+        "units": "1000"
+      },
+      "otcFlag": false,
+      "perpetualFlag": false,
+      "placementDate": "2026-06-17T00:00:00Z",
+      "placementPrice": {
+        "currency": "",
+        "nano": 0,
+        "units": "0"
+      },
+      "positionUid": "ecf0958f-6494-41d6-bf20-5db1ffeaf5a3",
+      "realExchange": "REAL_EXCHANGE_MOEX",
+      "requiredTests": [],
+      "riskLevel": "RISK_LEVEL_HIGH",
+      "sector": "financial",
+      "sellAvailableFlag": true,
+      "shortEnabledFlag": false,
+      "stateRegDate": "2026-02-18T00:00:00Z",
+      "subordinatedFlag": false,
+      "ticker": "RU000A10FEY9",
+      "tradingStatus": "SECURITY_TRADING_STATUS_NORMAL_TRADING",
+      "uid": "74a1c321-be81-4ea0-a6b0-17005280d601",
+      "weekendFlag": false
+    },
+    {
+      "aciValue": {
+        "currency": "rub",
+        "nano": 610000000,
+        "units": "7"
+      },
+      "amortizationFlag": false,
+      "apiTradeAvailableFlag": true,
+      "assetUid": "b93ca73c-15bb-4179-a5c8-4cbf3998154e",
+      "blockedTcaFlag": false,
+      "bondType": "BOND_TYPE_UNSPECIFIED",
+      "brand": {
+        "logoBaseColor": "#000000",
+        "logoName": "RU000A103HG0.png",
+        "textColor": "#ffffff"
+      },
+      "buyAvailableFlag": true,
+      "callDate": "2027-06-17T00:00:00Z",
+      "classCode": "TQCB",
+      "countryOfRisk": "",
+      "countryOfRiskName": "",
+      "couponQuantityPerYear": 12,
+      "currency": "rub",
+      "exchange": "moex_weekend_plus_bonds",
+      "figi": "TCS00A10BW88",
+      "first1dayCandleDate": "2025-06-27T00:00:00Z",
+      "first1minCandleDate": "2025-06-27T13:30:00Z",
+      "floatingCouponFlag": false,
+      "forIisFlag": true,
+      "forQualInvestorFlag": false,
+      "initialNominal": {
+        "currency": "rub",
+        "nano": 0,
+        "units": "1000"
+      },
+      "isin": "RU000A10BW88",
+      "issueKind": "non_documentary",
+      "issueSize": "750000",
+      "issueSizePlan": "750000",
+      "liquidityFlag": true,
+      "lot": 1,
+      "maturityDate": "2029-06-06T00:00:00Z",
+      "minPriceIncrement": {
+        "nano": 10000000,
+        "units": "0"
+      },
+      "name": "account",
+      "nominal": {
+        "currency": "rub",
+        "nano": 0,
+        "units": "1000"
+      },
+      "otcFlag": false,
+      "perpetualFlag": false,
+      "placementDate": "2025-06-27T00:00:00Z",
+      "placementPrice": {
+        "currency": "rub",
+        "nano": 0,
+        "units": "1000"
+      },
+      "positionUid": "793543f1-d28e-42b6-8132-02aa7f120d86",
+      "realExchange": "REAL_EXCHANGE_MOEX",
+      "requiredTests": [
+        "bond"
+      ],
+      "riskLevel": "RISK_LEVEL_MODERATE",
+      "sector": "financial",
+      "sellAvailableFlag": true,
+      "shortEnabledFlag": false,
+      "stateRegDate": "2025-06-16T00:00:00Z",
+      "subordinatedFlag": false,
+      "ticker": "RU000A10BW88",
+      "tradingStatus": "SECURITY_TRADING_STATUS_NORMAL_TRADING",
+      "uid": "04842d34-6354-4ffd-9448-03a452e4c248",
+      "weekendFlag": false
+    },
+    {
+      "aciValue": {
+        "currency": "cny",
+        "nano": 50000000,
+        "units": "4"
+      },
+      "amortizationFlag": false,
+      "apiTradeAvailableFlag": true,
+      "assetUid": "4a1b4a36-4902-470b-9ca2-8a5744334a60",
+      "blockedTcaFlag": false,
+      "bondType": "BOND_TYPE_REPLACED",
+      "brand": {
+        "logoBaseColor": "#117cbf",
+        "logoName": "RU0007661625.png",
+        "textColor": "#ffffff"
+      },
+      "buyAvailableFlag": true,
+      "classCode": "TQCB",
+      "countryOfRisk": "RU",
+      "countryOfRiskName": "Российская Федерация",
+      "couponQuantityPerYear": 12,
+      "currency": "rub",
+      "dlong": {
+        "nano": 370000000,
+        "units": "0"
+      },
+      "dlongClient": {
+        "nano": 370000000,
+        "units": "0"
+      },
+      "dlongMin": {
+        "nano": 333300000,
+        "units": "0"
+      },
+      "exchange": "moex_weekend_plus_bonds",
+      "figi": "TCS00A10DT08",
+      "first1dayCandleDate": "2025-12-15T00:00:00Z",
+      "first1minCandleDate": "2025-12-15T11:45:00Z",
+      "floatingCouponFlag": false,
+      "forIisFlag": true,
+      "forQualInvestorFlag": false,
+      "initialNominal": {
+        "currency": "cny",
+        "nano": 0,
+        "units": "1000"
+      },
+      "isin": "RU000A10DT08",
+      "issueKind": "non_documentary",
+      "issueSize": "3000000",
+      "issueSizePlan": "3000000",
+      "liquidityFlag": true,
+      "lot": 1,
+      "maturityDate": "2029-02-27T00:00:00Z",
+      "minPriceIncrement": {
+        "nano": 100000,
+        "units": "0"
+      },
+      "name": "account",
+      "nominal": {
+        "currency": "cny",
+        "nano": 0,
+        "units": "1000"
+      },
+      "otcFlag": false,
+      "perpetualFlag": false,
+      "placementDate": "2025-12-15T00:00:00Z",
+      "placementPrice": {
+        "currency": "",
+        "nano": 0,
+        "units": "0"
+      },
+      "positionUid": "c19ece58-572c-4509-b2b4-1b9883dcba84",
+      "realExchange": "REAL_EXCHANGE_MOEX",
+      "requiredTests": [],
+      "riskLevel": "RISK_LEVEL_MODERATE",
+      "sector": "financial",
+      "sellAvailableFlag": true,
+      "shortEnabledFlag": false,
+      "stateRegDate": "2025-12-04T00:00:00Z",
+      "subordinatedFlag": false,
+      "ticker": "RU000A10DT08",
+      "tradingStatus": "SECURITY_TRADING_STATUS_NORMAL_TRADING",
+      "uid": "8a559159-c5bf-490c-a8a7-58b2f0094189",
+      "weekendFlag": false
+    },
+    {
+      "aciValue": {
+        "currency": "rub",
+        "nano": 120000000,
+        "units": "3"
+      },
+      "amortizationFlag": false,
+      "apiTradeAvailableFlag": true,
+      "assetUid": "a80b06c3-8b0e-4348-9bb2-5363e9288a90",
+      "blockedTcaFlag": false,
+      "bondType": "BOND_TYPE_UNSPECIFIED",
+      "brand": {
+        "logoBaseColor": "#FFFFFF",
+        "logoName": "RU000A10DJY3.png",
+        "textColor": "#000000"
+      },
+      "buyAvailableFlag": true,
+      "callDate": "2027-01-23T00:00:00Z",
+      "classCode": "TQCB",
+      "countryOfRisk": "RU",
+      "countryOfRiskName": "Российская Федерация",
+      "couponQuantityPerYear": 12,
+      "currency": "rub",
+      "exchange": "moex_weekend_plus_bonds",
+      "figi": "ISSUANCEPRLS",
+      "first1dayCandleDate": "2020-08-27T07:00:00Z",
+      "first1minCandleDate": "2020-08-27T11:29:00Z",
+      "floatingCouponFlag": false,
+      "forIisFlag": true,
+      "forQualInvestorFlag": false,
+      "initialNominal": {
+        "currency": "rub",
+        "nano": 0,
+        "units": "1000"
+      },
+      "isin": "RU000A1022E6",
+      "issueKind": "non_documentary",
+      "issueSize": "1750000",
+      "issueSizePlan": "1000000",
+      "liquidityFlag": true,
+      "lot": 1,
+      "maturityDate": "2029-08-10T00:00:00Z",
+      "minPriceIncrement": {
+        "nano": 10000000,
+        "units": "0"
+      },
+      "name": "account",
+      "nominal": {
+        "currency": "rub",
+        "nano": 0,
+        "units": "1000"
+      },
+      "otcFlag": false,
+      "perpetualFlag": false,
+      "placementDate": "2020-08-27T00:00:00Z",
+      "placementPrice": {
+        "currency": "",
+        "nano": 0,
+        "units": "0"
+      },
+      "positionUid": "bef3e80e-aacd-41c3-b6df-8e974a7eebb6",
+      "realExchange": "REAL_EXCHANGE_MOEX",
+      "requiredTests": [
+        "bond"
+      ],
+      "riskLevel": "RISK_LEVEL_HIGH",
+      "sector": "other",
+      "sellAvailableFlag": true,
+      "shortEnabledFlag": false,
+      "stateRegDate": "2020-08-14T00:00:00Z",
+      "subordinatedFlag": false,
+      "ticker": "RU000A1022E6",
+      "tradingStatus": "SECURITY_TRADING_STATUS_NORMAL_TRADING",
+      "uid": "2f039ef6-c007-47c9-a61a-237bc39b6ef2",
+      "weekendFlag": false
+    }
+  ]
+}
