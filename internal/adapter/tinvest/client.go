@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -103,9 +104,20 @@ var ErrNoRootCA = errors.New(
 	"tinvest: no root CA configured (tinvest.rootCAFile): the API host's chain " +
 		"terminates in a CA no standard trust store carries")
 
-// NewClient creates a T-Invest client. It fails when the operator has supplied
-// neither a trust anchor nor a transport of their own.
+// ErrBadBaseURL reports that the configured host is not a URL this client can
+// send a request to. It exists so the failure reads as configuration: without
+// it a typo is concatenated onto a service path and handed to net/http, which
+// answers either a generic "build request" error or, worse, a connection
+// failure indistinguishable from the broker being down.
+var ErrBadBaseURL = errors.New("tinvest: base URL is not usable")
+
+// NewClient creates a T-Invest client. It fails when the base URL is not one
+// requests can be built from, or when the operator has supplied neither a trust
+// anchor nor a transport of their own.
 func NewClient(cfg Config) (*Client, error) {
+	if err := CheckBaseURL(cfg.BaseURL); err != nil {
+		return nil, err
+	}
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		baseURL = defaultBaseURL
@@ -124,6 +136,58 @@ func NewClient(cfg Config) (*Client, error) {
 		token:      cfg.Token,
 		httpClient: &http.Client{Timeout: 30 * time.Second, Transport: transport},
 	}, nil
+}
+
+// CheckBaseURL rejects a host requests cannot be built from, naming what is
+// wrong with it. An empty value is valid and selects the production gateway.
+//
+// Exported so the provider registry can ask BEFORE it builds a TLS transport.
+// The other order reports the wrong fault: a typo in the URL, on an account
+// with no trust anchor, comes back as "no root CA configured" — telling the
+// operator to fix a field they did not touch.
+//
+// A path is allowed and not stripped: the gateway serves under /rest, which is
+// why defaultBaseURL carries one, and service paths are appended to whatever is
+// given. Query and fragment are refused instead of ignored — appending a
+// service path after "?x=1" produces a URL that neither fails nor works, and
+// silently dropping the part the operator typed is its own kind of lie.
+func CheckBaseURL(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("%w: %q: %w", ErrBadBaseURL, raw, err)
+	}
+	switch {
+	case u.Scheme != "http" && u.Scheme != "https":
+		// http is deliberate: it is what lets an instance point at a local
+		// server replaying captured responses, which is the only way to
+		// exercise the mapping without the live broker. The sandbox is not an
+		// alternative — it answers different methods entirely.
+		return fmt.Errorf("%w: %q: scheme must be http or https, got %q", ErrBadBaseURL, raw, u.Scheme)
+	case u.Host == "":
+		return fmt.Errorf("%w: %q: no host", ErrBadBaseURL, raw)
+	case u.RawQuery != "" || u.Fragment != "":
+		return fmt.Errorf("%w: %q: a query or fragment cannot carry a service path", ErrBadBaseURL, raw)
+	}
+	return nil
+}
+
+// InsecureBaseURL reports whether a base URL is served without TLS, and so has
+// no certificate for a trust anchor to verify.
+//
+// Exported because the caller that decides whether to demand a root CA is the
+// provider registry, which holds the account: asking for an anchor to check a
+// plaintext connection would make the local-replay case impossible, and
+// answering that question inside NewClient would hide it from the place the
+// account's fields are read.
+func InsecureBaseURL(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "http"
 }
 
 // TLSTransport builds the transport that verifies the API host against the

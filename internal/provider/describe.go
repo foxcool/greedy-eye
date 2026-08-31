@@ -63,9 +63,19 @@ func describeAll() []catalog.Descriptor {
 			Fields: []catalog.Field{{
 				Key:       "root_ca",
 				Title:     "Root certificate (PEM)",
-				Help:      "The host's chain ends in a root no standard store carries. Without this the account is skipped and nothing it would price gets a price.",
+				Help:      "The host's chain ends in a root no standard store carries. Without this the account is skipped and nothing it would price gets a price. Not needed when the base URL is plain http, which has no certificate to verify.",
 				Required:  true,
 				Multiline: true,
+			}, {
+				Key:   "base_url",
+				Title: "Base URL",
+				// The help says what the field is FOR, because the obvious
+				// guess is wrong: the vendor's sandbox lives on another host
+				// but answers different methods, so pointing this at it does
+				// not produce a working second environment.
+				Help:      "Leave empty for the broker's live gateway. Set it to send this account elsewhere — a local server replaying captured responses, so a change can be exercised without the live broker. Not a sandbox switch: the vendor's sandbox serves different methods.",
+				Required:  false,
+				Multiline: false,
 			}},
 		},
 		{

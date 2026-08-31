@@ -262,16 +262,40 @@ func (r *Registry) PriceProviders() map[string]credentials.PriceProviderFactory 
 		// a decision that belongs beside the token it is used with, not in the
 		// service's own configuration.
 		tinvestadapter.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
+			// data["base_url"] points this account somewhere other than the
+			// production gateway; empty keeps today's behaviour exactly. Its
+			// purpose is a local server replaying captured responses, so the
+			// whole path can be exercised without the live broker — NOT the
+			// vendor's sandbox, which answers different methods entirely and
+			// holds no copy of the real portfolio (personal-hbb1).
+			baseURL := a.Data["base_url"]
+
+			// Checked before anything is built. Reversed, a typo here on an
+			// account with no anchor comes back as "no root CA configured",
+			// which sends the operator to fix a field they did not touch.
+			if err := tinvestadapter.CheckBaseURL(baseURL); err != nil {
+				return nil, err
+			}
+
 			// The verified transport is built first and the rate limiter wraps
 			// it. The other order would hand NewClient a ready Transport, which
 			// takes precedence over the anchor and would leave the connection
 			// trusting only the system store.
-			base, err := tinvestadapter.TLSTransport([]byte(a.Data["root_ca"]))
-			if err != nil {
-				return nil, err
+			//
+			// A plaintext base URL has no certificate to verify, so demanding a
+			// trust anchor for it would refuse the one configuration this field
+			// exists to allow. The limiter still wraps the default transport:
+			// a replay server is not a reason to stop counting requests.
+			var base http.RoundTripper
+			if !tinvestadapter.InsecureBaseURL(baseURL) {
+				var err error
+				if base, err = tinvestadapter.TLSTransport([]byte(a.Data["root_ca"])); err != nil {
+					return nil, err
+				}
 			}
 			client, err := tinvestadapter.NewClient(tinvestadapter.Config{
 				Token:     a.Data["api_key"],
+				BaseURL:   baseURL,
 				Transport: r.limits.Transport(accountCred(tinvestadapter.ProviderName, a), base),
 			})
 			if err != nil {

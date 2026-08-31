@@ -49,6 +49,54 @@ func TestNewClientRequiresRootCA(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoRootCA)
 }
 
+// TestBaseURLDefaultsToProduction: the field is optional, and an instance that
+// never sets it must keep talking to the broker exactly as before. This is the
+// path every existing account is on, so a regression here is silent everywhere.
+func TestBaseURLDefaultsToProduction(t *testing.T) {
+	c, err := NewClient(Config{Token: "t", Transport: http.DefaultTransport})
+	require.NoError(t, err)
+	assert.Equal(t, defaultBaseURL, c.baseURL)
+
+	// A trailing slash is the one thing normalised, because service paths are
+	// appended with a leading one.
+	c, err = NewClient(Config{Token: "t", BaseURL: "http://127.0.0.1:8081/rest/", Transport: http.DefaultTransport})
+	require.NoError(t, err)
+	assert.Equal(t, "http://127.0.0.1:8081/rest", c.baseURL)
+}
+
+// TestCheckBaseURLNamesWhatIsWrong: the value is typed by a person, so its
+// rejection has to say which part is unusable. Concatenated onto a service path
+// instead, a typo fails later as a connection error indistinguishable from the
+// broker being down.
+func TestCheckBaseURLNamesWhatIsWrong(t *testing.T) {
+	assert.NoError(t, CheckBaseURL(""), "empty selects the production gateway")
+	assert.NoError(t, CheckBaseURL("https://sandbox-invest-public-api.tbank.ru/rest"))
+	assert.NoError(t, CheckBaseURL("http://localhost:8081"))
+
+	for _, tc := range []struct{ raw, says string }{
+		{"invest-public-api.tbank.ru/rest", "scheme"},
+		{"ftp://example.invalid", "scheme"},
+		{"https://", "no host"},
+		{"http://127.0.0.1?x=1", "query"},
+		{"http://127.0.0.1#frag", "query"},
+	} {
+		err := CheckBaseURL(tc.raw)
+		require.ErrorIs(t, err, ErrBadBaseURL, "raw %q", tc.raw)
+		assert.Contains(t, err.Error(), tc.raw, "the message must quote the value")
+		assert.Contains(t, err.Error(), tc.says)
+	}
+}
+
+// TestInsecureBaseURLOnlyForPlainHTTP guards the rule the registry reads to
+// decide whether a trust anchor is required. Answering true for an https URL
+// would drop TLS verification on the live gateway.
+func TestInsecureBaseURLOnlyForPlainHTTP(t *testing.T) {
+	assert.True(t, InsecureBaseURL("http://127.0.0.1:8081/rest"))
+	assert.False(t, InsecureBaseURL("https://invest-public-api.tbank.ru/rest"))
+	assert.False(t, InsecureBaseURL(""), "empty is the production gateway, which is https")
+	assert.False(t, InsecureBaseURL("://nonsense"))
+}
+
 func TestTLSTransportRejectsUnusablePEM(t *testing.T) {
 	_, err := TLSTransport([]byte("-----BEGIN CERTIFICATE-----\nnot a certificate\n-----END CERTIFICATE-----"))
 	require.Error(t, err)

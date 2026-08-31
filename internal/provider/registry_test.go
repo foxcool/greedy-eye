@@ -1,6 +1,9 @@
 package provider
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
@@ -119,11 +122,24 @@ func TestTInvestDeclaresItsTrustAnchor(t *testing.T) {
 			ti = d
 		}
 	}
-	require.Len(t, ti.Fields, 1)
-	assert.Equal(t, "root_ca", ti.Fields[0].Key)
-	assert.True(t, ti.Fields[0].Required)
-	assert.True(t, ti.Fields[0].Multiline, "a PEM block is not a line")
+	fields := map[string]catalog.Field{}
+	for _, f := range ti.Fields {
+		fields[f.Key] = f
+	}
+
+	anchor, ok := fields["root_ca"]
+	require.True(t, ok, "the trust anchor must be offered by the form")
+	assert.True(t, anchor.Required)
+	assert.True(t, anchor.Multiline, "a PEM block is not a line")
 	assert.True(t, ti.NeedsAPIKey)
+
+	// The base URL is optional and stays optional: empty means the live
+	// gateway, so a form that demanded it would make every existing account
+	// invalid to save.
+	base, ok := fields["base_url"]
+	require.True(t, ok, "an instance must be able to point an account elsewhere")
+	assert.False(t, base.Required, "empty means the production gateway")
+	assert.False(t, base.Multiline)
 }
 
 // TestCapabilitiesFollowTheKind: the resolver reaches a provider through the
@@ -183,4 +199,75 @@ func TestAccountBackedFactoriesReadTheirCredentials(t *testing.T) {
 	require.NotNil(t, tinvest)
 	_, err = tinvest(&entity.Account{ID: "acc-2", Data: map[string]string{"api_key": "t"}})
 	assert.Error(t, err, "no root CA means no client")
+}
+
+// TestTInvestReachesTheAccountsHost is the one that pins the feature rather
+// than its guards: the account's base_url must be where the requests actually
+// go. Without it, dropping `BaseURL: baseURL` from the Config passes every
+// other test in this file — the errors still behave, and the client quietly
+// talks to the live broker instead of the replay server.
+func TestTInvestReachesTheAccountsHost(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.URL.Path)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	tinvest := testRegistry().PriceProviders()[tinvestadapter.ProviderName]
+	require.NotNil(t, tinvest)
+
+	p, err := tinvest(&entity.Account{ID: "acc-replay", Data: map[string]string{
+		"api_key": "t", "base_url": srv.URL,
+	}})
+	require.NoError(t, err, "an http replay host needs no trust anchor")
+
+	// Any call that leaves the process will do: the claim under test is where
+	// it lands, not what comes back.
+	_, _ = p.FetchPrices(context.Background(), []*entity.Asset{{
+		ID: "a1", Symbol: "SBER", Market: "moex", Type: entity.AssetTypeStock,
+		ExternalRefs: []entity.AssetExternalRef{{
+			Source: tinvestadapter.RefSource, Ref: "BBG004730N88", Origin: entity.RefOriginAuto,
+		}},
+	}})
+
+	assert.NotEmpty(t, got, "the account's base_url never received a request")
+}
+
+// TestTInvestBaseURLComesFromTheAccount pins the whole point of data[base_url]:
+// an instance can be sent to a local replay of captured responses instead of
+// the live broker. The vendor's sandbox is not that — it answers different
+// methods — so this field is the only way to exercise the path offline.
+func TestTInvestBaseURLComesFromTheAccount(t *testing.T) {
+	tinvest := testRegistry().PriceProviders()[tinvestadapter.ProviderName]
+	require.NotNil(t, tinvest)
+
+	build := func(data map[string]string) error {
+		data["api_key"] = "t"
+		_, err := tinvest(&entity.Account{ID: "acc-base", Data: data})
+		return err
+	}
+
+	// A plaintext replay server presents no certificate, so demanding a trust
+	// anchor for it would refuse the one configuration this field exists for.
+	assert.NoError(t, build(map[string]string{"base_url": "http://127.0.0.1:8081/rest"}),
+		"an http base URL has no certificate to anchor")
+
+	// https keeps the existing rule exactly: the anchor is about TLS, and
+	// pointing elsewhere over TLS still needs one.
+	assert.ErrorIs(t, build(map[string]string{"base_url": "https://example.invalid/rest"}),
+		tinvestadapter.ErrNoRootCA, "https elsewhere still needs an anchor")
+
+	// A malformed value must read as configuration. Without this it is
+	// concatenated onto a service path and fails later as something that looks
+	// like the broker being down.
+	for _, bad := range []string{
+		"invest-public-api.tbank.ru/rest", // no scheme
+		"ftp://example.invalid",           // wrong scheme
+		"https://",                        // no host
+		"http://127.0.0.1:8081?x=1",       // a service path cannot follow a query
+	} {
+		assert.ErrorIs(t, build(map[string]string{"base_url": bad}),
+			tinvestadapter.ErrBadBaseURL, "base_url %q must fail as configuration", bad)
+	}
 }
