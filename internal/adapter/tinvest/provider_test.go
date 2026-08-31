@@ -246,8 +246,13 @@ func TestFetchPricesTreatsUnknownStatusAsNoMarket(t *testing.T) {
 // Without the instrument there is no currency, and publishing a dollar figure
 // as roubles is a hundredfold error rather than a rounding one.
 func TestFetchPricesDropsInstrumentMissingFromCatalogue(t *testing.T) {
+	// A universe that holds SOMETHING but not this instrument. An empty one
+	// would test a different thing: a catalogue that answered with nothing at
+	// all is a broken response, and ensure() now refuses it rather than
+	// treating every instrument as unknown.
 	p := newProviderWith(t, &stubAPI{
-		shares: `{"instruments":[]}`,
+		shares: `{"instruments":[{"figi":"BBG004730N88","ticker":"GAZP","currency":"rub","lot":10,
+			"realExchange":"REAL_EXCHANGE_MOEX","apiTradeAvailableFlag":true}]}`,
 		prices: `{"lastPrices":[{"figi":"BBG000B9XRY4","price":{"units":"229","nano":0},
 			"time":"2026-08-09T15:30:00Z","lastPriceType":"LAST_PRICE_EXCHANGE"}]}`,
 		statuses: `{"tradingStatuses":[{"figi":"BBG000B9XRY4",

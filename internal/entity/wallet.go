@@ -59,3 +59,80 @@ type ExchangeSyncer interface {
 	// SyncExchange returns the non-zero spot balances of the credentialed account.
 	SyncExchange(ctx context.Context) ([]ExchangeBalance, error)
 }
+
+// BrokerPosition is one line of a broker account's portfolio.
+//
+// A third shape was needed because ExchangeBalance is Symbol/Amount/Decimals
+// and a broker line loses three things in that shape, each of which the
+// valuation needs: the FIGI that is its only honest identity, the currency of
+// THIS row (one response mixes roubles, dollars and euros), and the instrument
+// type that decides whether it can be valued at all.
+type BrokerPosition struct {
+	// Ref is the provider's instrument id — a FIGI — and the identity this
+	// position binds by. The broker's ticker field frequently holds an ISIN
+	// instead of a ticker, so matching on the ticker attaches a position to
+	// whatever asset shares the string.
+	Ref string
+	// Symbol is the ticker for a human to read and for a new asset row to carry.
+	// Never an identity.
+	Symbol string
+	Name   string
+	Type   AssetType
+	// Market is the venue the instrument lists on, as spelled in assets.market.
+	// Empty means the adapter could not tell — the caller decides what to do
+	// with that rather than the adapter guessing.
+	Market string
+	// Currency is the row's own quote currency, lowercase as the broker spells
+	// it. It belongs to the row and never to the provider.
+	Currency string
+
+	Amount   string // raw integer string scaled by Decimals
+	Decimals int
+	// Liquidity partitions the position. A broker that blocks part of a holding
+	// yields two BrokerPositions over the same Ref, one liquid and one locked,
+	// which must sum to the reported quantity — the pools do not overlap, the
+	// same rule the Cosmos and Substrate adapters document.
+	Liquidity Liquidity
+}
+
+// BrokerSyncer reads the positions of ONE account at a broker.
+//
+// One account, not all of them: a single API token reaches several, and each is
+// a separate account in our model. Merging them would collapse two holdings of
+// the same share into one row and, worse, make a transfer between accounts
+// invisible — the sum does not move, so for anything watching, the event never
+// happened.
+type BrokerSyncer interface {
+	// SyncBroker returns the positions of the account named at construction.
+	// Positions the syncer could not turn into a holding are reported in
+	// BrokerSkips rather than dropped: a sum has to disclose what is not in it.
+	SyncBroker(ctx context.Context) ([]BrokerPosition, BrokerSkips, error)
+}
+
+// BrokerSkips counts what a broker sync did not bring back, by reason.
+//
+// Counts rather than a list because this is the sync's own report, read by an
+// operator deciding whether to look further; the positions themselves are
+// reachable from the broker. A zero-valued BrokerSkips means the response was
+// understood in full.
+type BrokerSkips struct {
+	// UnknownInstrument counts positions whose id the instrument catalogue does
+	// not carry — delisted paper, or a type this adapter does not load.
+	UnknownInstrument int
+	// UnknownMarket counts positions whose instrument settles on a venue this
+	// system has no market for.
+	UnknownMarket int
+	// DefaultedMarket counts positions given a market inferred from the row's
+	// currency because the catalogue offered none. These ARE returned, and the
+	// count exists so the guess is never silent.
+	DefaultedMarket int
+	// Unparsable counts positions whose quantity or shape could not be read.
+	Unparsable int
+}
+
+// Total is how many positions the sync could not account for exactly.
+// DefaultedMarket is excluded: those positions were returned, only on a guessed
+// market.
+func (s BrokerSkips) Total() int {
+	return s.UnknownInstrument + s.UnknownMarket + s.Unparsable
+}
