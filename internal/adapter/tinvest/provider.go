@@ -38,6 +38,31 @@ var venues = map[string][]string{
 	MarketMOEX:  {RealExchangeMOEX},
 }
 
+// marketOfVenue inverts venues so a position can be told which of our markets
+// its instrument lists on. Derived from the same table rather than written out
+// again: two hand-kept copies of this mapping would disagree eventually, and
+// the disagreement would show up as one company owning two asset rows.
+var marketOfVenue = func() map[string]string {
+	out := make(map[string]string, len(venues))
+	for market, exchanges := range venues {
+		for _, exchange := range exchanges {
+			out[exchange] = market
+		}
+	}
+	return out
+}()
+
+// MarketOf names the market an instrument lists on, or "" when the settlement
+// venue is one this system has no market for. Empty is a real answer: an asset
+// row needs a market it can be identified by, and inventing one binds the
+// position to a catalogue entry nothing else will ever match.
+func MarketOf(inst Instrument) string {
+	// Normalised, because onVenue right next door compares with EqualFold and
+	// TrimSpace: two neighbouring readings of the same field that disagree
+	// about whitespace is how one of them starts silently returning nothing.
+	return marketOfVenue[strings.ToUpper(strings.TrimSpace(inst.RealExchange))]
+}
+
 // Provider adapts *Client to marketdata.PriceProvider.
 type Provider struct {
 	client  *Client

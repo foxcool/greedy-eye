@@ -1,0 +1,14 @@
+{
+  "instruments": [
+    {
+      "apiTradeAvailableFlag": true,
+      "classCode": "TQCB",
+      "currency": "rub",
+      "figi": "TCS00A1055Y4",
+      "lot": 1,
+      "name": "Synthetic bond",
+      "realExchange": "REAL_EXCHANGE_MOEX",
+      "ticker": "RU000A1055Y4"
+    }
+  ]
+}

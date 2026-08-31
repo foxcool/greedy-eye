@@ -1,0 +1,22 @@
+{
+  "accounts": [
+    {
+      "accessLevel": "ACCOUNT_ACCESS_LEVEL_READ_ONLY",
+      "closedDate": "1970-01-01T00:00:00Z",
+      "id": "acc-1",
+      "name": "account",
+      "openedDate": "2020-01-01T00:00:00Z",
+      "status": "ACCOUNT_STATUS_OPEN",
+      "type": "ACCOUNT_TYPE_TINKOFF"
+    },
+    {
+      "accessLevel": "ACCOUNT_ACCESS_LEVEL_READ_ONLY",
+      "closedDate": "1970-01-01T00:00:00Z",
+      "id": "acc-2",
+      "name": "account",
+      "openedDate": "2020-01-01T00:00:00Z",
+      "status": "ACCOUNT_STATUS_OPEN",
+      "type": "ACCOUNT_TYPE_INVEST_BOX"
+    }
+  ]
+}

@@ -39,8 +39,34 @@ func newCatalog(c *Client) *catalog {
 	return &catalog{client: c, ttl: catalogTTL}
 }
 
-// instrument returns the instrument behind a FIGI. found is false when the
-// universe does not carry it, which is the honest answer for delisted paper.
+// warm loads the universe up front so a caller can fail on an unreachable API
+// instead of meeting it once per row.
+//
+// Without it a 401 or a 429 arrives as a per-position error, gets counted as an
+// unreadable position, and the sync returns a plausible portfolio of nothing
+// with a nil error.
+func (c *catalog) warm(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.ensure(ctx)
+}
+
+// known looks an instrument up in an already-loaded universe. It never fetches:
+// callers that need the universe say so with warm, so a lookup cannot turn into
+// a network failure halfway through a loop.
+func (c *catalog) known(figi string) (Instrument, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	inst, ok := c.byFIGI[strings.TrimSpace(figi)]
+	return inst, ok
+}
+
+// instrument returns the instrument behind a FIGI, loading the universe if it
+// is missing or stale. found is false when the universe does not carry it,
+// which is the honest answer for delisted paper.
+//
+// The fetching counterpart of known: used by the price path, which meets one
+// FIGI at a time and has nowhere earlier to warm from.
 func (c *catalog) instrument(ctx context.Context, figi string) (Instrument, bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -99,10 +125,22 @@ func (c *catalog) ensure(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("tinvest instrument catalog: %w", err)
 	}
+	// Bonds join the universe because a bond POSITION needs a venue to take its
+	// market from, and the portfolio response carries no venue. Prices are a
+	// separate question: FetchPrices still speaks only for what it can quote.
+	bonds, err := c.client.Bonds(ctx)
+	if err != nil {
+		return fmt.Errorf("tinvest instrument catalog: %w", err)
+	}
 
-	byFIGI := make(map[string]Instrument, len(shares)+len(etfs))
-	byTicker := make(map[string][]Instrument, len(shares)+len(etfs))
-	for _, inst := range append(shares, etfs...) {
+	total := len(shares) + len(etfs) + len(bonds)
+	byFIGI := make(map[string]Instrument, total)
+	byTicker := make(map[string][]Instrument, total)
+	all := make([]Instrument, 0, total)
+	all = append(all, shares...)
+	all = append(all, etfs...)
+	all = append(all, bonds...)
+	for _, inst := range all {
 		if inst.FIGI == "" {
 			continue
 		}
@@ -112,6 +150,15 @@ func (c *catalog) ensure(ctx context.Context) error {
 			continue
 		}
 		byTicker[key] = append(byTicker[key], inst)
+	}
+
+	if len(byFIGI) == 0 {
+		// A 200 with an empty body is not a universe. Accepted, it would make
+		// every position miss the catalogue and take the guessed-market
+		// fallback, while the sync reported itself understood in full — the
+		// same silence warm() exists to end, one layer further down.
+		return fmt.Errorf("tinvest instrument catalog: empty universe (%d shares, %d etfs, %d bonds)",
+			len(shares), len(etfs), len(bonds))
 	}
 
 	c.byFIGI = byFIGI
