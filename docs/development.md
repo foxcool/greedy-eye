@@ -472,7 +472,7 @@ Tracked in beads (`bd ready`). High-level state:
 - Portfolio/holding/account/transaction CRUD; portfolio valuation
 - Account capability model + system scopes; encrypted credentials (ADR-005)
 - Per-account credential resolver; ownership enforcement (IDOR audit)
-- Account sync: wallet (Moralis) + exchange (Binance spot)
+- Account sync: wallet (Moralis) + exchange (Binance spot) + broker (T-Invest positions)
 
 **In progress / next**
 - Automation rule engines: DCA, rebalancing, stop-loss (execution stubs today)
@@ -483,7 +483,7 @@ Tracked in beads (`bd ready`). High-level state:
 **Later**
 - Non-EVM chain sync (Solana, Cosmos, TON, ...)
 - Portfolio analytics / performance metrics
-- Additional broker integrations (T-Invest)
+- Broker coverage beyond T-Invest
 
 ## Release Policy
 

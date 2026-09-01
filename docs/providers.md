@@ -132,6 +132,37 @@ What happens when it is missing, in three cases that are deliberately different:
   a typo in operator config, and the alternative is a TLS handshake error inside
   a sweep hours later with nothing pointing back at the cause.
 
+## Broker accounts (`broker` + `portfolio_sync`)
+
+One account here is ONE account at the broker. A single token reaches several,
+and each of them is a separate account in this system: merging them would
+collapse two holdings of the same share into one row and make a transfer between
+them invisible — the sum does not move, so for anything watching, the event never
+happened. `GetAccounts` at the broker is how an operator learns the ids to fill
+in; creating the accounts stays a human decision.
+
+| `provider` | `data` fields |
+|---|---|
+| `tinvest` | `api_key`, `broker_account_id`, plus the trust anchor rules above (`root_ca` on the account, or `base_url` pointing at a plaintext replay host) |
+
+An account naming no `broker_account_id` refuses to sync rather than picking the
+first account the token reaches: reading somebody's other portfolio into this one
+and reporting success is exactly the silent degradation this field exists to
+prevent.
+
+What arrives: shares, funds, bonds and cash, each bound by the broker's own
+instrument id (`asset_external_refs`, source `tinvest`) — except cash, which
+resolves to the currency and is bound to nothing, because the broker's id for a
+currency line names a settlement instrument rather than the money. A bond is
+brought in by quantity and is not valued (accrued interest and the bond model are
+`personal-b7l`). A position the broker reports as blocked becomes its own
+`locked` holding beside the liquid part.
+
+The sync's own report says what it could not name (`positions_skipped`) and what
+it placed on a guessed venue (`assets_defaulted_market`); a non-zero skip count
+also holds back the removal of positions the snapshot no longer contains, since
+the snapshot cannot speak for what it did not read.
+
 ## Exchange accounts (`exchange` + `portfolio_sync`)
 
 | `provider` | `data` fields |
