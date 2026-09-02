@@ -29,12 +29,23 @@ func unpricedFixture(t *testing.T) (*mockStore, *mockMDClient) {
 	md := &mockMDClient{}
 	md.On("GetLatestPrice", mock.Anything, mock.Anything).
 		Return(nil, connect.NewError(connect.CodeNotFound, assert.AnError))
+	// The display currency resolves to an id of its OWN. Letting the catch-all
+	// answer it handed the valuation the held asset's id as the quote, which now
+	// means something: an asset that IS the quote is cash and prices itself one
+	// to one, so every fixture here would be priced and none of these cases
+	// would be reachable.
+	md.On("GetAsset", mock.Anything, assetReq("usd")).
+		Return(connect.NewResponse(&apiv1.Asset{Id: testQuoteAssetID, Symbol: strPtr("USD")}), nil).Maybe()
 	md.On("GetAsset", mock.Anything, assetReq("USD")).
-		Return(connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil).Maybe()
+		Return(connect.NewResponse(&apiv1.Asset{Id: testQuoteAssetID, Symbol: strPtr("USD")}), nil).Maybe()
 	md.On("GetAsset", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID, Symbol: strPtr("FXGD")}), nil)
 	return s, md
 }
+
+// testQuoteAssetID is the display currency's own catalogue id, distinct from any
+// asset a fixture holds.
+const testQuoteAssetID = "019e88f7-3279-7798-9eab-cb5614c73385"
 
 func pricingStatus(md *mockMDClient, st *apiv1.AssetPricingStatus) {
 	resp := &apiv1.GetPricingStatusResponse{}
@@ -133,8 +144,9 @@ func TestUnpriced_ThinMarketIsNotReinterpreted(t *testing.T) {
 		AssetId: testAssetID, BaseAssetId: "usd", Last: "100", Decimals: 8, Volume: &thinVolume,
 		Timestamp: timestamppb.New(time.Now()),
 	}), nil)
-	md.On("GetAsset", mock.Anything, assetReq("USD")).
-		Return(connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil).Maybe()
+	// The quote resolves to its own id; see unpricedFixture.
+	md.On("GetAsset", mock.Anything, assetReq("usd")).
+		Return(connect.NewResponse(&apiv1.Asset{Id: testQuoteAssetID, Symbol: strPtr("USD")}), nil).Maybe()
 	md.On("GetAsset", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID, Symbol: strPtr("MNEP")}), nil)
 	pricingStatus(md, &apiv1.AssetPricingStatus{

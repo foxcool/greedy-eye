@@ -10,6 +10,7 @@ import (
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
+	"github.com/foxcool/greedy-eye/internal/pricefresh"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -416,4 +417,55 @@ func TestResolveQuoteFailsLoudly(t *testing.T) {
 	_, err := ResolveQuote(t.Context(), fakeAssets{}, "XYZ")
 	require.Error(t, err, "an unknown display currency fails the valuation instead of unpricing every holding")
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+}
+
+// TestCashInTheDisplayCurrency: a holding of the currency the total is
+// denominated in counts one to one, costs no lookup, and carries no row to be
+// judged stale or thin. Before this, a USD position in a USD portfolio left the
+// total as NEVER_PRICED and sent its owner looking for a price source that
+// cannot exist (personal-v2a1).
+func TestCashInTheDisplayCurrency(t *testing.T) {
+	const usdID = "019e88f7-3279-7798-9eab-cb5614c73385"
+
+	// Empty: an identity price asks nothing of the catalogue.
+	r := &fakeReader{}
+	got, outcome, err := Candidates(t.Context(), r, testLogger(), usdID, usdID)
+	require.NoError(t, err)
+	require.Equal(t, Priced, outcome)
+	require.Len(t, got, 1)
+
+	assert.True(t, got[0].Unit.Equal(decimal.NewFromInt(1)), "a dollar is worth a dollar")
+	assert.True(t, got[0].Rate.Equal(decimal.NewFromInt(1)))
+	assert.True(t, got[0].ValueBase.Equal(decimal.NewFromInt(1)))
+	assert.Equal(t, usdID, got[0].BaseID)
+	assert.Zero(t, r.calls, "the identity price is answered before any lookup")
+
+	assert.Nil(t, got[0].Row, "nothing observed it, so it dates nothing")
+	assert.True(t, pricefresh.QuotedAt(got[0].Row).IsZero())
+	_, thin := AnyThin(got)
+	assert.False(t, thin, "an identity price has no market to be thin")
+	assert.Equal(t, got[0], Freshest(got))
+}
+
+// TestCashInAnotherCurrencyStillNeedsARate guards the other half: only the
+// display currency is free. A different currency is a real quote and is still
+// disclosed when nothing answers for it.
+func TestCashInAnotherCurrencyStillNeedsARate(t *testing.T) {
+	const usdID = "019e88f7-3279-7798-9eab-cb5614c73385"
+	const rubID = "019fcd3e-220a-7e0e-a60c-1f8e2bc45f25"
+
+	priced := &fakeReader{latest: map[string]*apiv1.Price{
+		"usd|":         price("usd", rubID, "8000", 2, time.Now()),
+		"usd|" + rubID: price("usd", rubID, "8000", 2, time.Now()),
+	}}
+	got, outcome, err := Candidates(t.Context(), priced, testLogger(), "usd", rubID)
+	require.NoError(t, err)
+	require.Equal(t, Priced, outcome)
+	require.Len(t, got, 1)
+	assert.Equal(t, "80", got[0].Unit.String())
+	assert.NotNil(t, got[0].Row, "a cross-currency price is an observation like any other")
+
+	_, outcome, err = Candidates(t.Context(), &fakeReader{}, testLogger(), usdID, rubID)
+	require.NoError(t, err)
+	assert.Equal(t, NoQuote, outcome, "no rate is still no rate")
 }
