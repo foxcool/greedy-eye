@@ -761,4 +761,17 @@ message SyncAccountResponse {
   // moved out, or newly rejected by a filter. Removal only happens on a
   // complete snapshot; when it is skipped, the reason is in errors.
   int32 holdings_zeroed = 5;
+  // Positions the source returned and this sync could not turn into a holding:
+  // an instrument its catalogue does not carry, a venue this system has no
+  // market for, or a row whose quantity could not be read. A count rather than
+  // a list because the positions themselves are reachable from the source; the
+  // point is that a sum never reports itself whole while something is missing
+  // from it. Zero means the response was understood in full.
+  int32 positions_skipped = 6;
+  // Assets created on a market that was inferred rather than read: the source
+  // named an instrument its own catalogue does not carry, so the venue came
+  // from the board the position was reported on or from the row's currency.
+  // These positions ARE written; the count exists so the guess is never silent
+  // and can be repaired.
+  int32 assets_defaulted_market = 7;
 }

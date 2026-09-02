@@ -87,6 +87,13 @@ func (p WalletProvider) matches(address string, chains []string) bool {
 // ExchangeSyncerFactory builds an exchange syncer from account credentials.
 type ExchangeSyncerFactory func(a *entity.Account) (entity.ExchangeSyncer, error)
 
+// BrokerSyncerFactory builds a broker syncer from account credentials.
+//
+// One factory call reads ONE account at the broker. A single token reaches
+// several, and each of those is a separate account here: which one this syncer
+// speaks for is named by the account itself, in data["broker_account_id"].
+type BrokerSyncerFactory func(a *entity.Account) (entity.BrokerSyncer, error)
+
 // PriceProviderFactory builds a price provider from account credentials.
 type PriceProviderFactory func(a *entity.Account) (marketdata.PriceProvider, error)
 
@@ -95,6 +102,7 @@ type Config struct {
 	Source          AccountSource
 	WalletSyncers   map[string]WalletProvider        // keyed by provider slug
 	ExchangeSyncers map[string]ExchangeSyncerFactory // keyed by provider slug
+	BrokerSyncers   map[string]BrokerSyncerFactory   // keyed by provider slug
 	PriceProviders  map[string]PriceProviderFactory  // keyed by provider slug
 
 	// KeylessWalletSyncers are chain readers that need no credential: public
@@ -337,6 +345,23 @@ func (r *Resolver) ExchangeSyncerForAccount(a *entity.Account) (entity.ExchangeS
 		return nil, fmt.Errorf("build exchange syncer from account %s: %w", a.ID, err)
 	}
 	return client.(entity.ExchangeSyncer), nil
+}
+
+// BrokerSyncerForAccount builds a broker syncer from the account's own stored
+// credentials. Same shape as ExchangeSyncerForAccount and for the same reason:
+// the account being synced holds the token, so there is no user->system
+// fallback. Returns nil when no adapter is registered for the account's
+// provider slug.
+func (r *Resolver) BrokerSyncerForAccount(a *entity.Account) (entity.BrokerSyncer, error) {
+	factory, ok := r.cfg.BrokerSyncers[a.Data[DataProviderKey]]
+	if !ok {
+		return nil, nil
+	}
+	client, err := r.clientFor("broker_syncer", a, func() (any, error) { return factory(a) })
+	if err != nil {
+		return nil, fmt.Errorf("build broker syncer from account %s: %w", a.ID, err)
+	}
+	return client.(entity.BrokerSyncer), nil
 }
 
 // PriceInventory is what one resolution of the price registry saw: the

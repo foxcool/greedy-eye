@@ -41,6 +41,14 @@ type ExchangeSyncerSource interface {
 	ExchangeSyncerForAccount(a *entity.Account) (entity.ExchangeSyncer, error)
 }
 
+// BrokerSyncerSource builds a broker syncer from a specific account's own
+// stored credentials (see internal/service/credentials). Separate from
+// ExchangeSyncerSource because a broker syncer speaks for ONE account at the
+// broker, named by the account itself.
+type BrokerSyncerSource interface {
+	BrokerSyncerForAccount(a *entity.Account) (entity.BrokerSyncer, error)
+}
+
 // Handler implements apiv1connect.PortfolioServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedPortfolioServiceHandler
@@ -50,6 +58,7 @@ type Handler struct {
 	walletSyncer   entity.WalletSyncer  // optional; nil if not configured
 	syncerSource   WalletSyncerSource   // optional; takes precedence over walletSyncer
 	exchangeSource ExchangeSyncerSource // optional; resolves per-account exchange syncers
+	brokerSource   BrokerSyncerSource   // optional; resolves per-account broker syncers
 	providers      ProviderCatalog      // optional; describes the providers an account may name
 	log            *slog.Logger
 }
@@ -98,6 +107,14 @@ func (h *Handler) WithWalletSyncerSource(src WalletSyncerSource) *Handler {
 func (h *Handler) WithExchangeSyncerSource(src ExchangeSyncerSource) *Handler {
 	copied := h.clone()
 	copied.exchangeSource = src
+	return copied
+}
+
+// WithBrokerSyncerSource returns a new Handler resolving broker syncers from
+// stored account credentials.
+func (h *Handler) WithBrokerSyncerSource(src BrokerSyncerSource) *Handler {
+	copied := h.clone()
+	copied.brokerSource = src
 	return copied
 }
 
@@ -1195,15 +1212,29 @@ func (h *Handler) ListAccounts(ctx context.Context, req *connect.Request[apiv1.L
 // --- Account sync ---
 
 // syncedBalance is the provider-agnostic balance shape the upsert path consumes.
-// Wallet and exchange syncers both normalize into this.
+// Wallet, exchange and broker syncers all normalize into this.
 type syncedBalance struct {
-	symbol          string
-	name            string
-	amount          string // raw integer string scaled by decimals
-	decimals        int
-	contractAddress string           // token contract/mint; empty for exchange/native
-	chain           string           // network the balance is on; empty for exchange
-	liquidity       entity.Liquidity // how reachable it is; empty when the source cannot say
+	symbol   string
+	name     string
+	amount   string // raw integer string scaled by decimals
+	decimals int
+	// assetType and market classify the position for the catalogue. A ticker is
+	// not an identity on its own — (symbol, market, type) is — and until broker
+	// positions arrived every synced balance was crypto, so both were implied.
+	// GAZP on moex and a GAZP token would otherwise be one asset.
+	assetType entity.AssetType
+	// market is empty where the type implies one (crypto, forex) and set where
+	// it does not: a share, a bond or a fund is listed per venue.
+	market string
+	// refSource / ref are the source's own id for this thing and the namespace
+	// it lives in: "onchain:<chain>" for a token contract, a broker's slug for
+	// an instrument id. Both empty means the position is identified by its
+	// symbol alone. It is the strongest identity available — a scam clone of a
+	// real ticker resolves to its own asset — so it is tried before the symbol.
+	refSource string
+	ref       string
+	chain     string           // network the balance is on; empty off-chain
+	liquidity entity.Liquidity // how reachable it is; empty when the source cannot say
 	// providerSpam / contractVerified carry a source's identity signals for scam
 	// scoring at intake; nil when the source does not report them.
 	providerSpam     *bool
@@ -1266,17 +1297,20 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 
 	var balances []syncedBalance
 	var syncErrors []string
+	var skips entity.BrokerSkips
 	switch account.Type {
 	case entity.AccountTypeWallet:
 		balances, syncErrors, err = h.syncWalletBalances(ctx, account)
 	case entity.AccountTypeExchange:
 		balances, syncErrors, err = h.syncExchangeBalances(ctx, account)
+	case entity.AccountTypeBroker:
+		balances, skips, syncErrors, err = h.syncBrokerBalances(ctx, account)
 	case entity.AccountTypeManual:
 		// FailedPrecondition (not InvalidArgument): the account exists and is fine,
 		// this kind is just never syncable — positions are entered manually.
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("manual account has nothing to sync: positions are entered manually"))
 	default:
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("only wallet and exchange accounts can be synced"))
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("only wallet, exchange and broker accounts can be synced"))
 	}
 	if err != nil {
 		return nil, err
@@ -1285,12 +1319,38 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	// Whether the fetch stage came back whole decides if this snapshot may
 	// remove positions: a chain that failed reports no balances, which is
 	// indistinguishable from a chain whose balances are gone.
-	result, err := h.upsertSyncedBalances(ctx, account, balances, len(syncErrors) == 0)
+	//
+	// A skipped position counts the same way, and deliberately so. It is a
+	// position the source DID report and this system could not name, so the
+	// snapshot does not speak for it — and a holding written for it by an
+	// earlier sync (paper the catalogue has since dropped is the live case)
+	// would otherwise be zeroed while it is still held. That is lying in the
+	// minus, which is the one direction this system refuses. The price is that
+	// an account holding one unnameable position never sheds a sold one until
+	// it is repaired; the count in the response is what makes that visible
+	// rather than silent.
+	result, err := h.upsertSyncedBalances(ctx, account, balances, len(syncErrors) == 0 && skips.Total() == 0)
 	if err != nil {
 		return nil, err
 	}
 	syncErrors = append(syncErrors, result.syncErrors...)
 	syncedAssetIDs := result.syncedAssetIDs
+
+	// Skips reach the caller as a count; the log is where the operator looking
+	// at a total that seems short will actually be. Four indistinguishable
+	// silent branches cost seventeen days of blindness on prod once already
+	// (personal-1y6i), and a count with no account or provider beside it is the
+	// same shape of silence one level up.
+	if skips.Total() > 0 || skips.DefaultedMarket > 0 {
+		h.log.Warn("broker sync did not account for every position",
+			"account_id", account.ID,
+			"provider", account.Data[providerDataKey],
+			"unknown_instrument", skips.UnknownInstrument,
+			"unknown_market", skips.UnknownMarket,
+			"unparsable", skips.Unparsable,
+			"defaulted_market", skips.DefaultedMarket,
+			"removal_withheld", skips.Total() > 0)
+	}
 
 	// Price what this sync touched, so CalculatePortfolioValue returns current
 	// values. Naming the assets matters: an unfiltered request re-prices the
@@ -1305,11 +1365,13 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	}
 
 	return connect.NewResponse(&apiv1.SyncAccountResponse{
-		AccountId:        req.Msg.AccountId,
-		AssetsUpserted:   result.assetsUpserted,
-		HoldingsUpserted: result.holdingsUpserted,
-		HoldingsZeroed:   result.holdingsZeroed,
-		Errors:           syncErrors,
+		AccountId:             req.Msg.AccountId,
+		AssetsUpserted:        result.assetsUpserted,
+		HoldingsUpserted:      result.holdingsUpserted,
+		HoldingsZeroed:        result.holdingsZeroed,
+		PositionsSkipped:      intToI32(skips.Total()),
+		AssetsDefaultedMarket: intToI32(skips.DefaultedMarket),
+		Errors:                syncErrors,
 	}), nil
 }
 
@@ -1389,17 +1451,27 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 
 	result := make([]syncedBalance, 0, len(balances))
 	for _, b := range balances {
-		result = append(result, syncedBalance{
-			symbol:           b.Symbol,
-			name:             b.Name,
-			amount:           b.Amount,
+		sb := syncedBalance{
+			symbol: b.Symbol,
+			name:   b.Name,
+			amount: b.Amount,
+			// A chain reader returns tokens and native coins, and both are
+			// crypto: the market that implies ("crypto") is global, so no
+			// venue is named here.
+			assetType:        entity.AssetTypeCryptocurrency,
 			decimals:         b.Decimals,
-			contractAddress:  b.ContractAddress,
 			chain:            b.Chain,
 			liquidity:        b.Liquidity,
 			providerSpam:     b.ProviderSpam,
 			contractVerified: b.ContractVerified,
-		})
+		}
+		// A contract is an identity only together with its chain: the same
+		// address on two networks is two assets.
+		if b.ContractAddress != "" && b.Chain != "" {
+			sb.refSource = entity.OnchainSource(b.Chain)
+			sb.ref = b.ContractAddress
+		}
+		result = append(result, sb)
 	}
 	return result, syncErrors, nil
 }
@@ -1431,9 +1503,75 @@ func (h *Handler) syncExchangeBalances(ctx context.Context, account *entity.Acco
 			name:     b.Symbol, // exchanges report only the ticker; use it as the name
 			amount:   b.Amount,
 			decimals: b.Decimals,
+			// Spot balances on a crypto exchange, and the adapter reports no
+			// identity beyond the ticker.
+			assetType: entity.AssetTypeCryptocurrency,
 		})
 	}
 	return result, syncErrors, nil
+}
+
+// syncBrokerBalances builds the broker syncer from the account's own stored
+// credentials and returns the positions of the ONE broker account it names.
+//
+// The skips come back beside the balances rather than folded into the error
+// strings: they are not failures of this sync, they are positions the source
+// returned and this system could not name. The caller reports them as a count,
+// and — for the ones it could not account for at all — refuses to treat the
+// snapshot as complete.
+func (h *Handler) syncBrokerBalances(ctx context.Context, account *entity.Account) ([]syncedBalance, entity.BrokerSkips, []string, error) {
+	var skips entity.BrokerSkips
+	if h.brokerSource == nil {
+		return nil, skips, nil, connect.NewError(connect.CodeUnimplemented, errors.New("broker sync not configured"))
+	}
+	syncer, err := h.brokerSource.BrokerSyncerForAccount(account)
+	if err != nil {
+		// Every way this factory fails today is the account's own stored
+		// configuration: no broker account named, a malformed host, a missing
+		// trust anchor. toConnectError's fallback is Internal, which tells the
+		// caller "server fault, retry" about the one class of problem retrying
+		// cannot fix — and gets counted as a 5xx by anything watching the RPC.
+		// The message is kept: it names the field to fix, which is the whole
+		// point of refusing here instead of later inside TLS.
+		return nil, skips, nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if syncer == nil {
+		return nil, skips, nil, connect.NewError(connect.CodeInvalidArgument, errors.New("no broker adapter for account provider; set account.data.provider (e.g. \"tinvest\")"))
+	}
+
+	var syncErrors []string
+	positions, skips, err := syncer.SyncBroker(ctx)
+	if err != nil {
+		syncErrors = append(syncErrors, err.Error())
+	}
+
+	// The namespace an instrument id lives in is the provider that issued it:
+	// two brokers may spell the same paper differently, and a ref is only ever
+	// resolved against the source that wrote it. The adapter returns the id
+	// alone because it does not know which account slug it was built for.
+	refSource := strings.TrimSpace(account.Data[providerDataKey])
+
+	result := make([]syncedBalance, 0, len(positions))
+	for _, p := range positions {
+		sb := syncedBalance{
+			symbol:    p.Symbol,
+			name:      p.Name,
+			amount:    p.Amount,
+			decimals:  p.Decimals,
+			assetType: p.Type,
+			market:    p.Market,
+			liquidity: p.Liquidity,
+		}
+		// Cash carries no ref by design: a currency line's instrument id names
+		// a settlement contract, not the currency, so binding by it would tie
+		// dollars to whatever the broker settles them through.
+		if p.Ref != "" && refSource != "" {
+			sb.refSource = refSource
+			sb.ref = p.Ref
+		}
+		result = append(result, sb)
+	}
+	return result, skips, syncErrors, nil
 }
 
 // upsertSyncedBalances resolves each balance to an asset and upserts holdings
@@ -1480,14 +1618,14 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 			continue
 		}
 		// A balance with no symbol at all is unidentifiable: the catalogue is
-		// still asked, because a contract it already knows names the token on its
+		// still asked, because a ref it already knows names the position on its
 		// own, but if that lookup fails there is nothing left to call the position
 		// and nothing to key it by. Dropping it is a filter, not a failed
 		// observation — it costs the snapshot no right to remove positions.
 		// Counting it as a failure did, and one such balance on dev's 'hot' wallet
 		// kept the account from ever shedding a position sold in July.
 		unnamed := strings.TrimSpace(b.symbol) == ""
-		if unnamed && strings.TrimSpace(b.contractAddress) == "" {
+		if unnamed && strings.TrimSpace(b.ref) == "" {
 			h.log.Warn("skipping unidentifiable balance", "chain", b.chain, "amount", b.amount)
 			continue
 		}
@@ -1495,12 +1633,12 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 		assetID, created, verdict, rerr := h.resolveSyncedAsset(ctx, b)
 		if rerr != nil {
 			if unnamed {
-				// Named by neither symbol nor a contract the catalogue knows. The
+				// Named by neither symbol nor a ref the catalogue knows. The
 				// residual risk is a pre-external-ref asset whose token stopped
 				// reporting its symbol: it would resolve by symbol and no longer
 				// can, so its row may be zeroed while still held.
 				h.log.Warn("skipping unidentifiable balance",
-					"chain", b.chain, "contract", b.contractAddress, "amount", b.amount, "error", rerr)
+					"chain", b.chain, "ref_source", b.refSource, "ref", b.ref, "amount", b.amount, "error", rerr)
 				continue
 			}
 			syncErrors = append(syncErrors, fmt.Sprintf("resolve asset %s: %v", b.symbol, rerr))
@@ -1774,25 +1912,43 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 }
 
 // resolveSyncedAsset resolves (creating when needed) the asset for one synced
-// balance through the MarketData service. A balance that carries a contract is
-// resolved by its on-chain identity (external ref), so a token is matched by
-// contract before symbol and cross-chain instances of the same asset collapse
-// onto one asset_id.
+// balance through the MarketData service. A balance that carries an external
+// ref is resolved by that identity first, so a token is matched by its contract
+// before its symbol and cross-chain instances of the same asset collapse onto
+// one asset_id. A broker instrument is the same mechanism in a different
+// namespace: the FIGI is the only honest identity a broker line has, since its
+// ticker field frequently holds an ISIN.
+//
+// Type and market come from the balance rather than being assumed. They were
+// hardcoded to cryptocurrency while every source was a chain or an exchange,
+// and a share resolved that way would be created — or found — as a crypto asset
+// with the same ticker.
 func (h *Handler) resolveSyncedAsset(ctx context.Context, b syncedBalance) (assetID string, created bool, verdict string, err error) {
 	msg := &apiv1.FindOrCreateAssetRequest{
-		Symbol:           b.symbol,
-		Type:             apiv1.AssetType_ASSET_TYPE_CRYPTOCURRENCY,
+		Symbol: b.symbol,
+		// The enum values are shared with entity.AssetType by construction; see
+		// the conversion in marketdata's handler.
+		Type:             apiv1.AssetType(b.assetType),
 		ProviderSpam:     b.providerSpam,
 		ContractVerified: b.contractVerified,
 	}
 	if b.name != "" {
 		msg.Name = &b.name
 	}
-	if b.contractAddress != "" && b.chain != "" {
-		source := entity.OnchainSource(b.chain)
-		contract := b.contractAddress
+	// Sent when the source named one, and only then. A chain reader names none,
+	// so MarketData derives "crypto" as it always did; a broker names one on
+	// every line, including cash — where it spells out the same "forex" the
+	// type implies. What must never happen is this end inventing a venue: a
+	// stock, a bond or a fund has no implied market and is refused without one,
+	// which is the refusal that keeps a guessed listing out of the catalogue.
+	if b.market != "" {
+		market := b.market
+		msg.Market = &market
+	}
+	if b.refSource != "" && b.ref != "" {
+		source, ref := b.refSource, b.ref
 		msg.ExternalRefSource = &source
-		msg.ExternalRef = &contract
+		msg.ExternalRef = &ref
 	}
 
 	resp, err := h.mdClient.FindOrCreateAsset(ctx, connect.NewRequest(msg))
@@ -2100,14 +2256,20 @@ func capabilitiesToProto(caps []entity.AccountCapability) []string {
 // value with this prefix means "keep the stored secret".
 const maskPrefix = "••••"
 
+// providerDataKey names, in accounts.data, the adapter the account speaks
+// through. It mirrors credentials.DataProviderKey, which this package does not
+// import on purpose: a service here takes the interfaces it needs and knows
+// nothing about who builds them.
+const providerDataKey = "provider"
+
 // nonSecretDataKeys are accounts.data keys that look secret-ish by name but
 // are safe to return as is.
 var nonSecretDataKeys = map[string]bool{
-	"provider":  true,
-	"address":   true,
-	"addresses": true,
-	"chain":     true,
-	"pro":       true,
+	providerDataKey: true,
+	"address":       true,
+	"addresses":     true,
+	"chain":         true,
+	"pro":           true,
 }
 
 // isSecretKey classifies accounts.data keys by name: anything containing

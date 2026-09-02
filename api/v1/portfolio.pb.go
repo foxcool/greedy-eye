@@ -3681,8 +3681,21 @@ type SyncAccountResponse struct {
 	// moved out, or newly rejected by a filter. Removal only happens on a
 	// complete snapshot; when it is skipped, the reason is in errors.
 	HoldingsZeroed int32 `protobuf:"varint,5,opt,name=holdings_zeroed,json=holdingsZeroed,proto3" json:"holdings_zeroed,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Positions the source returned and this sync could not turn into a holding:
+	// an instrument its catalogue does not carry, a venue this system has no
+	// market for, or a row whose quantity could not be read. A count rather than
+	// a list because the positions themselves are reachable from the source; the
+	// point is that a sum never reports itself whole while something is missing
+	// from it. Zero means the response was understood in full.
+	PositionsSkipped int32 `protobuf:"varint,6,opt,name=positions_skipped,json=positionsSkipped,proto3" json:"positions_skipped,omitempty"`
+	// Assets created on a market that was inferred rather than read: the source
+	// named an instrument its own catalogue does not carry, so the venue came
+	// from the board the position was reported on or from the row's currency.
+	// These positions ARE written; the count exists so the guess is never silent
+	// and can be repaired.
+	AssetsDefaultedMarket int32 `protobuf:"varint,7,opt,name=assets_defaulted_market,json=assetsDefaultedMarket,proto3" json:"assets_defaulted_market,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *SyncAccountResponse) Reset() {
@@ -3746,6 +3759,20 @@ func (x *SyncAccountResponse) GetErrors() []string {
 func (x *SyncAccountResponse) GetHoldingsZeroed() int32 {
 	if x != nil {
 		return x.HoldingsZeroed
+	}
+	return 0
+}
+
+func (x *SyncAccountResponse) GetPositionsSkipped() int32 {
+	if x != nil {
+		return x.PositionsSkipped
+	}
+	return 0
+}
+
+func (x *SyncAccountResponse) GetAssetsDefaultedMarket() int32 {
+	if x != nil {
+		return x.AssetsDefaultedMarket
 	}
 	return 0
 }
@@ -4086,14 +4113,16 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"3\n" +
 	"\x12SyncAccountRequest\x12\x1d\n" +
 	"\n" +
-	"account_id\x18\x01 \x01(\tR\taccountId\"\xcb\x01\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\"\xb0\x02\n" +
 	"\x13SyncAccountResponse\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12'\n" +
 	"\x0fassets_upserted\x18\x02 \x01(\x05R\x0eassetsUpserted\x12+\n" +
 	"\x11holdings_upserted\x18\x03 \x01(\x05R\x10holdingsUpserted\x12\x16\n" +
 	"\x06errors\x18\x04 \x03(\tR\x06errors\x12'\n" +
-	"\x0fholdings_zeroed\x18\x05 \x01(\x05R\x0eholdingsZeroed*\xc2\x01\n" +
+	"\x0fholdings_zeroed\x18\x05 \x01(\x05R\x0eholdingsZeroed\x12+\n" +
+	"\x11positions_skipped\x18\x06 \x01(\x05R\x10positionsSkipped\x126\n" +
+	"\x17assets_defaulted_market\x18\a \x01(\x05R\x15assetsDefaultedMarket*\xc2\x01\n" +
 	"\vAccountType\x12\x1c\n" +
 	"\x18ACCOUNT_TYPE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13ACCOUNT_TYPE_WALLET\x10\x01\x12\x19\n" +

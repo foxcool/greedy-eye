@@ -156,6 +156,7 @@ func run() error {
 		Source:          portfolioStore,
 		WalletSyncers:   providers.WalletSyncers(),
 		ExchangeSyncers: providers.ExchangeSyncers(),
+		BrokerSyncers:   providers.BrokerSyncers(),
 		PriceProviders:  providers.PriceProviders(),
 		// Readers that need no credential. Without these a fresh instance syncs
 		// nothing at all: a syncer is chosen from accounts carrying
@@ -207,6 +208,7 @@ func run() error {
 				WithSettingsClient(settingsHandler).
 				WithWalletSyncerSource(credResolver).
 				WithExchangeSyncerSource(credResolver).
+				WithBrokerSyncerSource(credResolver).
 				// The same registry that builds the clients describes them, so
 				// the account form offers the slugs, chains and plans this build
 				// actually uses rather than a copy of them (personal-7bn).

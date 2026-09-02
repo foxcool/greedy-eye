@@ -31,6 +31,9 @@ func registeredSlugs(r *Registry) map[string]bool {
 	for slug := range r.ExchangeSyncers() {
 		slugs[slug] = true
 	}
+	for slug := range r.BrokerSyncers() {
+		slugs[slug] = true
+	}
 	for slug := range r.PriceProviders() {
 		slugs[slug] = true
 	}
@@ -270,4 +273,43 @@ func TestTInvestBaseURLComesFromTheAccount(t *testing.T) {
 		assert.ErrorIs(t, build(map[string]string{"base_url": bad}),
 			tinvestadapter.ErrBadBaseURL, "base_url %q must fail as configuration", bad)
 	}
+}
+
+// TestBrokerSyncerNamesOneBrokerAccount: one token reaches several accounts at
+// the broker, and which of them this syncer speaks for is the account's own
+// statement. Defaulting to "the first one" would write somebody's other
+// portfolio into this account and report success.
+func TestBrokerSyncerNamesOneBrokerAccount(t *testing.T) {
+	broker := testRegistry().BrokerSyncers()[tinvestadapter.ProviderName]
+	require.NotNil(t, broker, "a provider that can read positions must be registered to sync them")
+
+	_, err := broker(&entity.Account{ID: "acc-no-id", Data: map[string]string{
+		"api_key": "t", "base_url": "http://127.0.0.1:8081/rest",
+	}})
+	assert.Error(t, err, "an account naming no broker account must refuse, not pick one")
+
+	syncer, err := broker(&entity.Account{ID: "acc-ok", Data: map[string]string{
+		"api_key": "t", "base_url": "http://127.0.0.1:8081/rest", "broker_account_id": "2000123456",
+	}})
+	require.NoError(t, err)
+	require.NotNil(t, syncer)
+}
+
+// TestBrokerSyncerHonoursTheAccountsTransport: positions and quotes travel the
+// same token to the same host, so the syncer must inherit the base URL and the
+// trust anchor the price path already enforces. A second copy of that logic is
+// where an anchor silently stops applying to half the calls.
+func TestBrokerSyncerHonoursTheAccountsTransport(t *testing.T) {
+	broker := testRegistry().BrokerSyncers()[tinvestadapter.ProviderName]
+	require.NotNil(t, broker)
+
+	_, err := broker(&entity.Account{ID: "acc-tls", Data: map[string]string{
+		"api_key": "t", "broker_account_id": "2000123456",
+	}})
+	assert.ErrorIs(t, err, tinvestadapter.ErrNoRootCA, "the live gateway still needs its anchor")
+
+	_, err = broker(&entity.Account{ID: "acc-bad-url", Data: map[string]string{
+		"api_key": "t", "broker_account_id": "2000123456", "base_url": "ftp://example.invalid",
+	}})
+	assert.ErrorIs(t, err, tinvestadapter.ErrBadBaseURL, "a malformed host must read as configuration")
 }

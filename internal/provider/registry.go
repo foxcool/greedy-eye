@@ -13,7 +13,9 @@
 package provider
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 
 	binanceadapter "github.com/foxcool/greedy-eye/internal/adapter/binance"
 	blockchairadapter "github.com/foxcool/greedy-eye/internal/adapter/blockchair"
@@ -213,6 +215,43 @@ func (r *Registry) ExchangeSyncers() map[string]credentials.ExchangeSyncerFactor
 	}
 }
 
+// brokerAccountDataKey names, in accounts.data, which of the broker's own
+// accounts this one speaks for.
+const brokerAccountDataKey = "broker_account_id"
+
+// BrokerSyncers read the positions of ONE account at a broker. Like the
+// exchange syncers, the account being synced holds the token, so there is no
+// user->system fallback here either.
+//
+// Which of the broker's accounts this one speaks for is the account's own
+// statement, data[brokerAccountDataKey]: one token reaches several, and merging
+// them would collapse two holdings of the same share into one row and make a
+// transfer between the accounts invisible.
+func (r *Registry) BrokerSyncers() map[string]credentials.BrokerSyncerFactory {
+	return map[string]credentials.BrokerSyncerFactory{
+		tinvestadapter.ProviderName: func(a *entity.Account) (entity.BrokerSyncer, error) {
+			brokerAccountID := strings.TrimSpace(a.Data[brokerAccountDataKey])
+			if brokerAccountID == "" {
+				// Named rather than defaulted to "the first one". The token
+				// reaches several accounts, and picking one here would write
+				// somebody's other portfolio into this account and report
+				// success — the silent-degradation shape this work exists to
+				// end (personal-1y6i).
+				//
+				// The key is spelled once: an operator reads this message to
+				// learn the field's name, so a rename that misses the text
+				// sends them to a field that no longer exists.
+				return nil, fmt.Errorf("account names no broker account: set data[%q]", brokerAccountDataKey)
+			}
+			client, err := r.tinvestClient(a)
+			if err != nil {
+				return nil, err
+			}
+			return tinvestadapter.NewBrokerSyncer(client, brokerAccountID), nil
+		},
+	}
+}
+
 // PriceProviders quote assets, built from an account's credentials.
 func (r *Registry) PriceProviders() map[string]credentials.PriceProviderFactory {
 	return map[string]credentials.PriceProviderFactory{
@@ -262,48 +301,56 @@ func (r *Registry) PriceProviders() map[string]credentials.PriceProviderFactory 
 		// a decision that belongs beside the token it is used with, not in the
 		// service's own configuration.
 		tinvestadapter.ProviderName: func(a *entity.Account) (marketdata.PriceProvider, error) {
-			// data["base_url"] points this account somewhere other than the
-			// production gateway; empty keeps today's behaviour exactly. Its
-			// purpose is a local server replaying captured responses, so the
-			// whole path can be exercised without the live broker — NOT the
-			// vendor's sandbox, which answers different methods entirely and
-			// holds no copy of the real portfolio (personal-hbb1).
-			baseURL := a.Data["base_url"]
-
-			// Checked before anything is built. Reversed, a typo here on an
-			// account with no anchor comes back as "no root CA configured",
-			// which sends the operator to fix a field they did not touch.
-			if err := tinvestadapter.CheckBaseURL(baseURL); err != nil {
-				return nil, err
-			}
-
-			// The verified transport is built first and the rate limiter wraps
-			// it. The other order would hand NewClient a ready Transport, which
-			// takes precedence over the anchor and would leave the connection
-			// trusting only the system store.
-			//
-			// A plaintext base URL has no certificate to verify, so demanding a
-			// trust anchor for it would refuse the one configuration this field
-			// exists to allow. The limiter still wraps the default transport:
-			// a replay server is not a reason to stop counting requests.
-			var base http.RoundTripper
-			if !tinvestadapter.InsecureBaseURL(baseURL) {
-				var err error
-				if base, err = tinvestadapter.TLSTransport([]byte(a.Data["root_ca"])); err != nil {
-					return nil, err
-				}
-			}
-			client, err := tinvestadapter.NewClient(tinvestadapter.Config{
-				Token:     a.Data["api_key"],
-				BaseURL:   baseURL,
-				Transport: r.limits.Transport(accountCred(tinvestadapter.ProviderName, a), base),
-			})
+			client, err := r.tinvestClient(a)
 			if err != nil {
 				return nil, err
 			}
 			return tinvestadapter.NewProvider(client), nil
 		},
 	}
+}
+
+// tinvestClient builds the broker's client from one account. Quotes and
+// positions come from the same host under the same token, so the transport
+// decisions below are made once rather than in each factory: the second copy
+// is where an anchor or a base URL silently stops applying to half the calls.
+func (r *Registry) tinvestClient(a *entity.Account) (*tinvestadapter.Client, error) {
+	// data["base_url"] points this account somewhere other than the production
+	// gateway; empty keeps today's behaviour exactly. Its purpose is a local
+	// server replaying captured responses, so the whole path can be exercised
+	// without the live broker — NOT the vendor's sandbox, which answers
+	// different methods entirely and holds no copy of the real portfolio
+	// (personal-hbb1).
+	baseURL := a.Data["base_url"]
+
+	// Checked before anything is built. Reversed, a typo here on an account
+	// with no anchor comes back as "no root CA configured", which sends the
+	// operator to fix a field they did not touch.
+	if err := tinvestadapter.CheckBaseURL(baseURL); err != nil {
+		return nil, err
+	}
+
+	// The verified transport is built first and the rate limiter wraps it. The
+	// other order would hand NewClient a ready Transport, which takes
+	// precedence over the anchor and would leave the connection trusting only
+	// the system store.
+	//
+	// A plaintext base URL has no certificate to verify, so demanding a trust
+	// anchor for it would refuse the one configuration this field exists to
+	// allow. The limiter still wraps the default transport: a replay server is
+	// not a reason to stop counting requests.
+	var base http.RoundTripper
+	if !tinvestadapter.InsecureBaseURL(baseURL) {
+		var err error
+		if base, err = tinvestadapter.TLSTransport([]byte(a.Data["root_ca"])); err != nil {
+			return nil, err
+		}
+	}
+	return tinvestadapter.NewClient(tinvestadapter.Config{
+		Token:     a.Data["api_key"],
+		BaseURL:   baseURL,
+		Transport: r.limits.Transport(accountCred(tinvestadapter.ProviderName, a), base),
+	})
 }
 
 // KeylessPriceProviders are feeds anyone may read, registered with no account

@@ -324,7 +324,7 @@ graph TB
 
     MDS -.->|FetchExternalPrices via resolver| Prices
     PS  -.->|SyncAccount wallet| Wallets
-    PS  -.->|SyncAccount exchange| Prices
+    PS  -.->|SyncAccount exchange, broker| Prices
     PS  -.->|score on intake| SF
     Prices -.->|RoundTripper| RL
     Wallets -.->|RoundTripper| RL
@@ -351,7 +351,8 @@ graph TB
 **PortfolioService** (`internal/service/portfolio/`):
 - RPCs implemented: full CRUD for Portfolio, Account, Holding, Transaction; DeleteHolding;
   CalculatePortfolioValue (with `ValuationCoverage`); SyncAccount (wallet balances across eight
-  ecosystems, exchange balances via Binance); ImportPositions / ImportTransactions;
+  ecosystems, exchange balances via Binance, broker positions via T-Invest);
+  ImportPositions / ImportTransactions;
   ListProviders (the adapter registry's descriptors — see External Adapters below)
 - RPCs stubbed: GetPortfolioPerformance
 - Account types (`AccountType`): `wallet`, `exchange`, `bank`, `broker`, `service` (a pure
@@ -650,13 +651,40 @@ API Client → PortfolioService/SyncAccount → resolver → syncer → upsert h
   2. Branch on account type:
      - wallet   → WalletSyncer for the account's chains (registry, see §5.3)
      - exchange → ExchangeSyncer (Binance) via the account's own API key
-  3. Each balance resolves to an asset: contract ref first, confirmed symbol second
+     - broker   → BrokerSyncer (T-Invest) for the ONE broker account named by
+       data["broker_account_id"], via the account's own token
+  3. Each balance resolves to an asset by (symbol, market, type), external ref first:
+     a token's contract, a broker instrument's FIGI. Type and market come from the
+     position — a share is not resolved as a crypto asset with the same ticker
   4. New or unscored assets are scored by scamfilter; the verdict lands on the asset
   5. Holdings upserted in ONE transaction; scam/impersonation verdicts derive holdings.excluded
   6. Sync-written positions the provider no longer reports are zeroed in the same
      transaction — but only when the snapshot came back whole (see below)
-  7. Response: SyncAccountResponse{assets_upserted, holdings_upserted, holdings_zeroed, errors}
+  7. Response: SyncAccountResponse{assets_upserted, holdings_upserted, holdings_zeroed,
+     positions_skipped, assets_defaulted_market, errors}
 ```
+
+**A broker position is not an exchange balance.** An exchange reports a ticker and
+an amount; a broker line carries three more facts the valuation cannot do without
+— the instrument id that is its only honest identity (its ticker field frequently
+holds an ISIN), the currency of *that row* (one response mixes roubles, dollars
+and euros), and the instrument type that decides whether it can be valued at all.
+Cash is the one line identified by its currency code and bound to no ref: the
+broker's id for a currency names a settlement instrument, not the money. A
+position the broker reports as partly blocked becomes two holdings, `liquid` and
+`locked`, over one asset — the pools do not overlap and sum to the reported
+quantity, which is what makes `runway` answerable later.
+
+**What the sync could not name is a count, not a silence.** `positions_skipped`
+is positions the source returned and this system could not turn into a holding:
+an instrument absent from the broker's own catalogue, a venue with no market
+here, an unreadable quantity. A non-zero count also withholds removal for that
+sync — a position missing from the snapshot may be paper the catalogue dropped
+while the shares are still held, and zeroing it would be lying in the minus.
+`assets_defaulted_market` counts the opposite case: the position IS written, on a
+venue inferred from the board it was reported on or from its currency, because
+refusing it would leave `stocks` near-empty. That is the only guess this path
+makes, and the count is what keeps it from being silent.
 
 **Deadline and atomicity.** A sync is a long operation: ~22s measured for a heavy
 multi-chain EVM wallet, of which the last ~9s are asset resolution and the write.
