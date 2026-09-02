@@ -72,9 +72,10 @@ type Quote struct {
 	ValueBase decimal.Decimal
 }
 
-// Candidates collects every way this asset can be expressed in quoteAssetID: its
-// own freshest print converted from whatever pair it trades in, and a price
-// quoted straight in the quote asset. They are the same row whenever the
+// Candidates collects every way this asset can be expressed in quoteAssetID: the
+// identity price when it IS the quote asset, its own freshest print converted
+// from whatever pair it trades in, and a price quoted straight in the quote
+// asset. They are the same row whenever the
 // freshest print is already in the quote asset, and then there is only one
 // candidate and nothing to choose between.
 //
@@ -85,6 +86,27 @@ type Quote struct {
 // second. Collapsing them hid a live failure for months — see NoCrossRate.
 func Candidates(ctx context.Context, r PriceReader, log *slog.Logger, assetID, quoteAssetID string) ([]Quote, Outcome, error) {
 	one := decimal.NewFromInt(1)
+
+	// An asset is worth one of itself. When the holding IS the display
+	// currency there is no source to ask and no quote to wait for, so the
+	// answer comes before any lookup.
+	//
+	// Latent until cash arrived: a wallet holds tokens and an exchange holds
+	// crypto balances, so the display currency was never a position. Broker
+	// sync brings cash in, and the USD rows fell out of a USD total reported as
+	// "no source has ever answered" — a statement about coverage that cannot be
+	// true of the currency the total is denominated in (personal-v2a1). A
+	// holding in a DIFFERENT currency is untouched: that is a real rate, and it
+	// already works.
+	//
+	// No Row, deliberately: nothing observed this, so it dates nothing and the
+	// market-depth gate has nothing to read. Both readers already treat a
+	// rowless quote that way — pricefresh.QuotedAt and marketdepth.Thin are
+	// nil-safe, and the total skips a zero timestamp when dating itself.
+	if assetID != "" && assetID == quoteAssetID {
+		return []Quote{{Unit: one, Rate: one, BaseID: quoteAssetID, ValueBase: one}}, Priced, nil
+	}
+
 	var out []Quote
 	missing := NoQuote
 
