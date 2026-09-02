@@ -157,7 +157,10 @@ func run() error {
 		WalletSyncers:   providers.WalletSyncers(),
 		ExchangeSyncers: providers.ExchangeSyncers(),
 		BrokerSyncers:   providers.BrokerSyncers(),
-		PriceProviders:  providers.PriceProviders(),
+		// What a token reaches, so an operator never types a broker's account
+		// id copied off a phone screen.
+		BrokerAccountListers: providers.BrokerAccountListers(),
+		PriceProviders:       providers.PriceProviders(),
 		// Readers that need no credential. Without these a fresh instance syncs
 		// nothing at all: a syncer is chosen from accounts carrying
 		// onchain_lookup, and the wallet account holds only an address.
@@ -209,6 +212,7 @@ func run() error {
 				WithWalletSyncerSource(credResolver).
 				WithExchangeSyncerSource(credResolver).
 				WithBrokerSyncerSource(credResolver).
+				WithBrokerAccountListerSource(credResolver).
 				// The same registry that builds the clients describes them, so
 				// the account form offers the slugs, chains and plans this build
 				// actually uses rather than a copy of them (personal-7bn).

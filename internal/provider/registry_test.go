@@ -34,6 +34,9 @@ func registeredSlugs(r *Registry) map[string]bool {
 	for slug := range r.BrokerSyncers() {
 		slugs[slug] = true
 	}
+	for slug := range r.BrokerAccountListers() {
+		slugs[slug] = true
+	}
 	for slug := range r.PriceProviders() {
 		slugs[slug] = true
 	}
@@ -312,4 +315,23 @@ func TestBrokerSyncerHonoursTheAccountsTransport(t *testing.T) {
 		"api_key": "t", "broker_account_id": "2000123456", "base_url": "ftp://example.invalid",
 	}})
 	assert.ErrorIs(t, err, tinvestadapter.ErrBadBaseURL, "a malformed host must read as configuration")
+}
+
+// TestBrokerAccountListerNeedsNoAccountID is the property that breaks the
+// chicken-and-egg: the reader that tells the system which broker accounts exist
+// cannot itself require one to be named.
+func TestBrokerAccountListerNeedsNoAccountID(t *testing.T) {
+	lister := testRegistry().BrokerAccountListers()[tinvestadapter.ProviderName]
+	require.NotNil(t, lister, "a provider whose accounts can be discovered must register a lister")
+
+	built, err := lister(&entity.Account{ID: "acc-token", Data: map[string]string{
+		"api_key": "t", "base_url": "http://127.0.0.1:8081/rest",
+	}})
+	require.NoError(t, err, "no broker_account_id, and that is the point")
+	require.NotNil(t, built)
+
+	// The transport rules still hold: same host, same token, same anchor as the
+	// quotes and the positions.
+	_, err = lister(&entity.Account{ID: "acc-tls", Data: map[string]string{"api_key": "t"}})
+	assert.ErrorIs(t, err, tinvestadapter.ErrNoRootCA)
 }

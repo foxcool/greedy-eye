@@ -94,6 +94,11 @@ type ExchangeSyncerFactory func(a *entity.Account) (entity.ExchangeSyncer, error
 // speaks for is named by the account itself, in data["broker_account_id"].
 type BrokerSyncerFactory func(a *entity.Account) (entity.BrokerSyncer, error)
 
+// BrokerAccountListerFactory builds, from an account's credentials, the reader
+// that says which accounts its token reaches. It needs no broker account id —
+// that is the thing it exists to find out.
+type BrokerAccountListerFactory func(a *entity.Account) (entity.BrokerAccountLister, error)
+
 // PriceProviderFactory builds a price provider from account credentials.
 type PriceProviderFactory func(a *entity.Account) (marketdata.PriceProvider, error)
 
@@ -103,7 +108,11 @@ type Config struct {
 	WalletSyncers   map[string]WalletProvider        // keyed by provider slug
 	ExchangeSyncers map[string]ExchangeSyncerFactory // keyed by provider slug
 	BrokerSyncers   map[string]BrokerSyncerFactory   // keyed by provider slug
-	PriceProviders  map[string]PriceProviderFactory  // keyed by provider slug
+	// BrokerAccountListers are keyed by provider slug like the rest. A provider
+	// may register a syncer without one: then its accounts are named by hand,
+	// which is where every broker started.
+	BrokerAccountListers map[string]BrokerAccountListerFactory
+	PriceProviders       map[string]PriceProviderFactory // keyed by provider slug
 
 	// KeylessWalletSyncers are chain readers that need no credential: public
 	// block explorers and RPC endpoints. Registered unconditionally for the same
@@ -362,6 +371,22 @@ func (r *Resolver) BrokerSyncerForAccount(a *entity.Account) (entity.BrokerSynce
 		return nil, fmt.Errorf("build broker syncer from account %s: %w", a.ID, err)
 	}
 	return client.(entity.BrokerSyncer), nil
+}
+
+// BrokerAccountListerForAccount builds the account lister from the account's
+// own stored credentials. Returns nil when the account's provider registers
+// none, which is not an error: it means this broker's accounts are named by
+// hand.
+func (r *Resolver) BrokerAccountListerForAccount(a *entity.Account) (entity.BrokerAccountLister, error) {
+	factory, ok := r.cfg.BrokerAccountListers[a.Data[DataProviderKey]]
+	if !ok {
+		return nil, nil
+	}
+	client, err := r.clientFor("broker_account_lister", a, func() (any, error) { return factory(a) })
+	if err != nil {
+		return nil, fmt.Errorf("build broker account lister from account %s: %w", a.ID, err)
+	}
+	return client.(entity.BrokerAccountLister), nil
 }
 
 // PriceInventory is what one resolution of the price registry saw: the

@@ -215,22 +215,18 @@ func (r *Registry) ExchangeSyncers() map[string]credentials.ExchangeSyncerFactor
 	}
 }
 
-// brokerAccountDataKey names, in accounts.data, which of the broker's own
-// accounts this one speaks for.
-const brokerAccountDataKey = "broker_account_id"
-
 // BrokerSyncers read the positions of ONE account at a broker. Like the
 // exchange syncers, the account being synced holds the token, so there is no
 // user->system fallback here either.
 //
 // Which of the broker's accounts this one speaks for is the account's own
-// statement, data[brokerAccountDataKey]: one token reaches several, and merging
+// statement, data[entity.BrokerAccountDataKey]: one token reaches several, and merging
 // them would collapse two holdings of the same share into one row and make a
 // transfer between the accounts invisible.
 func (r *Registry) BrokerSyncers() map[string]credentials.BrokerSyncerFactory {
 	return map[string]credentials.BrokerSyncerFactory{
 		tinvestadapter.ProviderName: func(a *entity.Account) (entity.BrokerSyncer, error) {
-			brokerAccountID := strings.TrimSpace(a.Data[brokerAccountDataKey])
+			brokerAccountID := strings.TrimSpace(a.Data[entity.BrokerAccountDataKey])
 			if brokerAccountID == "" {
 				// Named rather than defaulted to "the first one". The token
 				// reaches several accounts, and picking one here would write
@@ -241,13 +237,30 @@ func (r *Registry) BrokerSyncers() map[string]credentials.BrokerSyncerFactory {
 				// The key is spelled once: an operator reads this message to
 				// learn the field's name, so a rename that misses the text
 				// sends them to a field that no longer exists.
-				return nil, fmt.Errorf("account names no broker account: set data[%q]", brokerAccountDataKey)
+				return nil, fmt.Errorf("account names no broker account: set data[%q]", entity.BrokerAccountDataKey)
 			}
 			client, err := r.tinvestClient(a)
 			if err != nil {
 				return nil, err
 			}
 			return tinvestadapter.NewBrokerSyncer(client, brokerAccountID), nil
+		},
+	}
+}
+
+// BrokerAccountListers report which accounts a broker token reaches.
+//
+// Registered beside the syncers and built from the same client, but WITHOUT
+// data[brokerAccountDataKey]: this is what an account carrying only a token can
+// answer, and the answer is how it learns which accounts to create.
+func (r *Registry) BrokerAccountListers() map[string]credentials.BrokerAccountListerFactory {
+	return map[string]credentials.BrokerAccountListerFactory{
+		tinvestadapter.ProviderName: func(a *entity.Account) (entity.BrokerAccountLister, error) {
+			client, err := r.tinvestClient(a)
+			if err != nil {
+				return nil, err
+			}
+			return tinvestadapter.NewAccountLister(client), nil
 		},
 	}
 }
