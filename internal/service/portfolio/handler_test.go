@@ -875,8 +875,10 @@ func TestUpdateHolding_MaskRequired(t *testing.T) {
 }
 
 // TestUpdateHolding_ExcludeTouchesOnlyExcluded is the acceptance criterion of
-// the toggle in code: the store is handed that one field and nothing else, so
-// amount, decimals and portfolio_id keep whatever the row already holds.
+// the toggle in code: the store is handed the flag and the author that comes
+// with it, and nothing else, so amount, decimals and portfolio_id keep whatever
+// the row already holds. The author is server-stamped as the user, which is what
+// makes this exclusion survive the next sync (personal-8gu1).
 func TestUpdateHolding_ExcludeTouchesOnlyExcluded(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetHolding", mock.Anything, testHoldingID).Return(testHolding(testHoldingID), nil)
@@ -884,8 +886,8 @@ func TestUpdateHolding_ExcludeTouchesOnlyExcluded(t *testing.T) {
 	stored := testHolding(testHoldingID)
 	stored.Excluded = true
 	s.On("UpdateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
-		return h.ID == testHoldingID && h.Excluded
-	}), []string{"excluded"}).Return(stored, nil)
+		return h.ID == testHoldingID && h.Excluded && h.ExcludedSource == entity.ExcludedByUser
+	}), []string{"excluded", "excluded_source"}).Return(stored, nil)
 	h := newHandler(s)
 
 	resp, err := h.UpdateHolding(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdateHoldingRequest{
@@ -1944,23 +1946,26 @@ func TestSyncAccount_LateVerdictExcludesExistingHolding(t *testing.T) {
 	assert.Contains(t, updatedFields, "excluded")
 }
 
-// TestSyncAccount_ExclusionIsNotLowered: the same write must never clear a flag.
-// Nothing distinguishes a user's manual exclusion from a derived one in the row,
-// so lowering it on a legit verdict would silently undo the user's decision.
-func TestSyncAccount_ExclusionIsNotLowered(t *testing.T) {
+// TestSyncAccount_UserExclusionIsNotLowered: a person's exclusion is terminal in
+// both directions. A sync may lift what a verdict put there, never what someone
+// decided — the same asymmetry that makes a user identity verdict survive a
+// rescore. Before the row recorded its author, this had to hold for EVERY
+// exclusion, which is why the repaired ones could never come back (personal-8gu1).
+func TestSyncAccount_UserExclusionIsNotLowered(t *testing.T) {
 	acct := testAccount(testAccountID)
 	acct.Type = entity.AccountTypeWallet
 	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
 
 	userExcluded := &entity.Holding{
-		ID:        "h-dai",
-		AssetID:   "asset-DAI",
-		AccountID: testAccountID,
-		Amount:    decimal.RequireFromString("100"),
-		Decimals:  18,
-		Chain:     "eth",
-		Source:    entity.SourceSync,
-		Excluded:  true,
+		ID:             "h-dai",
+		AssetID:        "asset-DAI",
+		AccountID:      testAccountID,
+		Amount:         decimal.RequireFromString("100"),
+		Decimals:       18,
+		Chain:          "eth",
+		Source:         entity.SourceSync,
+		Excluded:       true,
+		ExcludedSource: entity.ExcludedByUser,
 	}
 
 	s := &mockStore{}
@@ -1988,7 +1993,76 @@ func TestSyncAccount_ExclusionIsNotLowered(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	assert.True(t, userExcluded.Excluded)
-	assert.NotContains(t, updatedFields, "excluded", "a legit verdict does not write the flag at all")
+	assert.NotContains(t, updatedFields, "excluded", "a legit verdict does not touch a person's decision")
+}
+
+// TestSyncAccount_QuarantineExclusionIsReleased is the bug this column exists
+// for: an asset repaired back to legit must bring its holding back into the sum
+// on the next sync, with nobody remembering the incident. The AAVE case on prod
+// 2026-08-07 — counterfeits unbound, asset rescored legit, and the genuine
+// position still invisible (personal-8gu1).
+func TestSyncAccount_QuarantineExclusionIsReleased(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
+
+	for name, source := range map[string]entity.ExclusionSource{
+		"excluded by a verdict": entity.ExcludedByQuarantine,
+		// A row excluded before the author was recorded. The sync path was the
+		// only writer that ever raised the flag on its own, so it reads as the
+		// machine's — otherwise every exclusion predating this column stays
+		// stranded, which is the whole population the fix is for.
+		"excluded before the author was recorded": entity.ExclusionUnrecorded,
+	} {
+		t.Run(name, func(t *testing.T) {
+			repaired := &entity.Holding{
+				ID:             "h-dai",
+				AssetID:        "asset-DAI",
+				AccountID:      testAccountID,
+				Amount:         decimal.RequireFromString("100"),
+				Decimals:       18,
+				Chain:          "eth",
+				Source:         entity.SourceSync,
+				Excluded:       true,
+				ExcludedSource: source,
+			}
+
+			s := &mockStore{}
+			s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+			s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{repaired}, "", nil)
+
+			var updated *entity.Holding
+			var updatedFields []string
+			s.On("UpdateHolding", mock.Anything, mock.Anything, mock.Anything).
+				Run(func(args mock.Arguments) {
+					updated = args.Get(1).(*entity.Holding)
+					updatedFields = args.Get(2).([]string)
+				}).
+				Return(&entity.Holding{}, nil)
+
+			ws := &mockWalletSyncer{}
+			ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{
+				{Symbol: "DAI", Amount: "200", Decimals: 18, ContractAddress: "0xdai", Chain: "eth"},
+			}, nil)
+
+			md := &mockMDClient{autoAsset: true}
+			md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+				Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+			h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+			_, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+				AccountId: testAccountID,
+			}))
+			require.NoError(t, err)
+
+			require.NotNil(t, updated)
+			assert.False(t, updated.Excluded, "the verdict is gone, so the exclusion goes with it")
+			assert.Equal(t, entity.ExclusionUnrecorded, updated.ExcludedSource)
+			assert.Contains(t, updatedFields, "excluded")
+			assert.Contains(t, updatedFields, "excluded_source")
+		})
+	}
 }
 
 // TestSyncAccount_PricesOnlySyncedAssets: the post-sync price fetch names the

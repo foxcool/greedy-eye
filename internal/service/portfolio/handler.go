@@ -815,6 +815,14 @@ func (h *Handler) UpdateHolding(ctx context.Context, req *connect.Request[apiv1.
 			return nil, err
 		}
 	}
+	// A person touching the flag owns it from then on, in both directions: their
+	// exclusion is not lifted by the next sync, and their re-inclusion is not
+	// undone by one either. The author is server-stamped rather than sent, the
+	// way holdings.source is — a client cannot claim to be the quarantine.
+	if slices.Contains(fields, "excluded") {
+		holding.ExcludedSource = entity.ExcludedByUser
+		fields = append(fields, "excluded_source")
+	}
 	updated, err := h.store.UpdateHolding(ctx, holding, fields)
 	if err != nil {
 		return nil, toConnectError(err)
@@ -1813,15 +1821,23 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 		defaultPortfolioID: account.PortfolioID,
 	}
 	result := syncResult{assetsUpserted: assetsUpserted, syncErrors: syncErrors}
+	var released int32
 	err = h.store.InHoldingsTx(ctx, func(w HoldingWriter) error {
 		written, werr := h.writeSyncedHoldings(ctx, w, plan)
 		result.holdingsUpserted = written.holdingsUpserted
 		result.holdingsZeroed = written.holdingsZeroed
 		result.syncedAssetIDs = written.syncedAssetIDs
+		released = written.holdingsReleased
 		return werr
 	})
 	if err != nil {
 		return syncResult{}, toConnectError(err)
+	}
+	// A release makes the total grow on its own, which is the one direction a
+	// number must never move unexplained.
+	if released > 0 {
+		h.log.Info("sync released holdings whose quarantine verdict is gone",
+			"account_id", account.ID, "released", released)
 	}
 
 	return result, nil
@@ -1873,6 +1889,10 @@ type writePlan struct {
 type writtenSnapshot struct {
 	holdingsUpserted int32
 	holdingsZeroed   int32
+	// holdingsReleased counts exclusions this sync lifted because the verdict
+	// behind them is gone. It changes the total, so it is logged rather than
+	// left to be inferred from a number that grew.
+	holdingsReleased int32
 	syncedAssetIDs   []string
 }
 
@@ -1923,12 +1943,25 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 			// A verdict that quarantines reaches rows that already exist, not
 			// only new ones: an impostor is usually unmasked after its position
 			// has been syncing for a while (personal-go65 — the ticker collision
-			// is only visible once the real asset is listed). The flag is raised,
-			// never lowered, so a user's own exclusion survives a resync just as
-			// it did before.
-			if entry.excluded && !existing.Excluded {
+			// is only visible once the real asset is listed).
+			//
+			// And it lets go when the verdict does. The flag used to be raised
+			// and never lowered, so an asset repaired back to legit left its
+			// holding invisible: the genuine AAVE position stayed out of a
+			// portfolio that had just been fixed precisely so its number would be
+			// true (personal-8gu1). What made lowering unsafe was that the flag
+			// did not say who set it; now it does, and only the machine's own
+			// exclusions are lifted here. A person's stands in both directions.
+			switch {
+			case entry.excluded && !existing.Excluded:
 				existing.Excluded = true
-				fields = append(fields, "excluded")
+				existing.ExcludedSource = entity.ExcludedByQuarantine
+				fields = append(fields, "excluded", "excluded_source")
+			case !entry.excluded && existing.ReleasableBySync():
+				existing.Excluded = false
+				existing.ExcludedSource = entity.ExclusionUnrecorded
+				fields = append(fields, "excluded", "excluded_source")
+				written.holdingsReleased++
 			}
 			if _, err := w.UpdateHolding(ctx, existing, fields); err != nil {
 				return writtenSnapshot{}, fmt.Errorf("update holding for asset %s: %w", assetID, err)
@@ -1950,6 +1983,12 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 				Liquidity:   key.liquidity,
 				Source:      entity.SourceSync,
 				Excluded:    entry.excluded,
+				ExcludedSource: func() entity.ExclusionSource {
+					if entry.excluded {
+						return entity.ExcludedByQuarantine
+					}
+					return entity.ExclusionUnrecorded
+				}(),
 			})
 			if err != nil {
 				return writtenSnapshot{}, fmt.Errorf("create holding for asset %s: %w", assetID, err)

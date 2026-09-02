@@ -575,6 +575,64 @@ func TestHoldingProvenanceRoundtrip(t *testing.T) {
 		assert.Equal(t, importID, found.ImportID)
 	})
 
+	// Who excluded a holding travels with it. A row written before the author was
+	// recorded reads back empty, which the sync path reads as the machine's — the
+	// only reading that lets a repaired verdict release what it excluded.
+	t.Run("exclusion author round-trip", func(t *testing.T) {
+		created, err := s.CreateHolding(ctx, &entity.Holding{
+			AssetID:        asset.ID,
+			AccountID:      account.ID,
+			Amount:         decimal.RequireFromString("100"),
+			Decimals:       8,
+			Source:         entity.SourceSync,
+			Excluded:       true,
+			ExcludedSource: entity.ExcludedByQuarantine,
+		})
+		require.NoError(t, err)
+
+		got, err := s.GetHolding(ctx, created.ID)
+		require.NoError(t, err)
+		assert.True(t, got.Excluded)
+		assert.Equal(t, entity.ExcludedByQuarantine, got.ExcludedSource)
+
+		// The release: both fields move together, and the row comes back clean.
+		got.Excluded = false
+		got.ExcludedSource = entity.ExclusionUnrecorded
+		_, err = s.UpdateHolding(ctx, got, []string{"excluded", "excluded_source"})
+		require.NoError(t, err)
+
+		released, err := s.GetHolding(ctx, created.ID)
+		require.NoError(t, err)
+		assert.False(t, released.Excluded)
+		assert.Equal(t, entity.ExclusionUnrecorded, released.ExcludedSource)
+
+		// And the list path scans the column too, not only the single read.
+		user := &entity.Holding{
+			AssetID:        asset.ID,
+			AccountID:      account.ID,
+			Amount:         decimal.RequireFromString("1"),
+			Decimals:       8,
+			Chain:          "author-list",
+			Source:         entity.SourceSync,
+			Excluded:       true,
+			ExcludedSource: entity.ExcludedByUser,
+		}
+		user, err = s.CreateHolding(ctx, user)
+		require.NoError(t, err)
+
+		listed, _, err := s.ListHoldings(ctx, portfolio.ListHoldingsOpts{AccountID: account.ID, PageSize: 200})
+		require.NoError(t, err)
+		var found *entity.Holding
+		for _, h := range listed {
+			if h.ID == user.ID {
+				found = h
+			}
+		}
+		require.NotNil(t, found)
+		assert.Equal(t, entity.ExcludedByUser, found.ExcludedSource)
+		assert.False(t, found.ReleasableBySync(), "a person's exclusion is not the sync's to lift")
+	})
+
 	// Two rows for one (account, asset) pair that differ only by chain: the row
 	// is the position, and the chain is part of what identifies it. A pre-chain
 	// row reads back as empty — never as "eth".

@@ -457,6 +457,16 @@ table "holdings" {
     null    = false
     default = false
   }
+  # Who put this holding out of the sums: "" | quarantine | user. It exists so a
+  # machine exclusion can be lifted when its reason is gone while a person's
+  # stands. Empty on a row nothing excluded, and on rows excluded before this was
+  # recorded — those read as the machine's, since the sync path was the only
+  # writer that ever raised the flag on its own.
+  column "excluded_source" {
+    type    = character_varying
+    null    = false
+    default = ""
+  }
   column "source" {
     # Creation provenance: sync | manual | llm_import. Default backfills pre-provenance rows as sync.
     type    = character_varying

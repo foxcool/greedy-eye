@@ -119,6 +119,42 @@ func (a *Account) ValidateCapabilities() error {
 	return nil
 }
 
+// ExclusionSource records who put a holding out of the sums.
+//
+// The flag alone had a way up and no way down: a sync raises it from an identity
+// verdict and could never lower it, because a row a user excluded by hand and a
+// row a verdict excluded were the same row. So an asset repaired back to legit
+// left its holding invisible — the genuine AAVE position stayed out of a
+// portfolio that had just been fixed precisely so its number would be true
+// (personal-8gu1). Naming the author is what makes the release safe.
+type ExclusionSource string
+
+const (
+	// ExclusionUnrecorded is the value on a row nothing has excluded, and on a
+	// row excluded before the author was recorded.
+	//
+	// Legacy rows read as the machine's, not as unknown-and-therefore-untouchable:
+	// the sync path was the only writer that ever raised the flag on its own, and
+	// leaving them unreleasable would strand every exclusion this column exists
+	// to undo — 612 of them on dev the day it was written. A person's exclusion
+	// costs one click to reapply; a stranded one is invisible until someone
+	// remembers the incident.
+	ExclusionUnrecorded ExclusionSource = ""
+	// ExcludedByQuarantine is an exclusion derived from a scam or impersonation
+	// identity verdict. It lasts exactly as long as the verdict behind it.
+	ExcludedByQuarantine ExclusionSource = "quarantine"
+	// ExcludedByUser is a person's own decision, terminal in both directions the
+	// way a user identity verdict is terminal against rescoring: no sync raises
+	// it and no sync lowers it.
+	ExcludedByUser ExclusionSource = "user"
+)
+
+// ReleasableBySync reports whether a sync may lift this exclusion once the
+// verdict behind it is gone. Only a person's decision survives.
+func (h *Holding) ReleasableBySync() bool {
+	return h.Excluded && h.ExcludedSource != ExcludedByUser
+}
+
 // ProvenanceSource records how a holding or transaction entered the system.
 // It is stamped by the server at creation time and never changed afterwards.
 type ProvenanceSource string
@@ -205,11 +241,15 @@ type Holding struct {
 	// (account, asset, chain, liquidity), so staked and liquid ATOM on one chain
 	// are two rows. Empty means the source could not say — never "liquid".
 	Liquidity Liquidity
-	Excluded  bool             // If true, holding is explicitly excluded from all portfolio calculations
-	Source    ProvenanceSource // Creation provenance; immutable after create
-	ImportID  string           // Optional batch id linking rows created by one import
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Excluded  bool // If true, holding is explicitly excluded from all portfolio calculations
+	// ExcludedSource says who raised Excluded, so a machine exclusion can be
+	// lifted when its reason is gone while a person's stands. Meaningless while
+	// Excluded is false.
+	ExcludedSource ExclusionSource
+	Source         ProvenanceSource // Creation provenance; immutable after create
+	ImportID       string           // Optional batch id linking rows created by one import
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // TransactionType represents the type of financial transaction.
