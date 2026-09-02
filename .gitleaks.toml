@@ -1,0 +1,24 @@
+# Gitleaks configuration.
+#
+# It exists because the default generic-api-key rule flags any high-entropy
+# string, and a 20-byte EVM address is high-entropy by construction. Adapter
+# fixtures are full of them: a token balance response names the contract it is
+# about, and a contract address is public — it is the identifier a block
+# explorer prints, not a credential.
+#
+# The allowlist below is deliberately narrow. It permits exactly the shape
+# 0x + 40 hex characters, and only inside test files. A private key is 0x + 64
+# hex characters and stays flagged everywhere; production code stays scanned
+# with the default rules unchanged.
+#
+# Written in the singular [allowlist] form, which every gitleaks 8.x reads. The
+# plural [[allowlists]] is newer, and a config the scanner silently ignores is
+# worse than no config: the check goes red for a reason nobody can see in the
+# file they just edited.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "EVM addresses in test fixtures are public identifiers, not secrets"
+paths = ['''_test\.go$''']
+regexes = ['''^0x[0-9a-fA-F]{40}$''']
