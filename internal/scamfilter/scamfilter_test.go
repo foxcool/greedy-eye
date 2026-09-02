@@ -84,6 +84,42 @@ func TestScore_Fixtures(t *testing.T) {
 			wantSignal:  SignalProviderSpam,
 		},
 
+		// --- Listed venues: the exchange spells its own instruments ---
+		// The four MOEX positions the mixed-script rule wrote out of the sum on
+		// the first live broker sync (personal-42s8). Each mixes scripts the way
+		// the broker's catalogue does: a Latin brand beside Russian words, and a
+		// bond series whose "P" is Latin inside a Cyrillic word.
+		{
+			name:        "FinEx equity fund on moex",
+			in:          Input{Symbol: "FXRL", Name: "FinEx Акции российских компаний", VenueListed: true},
+			wantVerdict: VerdictLegit,
+		},
+		{
+			name:        "FinEx eurobond fund on moex",
+			in:          Input{Symbol: "FXRU", Name: "FinEx Еврооблигации рос. компаний (USD)", VenueListed: true},
+			wantVerdict: VerdictLegit,
+		},
+		{
+			name:        "Russian Post bond series",
+			in:          Input{Symbol: "RU000A1055Y4", Name: "Почта России БО-002P-04", VenueListed: true},
+			wantVerdict: VerdictLegit,
+		},
+		{
+			// Latin "O" inside Cyrillic "БO" — the exact confusable the rule hunts,
+			// spelled that way by the venue itself.
+			name:        "Novye Tekhnologii bond series",
+			in:          Input{Symbol: "RU000A105DL4", Name: "Новые Технологии БO-01", VenueListed: true},
+			wantVerdict: VerdictLegit,
+		},
+		{
+			// The same name off a venue is the attack again. This pair is the
+			// whole fix: the text did not change, the identity behind it did.
+			name:        "same mixed-script name with no venue behind it",
+			in:          Input{Symbol: "FXRL", Name: "FinEx Акции российских компаний"},
+			wantVerdict: VerdictImpersonation,
+			wantSignal:  SignalMixedScript,
+		},
+
 		// --- Legit majors: nothing fires ---
 		{
 			name:        "bitcoin",
@@ -177,4 +213,40 @@ func TestScore_ClampsAtOne(t *testing.T) {
 	}, DefaultWeights())
 	assert.Equal(t, VerdictScam, got.Verdict)
 	assert.LessOrEqual(t, got.Score, 1.0)
+}
+
+// TestScore_VenueListedKeepsWeightedSignals: disarming the text hard signals is
+// not a blanket amnesty. A listed instrument still accumulates the weighted
+// signals, and the structural collision still condemns it — only the spelling
+// stops being evidence.
+func TestScore_VenueListedKeepsWeightedSignals(t *testing.T) {
+	t.Run("weighted signals still accumulate", func(t *testing.T) {
+		got := Score(Input{
+			Symbol:      "FOO",
+			Name:        "visit claim-rewards.xyz now",
+			VenueListed: true,
+		}, DefaultWeights())
+		assert.Equal(t, VerdictScam, got.Verdict, "signals=%v", got.Signals)
+		assert.Contains(t, got.Signals, SignalDomain)
+		assert.Contains(t, got.Signals, SignalAirdropLexicon)
+	})
+
+	t.Run("ticker collision still condemns", func(t *testing.T) {
+		got := Score(Input{
+			Symbol: "USDT", Name: "Tether", VenueListed: true, ClaimsHeldTicker: true,
+		}, DefaultWeights())
+		require.Equal(t, VerdictImpersonation, got.Verdict)
+		assert.Contains(t, got.Signals, SignalTickerCollision)
+	})
+
+	t.Run("invisible runes are not evidence on a venue", func(t *testing.T) {
+		// A venue catalogue does not carry zero-width joiners, but if one turns
+		// up it is a transport artefact, not a smuggled lookalike: the position
+		// binds by FIGI and the spelling is the exchange's own.
+		got := Score(Input{
+			Symbol: "SBER\u200b", Name: "Сбербанк", VenueListed: true,
+		}, DefaultWeights())
+		assert.Equal(t, VerdictLegit, got.Verdict, "signals=%v", got.Signals)
+		assert.NotContains(t, got.Signals, SignalInvisibleUnicode)
+	})
 }

@@ -17,6 +17,10 @@ func NormalizeSymbol(symbol string) string {
 // mapping to provider-native identifiers is the adapter's concern.
 const MarketCrypto = "crypto"
 
+// MarketForex is the implied market of cash: a currency is not listed anywhere,
+// it is the thing listings are quoted in.
+const MarketForex = "forex"
+
 // NormalizeMarket canonicalizes a market identifier (trim + lowercase) so market
 // lookups and the composite unique constraint are case-insensitive.
 func NormalizeMarket(market string) string {
@@ -31,7 +35,7 @@ func DefaultMarket(t AssetType) string {
 	case AssetTypeCryptocurrency:
 		return MarketCrypto
 	case AssetTypeForex:
-		return "forex"
+		return MarketForex
 	default:
 		return ""
 	}
@@ -160,6 +164,29 @@ func ContractMarket(chain, address string) string {
 // never acceptable as a quote currency, which every valuation resolves against.
 func IsContractMarket(market string) bool {
 	return strings.HasPrefix(NormalizeMarket(market), onchainPrefix)
+}
+
+// IsListedVenue reports whether a market names an exchange that publishes its
+// own instrument catalogue — moex, spbex, nasdaq — as opposed to the global
+// crypto market, the implied forex market, or one contract's own market.
+//
+// What it buys is trust in the instrument's TEXT. On a listed venue the symbol
+// and the name are written by the exchange and the position binds to the venue's
+// own identifier (a FIGI), so the spelling is not a claim the holder makes about
+// what the asset is — the identity is already established by something stronger.
+// Everywhere else the name is minted by whoever created the token, and its
+// spelling is the only thing standing between a lookalike and the real asset.
+//
+// Defined by exclusion rather than by a list of venues, so a venue we start
+// syncing tomorrow is covered the day its market name lands, and so the
+// contract markets — which outnumber the venues by three orders of magnitude —
+// can never pass for one.
+func IsListedVenue(market string) bool {
+	switch NormalizeMarket(market) {
+	case "", MarketCrypto, MarketForex:
+		return false
+	}
+	return !IsContractMarket(market)
 }
 
 // AssetRiskFlag is a situational-risk flag on a real asset (scam-filtering
