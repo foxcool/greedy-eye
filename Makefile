@@ -6,7 +6,8 @@ COMPOSE=docker compose -p eye --env-file deploy/.env
 COMPOSE_FILE=deploy/compose.yaml
 
 .PHONY: gen go-gen up debug down logs clean buf-gen docs-api \
-        test test-unit test-integration test-smoke schema-apply schema-diff \
+        test test-unit test-integration test-smoke schema-diff \
+        migrate-apply migrate-diff migrate-status migrate-baseline migrate-drift \
         lint vet check
 
 # Generate all code
@@ -57,17 +58,57 @@ test-smoke:
 	$(COMPOSE) -f $(COMPOSE_FILE) --profile default --profile test run --rm \
 		eye-test go test -v -p 1 -tags=smoke -timeout 120s ./test/smoke/...
 
-# Atlas: apply schema to dev database (uses compose migrate service — no env vars needed)
-schema-apply:
-	$(COMPOSE) -f $(COMPOSE_FILE) run --rm migrate
+# Atlas targets all run inside the compose migrate service, against the compose
+# postgres — same image and same commands an instance runs on deploy.
+ATLAS=$(COMPOSE) -f $(COMPOSE_FILE) run --rm migrate
+DB_URL="postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
+# The same database, scoped to the schema the application owns. Atlas keeps its
+# bookkeeping in a separate "atlas" schema, so a diff must say which schema it
+# is about or it reads the bookkeeping as drift.
+DB_URL_PUBLIC="postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable&search_path=public"
+# Revisions live outside the application schema: what schema.hcl describes and
+# what the database holds stay comparable.
+REVISIONS=--revisions-schema atlas
+# Atlas needs a scratch database to materialise schema.hcl into; the postgres
+# healthcheck creates it.
+ATLAS_DEV_URL="postgres://greedy_eye:password@postgres:5432/atlas_dev?sslmode=disable"
 
-# Atlas: show pending schema diff against dev database
-schema-diff:
-	$(COMPOSE) -f $(COMPOSE_FILE) run --rm migrate \
-		schema diff \
-		--from "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable" \
+# Atlas: run the migrations this database has not run yet.
+migrate-apply:
+	$(ATLAS) migrate apply --url $(DB_URL) --dir "file:///migrations" $(REVISIONS)
+
+# Atlas: turn a schema.hcl edit into a migration file.
+# Usage: make migrate-diff name=holdings_excluded_source
+migrate-diff:
+	@test -n "$(name)" || (echo "usage: make migrate-diff name=<snake_case_what_changed>" && exit 1)
+	$(ATLAS) migrate diff $(name) \
+		--dir "file:///migrations" \
 		--to "file:///schema.hcl" \
-		--dev-url "postgres://greedy_eye:password@postgres:5432/atlas_dev?sslmode=disable"
+		--dev-url $(ATLAS_DEV_URL)
+
+# Atlas: which migrations this database has run, and what is pending.
+migrate-status:
+	$(ATLAS) migrate status --url $(DB_URL) --dir "file:///migrations" $(REVISIONS)
+
+# Atlas: mark a database that already carries the schema as being at <version>,
+# so the next apply starts from there instead of trying to recreate everything.
+# Run ONCE per pre-existing instance, and only after `make migrate-drift` says
+# the database matches that version. Usage: make migrate-baseline version=20260902112400
+migrate-baseline:
+	@test -n "$(version)" || (echo "usage: make migrate-baseline version=<migration version>" && exit 1)
+	$(ATLAS) migrate apply --url $(DB_URL) --dir "file:///migrations" $(REVISIONS) --baseline $(version)
+
+# Atlas: what a database has that the desired schema does not, and vice versa.
+# Read-only. This is the check to run before baselining an instance, and the
+# way to find out whether an instance drifted.
+migrate-drift:
+	$(ATLAS) schema diff \
+		--from $(DB_URL_PUBLIC) \
+		--to "file:///schema.hcl" \
+		--dev-url $(ATLAS_DEV_URL)
+
+# Kept as an alias: the old name, now meaning the read-only check.
+schema-diff: migrate-drift
 
 # Run go vet (fast static analysis)
 vet:

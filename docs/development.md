@@ -30,18 +30,14 @@ go mod download
 # Generate protobuf code
 make buf-gen
 
-# Start dev environment
+# Start dev environment (migrations run automatically before the app starts)
 make up
-make schema-apply
 ```
 
 ### Alternative Quick Start (Docker Compose)
 ```bash
-# Start entire system with Docker
+# Start entire system with Docker (the migrate service runs first)
 make up
-
-# Apply database schema
-make schema-apply
 
 # View logs
 make logs
@@ -57,8 +53,8 @@ The application starts:
 ### Essential Development Commands
 ```bash
 # Development workflow
-make up               # Start dev environment
-make schema-apply     # Apply database schema (Atlas)
+make up               # Start dev environment (runs pending migrations first)
+make migrate-apply    # Run pending migrations by hand
 make buf-gen          # Generate protobuf code
 
 # Testing
@@ -67,8 +63,10 @@ make test-unit        # Run unit tests only
 make test-integration # Run integration tests (uses testcontainers)
 
 # Database operations
-make schema-apply     # Apply schema to dev database
-make schema-diff      # Show schema changes
+make migrate-diff name=what_changed  # Turn a schema.hcl edit into a migration
+make migrate-apply    # Run pending migrations
+make migrate-status   # Executed vs pending
+make migrate-drift    # What the dev database has that schema.hcl does not
 
 # Build and deployment
 make clean            # Clean up docker resources
@@ -193,15 +191,20 @@ make buf-format
 
 ### Database Operations
 ```bash
-# Apply schema to dev database (Atlas)
-make schema-apply
+# Turn a schema.hcl edit into an ordered migration file
+make migrate-diff name=holdings_excluded_source
 
-# Show schema diff
-make schema-diff
+# Run what this database has not run yet
+make migrate-apply
 
-# Inspect current schema
-atlas schema inspect --url "file://schema.hcl"
+# What it has run, and what is pending
+make migrate-status
+
+# What a live database holds that schema.hcl does not (read-only)
+make migrate-drift
 ```
+
+See [Schema](#schema) for what these mean and when a database needs a baseline.
 
 ### Testing
 ```bash
@@ -530,10 +533,101 @@ instance could say what it was, so "the pin says X" and "X is serving" were the 
 sentence, and a stale image kept answering health checks and sweeping balances while the
 prices it was supposed to fix stood still for ten days.
 
-**Schema.** `atlas schema apply` runs on deploy against the declarative `schema.hcl`.
-Before tagging, check `git diff <last-tag>..main -- schema.hcl`: an empty diff means the
-deploy is image-only. A non-empty one means reading the plan the apply prints, because
-declarative apply will drop columns that the target schema does not describe.
+**Schema.** `atlas migrate apply` runs on deploy against the ordered files in
+`migrations/`, which are baked into the release image next to the binary. Before tagging,
+check `git diff <last-tag>..main -- migrations/`: no new file means the deploy changes no
+schema. A new file means reading it — it is the exact SQL that will run, in that order,
+on every instance. See [Schema](#schema) for the workflow and for what a pre-existing
+database needs before its first versioned deploy.
+
+## Schema
+
+`schema.hcl` says what the database should look like. `migrations/` says how any
+database gets there. Both are in the repository, both are in the release image, and a
+test keeps them from disagreeing.
+
+### Why not just apply schema.hcl
+
+That is what this project did until v0.12.0, and it has two failure modes that cost
+real data:
+
+- **Declarative apply computes the diff against whatever the target currently holds,
+  and applies it in both directions.** Bringing the stack up from a branch that
+  predates a column DROPS that column, data included. This is not hypothetical:
+  `prices.market_cap` died this way on 2026-08-02, because `make up` runs the migrate
+  service and the migrate service applied the checked-out schema.
+- **It is not an upgrade path for somebody else's instance.** It works for one
+  operator who is also the author and can read a plan before saying yes. Beta gate 4
+  asks for an instance that upgrades without that person.
+
+`migrate apply` runs only files the database has not run, in order, and records each one
+in `atlas_schema_revisions`. It never invents a `DROP`, because a migration contains
+only what somebody wrote into it.
+
+### Changing the schema
+
+```bash
+# 1. Edit schema.hcl — it stays the surface you author on.
+# 2. Turn the edit into an ordered file. The name says what changed, not "update".
+make migrate-diff name=holdings_excluded_source
+# 3. Read the generated SQL. It is what will run on production.
+# 4. Apply it to dev.
+make migrate-apply
+```
+
+Never hand-write a migration file and never edit one that has been applied anywhere:
+`atlas.sum` carries a hash of each file, and an instance that already ran an older
+version of the file will not run it again.
+
+`TestMigrationsMatchSchema` (integration, so it runs in CI) replays `migrations/` into
+an empty database and fails when the result differs from `schema.hcl`. That is what
+lets `schema.hcl` stay the authoring surface without the two drifting apart: forgetting
+step 2 fails the build with the missing DDL printed.
+
+### A database that predates migrations
+
+dev and production were built by declarative apply, so they carry the schema and no
+record of how they got it. `migrate apply` against such a database would try to create
+tables that are already there. It has to be told, once, that it is already at a known
+version:
+
+```bash
+# 1. Confirm what the database actually holds. It must be synced with the schema of
+#    the release the baseline version belongs to — if it is not, fix the drift first,
+#    because baselining marks migrations as applied WITHOUT running them.
+make migrate-drift
+
+# 2. Mark it. The version is the filename prefix in migrations/.
+make migrate-baseline version=20260902112400
+```
+
+On production the same thing runs through the image, since the migrations ship inside
+it:
+
+```bash
+docker compose --profile migrate run --rm --entrypoint atlas migrate \
+  migrate apply \
+  --url "postgres://USER:PASSWORD@eye-postgres:5432/greedy_eye?sslmode=disable" \
+  --dir "file:///migrations" --revisions-schema atlas \
+  --baseline <version>
+```
+
+Pick the version by what the database holds, not by what is newest: an instance at
+v0.11.0 baselines at the baseline file and then RUNS the later ones. The deploy playbook
+refuses to run migrations on a populated database with no revisions table, and prints
+this procedure, rather than guessing which version it is at.
+
+Atlas keeps its bookkeeping in a separate `atlas` schema, so `migrate-drift` compares
+the application's schema against `schema.hcl` without reading the revisions table as
+drift.
+
+### What is still not true
+
+An instance can now be upgraded from the image without reading a diff, which is beta
+gate 4's criterion. What no longer holds is the older claim that "the schema is whatever
+schema.hcl says": for an existing database that is true only after every migration has
+run. A database that skipped one is not repaired by applying schema.hcl to it — that is
+the declarative path, and it is exactly the one that drops columns.
 
 ## Common Development Tasks
 
