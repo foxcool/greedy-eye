@@ -640,6 +640,7 @@ func (h *Handler) scoreAndPersistVerdict(ctx context.Context, a *entity.Asset, r
 		ProviderSpam:     req.ProviderSpam,
 		ContractVerified: req.ContractVerified,
 		ClaimsHeldTicker: h.claimsHeldTicker(ctx, a.ID),
+		VenueListed:      entity.IsListedVenue(a.Market),
 	}
 	res := scamfilter.Score(in, scamfilter.DefaultWeights())
 	score := res.Score

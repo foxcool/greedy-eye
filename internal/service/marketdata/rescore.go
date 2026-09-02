@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sort"
 
+	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/scamfilter"
 	"github.com/foxcool/greedy-eye/internal/store"
 )
@@ -77,6 +78,10 @@ func (h *Handler) RescoreAssets(ctx context.Context) (RescoreReport, error) {
 				// is listed, so the collision is re-asked here rather than
 				// frozen at intake.
 				ClaimsHeldTicker: h.claimsHeldTicker(ctx, a.ID),
+				// The venue is read from the stored row, so a catalogue poisoned
+				// by the old rule repairs itself on the next pass rather than
+				// waiting for each instrument to be synced again.
+				VenueListed: entity.IsListedVenue(a.Market),
 			}, weights)
 
 			report.Scored++

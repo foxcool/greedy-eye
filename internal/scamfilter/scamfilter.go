@@ -11,6 +11,10 @@
 // and a verdict that the sync path acts on — quarantine instead of silent drop,
 // so a scam position keeps syncing but stays out of the sums.
 //
+// Not every signal is in its domain everywhere: a rule bought for
+// attacker-controlled token names is false over an exchange's own catalogue, so
+// Input carries the context that disarms it. See VenueListed.
+//
 // Weights and thresholds live in Weights so they can be tuned from config
 // without a release; DefaultWeights holds the starting point from the design
 // note (mind_synced/projects/greedy-eye/scam-filtering.md).
@@ -109,6 +113,11 @@ type Input struct {
 	// see this shape at all — the whole point of a lookalike is that its symbol
 	// is spelled exactly right.
 	ClaimsHeldTicker bool
+	// VenueListed marks an instrument whose identity comes from an exchange's
+	// catalogue — a listing on moex, spbex, nasdaq, bound by a FIGI — rather
+	// than from a name its issuer chose. It disarms the text hard signals; see
+	// Score.
+	VenueListed bool
 }
 
 // Result is the scored outcome. Signals maps each contributing signal to its
@@ -126,19 +135,32 @@ type Result struct {
 func Score(in Input, w Weights) Result {
 	signals := map[string]float64{}
 
-	// Hard signals: shapes that cannot be an accident. Invisible or control
-	// runes in a ticker (a zero-width joiner, an RTL override) exist only to
-	// smuggle a lookalike past the eye — scam outright. Mixed Latin/Cyrillic in
-	// one name is how a clone impersonates a real project; nothing legitimate
-	// does it. Both bypass the score: no accumulation of weak signals should be
-	// needed to condemn them, and none should be able to reprieve them.
-	if hasInvisibleRune(in.Symbol) || hasInvisibleRune(in.Name) {
-		signals[SignalInvisibleUnicode] = 1
-		return Result{Score: 1, Verdict: VerdictScam, Signals: signals}
-	}
-	if hasMixedScript(in.Symbol) || hasMixedScript(in.Name) {
-		signals[SignalMixedScript] = 1
-		return Result{Score: 1, Verdict: VerdictImpersonation, Signals: signals}
+	// Hard signals over the TEXT: shapes that cannot be an accident when the
+	// text is the issuer's own choice. Invisible or control runes in a ticker (a
+	// zero-width joiner, an RTL override) exist only to smuggle a lookalike past
+	// the eye — scam outright. Mixed Latin/Cyrillic in one name is how a clone
+	// impersonates a real project. Both bypass the score: no accumulation of
+	// weak signals should be needed to condemn them, and none should be able to
+	// reprieve them.
+	//
+	// They are silent on a listed venue, because there the premise is false. An
+	// exchange's catalogue spells its own instruments, and the position binds to
+	// the venue's identifier rather than to the spelling, so a Latin brand
+	// beside Russian words ("FinEx Акции российских компаний") or a Latin P
+	// inside a Cyrillic bond series ("БО-002P-04") is the catalogue being itself,
+	// not an attack. Firing there condemned four real MOEX positions out of the
+	// sum (personal-42s8). The rule was bought for crypto, where the name is
+	// attacker-controlled and mixed script has no innocent use (personal-go65),
+	// and it keeps every bit of that force there.
+	if !in.VenueListed {
+		if hasInvisibleRune(in.Symbol) || hasInvisibleRune(in.Name) {
+			signals[SignalInvisibleUnicode] = 1
+			return Result{Score: 1, Verdict: VerdictScam, Signals: signals}
+		}
+		if hasMixedScript(in.Symbol) || hasMixedScript(in.Name) {
+			signals[SignalMixedScript] = 1
+			return Result{Score: 1, Verdict: VerdictImpersonation, Signals: signals}
+		}
 	}
 	// A ticker already held on this chain by an older, listed asset with another
 	// contract. Hard for the same reason as mixed script: minting a second
@@ -148,6 +170,10 @@ func Score(in Input, w Weights) Result {
 	// length reaches 0.2, and even with no_listing it tops out at 0.5, under the
 	// 0.8 that would condemn it. No accumulation of weak signals can ever judge
 	// this shape (personal-go65).
+	//
+	// Unconditional, unlike the text signals above: it judges a structure the
+	// chain enforces, not a spelling anyone chose, so a listing elsewhere says
+	// nothing about it. A tokenized share is not excused from it by being listed.
 	if in.ClaimsHeldTicker {
 		signals[SignalTickerCollision] = 1
 		return Result{Score: 1, Verdict: VerdictImpersonation, Signals: signals}
