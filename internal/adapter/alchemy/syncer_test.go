@@ -199,6 +199,52 @@ func TestSyncWallet_UnsupportedChainIsNamed(t *testing.T) {
 	assert.NotContains(t, SupportedChains(), "fantom")
 }
 
+// TestSyncWallet_PolygonAnswersUnderAnotherSlug is a fact measured against the
+// live API on 2026-09-02 and written down nowhere else: polygon is ASKED for as
+// "polygon-mainnet", which the API accepts, and comes back as "matic-mainnet".
+// Without the alias every polygon balance is refused; with a "trim -mainnet"
+// shortcut instead, they would have landed on a chain called "matic" — a second
+// identity for every token already held there.
+func TestSyncWallet_PolygonAnswersUnderAnotherSlug(t *testing.T) {
+	var asked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req tokensRequest
+		require.NoError(t, json.Unmarshal(body, &req))
+		asked = append(asked, req.Addresses[0].Networks...)
+		writeJSON(w, `{"data":{"tokens":[
+			{"address":"0xabc","network":"matic-mainnet","tokenAddress":null,"tokenBalance":"0x64","tokenMetadata":{"decimals":18,"name":"Polygon","symbol":"POL"},"error":null}
+		]}}`)
+	}))
+	defer srv.Close()
+
+	balances, err := syncerAgainst(srv).SyncWallet(context.Background(), "0xabc", []string{"polygon"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"polygon-mainnet"}, asked, "the request keeps the documented slug")
+	require.Len(t, balances, 1)
+	assert.Equal(t, "polygon", balances[0].Chain, "the answer maps back to the chain this build already uses")
+	assert.Equal(t, "POL", balances[0].Symbol)
+}
+
+// TestSyncWallet_UnknownNetworkIsCountedOnce: an unknown network is a fact
+// about the network, not about each row on it. A wallet with ninety balances
+// there produced ninety identical error lines, which is a report nobody reads.
+func TestSyncWallet_UnknownNetworkIsCountedOnce(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, `{"data":{"tokens":[
+			{"address":"0xabc","network":"shape-mainnet","tokenAddress":null,"tokenBalance":"0x64","tokenMetadata":{"decimals":18,"name":"Ethereum","symbol":"ETH"},"error":null},
+			{"address":"0xabc","network":"shape-mainnet","tokenAddress":"0x1111000000000000000000000000000000000000","tokenBalance":"0x64","tokenMetadata":{"decimals":18,"name":"One","symbol":"ONE"},"error":null},
+			{"address":"0xabc","network":"shape-mainnet","tokenAddress":"0x2222000000000000000000000000000000000000","tokenBalance":"0x64","tokenMetadata":{"decimals":18,"name":"Two","symbol":"TWO"},"error":null}
+		]}}`)
+	}))
+	defer srv.Close()
+
+	_, err := syncerAgainst(srv).SyncWallet(context.Background(), "0xabc", []string{"eth"})
+	require.Error(t, err)
+	assert.Equal(t, 1, strings.Count(err.Error(), "shape-mainnet"), "named once, not once per row")
+	assert.Contains(t, err.Error(), "3 balance(s)")
+}
+
 // TestSyncWallet_UnknownNetworkInResponse: a slug this build does not know must
 // not be turned into a chain name by trimming "-mainnet". Chain is identity, and
 // a guessed one merges or splits assets silently.

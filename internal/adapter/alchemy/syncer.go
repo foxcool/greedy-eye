@@ -21,19 +21,27 @@ import (
 // "-mainnet" off whatever the API said — a slug this build does not know must
 // fail loudly, not become a plausible-looking chain name.
 var network = map[string]struct {
-	slug          string
+	slug string
+	// aliases are slugs the API may ANSWER with for this same network. They are
+	// not interchangeable with slug: polygon is asked for as "polygon-mainnet",
+	// which the API accepts, and comes back as "matic-mainnet" — measured
+	// against the live API on 2026-09-02, and documented nowhere. A response
+	// slug that is not the request slug is exactly the case a "trim -mainnet"
+	// shortcut would have turned into a chain called "matic", quietly minting a
+	// second identity for every token already held on polygon.
+	aliases       []string
 	symbol, title string
 }{
-	"eth":       {"eth-mainnet", "ETH", "Ethereum"},
-	"base":      {"base-mainnet", "ETH", "Ethereum"},
-	"arbitrum":  {"arb-mainnet", "ETH", "Ethereum"},
-	"optimism":  {"opt-mainnet", "ETH", "Ethereum"},
-	"linea":     {"linea-mainnet", "ETH", "Ethereum"},
-	"zksync":    {"zksync-mainnet", "ETH", "Ethereum"},
-	"scroll":    {"scroll-mainnet", "ETH", "Ethereum"},
-	"polygon":   {"polygon-mainnet", "POL", "Polygon"},
-	"bsc":       {"bnb-mainnet", "BNB", "BNB Chain"},
-	"avalanche": {"avax-mainnet", "AVAX", "Avalanche"},
+	"eth":       {slug: "eth-mainnet", symbol: "ETH", title: "Ethereum"},
+	"base":      {slug: "base-mainnet", symbol: "ETH", title: "Ethereum"},
+	"arbitrum":  {slug: "arb-mainnet", symbol: "ETH", title: "Ethereum"},
+	"optimism":  {slug: "opt-mainnet", symbol: "ETH", title: "Ethereum"},
+	"linea":     {slug: "linea-mainnet", symbol: "ETH", title: "Ethereum"},
+	"zksync":    {slug: "zksync-mainnet", symbol: "ETH", title: "Ethereum"},
+	"scroll":    {slug: "scroll-mainnet", symbol: "ETH", title: "Ethereum"},
+	"polygon":   {slug: "polygon-mainnet", aliases: []string{"matic-mainnet"}, symbol: "POL", title: "Polygon"},
+	"bsc":       {slug: "bnb-mainnet", symbol: "BNB", title: "BNB Chain"},
+	"avalanche": {slug: "avax-mainnet", symbol: "AVAX", title: "Avalanche"},
 
 	// Fantom is deliberately absent. Moralis read it; Alchemy has deprecated
 	// it, and claiming a chain this adapter cannot read would put a wallet's
@@ -41,6 +49,19 @@ var network = map[string]struct {
 	// chain list names it is routed elsewhere by the registry, which is the
 	// honest outcome: no source, rather than a silent zero.
 }
+
+// chainBySlug reverses the table once, over both request slugs and the slugs
+// the API answers with.
+var chainBySlug = func() map[string]string {
+	byslug := make(map[string]string, len(network))
+	for chain, n := range network {
+		byslug[n.slug] = chain
+		for _, alias := range n.aliases {
+			byslug[alias] = chain
+		}
+	}
+	return byslug
+}()
 
 const nativeDecimals = 18
 
@@ -63,14 +84,10 @@ func SupportedChains() []string {
 	return chains
 }
 
-// chainOf reverses the slug table.
+// chainOf resolves a slug the API answered with to this build's chain id.
 func chainOf(slug string) (string, bool) {
-	for chain, n := range network {
-		if n.slug == slug {
-			return chain, true
-		}
-	}
-	return "", false
+	chain, ok := chainBySlug[slug]
+	return chain, ok
 }
 
 // WalletSyncerAdapter adapts *Client to entity.WalletSyncer.
@@ -162,11 +179,19 @@ func (a *WalletSyncerAdapter) convert(tokens []Token) ([]entity.WalletBalance, [
 	var (
 		result []entity.WalletBalance
 		errs   []error
+		// An unknown network is a property of the network, not of each row on
+		// it: a wallet with ninety balances there produced ninety identical
+		// lines, which is a report nobody reads. Counted once, named once.
+		unknownNetworks = map[string]int{}
+		unknownOrder    []string
 	)
 	for _, t := range tokens {
 		chain, ok := chainOf(t.Network)
 		if !ok {
-			errs = append(errs, fmt.Errorf("network %s: unknown to this build, so a balance on it was not read", t.Network))
+			if unknownNetworks[t.Network] == 0 {
+				unknownOrder = append(unknownOrder, t.Network)
+			}
+			unknownNetworks[t.Network]++
 			continue
 		}
 		if t.Err != "" {
@@ -215,6 +240,12 @@ func (a *WalletSyncerAdapter) convert(tokens []Token) ([]entity.WalletBalance, [
 			ContractAddress: t.TokenAddress,
 			Chain:           chain,
 		})
+	}
+
+	for _, slug := range unknownOrder {
+		errs = append(errs, fmt.Errorf(
+			"network %s: unknown to this build, so %d balance(s) on it were not read",
+			slug, unknownNetworks[slug]))
 	}
 	return result, errs
 }
