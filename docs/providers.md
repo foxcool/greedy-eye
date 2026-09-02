@@ -56,7 +56,8 @@ These sync wallet balances. Every one of them needs an account, key or not.
 
 | `provider` | Chains | Key | Where to get it |
 |---|---|---|---|
-| `moralis` | arbitrum, avalanche, base, ethereum, fantom, linea, optimism, polygon, scroll, zksync | required | moralis.io |
+| `alchemy` | arbitrum, avalanche, base, bsc, eth, linea, optimism, polygon, scroll, zksync | required | alchemy.com, free tier. One request carries the native coin and every ERC-20 for up to five networks, so a ten-chain wallet costs two calls rather than twenty-two. **No fantom**: Alchemy deprecated it, and an account that needs it has to name another provider — a chain claimed but unread would put its holdings out of the sum with nothing saying why. Reports no spam or contract-verification bits, so those signals are absent rather than false |
+| `moralis` | arbitrum, avalanche, base, bsc, eth, fantom, linea, optimism, polygon, scroll, zksync | required, **paid** | moralis.io. The free tier ended 2026-09-01: existing keys keep working only under a paid plan, and an unpaid account answers 401 to everything. Reports `possible_spam` and `verified_contract`, which the identity scorer uses and no other EVM source here provides |
 | `subscan` | polkadot, kusama, assethub-polkadot, assethub-kusama, hydration, astar, moonbeam | required | subscan.io — unauthenticated access is disabled entirely |
 | `tonapi` | ton | optional | tonconsole.com; anonymous calls are rate-limited |
 | `helius` | solana | required in practice | dashboard.helius.dev, free tier. Without it the client falls back to the public RPC, which throttles hard and serves no token metadata |
@@ -65,12 +66,25 @@ These sync wallet balances. Every one of them needs an account, key or not.
 | `tzkt` | tezos | none | — |
 | `blockchair` | dash, dogecoin | optional, effectively required | blockchair.com/api. The free tier answers `430 IP temporarily blacklisted` from shared networks |
 
+### Two providers for one ecosystem
+
+A wallet account holds an address and never names its reader; the reader comes
+from a **credential account** carrying `onchain_lookup`. With both `alchemy` and
+`moralis` accounts present, both match an EVM address and **which one serves is
+whichever the store returns first** — there is no health check and no
+preference, so a provider whose plan has lapsed keeps being chosen and keeps
+failing.
+
+Switching therefore means retiring the old account, not just adding the new one:
+delete it, or take `onchain_lookup` off it. Leaving both is how "I configured
+the new provider" stops meaning "the new provider is used" (`personal-1y6i`).
+
 ### Accepted `data` fields
 
 | Key | Applies to | Meaning |
 |---|---|---|
 | `provider` | all | The slug from the table above. Nothing resolves without it |
-| `api_key` | moralis, subscan, tonapi, helius, blockchair | Write-only; responses return it masked as `••••` plus the last four characters. Echoing the mask back preserves the stored value |
+| `api_key` | alchemy, moralis, subscan, tonapi, helius, blockchair | Write-only; responses return it masked as `••••` plus the last four characters. Echoing the mask back preserves the stored value |
 Endpoints are not configurable per account. `accounts.data` is user-supplied,
 and a client whose base URL came from it would make the server issue requests
 to whatever address its caller named — cloud metadata, loopback, anything

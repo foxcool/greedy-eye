@@ -140,6 +140,14 @@ var defaultLimits = map[string]Limit{
 	"coingecko:" + keylessTier: {RPS: 0.5, Burst: 1},
 	"coingecko:pro":            {RPS: 8, Burst: 2, Quota: 500000, Period: QuotaMonth},
 
+	// Alchemy meters compute units, not requests: 30M CU/month on the free
+	// tier against roughly 1.3M for an hourly sweep of four wallets, and 500
+	// CU/second where this cap is 5 requests. So the RPS below is politeness,
+	// not the real ceiling — and the real ceiling is a unit this registry
+	// cannot count, which is personal-a3v.10 and not fixed here. Deliberately
+	// no Quota: a monthly request count would be a number that means nothing.
+	"alchemy": {RPS: 5, Burst: 2},
+
 	"moralis": {RPS: 5, Burst: 2},
 	"binance": {RPS: 10, Burst: 5},
 
