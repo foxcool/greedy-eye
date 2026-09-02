@@ -127,18 +127,29 @@ services:
       timeout: 5s
       retries: 5
 
-  # Applies schema migrations before the app starts
+  # Runs pending versioned migrations before the app starts.
+  #
+  # This used to be `schema apply`, which diffs the declarative schema.hcl
+  # against whatever the database currently holds and applies the difference
+  # in both directions — so bringing the stack up from a branch that predates
+  # a column DROPPED it, data and all. `migrate apply` only ever runs the
+  # files in migrations/ that this database has not run yet.
+  #
+  # A database that already carries the schema (dev, prod, anything created
+  # before migrations existed) has to be baselined once; see docs/development.md.
   migrate:
     profiles: ["default", "dev", "test"]
-    image: arigaio/atlas:latest
+    # Pinned to the version the release image installs, so dev runs the deploy's
+    # migration engine rather than whatever :latest became overnight.
+    image: arigaio/atlas:1.3.2
     volumes:
       - ../schema.hcl:/schema.hcl:ro
+      - ../migrations:/migrations
     command: >
-      schema apply
+      migrate apply
       --url "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
-      --to "file:///schema.hcl"
-      --dev-url "postgres://greedy_eye:password@postgres:5432/atlas_dev?sslmode=disable"
-      --auto-approve
+      --dir "file:///migrations"
+      --revisions-schema atlas
     depends_on:
       postgres:
         condition: service_healthy

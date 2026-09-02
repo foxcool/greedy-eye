@@ -54,10 +54,12 @@ func NewTestDB(ctx context.Context) (*TestDB, error) {
 		return nil, fmt.Errorf("find project root: %w", err)
 	}
 
-	// Apply schema using Atlas CLI.
-	if err := applySchema(ctx, projectRoot, connStr); err != nil {
+	// Bring the database up the same way an instance does: by running the
+	// migrations, not by applying schema.hcl. A migration that is wrong now
+	// fails here rather than on somebody's deploy.
+	if err := applyMigrations(ctx, projectRoot, connStr); err != nil {
 		container.Terminate(ctx)
-		return nil, fmt.Errorf("apply schema: %w", err)
+		return nil, fmt.Errorf("apply migrations: %w", err)
 	}
 
 	pool, err := NewPool(ctx, connStr)
@@ -132,20 +134,19 @@ func fileExists(path string) bool {
 	return cmd.Run() == nil
 }
 
-// applySchema applies the database schema using Atlas CLI.
-func applySchema(ctx context.Context, projectRoot, connStr string) error {
-	schemaPath := filepath.Join(projectRoot, "schema.hcl")
-
-	cmd := exec.CommandContext(ctx, "atlas", "schema", "apply",
+// applyMigrations runs the versioned migrations against connStr, exactly as the
+// migrate service does on deploy — same directory, same revisions schema.
+func applyMigrations(ctx context.Context, projectRoot, connStr string) error {
+	cmd := exec.CommandContext(ctx, "atlas", "migrate", "apply",
 		"--url", connStr,
-		"--to", "file://"+schemaPath,
-		"--auto-approve",
+		"--dir", "file://"+filepath.Join(projectRoot, migrationsDir),
+		"--revisions-schema", revisionsSchema,
 	)
 	cmd.Dir = projectRoot
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("atlas schema apply failed: %w\noutput: %s", err, string(output))
+		return fmt.Errorf("atlas migrate apply failed: %w\noutput: %s", err, string(output))
 	}
 
 	return nil

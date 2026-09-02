@@ -47,8 +47,11 @@ jobs:
         with:
           go-version: '^1.25'
 
+      # Pinned to the version the release image installs: the integration suite
+      # runs the migrations, so it has to run them with the engine production
+      # uses, not with whatever the installer serves today.
       - name: Install Atlas CLI
-        run: curl -sSf https://atlasgo.sh | sh
+        run: ATLAS_VERSION=v1.3.2 sh -c 'curl -sSf https://atlasgo.sh | sh'
 
       - name: Run integration tests
         run: |

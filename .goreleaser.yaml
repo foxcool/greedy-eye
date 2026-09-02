@@ -36,6 +36,7 @@ dockers:
     extra_files:
       - schema.hcl
       - atlas.hcl
+      - migrations
 
   - id: eye-linux-arm64
     goos: linux
@@ -49,6 +50,7 @@ dockers:
     extra_files:
       - schema.hcl
       - atlas.hcl
+      - migrations
 
 docker_manifests:
   - name_template: "ghcr.io/foxcool/greedy-eye:{{ .Version }}"

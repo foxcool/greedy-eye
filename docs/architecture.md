@@ -927,8 +927,10 @@ somebody chose, since that would report one currency's number under another curr
 - **Audit Trail**: Complete history of all operations
 
 **Schema Management:**
-- **Atlas Declarative**: Schema defined in `schema.hcl` (HCL format)
-- **Automated Migrations**: `atlas schema apply` for dev environment
+- **Atlas Declarative**: Desired schema defined in `schema.hcl` (HCL format)
+- **Versioned Migrations**: `migrations/` holds the ordered files every instance runs
+  (`atlas migrate apply`), recorded in `atlas_schema_revisions`; `schema.hcl` is the
+  authoring surface and `TestMigrationsMatchSchema` keeps the two in step
 - **Backward Compatibility**: Support for backward compatibility
 - **Data Integrity**: ACID transactions for critical operations
 
@@ -1425,14 +1427,28 @@ System Quality
 
 #### Debt 6: No upgrade path for an instance that already has data
 
-- Description: `atlas schema apply` runs on deploy against the declarative `schema.hcl` and
-  computes its diff against whatever that instance currently holds. There is no revision table,
-  no versioned migration catalogue and no place for a backfill to live, so an instance cannot say
-  which schema it is on and a declarative apply will drop a column the target schema stops
+> **Closed 2026-09-02** (`personal-znvr`) — deploys run `atlas migrate apply` against the
+> ordered files in `migrations/`, baked into the release image beside the binary and
+> recorded in `atlas_schema_revisions` (kept in its own `atlas` schema). An instance can
+> say which schema it is on, a deploy runs only what that instance has not run, and no
+> deploy can drop a column because a migration contains only what somebody wrote into it.
+> `schema.hcl` remains the authoring surface; `TestMigrationsMatchSchema` fails the build
+> when a schema change arrives without its migration.
+>
+> **Not closed by it:** a database created before this has no revision history, so it must
+> be baselined once, by hand, to the version it already matches — the deploy playbook
+> refuses and prints the procedure rather than guessing. And a backfill still has nowhere
+> to live except a migration file: there is no place for one that must run *between* two
+> schema states with application logic in between.
+
+- Description: `atlas schema apply` ran on deploy against the declarative `schema.hcl` and
+  computed its diff against whatever that instance currently held. There was no revision table,
+  no versioned migration catalogue and no place for a backfill to live, so an instance could not say
+  which schema it was on and a declarative apply would drop a column the target schema stopped
   describing.
-- Impact: Blocks anyone else running this — and blocks beta gate 4. Every deploy whose
-  `git diff <last-tag>..main -- schema.hcl` is non-empty is read by hand, once, by the only person
-  who knows what the plan should say.
+- Impact: Blocked anyone else running this — and blocked beta gate 4. Every deploy whose
+  `git diff <last-tag>..main -- schema.hcl` was non-empty was read by hand, once, by the only person
+  who knew what the plan should say.
 - Resolution Plan: a versioned migration catalogue plus a revisions table (`personal-znvr`),
   baselined from the current declarative schema.
 

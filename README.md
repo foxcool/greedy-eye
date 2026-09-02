@@ -84,7 +84,6 @@ cd greedy-eye
 
 # Start dev environment
 make up
-make schema-apply
 
 # Server (Connect-RPC over h2c — REST + gRPC on one port):
 # http://localhost:8080
@@ -178,12 +177,13 @@ and debt: [docs/architecture.md](docs/architecture.md) §11.
 
 ```bash
 make up               # Start dev environment (docker compose)
-make schema-apply     # Apply database schema
+make migrate-apply    # Run pending database migrations
 make test             # Run all tests
 make test-unit        # Run unit tests only
 make test-integration # Run integration tests (testcontainers)
 make buf-gen          # Generate protobuf code
-make schema-diff      # Show schema changes
+make migrate-diff name=x # Turn a schema.hcl edit into a migration
+make migrate-status   # What this database has run, what is pending
 ```
 
 See [Development Guide](docs/development.md) for details.

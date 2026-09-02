@@ -29,8 +29,15 @@ make test             # All tests
 
 ## Database
 
-Schema managed with Atlas CLI:
+schema.hcl is the authoring surface; `migrations/` is what instances run.
+Never hand-write a migration and never apply schema.hcl to a database:
+
 ```bash
-make schema-apply     # Apply schema to dev database
-make schema-diff      # Show schema changes
+make migrate-diff name=what_changed  # schema.hcl edit -> ordered migration file
+make migrate-apply                   # run what this database has not run
+make migrate-status                  # executed vs pending
+make migrate-drift                   # what a live database has that schema.hcl does not
 ```
+
+`TestMigrationsMatchSchema` (integration) fails when the two surfaces disagree,
+so a schema.hcl change without a migration cannot reach main.
