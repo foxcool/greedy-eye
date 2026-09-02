@@ -109,6 +109,52 @@ type BrokerSyncer interface {
 	SyncBroker(ctx context.Context) ([]BrokerPosition, BrokerSkips, error)
 }
 
+// BrokerAccountDataKey names, in accounts.data, which of the broker's own
+// accounts an account here speaks for.
+//
+// It lives beside the Account it is a key of, because two packages read it for
+// opposite reasons — the provider registry to build a syncer for one account,
+// the portfolio service to decide which accounts already exist — and a key
+// spelled twice is a key that can be renamed once.
+const BrokerAccountDataKey = "broker_account_id"
+
+// BrokerAccountRef is one account a broker token reaches.
+//
+// It exists because a token is not an account: one reaches several, and until
+// something asked, the only way to learn their ids was the broker's own app.
+// An operator typing an id from a phone screen into a text field is the step
+// this removes.
+type BrokerAccountRef struct {
+	// ID is the broker's own account id, the value data["broker_account_id"]
+	// carries.
+	ID string
+	// Name is the broker's label for it, for a human choosing between three
+	// rows that are otherwise identical numbers.
+	Name string
+	// Syncable is the ADAPTER's judgement, not the caller's: which statuses and
+	// kinds of account hold positions worth reading is provider knowledge, the
+	// same rule that puts venue resolution in the adapter. A savings pot holding
+	// 2.67 roubles and a closed account are both real answers and neither is a
+	// portfolio.
+	Syncable bool
+	// NotSyncableReason names why, in words meant for a person. Empty when
+	// Syncable.
+	NotSyncableReason string
+	// ReadOnly reports that the token cannot trade on this account. The whole
+	// decision to point development at the live broker rests on that being
+	// true, so it is carried out where a human can see it rather than assumed.
+	ReadOnly bool
+}
+
+// BrokerAccountLister lists the accounts one broker token reaches.
+//
+// Separate from BrokerSyncer because a syncer speaks for ONE account and this
+// speaks for the token: the listing is what tells the system which syncers to
+// build in the first place.
+type BrokerAccountLister interface {
+	ListBrokerAccounts(ctx context.Context) ([]BrokerAccountRef, error)
+}
+
 // BrokerSkips counts what a broker sync did not bring back, by reason.
 //
 // Counts rather than a list because this is the sync's own report, read by an

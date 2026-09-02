@@ -774,4 +774,11 @@ message SyncAccountResponse {
   // These positions ARE written; the count exists so the guess is never silent
   // and can be repaired.
   int32 assets_defaulted_market = 7;
+  // Accounts this sync created because a source turned out to hold several and
+  // the caller named none of them: one broker token reaches several accounts,
+  // and each is its own account here so that a transfer between them stays
+  // visible. Creating them is reported rather than done quietly — an account
+  // appearing in somebody's list with no record of who made it is its own kind
+  // of silence.
+  int32 accounts_created = 8;
 }

@@ -43,6 +43,10 @@ const (
 	// AccountTypeInvestBox is the broker's round-up savings pot. Deliberately
 	// not synced: it held 2.67 roubles at the 2026-08-27 measurement.
 	AccountTypeInvestBox = "ACCOUNT_TYPE_INVEST_BOX"
+	// accountAccessReadOnly is the access level the 2026-08-31 measurement
+	// found on all three accounts. It is carried outwards rather than assumed:
+	// pointing development at the live broker is safe only while it holds.
+	accountAccessReadOnly = "ACCOUNT_ACCESS_LEVEL_READ_ONLY"
 )
 
 // PortfolioPosition is one line of a broker account's portfolio.

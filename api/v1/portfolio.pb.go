@@ -3694,8 +3694,15 @@ type SyncAccountResponse struct {
 	// These positions ARE written; the count exists so the guess is never silent
 	// and can be repaired.
 	AssetsDefaultedMarket int32 `protobuf:"varint,7,opt,name=assets_defaulted_market,json=assetsDefaultedMarket,proto3" json:"assets_defaulted_market,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Accounts this sync created because a source turned out to hold several and
+	// the caller named none of them: one broker token reaches several accounts,
+	// and each is its own account here so that a transfer between them stays
+	// visible. Creating them is reported rather than done quietly — an account
+	// appearing in somebody's list with no record of who made it is its own kind
+	// of silence.
+	AccountsCreated int32 `protobuf:"varint,8,opt,name=accounts_created,json=accountsCreated,proto3" json:"accounts_created,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *SyncAccountResponse) Reset() {
@@ -3773,6 +3780,13 @@ func (x *SyncAccountResponse) GetPositionsSkipped() int32 {
 func (x *SyncAccountResponse) GetAssetsDefaultedMarket() int32 {
 	if x != nil {
 		return x.AssetsDefaultedMarket
+	}
+	return 0
+}
+
+func (x *SyncAccountResponse) GetAccountsCreated() int32 {
+	if x != nil {
+		return x.AccountsCreated
 	}
 	return 0
 }
@@ -4113,7 +4127,7 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"3\n" +
 	"\x12SyncAccountRequest\x12\x1d\n" +
 	"\n" +
-	"account_id\x18\x01 \x01(\tR\taccountId\"\xb0\x02\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\"\xdb\x02\n" +
 	"\x13SyncAccountResponse\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12'\n" +
@@ -4122,7 +4136,8 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x06errors\x18\x04 \x03(\tR\x06errors\x12'\n" +
 	"\x0fholdings_zeroed\x18\x05 \x01(\x05R\x0eholdingsZeroed\x12+\n" +
 	"\x11positions_skipped\x18\x06 \x01(\x05R\x10positionsSkipped\x126\n" +
-	"\x17assets_defaulted_market\x18\a \x01(\x05R\x15assetsDefaultedMarket*\xc2\x01\n" +
+	"\x17assets_defaulted_market\x18\a \x01(\x05R\x15assetsDefaultedMarket\x12)\n" +
+	"\x10accounts_created\x18\b \x01(\x05R\x0faccountsCreated*\xc2\x01\n" +
 	"\vAccountType\x12\x1c\n" +
 	"\x18ACCOUNT_TYPE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13ACCOUNT_TYPE_WALLET\x10\x01\x12\x19\n" +

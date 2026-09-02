@@ -49,6 +49,13 @@ type BrokerSyncerSource interface {
 	BrokerSyncerForAccount(a *entity.Account) (entity.BrokerSyncer, error)
 }
 
+// BrokerAccountListerSource builds, from an account's stored credentials, the
+// reader that says which accounts its token reaches (see
+// internal/service/credentials).
+type BrokerAccountListerSource interface {
+	BrokerAccountListerForAccount(a *entity.Account) (entity.BrokerAccountLister, error)
+}
+
 // Handler implements apiv1connect.PortfolioServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedPortfolioServiceHandler
@@ -59,8 +66,11 @@ type Handler struct {
 	syncerSource   WalletSyncerSource   // optional; takes precedence over walletSyncer
 	exchangeSource ExchangeSyncerSource // optional; resolves per-account exchange syncers
 	brokerSource   BrokerSyncerSource   // optional; resolves per-account broker syncers
-	providers      ProviderCatalog      // optional; describes the providers an account may name
-	log            *slog.Logger
+	// brokerListerSource resolves the reader that says which accounts a token
+	// reaches. Optional: without it a broker account must name its own.
+	brokerListerSource BrokerAccountListerSource
+	providers          ProviderCatalog // optional; describes the providers an account may name
+	log                *slog.Logger
 }
 
 func NewHandler(store Store, log *slog.Logger) *Handler {
@@ -115,6 +125,14 @@ func (h *Handler) WithExchangeSyncerSource(src ExchangeSyncerSource) *Handler {
 func (h *Handler) WithBrokerSyncerSource(src BrokerSyncerSource) *Handler {
 	copied := h.clone()
 	copied.brokerSource = src
+	return copied
+}
+
+// WithBrokerAccountListerSource returns a new Handler able to ask a broker
+// which accounts its token reaches.
+func (h *Handler) WithBrokerAccountListerSource(src BrokerAccountListerSource) *Handler {
+	copied := h.clone()
+	copied.brokerListerSource = src
 	return copied
 }
 
@@ -1295,9 +1313,91 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), syncTimeout)
 	defer cancel()
 
-	var balances []syncedBalance
-	var syncErrors []string
-	var skips entity.BrokerSkips
+	// A broker account carrying only a token is not one account, it is the key
+	// to several. It syncs them all rather than refusing: the ids are the
+	// broker's to know, and an operator copying them off a phone screen was the
+	// only way to learn them until this asked.
+	//
+	// Fanning out CREATES accounts, it does not merge them. Merging is what the
+	// design refused and still refuses: two accounts holding the same share
+	// would become one row, and a transfer between them would move no sum —
+	// for anything watching, the event would not have happened.
+	var out syncOutcome
+	if account.Type == entity.AccountTypeBroker && account.Data[entity.BrokerAccountDataKey] == "" {
+		out, err = h.syncBrokerAccounts(ctx, account)
+	} else {
+		out, err = h.syncOneAccount(ctx, account)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Price what this sync touched, so CalculatePortfolioValue returns current
+	// values. Naming the assets matters: an unfiltered request re-prices the
+	// whole catalogue, which on a monthly provider quota costs as much as an
+	// hour of the cron sweep and buys nothing the sync changed. One call for
+	// the whole fan-out, not one per account: three accounts of the same broker
+	// hold the same paper, and asking twice about it spends the plan twice.
+	if len(out.syncedAssetIDs) > 0 {
+		if _, err := h.mdClient.FetchExternalPrices(ctx, connect.NewRequest(&apiv1.FetchExternalPricesRequest{
+			AssetIds: out.syncedAssetIDs,
+		})); err != nil {
+			h.log.Warn("fetch prices after sync failed", "error", err)
+		}
+	}
+
+	return connect.NewResponse(&apiv1.SyncAccountResponse{
+		AccountId:             req.Msg.AccountId,
+		AssetsUpserted:        out.assetsUpserted,
+		HoldingsUpserted:      out.holdingsUpserted,
+		HoldingsZeroed:        out.holdingsZeroed,
+		PositionsSkipped:      intToI32(out.skips.Total()),
+		AssetsDefaultedMarket: intToI32(out.skips.DefaultedMarket),
+		AccountsCreated:       out.accountsCreated,
+		Errors:                out.errors,
+	}), nil
+}
+
+// syncOutcome is what one account's sync contributed, in the shape the response
+// reports. A fan-out sums several of them; a plain sync has exactly one.
+type syncOutcome struct {
+	assetsUpserted   int32
+	holdingsUpserted int32
+	holdingsZeroed   int32
+	accountsCreated  int32
+	skips            entity.BrokerSkips
+	syncedAssetIDs   []string
+	errors           []string
+}
+
+// merge folds one account's outcome into the aggregate, naming the account on
+// every error it carries. Without the name, three accounts syncing together
+// produce a list of errors nobody can attribute — and attributing them is the
+// whole reason the accounts stayed separate.
+func (o *syncOutcome) merge(other syncOutcome, accountName string) {
+	o.assetsUpserted += other.assetsUpserted
+	o.holdingsUpserted += other.holdingsUpserted
+	o.holdingsZeroed += other.holdingsZeroed
+	o.accountsCreated += other.accountsCreated
+	o.skips.UnknownInstrument += other.skips.UnknownInstrument
+	o.skips.UnknownMarket += other.skips.UnknownMarket
+	o.skips.Unparsable += other.skips.Unparsable
+	o.skips.DefaultedMarket += other.skips.DefaultedMarket
+	o.syncedAssetIDs = append(o.syncedAssetIDs, other.syncedAssetIDs...)
+	for _, e := range other.errors {
+		o.errors = append(o.errors, fmt.Sprintf("%s: %s", accountName, e))
+	}
+}
+
+// syncOneAccount fetches one account's positions and writes them. It does not
+// price: a fan-out prices once for everything it touched.
+func (h *Handler) syncOneAccount(ctx context.Context, account *entity.Account) (syncOutcome, error) {
+	var (
+		balances   []syncedBalance
+		syncErrors []string
+		skips      entity.BrokerSkips
+		err        error
+	)
 	switch account.Type {
 	case entity.AccountTypeWallet:
 		balances, syncErrors, err = h.syncWalletBalances(ctx, account)
@@ -1308,12 +1408,12 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	case entity.AccountTypeManual:
 		// FailedPrecondition (not InvalidArgument): the account exists and is fine,
 		// this kind is just never syncable — positions are entered manually.
-		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("manual account has nothing to sync: positions are entered manually"))
+		return syncOutcome{}, connect.NewError(connect.CodeFailedPrecondition, errors.New("manual account has nothing to sync: positions are entered manually"))
 	default:
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("only wallet, exchange and broker accounts can be synced"))
+		return syncOutcome{}, connect.NewError(connect.CodeInvalidArgument, errors.New("only wallet, exchange and broker accounts can be synced"))
 	}
 	if err != nil {
-		return nil, err
+		return syncOutcome{}, err
 	}
 
 	// Whether the fetch stage came back whole decides if this snapshot may
@@ -1331,10 +1431,8 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	// rather than silent.
 	result, err := h.upsertSyncedBalances(ctx, account, balances, len(syncErrors) == 0 && skips.Total() == 0)
 	if err != nil {
-		return nil, err
+		return syncOutcome{}, err
 	}
-	syncErrors = append(syncErrors, result.syncErrors...)
-	syncedAssetIDs := result.syncedAssetIDs
 
 	// Skips reach the caller as a count; the log is where the operator looking
 	// at a total that seems short will actually be. Four indistinguishable
@@ -1352,27 +1450,14 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 			"removal_withheld", skips.Total() > 0)
 	}
 
-	// Price what this sync touched, so CalculatePortfolioValue returns current
-	// values. Naming the assets matters: an unfiltered request re-prices the
-	// whole catalogue, which on a monthly provider quota costs as much as an
-	// hour of the cron sweep and buys nothing the sync changed.
-	if len(syncedAssetIDs) > 0 {
-		if _, err := h.mdClient.FetchExternalPrices(ctx, connect.NewRequest(&apiv1.FetchExternalPricesRequest{
-			AssetIds: syncedAssetIDs,
-		})); err != nil {
-			h.log.Warn("fetch prices after sync failed", "error", err)
-		}
-	}
-
-	return connect.NewResponse(&apiv1.SyncAccountResponse{
-		AccountId:             req.Msg.AccountId,
-		AssetsUpserted:        result.assetsUpserted,
-		HoldingsUpserted:      result.holdingsUpserted,
-		HoldingsZeroed:        result.holdingsZeroed,
-		PositionsSkipped:      intToI32(skips.Total()),
-		AssetsDefaultedMarket: intToI32(skips.DefaultedMarket),
-		Errors:                syncErrors,
-	}), nil
+	return syncOutcome{
+		assetsUpserted:   result.assetsUpserted,
+		holdingsUpserted: result.holdingsUpserted,
+		holdingsZeroed:   result.holdingsZeroed,
+		skips:            skips,
+		syncedAssetIDs:   result.syncedAssetIDs,
+		errors:           append(syncErrors, result.syncErrors...),
+	}, nil
 }
 
 // syncWalletBalances resolves the wallet syncer for the account owner and
