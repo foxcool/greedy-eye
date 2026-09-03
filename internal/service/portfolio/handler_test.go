@@ -3511,3 +3511,109 @@ func (m *mockMDClient) GetPricingStatus(ctx context.Context, req *connect.Reques
 	}
 	return connect.NewResponse(&apiv1.GetPricingStatusResponse{}), nil
 }
+
+// TestSyncAccount_MirrorContractDoesNotAddToTheNativeCoin pins the invariant
+// bought on production: a contract balance that lands on the same (asset,
+// chain) as the chain's own coin is the SAME wei seen twice, and adding it
+// doubles the position.
+//
+// The live case is Optimism's ETH predeploy 0xdead...0000, whose balanceOf
+// mirrors the native balance and whose symbol is "ETH" — so ref discovery bound
+// it to Ethereum, and from 2026-07-26 the total carried 0.3286 ETH where the
+// chain held 0.1643. $390 of a $6915 portfolio, found only by putting a second
+// provider over the same address.
+//
+// A native coin has no contract by definition, so the coin wins and the mirror
+// is dropped. It is NOT counted as a sync error: the position is not missing
+// from the snapshot — its value is in it, once — and treating it as a failure
+// would withhold the removal of positions that really are gone.
+func TestSyncAccount_MirrorContractDoesNotAddToTheNativeCoin(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "optimism"}
+
+	var written decimal.Decimal
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		written = h.Amount
+		return true
+	})).Return(&entity.Holding{ID: "h-eth"}, nil)
+
+	ws := &mockWalletSyncer{}
+	// The coin and its mirror, as a chain reader reports them. The two amounts
+	// are deliberately DIFFERENT here although a real mirror equals the coin:
+	// with equal numbers the test cannot tell "keep the coin" from "keep the
+	// mirror", and which one survives is the whole claim.
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"optimism"}).Return([]entity.WalletBalance{
+		{Symbol: "ETH", Name: "Ethereum", Amount: "164306601783350849", Decimals: 18, Chain: "optimism"},
+		{Symbol: "ETH", Name: "Ether", Amount: "999000000000000000", Decimals: 18,
+			ContractAddress: "0xdeaddeaddeaddeaddeaddeaddeaddeaddead0000", Chain: "optimism"},
+	}, nil)
+
+	md := &mockMDClient{}
+	md.On("FindOrCreateAsset", mock.Anything, mock.Anything).Return(
+		connect.NewResponse(&apiv1.FindOrCreateAssetResponse{
+			Asset: &apiv1.Asset{Id: "asset-eth"}, Created: false,
+		}), nil)
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+
+	assert.Equal(t, int32(1), resp.Msg.HoldingsUpserted, "one position, not two")
+	assert.Empty(t, resp.Msg.Errors,
+		"a mirror is a duplicate to drop, not a hole to disclose — errors here would stop the sync zeroing sold positions")
+	assert.Equal(t, "164306601783350849", written.String(),
+		"the coin stands: neither summed with the mirror nor replaced by it")
+	s.AssertExpectations(t)
+}
+
+// TestSyncAccount_TwoContractsOnOneAssetStillAccumulate guards the other
+// direction: without a native coin in the picture, two contract balances that
+// resolve to one asset on one chain are two real positions of it — a bridged
+// token beside a wrapper, say — and must still be summed. The rule is about the
+// coin, not about duplicate assets.
+func TestSyncAccount_TwoContractsOnOneAssetStillAccumulate(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
+
+	var written decimal.Decimal
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		written = h.Amount
+		return true
+	})).Return(&entity.Holding{ID: "h-usdc"}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{
+		{Symbol: "USDC", Name: "USD Coin", Amount: "1000000", Decimals: 6, ContractAddress: "0xaaa", Chain: "eth"},
+		{Symbol: "USDC", Name: "USD Coin", Amount: "2000000", Decimals: 6, ContractAddress: "0xbbb", Chain: "eth"},
+	}, nil)
+
+	md := &mockMDClient{}
+	md.On("FindOrCreateAsset", mock.Anything, mock.Anything).Return(
+		connect.NewResponse(&apiv1.FindOrCreateAssetResponse{
+			Asset: &apiv1.Asset{Id: "asset-usdc"}, Created: false,
+		}), nil)
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	_, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "3000000", written.String(), "two contracts, two positions, one sum")
+	s.AssertExpectations(t)
+}

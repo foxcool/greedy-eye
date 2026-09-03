@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"strings"
 
+	alchemyadapter "github.com/foxcool/greedy-eye/internal/adapter/alchemy"
 	binanceadapter "github.com/foxcool/greedy-eye/internal/adapter/binance"
 	blockchairadapter "github.com/foxcool/greedy-eye/internal/adapter/blockchair"
 	cbradapter "github.com/foxcool/greedy-eye/internal/adapter/cbr"
@@ -54,6 +55,23 @@ func New(limits *ratelimit.Registry) *Registry {
 // by chain: an account naming "polkadot" must never reach an EVM-only syncer.
 func (r *Registry) WalletSyncers() map[string]credentials.WalletProvider {
 	return map[string]credentials.WalletProvider{
+		// Two EVM readers are registered on purpose. Moralis was the only one
+		// until its free tier ended on 2026-09-01, and one vendor's pricing
+		// page freezing every EVM balance in the instance is exactly what
+		// personal-psu says must not be possible. An account names which it
+		// uses; the registry routes by chain, so both can be live at once.
+		alchemyadapter.ProviderName: {
+			Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
+				return alchemyadapter.NewWalletSyncer(
+					alchemyadapter.NewClient(alchemyadapter.Config{
+						APIKey:    a.Data["api_key"],
+						Transport: r.transport(alchemyadapter.ProviderName, a),
+					}),
+				), nil
+			},
+			Chains:         alchemyadapter.SupportedChains(),
+			HandlesAddress: alchemyadapter.HandlesAddress,
+		},
 		moralisadapter.ProviderName: {
 			Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
 				return moralisadapter.NewWalletSyncer(

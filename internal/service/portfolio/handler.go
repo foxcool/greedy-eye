@@ -1283,6 +1283,26 @@ type accumulated struct {
 	qty      decimal.Decimal // real token quantity, decimals applied
 	decimals int             // max decimals seen on this chain → stored scale
 	excluded bool            // derived from a scam/impersonation verdict
+
+	// nativeQty is the part of qty that came from the chain's own coin, and
+	// hasNative says any did. They exist because a contract balance and a
+	// native one for the same asset and chain can be the SAME wei seen twice.
+	//
+	// Optimism is the live case: 0xdead...0000 is a predeploy whose balanceOf
+	// mirrors the native balance, its symbol is "ETH", so ref discovery bound
+	// it to Ethereum and every sync added the mirror to the coin. Production
+	// carried 0.3286 ETH where the chain holds 0.1643 — $390 of a $6915 total,
+	// from 2026-07-26 until it was found by putting two providers over one
+	// address.
+	//
+	// A native coin has no contract by definition, so a contract balance
+	// landing on the same (asset, chain) is never an additional position: it is
+	// another window onto the one the chain already reports. The coin wins.
+	nativeQty decimal.Decimal
+	hasNative bool
+	// mirrored names the contracts refused for this position, so the log can
+	// say which binding to undo rather than only that a number changed.
+	mirrored []string
 }
 
 // syncTimeout bounds one SyncAccount call server-side.
@@ -1743,20 +1763,55 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 
 		qty := decimal.NewFromBigInt(amt, -intToI32(b.decimals)) // raw / 10^decimals
 		key := positionKey{assetID: assetID, chain: b.chain, liquidity: b.liquidity}
+		// The chain's own coin: on a chain, and behind no contract.
+		native := b.chain != "" && b.ref == ""
 		if entry, ok := byPosition[key]; ok {
 			entry.qty = entry.qty.Add(qty)
+			if native {
+				entry.nativeQty = entry.nativeQty.Add(qty)
+				entry.hasNative = true
+			} else {
+				entry.mirrored = append(entry.mirrored, b.ref)
+			}
 			if b.decimals > entry.decimals {
 				entry.decimals = b.decimals
 			}
 			entry.excluded = entry.excluded || isQuarantineVerdict(verdict)
 		} else {
-			byPosition[key] = &accumulated{
+			entry := &accumulated{
 				qty:      qty,
 				decimals: b.decimals,
 				excluded: isQuarantineVerdict(verdict),
 			}
+			if native {
+				entry.nativeQty, entry.hasNative = qty, true
+			} else if b.ref != "" {
+				entry.mirrored = []string{b.ref}
+			}
+			byPosition[key] = entry
 			order = append(order, key)
 		}
+	}
+
+	// A contract balance that landed on the same (asset, chain) as the coin is
+	// dropped, and the coin stands. Not counted as a sync error on purpose: the
+	// position is not missing from the snapshot — its value is already in it,
+	// once — so this must not withhold the removal of positions that really are
+	// gone. It IS logged, with the contract, because the durable fix is to undo
+	// the binding that put a mirror on the coin's identity.
+	for _, key := range order {
+		entry := byPosition[key]
+		if !entry.hasNative || len(entry.mirrored) == 0 {
+			continue
+		}
+		dropped := entry.qty.Sub(entry.nativeQty)
+		entry.qty = entry.nativeQty
+		h.log.Warn("contract balance mirrors the native coin and was not added to it",
+			"account_id", account.ID,
+			"chain", key.chain,
+			"asset_id", key.assetID,
+			"contracts", strings.Join(entry.mirrored, ","),
+			"dropped_quantity", dropped.String())
 	}
 
 	// A balance that failed to parse or to resolve is a position this snapshot

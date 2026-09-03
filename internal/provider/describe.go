@@ -3,6 +3,7 @@ package provider
 import (
 	"slices"
 
+	alchemyadapter "github.com/foxcool/greedy-eye/internal/adapter/alchemy"
 	binanceadapter "github.com/foxcool/greedy-eye/internal/adapter/binance"
 	blockchairadapter "github.com/foxcool/greedy-eye/internal/adapter/blockchair"
 	cbradapter "github.com/foxcool/greedy-eye/internal/adapter/cbr"
@@ -79,6 +80,18 @@ func describeAll() []catalog.Descriptor {
 			}},
 		},
 		{
+			Slug:        alchemyadapter.ProviderName,
+			Title:       "Alchemy",
+			Kinds:       []catalog.Kind{catalog.KindWallet},
+			NeedsAPIKey: true,
+			Chains:      alchemyadapter.SupportedChains(),
+		},
+		{
+			// Kept in the catalogue although its free tier ended on
+			// 2026-09-01: an instance whose operator pays for Moralis is a
+			// real instance, and removing the choice would strand the accounts
+			// already configured for it. What it must not be is the only EVM
+			// option — see Alchemy above.
 			Slug:        moralisadapter.ProviderName,
 			Title:       "Moralis",
 			Kinds:       []catalog.Kind{catalog.KindWallet},
