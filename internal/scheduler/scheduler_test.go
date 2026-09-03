@@ -286,7 +286,7 @@ func (f *fakeSweeper) LogSweepReport(portfolio.SweepReport, time.Duration) { f.l
 // class, and its report has to be logged — on a schedule nobody reads a return
 // value.
 func TestSyncBalances_RunsAsBackgroundAndReports(t *testing.T) {
-	sweeper := &fakeSweeper{report: portfolio.SweepReport{Due: 2, Synced: 2}}
+	sweeper := &fakeSweeper{report: portfolio.SweepReport{Picked: 2, Stale: 2, Synced: 2}}
 	s := newTestScheduler(t, Config{}, &mockRuleStore{}, &fakeExecutor{}, &fakeFetcher{}).
 		WithBalanceSweeper(sweeper, portfolio.SweepOpts{MaxAge: 6 * time.Hour, Limit: 3})
 

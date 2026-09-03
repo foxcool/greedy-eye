@@ -1,6 +1,9 @@
 package entity
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // WalletBalance represents a single token balance returned by a wallet syncer.
 type WalletBalance struct {
@@ -181,4 +184,19 @@ type BrokerSkips struct {
 // market.
 func (s BrokerSkips) Total() int {
 	return s.UnknownInstrument + s.UnknownMarket + s.Unparsable
+}
+
+// SyncDeferral is one account's standing with the balance sweep: when its
+// holdings were last confirmed, how many consecutive syncs left them no
+// fresher, and when the sweep may look at it again.
+//
+// It is a fact about scheduling, not about the account's contents. An account
+// can be deferred and perfectly configured — a provider outage is the ordinary
+// cause — which is why the entry carries the miss count rather than a verdict.
+type SyncDeferral struct {
+	AccountID     string
+	AccountName   string
+	LastSyncedAt  *time.Time
+	Misses        int
+	NextAttemptAt time.Time
 }

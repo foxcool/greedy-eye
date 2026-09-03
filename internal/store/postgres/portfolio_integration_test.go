@@ -899,7 +899,7 @@ func TestListStaleSyncTargets(t *testing.T) {
 	manual := account("manual stash", entity.AccountTypeManual)
 	holdingAt(manual.ID, now.Add(-500*time.Hour))
 
-	got, err := s.ListStaleSyncTargets(ctx, now.Add(-12*time.Hour), 10)
+	got, err := s.ListStaleSyncTargets(ctx, now.Add(-12*time.Hour), now, 10)
 	require.NoError(t, err)
 
 	ids := make([]string, 0, len(got))
@@ -919,16 +919,77 @@ func TestListStaleSyncTargets(t *testing.T) {
 		"the account confirmed longest ago comes first")
 
 	t.Run("limit is the provider budget", func(t *testing.T) {
-		limited, err := s.ListStaleSyncTargets(ctx, now.Add(-12*time.Hour), 2)
+		limited, err := s.ListStaleSyncTargets(ctx, now.Add(-12*time.Hour), now, 2)
 		require.NoError(t, err)
 		require.Len(t, limited, 2, "a sweep takes what it can afford, the rest stays due")
 		assert.Equal(t, neverSynced.ID, limited[0].ID)
 	})
 
 	t.Run("rejects a non-positive limit", func(t *testing.T) {
-		_, err := s.ListStaleSyncTargets(ctx, now, 0)
+		_, err := s.ListStaleSyncTargets(ctx, now, now, 0)
 		assert.ErrorIs(t, err, store.ErrInvalidArgument)
 	})
+
+	// A deferred account is skipped whatever its staleness, and that is the
+	// whole point: staleness alone let an account whose source answered but
+	// returned nothing keep the head of the queue, because a sync that writes
+	// nothing does not move holdings.updated_at. Four such accounts held every
+	// slot for two days in September 2026 while every other wallet waited.
+	t.Run("an account standing down is skipped until its deadline", func(t *testing.T) {
+		misses, next, err := s.RecordSyncMiss(ctx, stalest.ID, now, time.Hour, 24*time.Hour)
+		require.NoError(t, err)
+		assert.Equal(t, 1, misses)
+		assert.WithinDuration(t, now.Add(time.Hour), next, time.Second,
+			"the first miss costs one fire, not a day")
+
+		got, err := s.ListStaleSyncTargets(ctx, now.Add(-12*time.Hour), now, 10)
+		require.NoError(t, err)
+		assert.NotContains(t, idsOf(got), stalest.ID,
+			"the stalest account is deferred, so the queue moves on")
+		assert.Contains(t, idsOf(got), stale.ID, "the healthy ones still get their turn")
+
+		// Past the deadline it is due again — a stand-down is a delay, not a
+		// removal: an account nobody re-offers is an account nobody notices
+		// coming back.
+		later, err := s.ListStaleSyncTargets(ctx, now.Add(-12*time.Hour), now.Add(2*time.Hour), 10)
+		require.NoError(t, err)
+		assert.Contains(t, idsOf(later), stalest.ID)
+	})
+
+	t.Run("consecutive misses double the wait up to the cap", func(t *testing.T) {
+		acct := account("repeatedly silent wallet", entity.AccountTypeWallet)
+		holdingAt(acct.ID, now.Add(-100*time.Hour))
+
+		var last time.Time
+		for i, want := range []time.Duration{time.Hour, 2 * time.Hour, 4 * time.Hour, 8 * time.Hour} {
+			misses, next, err := s.RecordSyncMiss(ctx, acct.ID, now, time.Hour, 8*time.Hour)
+			require.NoError(t, err)
+			assert.Equal(t, i+1, misses)
+			assert.WithinDuration(t, now.Add(want), next, time.Second, "miss %d", i+1)
+			last = next
+		}
+
+		// The cap holds: a wallet broken for a month must still be re-offered
+		// often enough that its repair is noticed by itself.
+		_, next, err := s.RecordSyncMiss(ctx, acct.ID, now, time.Hour, 8*time.Hour)
+		require.NoError(t, err)
+		assert.WithinDuration(t, last, next, time.Second, "the wait stops doubling at the cap")
+
+		// And forgiveness returns it to the queue at once, because backoff
+		// earned while a credential was broken must not outlive the repair.
+		require.NoError(t, s.ClearSyncDeferral(ctx, acct.ID))
+		got, err := s.ListStaleSyncTargets(ctx, now.Add(-12*time.Hour), now, 10)
+		require.NoError(t, err)
+		assert.Contains(t, idsOf(got), acct.ID)
+	})
+}
+
+func idsOf(accounts []*entity.Account) []string {
+	ids := make([]string, 0, len(accounts))
+	for _, a := range accounts {
+		ids = append(ids, a.ID)
+	}
+	return ids
 }
 
 func indexOf(ids []string, id string) int {
@@ -938,4 +999,69 @@ func indexOf(ids []string, id string) int {
 		}
 	}
 	return -1
+}
+
+// TestSyncDeferralsAreScopedToTheirOwner: a deferral is operational detail about
+// somebody's credential. Reading or forgiving another user's schedule would let
+// one account holder decide when another's provider is retried — and, in the
+// other direction, hide from them why their own balances are standing still.
+func TestSyncDeferralsAreScopedToTheirOwner(t *testing.T) {
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	s := NewPortfolioStore(pool)
+	ctx := context.Background()
+
+	mine := createTestUser(t, users)
+	theirs := createTestUser(t, users)
+
+	account := func(userID, name string) *entity.Account {
+		a, err := s.CreateAccount(ctx, &entity.Account{
+			UserID: userID, Name: name, Type: entity.AccountTypeWallet,
+		})
+		require.NoError(t, err)
+		return a
+	}
+
+	now := time.Now()
+	ours := account(mine.ID, "ours")
+	other := account(theirs.ID, "theirs")
+
+	for _, a := range []*entity.Account{ours, other} {
+		_, _, err := s.RecordSyncMiss(ctx, a.ID, now, time.Hour, 24*time.Hour)
+		require.NoError(t, err)
+	}
+
+	t.Run("reading sees only your own", func(t *testing.T) {
+		got, err := s.ListSyncDeferrals(ctx, mine.ID, "")
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, ours.ID, got[0].AccountID)
+		assert.Equal(t, 1, got[0].Misses)
+		assert.Nil(t, got[0].LastSyncedAt, "no holdings yet: never synced, not epoch")
+	})
+
+	t.Run("forgiving another owner's account frees nothing", func(t *testing.T) {
+		freed, err := s.ClearSyncDeferrals(ctx, mine.ID, []string{other.ID})
+		require.NoError(t, err)
+		assert.Zero(t, freed, "named, not owned, not touched")
+
+		still, err := s.ListSyncDeferrals(ctx, theirs.ID, "")
+		require.NoError(t, err)
+		require.Len(t, still, 1, "their deferral survived somebody else's reset")
+	})
+
+	t.Run("forgiving your own frees it, and an unowed account counts zero", func(t *testing.T) {
+		freed, err := s.ClearSyncDeferrals(ctx, mine.ID, []string{ours.ID})
+		require.NoError(t, err)
+		assert.Equal(t, 1, freed)
+
+		again, err := s.ClearSyncDeferrals(ctx, mine.ID, []string{ours.ID})
+		require.NoError(t, err)
+		assert.Zero(t, again, "forgiving a debt nobody owes is not an error")
+	})
+
+	t.Run("an empty list is refused rather than read as all", func(t *testing.T) {
+		_, err := s.ClearSyncDeferrals(ctx, mine.ID, nil)
+		assert.ErrorIs(t, err, store.ErrInvalidArgument)
+	})
 }

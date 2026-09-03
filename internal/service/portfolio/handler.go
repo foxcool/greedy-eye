@@ -1374,7 +1374,7 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 		}
 	}
 
-	return connect.NewResponse(&apiv1.SyncAccountResponse{
+	resp := &apiv1.SyncAccountResponse{
 		AccountId:             req.Msg.AccountId,
 		AssetsUpserted:        out.assetsUpserted,
 		HoldingsUpserted:      out.holdingsUpserted,
@@ -1383,7 +1383,25 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 		AssetsDefaultedMarket: intToI32(out.skips.DefaultedMarket),
 		AccountsCreated:       out.accountsCreated,
 		Errors:                out.errors,
-	}), nil
+	}
+
+	// An account that answered owes the sweep nothing, and that holds for a
+	// sync a person triggered as much as for a swept one: backoff accrued while
+	// a credential was broken must not outlive its repair. Fixing the key and
+	// pressing sync is the most direct way to say "it works now", so it is
+	// taken at its word.
+	//
+	// Failing to clear is logged, not returned: the sync DID happen, and
+	// reporting it as failed over bookkeeping would make the caller undo work
+	// that landed.
+	if !leftNoFresher(resp) {
+		if err := h.store.ClearSyncDeferral(ctx, account.ID); err != nil {
+			h.log.Warn("cannot clear the account's sync deferral",
+				"account_id", account.ID, "error", err)
+		}
+	}
+
+	return connect.NewResponse(resp), nil
 }
 
 // syncOutcome is what one account's sync contributed, in the shape the response
