@@ -866,7 +866,15 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 //
 // Only wallet and exchange accounts can be swept; a manual account's positions
 // come from a human and no provider can refresh them.
-func (s *PortfolioStore) ListStaleSyncTargets(ctx context.Context, olderThan time.Time, limit int) ([]*entity.Account, error) {
+//
+// An account standing down is skipped whatever its staleness. Staleness alone
+// decided this for a year, and because a sync that writes nothing does not move
+// holdings.updated_at, an account whose source answered but returned nothing
+// stayed the stalest and was picked again every hour — four of them held both
+// slots of every run for two days while every other wallet waited. Deferral is
+// the pair to the ordering, not a replacement for it: an account with nothing
+// owed still competes on staleness alone.
+func (s *PortfolioStore) ListStaleSyncTargets(ctx context.Context, olderThan, now time.Time, limit int) ([]*entity.Account, error) {
 	if limit <= 0 {
 		return nil, fmt.Errorf("%w: limit must be positive", store.ErrInvalidArgument)
 	}
@@ -879,15 +887,17 @@ func (s *PortfolioStore) ListStaleSyncTargets(ctx context.Context, olderThan tim
 			FROM holdings
 			GROUP BY account_id
 		) h ON h.account_id = a.id
+		LEFT JOIN account_sync_attempts s ON s.account_id = a.id
 		WHERE a.type IN ($1, $2)
 		  AND (h.synced_at IS NULL OR h.synced_at < $3)
+		  AND (s.next_attempt_at IS NULL OR s.next_attempt_at <= $4)
 		ORDER BY h.synced_at ASC NULLS FIRST, a.id
-		LIMIT $4`, prefixedAccountColumns("a"))
+		LIMIT $5`, prefixedAccountColumns("a"))
 
 	rows, err := s.pool.Query(ctx, query,
 		accountTypeToString(entity.AccountTypeWallet),
 		accountTypeToString(entity.AccountTypeExchange),
-		olderThan, limit)
+		olderThan, now, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list stale sync targets: %w", err)
 	}
@@ -905,6 +915,155 @@ func (s *PortfolioStore) ListStaleSyncTargets(ctx context.Context, olderThan tim
 		return nil, fmt.Errorf("failed to iterate stale sync targets: %w", err)
 	}
 	return accounts, nil
+}
+
+// RecordSyncMiss counts a miss and stands the account down, doubling the wait
+// per consecutive miss up to cap. It returns the new miss count and the moment
+// the sweep may look at this account again.
+//
+// The arithmetic is in SQL so counting the miss and deciding the wait are one
+// statement: read-then-write would let two sweeps racing on the same account
+// each read the same count and both write the shorter wait. The POLICY is still
+// the caller's — base and cap are passed in, and the sweep is where they are
+// documented.
+//
+// The exponent is clamped before it is used: an account left broken for months
+// would otherwise multiply an interval by 2^200 and overflow, turning a very
+// long wait into an error.
+func (s *PortfolioStore) RecordSyncMiss(ctx context.Context, accountID string, attemptedAt time.Time, base, cap time.Duration) (int, time.Time, error) {
+	const query = `
+		INSERT INTO account_sync_attempts (account_id, attempted_at, misses, next_attempt_at)
+		VALUES ($1, $2::timestamptz, 1,
+		        $2::timestamptz + LEAST(make_interval(secs => $3::float8), make_interval(secs => $4::float8)))
+		ON CONFLICT (account_id) DO UPDATE
+		SET attempted_at    = EXCLUDED.attempted_at,
+		    misses          = account_sync_attempts.misses + 1,
+		    next_attempt_at = EXCLUDED.attempted_at + LEAST(
+		        make_interval(secs => $3::float8 * pow(2, LEAST(account_sync_attempts.misses, 20))),
+		        make_interval(secs => $4::float8))
+		RETURNING misses, next_attempt_at`
+
+	var (
+		misses int
+		next   time.Time
+	)
+	err := s.pool.QueryRow(ctx, query, accountID, attemptedAt, base.Seconds(), cap.Seconds()).
+		Scan(&misses, &next)
+	if err != nil {
+		return 0, time.Time{}, fmt.Errorf("failed to record sync miss: %w", err)
+	}
+	return misses, next, nil
+}
+
+// CountDueSyncTargets counts the accounts a sweep would take if it had no
+// budget: stale past the cutoff and not standing down.
+//
+// It exists because the run line used to report how many accounts it PICKED as
+// though that were how many were due — "due 2" with twelve waiting reads like a
+// quiet instance rather than a queue nobody is getting through. The number the
+// sweep can act on and the number that need acting on are different facts.
+func (s *PortfolioStore) CountDueSyncTargets(ctx context.Context, olderThan, now time.Time) (int, error) {
+	const query = `
+		SELECT count(*)
+		FROM accounts a
+		LEFT JOIN (
+			SELECT account_id, max(updated_at) AS synced_at
+			FROM holdings
+			GROUP BY account_id
+		) h ON h.account_id = a.id
+		LEFT JOIN account_sync_attempts s ON s.account_id = a.id
+		WHERE a.type IN ($1, $2)
+		  AND (h.synced_at IS NULL OR h.synced_at < $3)
+		  AND (s.next_attempt_at IS NULL OR s.next_attempt_at <= $4)`
+
+	var n int
+	err := s.pool.QueryRow(ctx, query,
+		accountTypeToString(entity.AccountTypeWallet),
+		accountTypeToString(entity.AccountTypeExchange),
+		olderThan, now).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count due sync targets: %w", err)
+	}
+	return n, nil
+}
+
+// ListSyncDeferrals returns the accounts currently standing down, soonest first,
+// with what the sweep knows about each. Restricted to one owner: a deferral is
+// operational detail about somebody's credential, not catalogue.
+func (s *PortfolioStore) ListSyncDeferrals(ctx context.Context, userID, accountID string) ([]*entity.SyncDeferral, error) {
+	query := `
+		SELECT a.id, a.name, h.synced_at, s.misses, s.next_attempt_at
+		FROM account_sync_attempts s
+		JOIN accounts a ON a.id = s.account_id
+		LEFT JOIN (
+			SELECT account_id, max(updated_at) AS synced_at
+			FROM holdings
+			GROUP BY account_id
+		) h ON h.account_id = a.id
+		WHERE a.user_id = $1
+		  AND ($2::text = '' OR a.id::text = $2::text)
+		ORDER BY s.next_attempt_at, a.id`
+
+	rows, err := s.pool.Query(ctx, query, userID, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list sync deferrals: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*entity.SyncDeferral
+	for rows.Next() {
+		var (
+			d        entity.SyncDeferral
+			syncedAt *time.Time
+		)
+		if err := rows.Scan(&d.AccountID, &d.AccountName, &syncedAt, &d.Misses, &d.NextAttemptAt); err != nil {
+			return nil, fmt.Errorf("failed to scan sync deferral: %w", err)
+		}
+		d.LastSyncedAt = syncedAt
+		out = append(out, &d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read sync deferrals: %w", err)
+	}
+	return out, nil
+}
+
+// ClearSyncDeferrals forgives the named accounts and reports how many owed
+// anything. Scoped to the owner so one user cannot withdraw another's schedule.
+func (s *PortfolioStore) ClearSyncDeferrals(ctx context.Context, userID string, accountIDs []string) (int, error) {
+	if len(accountIDs) == 0 {
+		return 0, fmt.Errorf("%w: name the accounts to forgive", store.ErrInvalidArgument)
+	}
+
+	const query = `
+		DELETE FROM account_sync_attempts s
+		USING accounts a
+		WHERE a.id = s.account_id
+		  AND a.user_id = $1
+		  AND s.account_id = ANY($2::uuid[])`
+
+	tag, err := s.pool.Exec(ctx, query, userID, accountIDs)
+	if err != nil {
+		return 0, fmt.Errorf("failed to clear sync deferrals: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
+// ClearSyncDeferral forgives whatever an account owes, because it just answered.
+//
+// It runs on ANY successful sync, including one a person triggered by hand:
+// backoff accrued while a credential was broken must not outlive the repair.
+// That is the lesson of the price path's own reset — the corruption a fix stops
+// producing is not the corruption it removes.
+//
+// Deleting the row rather than zeroing it keeps "nothing owed" as the absence
+// of a record, so the selection query needs no special case for a healthy
+// account and the table stays a list of accounts in trouble.
+func (s *PortfolioStore) ClearSyncDeferral(ctx context.Context, accountID string) error {
+	if _, err := s.pool.Exec(ctx, `DELETE FROM account_sync_attempts WHERE account_id = $1`, accountID); err != nil {
+		return fmt.Errorf("failed to clear sync deferral: %w", err)
+	}
+	return nil
 }
 
 // prefixedAccountColumns qualifies the account column list with a table alias,

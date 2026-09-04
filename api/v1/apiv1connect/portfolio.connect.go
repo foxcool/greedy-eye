@@ -112,6 +112,12 @@ const (
 	// PortfolioServiceSyncAccountProcedure is the fully-qualified name of the PortfolioService's
 	// SyncAccount RPC.
 	PortfolioServiceSyncAccountProcedure = "/eye.v1.PortfolioService/SyncAccount"
+	// PortfolioServiceGetAccountSweepScheduleProcedure is the fully-qualified name of the
+	// PortfolioService's GetAccountSweepSchedule RPC.
+	PortfolioServiceGetAccountSweepScheduleProcedure = "/eye.v1.PortfolioService/GetAccountSweepSchedule"
+	// PortfolioServiceResetAccountSweepScheduleProcedure is the fully-qualified name of the
+	// PortfolioService's ResetAccountSweepSchedule RPC.
+	PortfolioServiceResetAccountSweepScheduleProcedure = "/eye.v1.PortfolioService/ResetAccountSweepSchedule"
 )
 
 // PortfolioServiceClient is a client for the eye.v1.PortfolioService service.
@@ -168,6 +174,31 @@ type PortfolioServiceClient interface {
 	ListTransactions(context.Context, *connect.Request[v1.ListTransactionsRequest]) (*connect.Response[v1.ListTransactionsResponse], error)
 	// --- Account sync ---
 	SyncAccount(context.Context, *connect.Request[v1.SyncAccountRequest]) (*connect.Response[v1.SyncAccountResponse], error)
+	// GetAccountSweepSchedule reports which accounts the balance sweep is holding
+	// back, why, and until when.
+	//
+	// The sweep takes the two stalest accounts an hour, and staleness is read off
+	// the account's own holdings — so an account whose source answers and returns
+	// nothing stays the stalest and takes a slot every hour, forever. Four of them
+	// did exactly that between 31.08 and 03.09.2026 and every other wallet went
+	// two days without a sync while the totals showed hourly prices on two-day-old
+	// quantities. Standing such an account down fixes the queue and creates a new
+	// thing nobody can see, which is why this exists in the same change.
+	GetAccountSweepSchedule(context.Context, *connect.Request[v1.GetAccountSweepScheduleRequest]) (*connect.Response[v1.GetAccountSweepScheduleResponse], error)
+	// ResetAccountSweepSchedule forgives the back-off accrued against accounts, so
+	// they are eligible again instead of waiting out a deferral earned under
+	// conditions that no longer hold.
+	//
+	// The same statement as its price-path twin, one entity over: a credential
+	// repaired at 10:00 should not wait until 22:00 because the account spent the
+	// night failing. The service cannot tell a repaired account from a broken one
+	// — that is what the next sweep is for — so this withdraws the conclusion and
+	// asserts nothing about whether the account will answer.
+	//
+	// A successful sync clears the same state on its own, including a hand-run
+	// one. This RPC is for the case where an operator wants the SWEEP to try
+	// again without syncing every account by hand.
+	ResetAccountSweepSchedule(context.Context, *connect.Request[v1.ResetAccountSweepScheduleRequest]) (*connect.Response[v1.ResetAccountSweepScheduleResponse], error)
 }
 
 // NewPortfolioServiceClient constructs a client for the eye.v1.PortfolioService service. By
@@ -337,37 +368,51 @@ func NewPortfolioServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(portfolioServiceMethods.ByName("SyncAccount")),
 			connect.WithClientOptions(opts...),
 		),
+		getAccountSweepSchedule: connect.NewClient[v1.GetAccountSweepScheduleRequest, v1.GetAccountSweepScheduleResponse](
+			httpClient,
+			baseURL+PortfolioServiceGetAccountSweepScheduleProcedure,
+			connect.WithSchema(portfolioServiceMethods.ByName("GetAccountSweepSchedule")),
+			connect.WithClientOptions(opts...),
+		),
+		resetAccountSweepSchedule: connect.NewClient[v1.ResetAccountSweepScheduleRequest, v1.ResetAccountSweepScheduleResponse](
+			httpClient,
+			baseURL+PortfolioServiceResetAccountSweepScheduleProcedure,
+			connect.WithSchema(portfolioServiceMethods.ByName("ResetAccountSweepSchedule")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // portfolioServiceClient implements PortfolioServiceClient.
 type portfolioServiceClient struct {
-	createPortfolio         *connect.Client[v1.CreatePortfolioRequest, v1.Portfolio]
-	getPortfolio            *connect.Client[v1.GetPortfolioRequest, v1.Portfolio]
-	updatePortfolio         *connect.Client[v1.UpdatePortfolioRequest, v1.Portfolio]
-	deletePortfolio         *connect.Client[v1.DeletePortfolioRequest, emptypb.Empty]
-	listPortfolios          *connect.Client[v1.ListPortfoliosRequest, v1.ListPortfoliosResponse]
-	calculatePortfolioValue *connect.Client[v1.CalculatePortfolioValueRequest, v1.PortfolioValueResponse]
-	listUnpricedHoldings    *connect.Client[v1.ListUnpricedHoldingsRequest, v1.ListUnpricedHoldingsResponse]
-	getPortfolioPerformance *connect.Client[v1.GetPortfolioPerformanceRequest, v1.PortfolioPerformanceResponse]
-	createHolding           *connect.Client[v1.CreateHoldingRequest, v1.Holding]
-	getHolding              *connect.Client[v1.GetHoldingRequest, v1.Holding]
-	updateHolding           *connect.Client[v1.UpdateHoldingRequest, v1.Holding]
-	deleteHolding           *connect.Client[v1.DeleteHoldingRequest, emptypb.Empty]
-	importPositions         *connect.Client[v1.ImportPositionsRequest, v1.ImportPositionsResponse]
-	importTransactions      *connect.Client[v1.ImportTransactionsRequest, v1.ImportTransactionsResponse]
-	listHoldings            *connect.Client[v1.ListHoldingsRequest, v1.ListHoldingsResponse]
-	createAccount           *connect.Client[v1.CreateAccountRequest, v1.Account]
-	getAccount              *connect.Client[v1.GetAccountRequest, v1.Account]
-	updateAccount           *connect.Client[v1.UpdateAccountRequest, v1.Account]
-	deleteAccount           *connect.Client[v1.DeleteAccountRequest, emptypb.Empty]
-	listAccounts            *connect.Client[v1.ListAccountsRequest, v1.ListAccountsResponse]
-	listProviders           *connect.Client[v1.ListProvidersRequest, v1.ListProvidersResponse]
-	createTransaction       *connect.Client[v1.CreateTransactionRequest, v1.Transaction]
-	getTransaction          *connect.Client[v1.GetTransactionRequest, v1.Transaction]
-	updateTransaction       *connect.Client[v1.UpdateTransactionRequest, v1.Transaction]
-	listTransactions        *connect.Client[v1.ListTransactionsRequest, v1.ListTransactionsResponse]
-	syncAccount             *connect.Client[v1.SyncAccountRequest, v1.SyncAccountResponse]
+	createPortfolio           *connect.Client[v1.CreatePortfolioRequest, v1.Portfolio]
+	getPortfolio              *connect.Client[v1.GetPortfolioRequest, v1.Portfolio]
+	updatePortfolio           *connect.Client[v1.UpdatePortfolioRequest, v1.Portfolio]
+	deletePortfolio           *connect.Client[v1.DeletePortfolioRequest, emptypb.Empty]
+	listPortfolios            *connect.Client[v1.ListPortfoliosRequest, v1.ListPortfoliosResponse]
+	calculatePortfolioValue   *connect.Client[v1.CalculatePortfolioValueRequest, v1.PortfolioValueResponse]
+	listUnpricedHoldings      *connect.Client[v1.ListUnpricedHoldingsRequest, v1.ListUnpricedHoldingsResponse]
+	getPortfolioPerformance   *connect.Client[v1.GetPortfolioPerformanceRequest, v1.PortfolioPerformanceResponse]
+	createHolding             *connect.Client[v1.CreateHoldingRequest, v1.Holding]
+	getHolding                *connect.Client[v1.GetHoldingRequest, v1.Holding]
+	updateHolding             *connect.Client[v1.UpdateHoldingRequest, v1.Holding]
+	deleteHolding             *connect.Client[v1.DeleteHoldingRequest, emptypb.Empty]
+	importPositions           *connect.Client[v1.ImportPositionsRequest, v1.ImportPositionsResponse]
+	importTransactions        *connect.Client[v1.ImportTransactionsRequest, v1.ImportTransactionsResponse]
+	listHoldings              *connect.Client[v1.ListHoldingsRequest, v1.ListHoldingsResponse]
+	createAccount             *connect.Client[v1.CreateAccountRequest, v1.Account]
+	getAccount                *connect.Client[v1.GetAccountRequest, v1.Account]
+	updateAccount             *connect.Client[v1.UpdateAccountRequest, v1.Account]
+	deleteAccount             *connect.Client[v1.DeleteAccountRequest, emptypb.Empty]
+	listAccounts              *connect.Client[v1.ListAccountsRequest, v1.ListAccountsResponse]
+	listProviders             *connect.Client[v1.ListProvidersRequest, v1.ListProvidersResponse]
+	createTransaction         *connect.Client[v1.CreateTransactionRequest, v1.Transaction]
+	getTransaction            *connect.Client[v1.GetTransactionRequest, v1.Transaction]
+	updateTransaction         *connect.Client[v1.UpdateTransactionRequest, v1.Transaction]
+	listTransactions          *connect.Client[v1.ListTransactionsRequest, v1.ListTransactionsResponse]
+	syncAccount               *connect.Client[v1.SyncAccountRequest, v1.SyncAccountResponse]
+	getAccountSweepSchedule   *connect.Client[v1.GetAccountSweepScheduleRequest, v1.GetAccountSweepScheduleResponse]
+	resetAccountSweepSchedule *connect.Client[v1.ResetAccountSweepScheduleRequest, v1.ResetAccountSweepScheduleResponse]
 }
 
 // CreatePortfolio calls eye.v1.PortfolioService.CreatePortfolio.
@@ -500,6 +545,16 @@ func (c *portfolioServiceClient) SyncAccount(ctx context.Context, req *connect.R
 	return c.syncAccount.CallUnary(ctx, req)
 }
 
+// GetAccountSweepSchedule calls eye.v1.PortfolioService.GetAccountSweepSchedule.
+func (c *portfolioServiceClient) GetAccountSweepSchedule(ctx context.Context, req *connect.Request[v1.GetAccountSweepScheduleRequest]) (*connect.Response[v1.GetAccountSweepScheduleResponse], error) {
+	return c.getAccountSweepSchedule.CallUnary(ctx, req)
+}
+
+// ResetAccountSweepSchedule calls eye.v1.PortfolioService.ResetAccountSweepSchedule.
+func (c *portfolioServiceClient) ResetAccountSweepSchedule(ctx context.Context, req *connect.Request[v1.ResetAccountSweepScheduleRequest]) (*connect.Response[v1.ResetAccountSweepScheduleResponse], error) {
+	return c.resetAccountSweepSchedule.CallUnary(ctx, req)
+}
+
 // PortfolioServiceHandler is an implementation of the eye.v1.PortfolioService service.
 type PortfolioServiceHandler interface {
 	// --- Portfolio CRUD ---
@@ -554,6 +609,31 @@ type PortfolioServiceHandler interface {
 	ListTransactions(context.Context, *connect.Request[v1.ListTransactionsRequest]) (*connect.Response[v1.ListTransactionsResponse], error)
 	// --- Account sync ---
 	SyncAccount(context.Context, *connect.Request[v1.SyncAccountRequest]) (*connect.Response[v1.SyncAccountResponse], error)
+	// GetAccountSweepSchedule reports which accounts the balance sweep is holding
+	// back, why, and until when.
+	//
+	// The sweep takes the two stalest accounts an hour, and staleness is read off
+	// the account's own holdings — so an account whose source answers and returns
+	// nothing stays the stalest and takes a slot every hour, forever. Four of them
+	// did exactly that between 31.08 and 03.09.2026 and every other wallet went
+	// two days without a sync while the totals showed hourly prices on two-day-old
+	// quantities. Standing such an account down fixes the queue and creates a new
+	// thing nobody can see, which is why this exists in the same change.
+	GetAccountSweepSchedule(context.Context, *connect.Request[v1.GetAccountSweepScheduleRequest]) (*connect.Response[v1.GetAccountSweepScheduleResponse], error)
+	// ResetAccountSweepSchedule forgives the back-off accrued against accounts, so
+	// they are eligible again instead of waiting out a deferral earned under
+	// conditions that no longer hold.
+	//
+	// The same statement as its price-path twin, one entity over: a credential
+	// repaired at 10:00 should not wait until 22:00 because the account spent the
+	// night failing. The service cannot tell a repaired account from a broken one
+	// — that is what the next sweep is for — so this withdraws the conclusion and
+	// asserts nothing about whether the account will answer.
+	//
+	// A successful sync clears the same state on its own, including a hand-run
+	// one. This RPC is for the case where an operator wants the SWEEP to try
+	// again without syncing every account by hand.
+	ResetAccountSweepSchedule(context.Context, *connect.Request[v1.ResetAccountSweepScheduleRequest]) (*connect.Response[v1.ResetAccountSweepScheduleResponse], error)
 }
 
 // NewPortfolioServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -719,6 +799,18 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 		connect.WithSchema(portfolioServiceMethods.ByName("SyncAccount")),
 		connect.WithHandlerOptions(opts...),
 	)
+	portfolioServiceGetAccountSweepScheduleHandler := connect.NewUnaryHandler(
+		PortfolioServiceGetAccountSweepScheduleProcedure,
+		svc.GetAccountSweepSchedule,
+		connect.WithSchema(portfolioServiceMethods.ByName("GetAccountSweepSchedule")),
+		connect.WithHandlerOptions(opts...),
+	)
+	portfolioServiceResetAccountSweepScheduleHandler := connect.NewUnaryHandler(
+		PortfolioServiceResetAccountSweepScheduleProcedure,
+		svc.ResetAccountSweepSchedule,
+		connect.WithSchema(portfolioServiceMethods.ByName("ResetAccountSweepSchedule")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/eye.v1.PortfolioService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PortfolioServiceCreatePortfolioProcedure:
@@ -773,6 +865,10 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 			portfolioServiceListTransactionsHandler.ServeHTTP(w, r)
 		case PortfolioServiceSyncAccountProcedure:
 			portfolioServiceSyncAccountHandler.ServeHTTP(w, r)
+		case PortfolioServiceGetAccountSweepScheduleProcedure:
+			portfolioServiceGetAccountSweepScheduleHandler.ServeHTTP(w, r)
+		case PortfolioServiceResetAccountSweepScheduleProcedure:
+			portfolioServiceResetAccountSweepScheduleHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -884,4 +980,12 @@ func (UnimplementedPortfolioServiceHandler) ListTransactions(context.Context, *c
 
 func (UnimplementedPortfolioServiceHandler) SyncAccount(context.Context, *connect.Request[v1.SyncAccountRequest]) (*connect.Response[v1.SyncAccountResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.SyncAccount is not implemented"))
+}
+
+func (UnimplementedPortfolioServiceHandler) GetAccountSweepSchedule(context.Context, *connect.Request[v1.GetAccountSweepScheduleRequest]) (*connect.Response[v1.GetAccountSweepScheduleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.GetAccountSweepSchedule is not implemented"))
+}
+
+func (UnimplementedPortfolioServiceHandler) ResetAccountSweepSchedule(context.Context, *connect.Request[v1.ResetAccountSweepScheduleRequest]) (*connect.Response[v1.ResetAccountSweepScheduleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.ResetAccountSweepSchedule is not implemented"))
 }

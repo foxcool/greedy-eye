@@ -106,8 +106,59 @@ func (m *mockStore) ListAccounts(ctx context.Context, opts ListAccountsOpts) ([]
 	return nil, args.String(1), args.Error(2)
 }
 
-func (m *mockStore) ListStaleSyncTargets(ctx context.Context, olderThan time.Time, limit int) ([]*entity.Account, error) {
-	args := m.Called(ctx, olderThan, limit)
+// RecordSyncMiss and ClearSyncDeferral are lenient by default: nearly every
+// sync test would otherwise have to declare an expectation for the sweep's
+// bookkeeping, which it neither triggers deliberately nor looks at. A test that
+// DOES care declares its own expectation and gets the strict behaviour.
+func (m *mockStore) RecordSyncMiss(ctx context.Context, accountID string, attemptedAt time.Time, base, capDur time.Duration) (int, time.Time, error) {
+	if !m.expects("RecordSyncMiss") {
+		return 1, attemptedAt.Add(base), nil
+	}
+	args := m.Called(ctx, accountID, attemptedAt, base, capDur)
+	return args.Int(0), args.Get(1).(time.Time), args.Error(2)
+}
+
+func (m *mockStore) ClearSyncDeferral(ctx context.Context, accountID string) error {
+	if !m.expects("ClearSyncDeferral") {
+		return nil
+	}
+	args := m.Called(ctx, accountID)
+	return args.Error(0)
+}
+
+func (m *mockStore) CountDueSyncTargets(ctx context.Context, olderThan, now time.Time) (int, error) {
+	if !m.expects("CountDueSyncTargets") {
+		return 0, nil
+	}
+	args := m.Called(ctx, olderThan, now)
+	return args.Int(0), args.Error(1)
+}
+
+func (m *mockStore) ListSyncDeferrals(ctx context.Context, userID, accountID string) ([]*entity.SyncDeferral, error) {
+	args := m.Called(ctx, userID, accountID)
+	if v := args.Get(0); v != nil {
+		return v.([]*entity.SyncDeferral), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockStore) ClearSyncDeferrals(ctx context.Context, userID string, accountIDs []string) (int, error) {
+	args := m.Called(ctx, userID, accountIDs)
+	return args.Int(0), args.Error(1)
+}
+
+// expects reports whether the test declared an expectation for this method.
+func (m *mockStore) expects(method string) bool {
+	for _, call := range m.ExpectedCalls {
+		if call.Method == method {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *mockStore) ListStaleSyncTargets(ctx context.Context, olderThan, now time.Time, limit int) ([]*entity.Account, error) {
+	args := m.Called(ctx, olderThan, now, limit)
 	if v := args.Get(0); v != nil {
 		return v.([]*entity.Account), args.Error(1)
 	}

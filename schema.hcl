@@ -708,6 +708,67 @@ table "provider_usage" {
 // next_attempt_at is a materialized deadline rather than a computed one: the
 // exponential push-out is applied on write, so the selection stays an index
 // seek. misses drives that exponent and resets on the first success.
+# What the balance sweep knows about an account it tried to read.
+#
+# It exists because the sweep orders by max(holdings.updated_at) — by the last
+# SUCCESS — and takes the two stalest accounts an hour. A sync that writes
+# nothing does not move that date, so a source that answers but returns nothing
+# keeps its place at the head of the queue and is picked again every hour,
+# forever. Between 31.08 and 03.09.2026 four EVM accounts on a lapsed Moralis
+# key held both slots of every run and every other wallet went two days without
+# a turn, while the total showed hourly prices on two-day-old quantities.
+#
+# Ordering by staleness stays: it serves whoever has gone longest without data.
+# What was missing is its pair — a way to stand an account down when it does not
+# answer — which the price path has had since price_fetch_attempts. This is that
+# table for accounts.
+table "account_sync_attempts" {
+  schema = schema.public
+
+  column "account_id" {
+    type = uuid
+    null = false
+  }
+  column "attempted_at" {
+    type = timestamptz
+    null = false
+  }
+  # Last sync that left the account fresher than it found it. NULL means no
+  # sync ever has.
+  column "succeeded_at" {
+    type = timestamptz
+    null = true
+  }
+  # Consecutive syncs that changed nothing and complained while doing it.
+  column "misses" {
+    type    = integer
+    null    = false
+    default = 0
+  }
+  # The sweep skips this account until then. A row is written only when an
+  # account misses, so no row means nothing is owed and the account competes on
+  # staleness alone.
+  column "next_attempt_at" {
+    type = timestamptz
+    null = false
+  }
+
+  primary_key {
+    columns = [column.account_id]
+  }
+
+  index "account_sync_attempt_due" {
+    columns = [column.next_attempt_at]
+  }
+
+  foreign_key "account_sync_attempts_accounts" {
+    columns     = [column.account_id]
+    ref_columns = [table.accounts.column.id]
+    on_update   = NO_ACTION
+    on_delete   = CASCADE
+  }
+}
+
 table "price_fetch_attempts" {
   schema = schema.public
 

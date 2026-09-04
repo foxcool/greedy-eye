@@ -65,7 +65,29 @@ type Store interface {
 	// confirmed before `olderThan`, stalest first, capped at `limit`. Freshness
 	// comes from the account's own holdings, so it cannot claim a sync that
 	// never landed; an account with no holdings sorts first.
-	ListStaleSyncTargets(ctx context.Context, olderThan time.Time, limit int) ([]*entity.Account, error)
+	ListStaleSyncTargets(ctx context.Context, olderThan, now time.Time, limit int) ([]*entity.Account, error)
+
+	// RecordSyncMiss stands an account down until nextAttemptAt after a sync
+	// that left it no fresher. Without it the stalest-first ordering hands the
+	// same unanswering account every slot, because a sync that writes nothing
+	// leaves the account exactly as stale as it found it.
+	RecordSyncMiss(ctx context.Context, accountID string, attemptedAt time.Time, base, cap time.Duration) (int, time.Time, error)
+
+	// ClearSyncDeferral forgives what an account owes after it answers, from a
+	// swept sync or a hand-triggered one alike.
+	ClearSyncDeferral(ctx context.Context, accountID string) error
+
+	// CountDueSyncTargets counts what the sweep WOULD take if it had no budget,
+	// so a run can report how many are waiting behind the ones it picked.
+	CountDueSyncTargets(ctx context.Context, olderThan, now time.Time) (int, error)
+
+	// ListSyncDeferrals returns the owner's accounts currently standing down.
+	// An empty accountID means all of them.
+	ListSyncDeferrals(ctx context.Context, userID, accountID string) ([]*entity.SyncDeferral, error)
+
+	// ClearSyncDeferrals withdraws the deferral of the named accounts and
+	// reports how many owed anything.
+	ClearSyncDeferrals(ctx context.Context, userID string, accountIDs []string) (int, error)
 
 	// Holdings
 	CreateHolding(ctx context.Context, h *entity.Holding) (*entity.Holding, error)
