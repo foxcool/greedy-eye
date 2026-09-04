@@ -247,7 +247,7 @@ graph TB
     subgraph "External Services"
         Psina[👥 psina<br/>User Auth]
         PriceAPI[💰 Price Data API<br/>CoinGecko, Binance,<br/>CBR, MOEX, T-Invest]
-        BlockchainAPI[🔎 Blockchain Data API<br/>Moralis]
+        BlockchainAPI[🔎 Blockchain Data API<br/>Alchemy, Moralis]
     end
 
     APIClient[🖥️ API Client] -->|Connect/gRPC| App
@@ -306,7 +306,7 @@ graph TB
 
     subgraph "External Adapters"
         Prices[coingecko, binance, cbr,<br/>moex, tinvest<br/>prices]
-        Wallets[moralis, subscan, tonapi, solana,<br/>esplora, cosmos, tzkt, blockchair<br/>wallet balances]
+        Wallets[alchemy, moralis, subscan, tonapi,<br/>solana, esplora, cosmos, tzkt, blockchair<br/>wallet balances]
         Telegram[telegram<br/>notifications — NOT WIRED]
     end
 
@@ -353,7 +353,12 @@ graph TB
   CalculatePortfolioValue (with `ValuationCoverage`); SyncAccount (wallet balances across eight
   ecosystems, exchange balances via Binance, broker positions via T-Invest);
   ImportPositions / ImportTransactions;
-  ListProviders (the adapter registry's descriptors — see External Adapters below)
+  ListProviders (the adapter registry's descriptors — see External Adapters below);
+  GetAccountSweepSchedule / ResetAccountSweepSchedule (which accounts the balance sweep is
+  standing down, why and until when — and forgiving that back-off, so repairing a credential
+  does not mean waiting out a wait earned while it was broken. The price path has had the pair
+  since `GetSweepSchedule`; a deferral nobody can read is the silent degradation a deferral was
+  added to replace)
 - RPCs stubbed: GetPortfolioPerformance
 - Account types (`AccountType`): `wallet`, `exchange`, `bank`, `broker`, `service` (a pure
   data-provider credential with no holdings of its own — Moralis, CoinGecko, T-Invest as a quote
@@ -441,7 +446,8 @@ without linking them.
 
   | Package | Covers | Notes |
   |---|---|---|
-  | `moralis` | EVM: eth, base, arbitrum, optimism, linea, polygon, bsc, avalanche | native + ERC-20; reports `possible_spam`/`verified` as signals |
+  | `alchemy` | EVM, eleven chains incl. scroll, zksync and fantom | native + ERC-20 for up to five networks in ONE request, so ten chains cost two calls where Moralis needed twenty-two. Asking every supported chain **is** the discovery step. `withPrices` is false and must stay false |
+  | `moralis` | EVM: eth, base, arbitrum, optimism, linea, polygon, bsc, avalanche | native + ERC-20; reports `possible_spam`/`verified` as signals, which no other EVM reader here does |
   | `subscan` | Substrate: Polkadot, Kusama, Hydration, Astar, Moonbeam + Asset Hub | position = `balance` (raw planck, precision from the response); split into liquid/staked/unbonding when the parts reconcile |
   | `tonapi` | TON + jettons | |
   | `solana` | Solana via Helius | both token programs, DAS symbols, batched asset lookups |
@@ -449,6 +455,31 @@ without linking them.
   | `cosmos` | Cosmos LCD | bank + delegations + unbonding, bech32 re-encode between chains |
   | `tzkt` | Tezos | |
   | `blockchair` | DASH, DOGE | keyless tier is very narrow |
+
+  **Two EVM readers, both first-class.** For a year there was one, and the way that ended is the
+  argument for two: a provider's *entitlement* can be withdrawn by a pricing page rather than by
+  an outage or a rate limit, and with a single reader that takes eleven chains out of the
+  inventory at once — freezing every EVM amount while prices keep refreshing hourly, which is the
+  one kind of staleness that cannot be recalculated afterwards. Neither adapter supersedes the
+  other: both stay registered, the account names which one it uses, and the registry routes by
+  chain. **Which provider an instance reads EVM through is a fact about that instance**, like the
+  shape of its USD row in ADR-010 — an operator paying for either keeps working, and one holding
+  neither is not stranded on a single vendor's decision.
+
+  A second reader also pays for itself in disagreement rather than only in redundancy: matching
+  three chains to the wei across both is what exposed the native-mirror double count below, and
+  a spend does not land on exactly half.
+
+  A balance source that also quotes would be a second author of the total, with no date, no
+  market-depth gate and no provenance behind the number — hence `withPrices=false`.
+
+  What a balance reader **refuses** is as load-bearing as what it returns, because each refusal
+  would otherwise be a wrong number rather than a missing one: a token whose `decimals` the API
+  did not report (raw amount read as whole units is how a balance becomes a thousandfold
+  overstatement), a row the API itself marked failed (unknown metadata means unknown scale), and
+  a quantity that is not a hex number (unparseable is not zero). A **zero** balance is different
+  and is dropped silently: zero is a fact the source stated, and a position that went to zero is
+  removed by the snapshot's completeness rule below, not by a row saying so.
 
   A recurring trap, caught three times across these adapters: **never add
   `free + reserved` or `balance + staked`.** In every one of these APIs the headline balance
@@ -540,15 +571,41 @@ per-adapter drops (Moralis `possible_spam`, Solana `isJunk`), which silently del
   `identity_signals` (jsonb, `{signal: weight}`) are kept for UI explainability and weight tuning
 - **`holdings.excluded` is derived, not authored**: a `scam` or `impersonation` verdict excludes
   the holding from sums. The position keeps syncing and stays visible in quarantine — dropping it
-  would make a real balance disappear with no trace. A sync **raises** the flag on rows that
-  already exist and never lowers it: an impostor is usually unmasked long after its position
-  started syncing, while nothing in the row distinguishes a user's own exclusion from a derived
-  one, so clearing it would silently undo a human decision
+  would make a real balance disappear with no trace.
+- **The flag has a way down, and it is `holdings.excluded_source`** (`"" | quarantine | user`).
+  For a year it had only a way up: a sync raised it and could never lower it, because the row did
+  not record who set it, and clearing an exclusion a person had made by hand would silently undo
+  a human decision. The cost is a residue nobody finds — on prod 2026-08-07 the counterfeit
+  contracts bound to the real Aave Token were unbound and everything downstream repaired itself,
+  while the genuine 0.6176 AAVE stayed excluded and invisible; on dev, 612 holdings sat excluded
+  whose asset carried no quarantine verdict at all. Naming the author settles it: a sync raises
+  with `quarantine` and lowers only what it is allowed to, `UpdateHolding` stamps `user`
+  server-side whenever the mask carries `excluded` (in both directions, so a client cannot claim
+  to be the quarantine), and a person's exclusion is terminal both ways — the same rule a user
+  identity verdict has against rescoring. An **empty** author reads as the machine's, which is
+  what lets the fix reach the legacy rows: the sync path was the only writer that ever raised the
+  flag on its own, so treating them as unknown-and-untouchable would strand the whole population
+  this exists to release. A release grows the total by itself, so it is logged with the account
+  and the count rather than left to be inferred from a number that moved
 - **A user verdict is terminal.** `verdict_source` records provenance (`heuristic`,
   `provider:<name>`, `curated`, `user:<id>`); the rescore job never overwrites a user's judgement
 - **Hard signals bypass the score**: invisible Unicode in a ticker (`UNILP.NET` with U+2063),
   mixed-script confusables, and a **ticker collision** are impersonation on sight, not a weighted
-  sum. The collision is the only signal the text cannot see — a good lookalike spells its symbol
+  sum.
+- **The two text hard signals fall silent on a listed venue** (`entity.IsListedVenue`, carried
+  into the scorer as `Input.VenueListed`). They were bought for crypto, where the name is
+  attacker-controlled and mixed script has no innocent use, and they keep every bit of that force
+  there. On an exchange's own catalogue the rule was out of its domain, not wrong: the venue
+  writes the name and the position binds by FIGI, so spelling is not the claim being tested. It
+  wrote four real MOEX positions out of the sum on the first live broker sync — two FinEx funds
+  whose names put a Latin brand beside Russian words, and two bonds whose series numbers spell a
+  Latin `P`/`O` inside a Cyrillic one. The context is defined by **exclusion** (not crypto, not
+  forex, not a contract market), so a venue added tomorrow is covered and the six thousand
+  contract markets can never pass for one; both scoring paths read it off the stored row, so a
+  catalogue the old rule poisoned repairs itself on the next rescore. The **structural** signal
+  stays unconditional: a second contract claiming a ticker its chain already binds is not a
+  spelling anyone chose.
+- The collision is the only signal the text cannot see — a good lookalike spells its symbol
   exactly right, so `USDT` off a foreign contract scored 0.2 (`legit`) and could never have been
   condemned by accumulation: even with `no_listing` it tops out at 0.5, below the 0.8 threshold.
   The catalogue answers it instead (`FindTickerIncumbent`): a chain cannot carry two contracts of
@@ -586,6 +643,20 @@ no review date hangs forever and devalues every other flag on the axis.
 Name, ticker and amount are all copyable; the contract is not. Matching by ticker alone is exactly
 how three different tokens once merged into one "Tether USD" on production and summed their
 balances — including 594 956 units of a "USDT" that does not exist.
+
+**A contract balance never adds to the native coin it mirrors.** Some chains expose the native
+balance a second time through a predeploy — Optimism's `0xdead…0000` answers `balanceOf` with it
+and calls itself `ETH` — so ref discovery bound the mirror to Ethereum and every sync added it to
+the coin. Production carried 0.3286 ETH where the chain holds 0.1643 for five weeks: $390 of a
+$6915 total, counted twice. A native coin has no contract by definition, so a contract balance
+landing on the same `(asset, chain)` as one is never an additional position and the coin wins.
+The generalisation that suggests itself — one asset, one chain, one row — is wrong and a test
+pins it: two **contract** balances resolving to one asset are still summed, because a bridged
+token beside a wrapper is two real positions. The refusal is logged with the chain, asset,
+contract and dropped quantity rather than counted as a sync error: the position is not missing
+from the snapshot, its value is in it once, and recording a failure would withhold the removal of
+positions that really are gone — trading a wrong number for a stale one. The durable repair is to
+undo the binding (`DeleteAssetExternalRef`).
 
 **Account credential model**:
 - Provider credentials live in `accounts.data` (encrypted at rest, ADR-005), keyed by a `provider`
@@ -651,8 +722,10 @@ API Client → PortfolioService/SyncAccount → resolver → syncer → upsert h
   2. Branch on account type:
      - wallet   → WalletSyncer for the account's chains (registry, see §5.3)
      - exchange → ExchangeSyncer (Binance) via the account's own API key
-     - broker   → BrokerSyncer (T-Invest) for the ONE broker account named by
-       data["broker_account_id"], via the account's own token
+     - broker   → BrokerSyncer (T-Invest). An account naming data["broker_account_id"]
+       syncs that one; the account holding only the token discovers every broker
+       account the token opens, creates one account here per account there, and
+       syncs each (see below)
   3. Each balance resolves to an asset by (symbol, market, type), external ref first:
      a token's contract, a broker instrument's FIGI. Type and market come from the
      position — a share is not resolved as a crypto asset with the same ticker
@@ -663,6 +736,26 @@ API Client → PortfolioService/SyncAccount → resolver → syncer → upsert h
   7. Response: SyncAccountResponse{assets_upserted, holdings_upserted, holdings_zeroed,
      positions_skipped, assets_defaulted_market, errors}
 ```
+
+**One token opens several accounts, and they stay several.** The account holding
+the credential discovers what that token reaches and creates an account here per
+account there, because merging them was the shape the design refused: 90 shares
+in one account and 310 in another would become a single row of 400, and moving
+paper between one's own accounts would move no sum at all — for anything
+watching, the event would not have happened. Each broker account keeps its own
+holdings and its own answer to "where is this". The credential-holding account
+adopts none of them and holds no positions itself: it is the key, and syncing it
+means "sync everything it opens" — making one of three special would be a fact no
+reader could explain.
+
+Discovery is a side effect of syncing, so it is idempotent by construction,
+matched on `(owner, provider, portfolio, broker account id)`. Two guards are
+about the answer being reachable input rather than data: a listing that names one
+account twice must not create it twice — the existence check is consulted as the
+loop creates, not from a snapshot taken before it — and a listing longer than
+thirty-two accounts is refused **whole**, because each row carries an encrypted
+copy of a credential and half of an unbelievable answer is still unbelievable.
+The response names what it created rather than growing an account list quietly.
 
 **A broker position is not an exchange balance.** An exchange reports a ticker and
 an amount; a broker line carries three more facts the valuation cannot do without
@@ -735,7 +828,13 @@ API Client → PortfolioService/CalculatePortfolioValue
   1. Load holdings, skip excluded ones (they are reported separately)
   1a. Read valuation.v1: the freshness threshold AND the display currency the
       total is expressed in when the request names none (ADR-010)
-  2. For each holding, resolve a unit price in the quote asset
+  2. For each holding, resolve a unit price in the quote asset. A holding OF the
+     quote asset — cash — answers one before any lookup, carrying no observed
+     row: nothing quoted it, so it dates nothing and the depth gate has nothing
+     to read. Latent until a broker sync brought cash in: before that the display
+     currency was never a position, and both rows of it left the total as
+     NEVER_PRICED — "no source ever answered" said about the very currency the
+     total is denominated in. A portfolio half in cash read as half its size
   3. Check the market behind that price: under $100k of 24h volume it does not value
      the holding (ADR-009). A source that reported no volume is not a reason to drop it
   4. Priced holdings sum into total_value; unpriced ones DO NOT contribute zero —
@@ -982,6 +1081,26 @@ somebody chose, since that would report one currency's number under another curr
     themselves, so it cannot claim a sync that never landed, and an account with no holdings sorts
     first. The cron interval is not the refresh rate — it is how often the system gets a chance
     to catch up, and what one fire does not reach stays due
+  - **Staleness-first ordering needs a pair, and that pair is a stand-down.** Selection measures
+    staleness by the last *success*, so a sync that writes nothing leaves the account the stalest
+    again next hour, and the hour after: four EVM accounts on a lapsed credential held both slots
+    of every fire from 31.08 to 03.09 while TON, Solana, Cosmos and the Substrate wallets went two
+    days without a turn — each of which then synced in under a second when asked by hand. The
+    price path has had this pair since its back-off table; balances now have `sync_deferrals`.
+  - **The trigger is "no fresher", not "failed", and the difference is the whole defect.** That
+    outage returned `200` with the `401` inside the response body: the sweep counted those runs as
+    synced and logged "account synced with errors", so a failure-based rule would have watched the
+    starvation for two days without ever calling it failure. An **empty wallet is not a miss** —
+    it writes nothing either, and that is a true answer about an account holding nothing, so
+    silence only counts against an account that also complained. A **partial** sync is not a miss:
+    some chains answered, the account *is* fresher, and the per-item errors are disclosure rather
+    than failure. An any-error rule would instead punish a healthy wallet for one token whose
+    decimals a provider did not report, and every EVM address has some.
+  - The wait doubles per consecutive miss to a **24h** cap, and the number is not the price path's
+    week on purpose: an amount cannot be recalculated afterwards the way a price can, so a broken
+    account has to be re-offered often enough that a repair is noticed without anyone watching. At
+    the cap a permanently dead account costs one of 48 daily slots — 2%, the price of finding out
+    it came back. The first successful sync clears the deferral outright.
   - The cap is the provider budget: one heavy multi-chain sync costs far more than one price call,
     and both sweeps draw on the same per-credential allowance (ADR: `personal-a3v`). The job runs
     in the background rate-limit class, so it yields the tail of a metered plan to whoever presses
@@ -989,9 +1108,12 @@ somebody chose, since that would report one currency's number under another curr
   - Each account syncs **under its own owner's identity**. Ownership is attributed, not bypassed:
     `SyncAccount` resolves wallet syncers and exchange credentials per user, so a user-agnostic
     sweep would reach only what an admin shared system-wide
-  - Every run reports itself — accounts due, synced, failed, holdings written and zeroed, plus a
-    line per account that failed or synced with per-item errors. Nobody reads a scheduled job's
-    return value, so a silent failure would be indistinguishable from an account that was not due
+  - Every run reports itself — accounts **stale** and accounts **picked** as separate numbers,
+    synced, failed, holdings written and zeroed, plus a line per account that failed or synced
+    with per-item errors. Nobody reads a scheduled job's return value, so a silent failure would
+    be indistinguishable from an account that was not due. The two counts were one number called
+    "due" that reported the *limit*: "due 2" with twelve accounts stale is what let the starvation
+    above read like a healthy sweep with little to do
 - The price sweep is budgeted, not exhaustive: it asks each source only for assets whose next attempt is due (`price_fetch_attempts`), oldest first, capped by the share of the credential's remaining plan allowance that one interval affords. Naming `asset_ids` on the RPC makes it a deliberate reconciliation and bypasses both
 - Active rule schedules are fully reloaded every minute — rule CRUD needs no hooks, mutations take effect within a minute
 - Missed fires during downtime are **skipped, never caught up**: executing a stale trade plan is worse than skipping it
@@ -1157,6 +1279,16 @@ somebody chose, since that would report one currency's number under another curr
   - ➕ Weights and thresholds are config, tunable without a release
   - ➖ A user's terminal verdict is global on a shared catalogue — with more than one user, whose
     judgement applies to whose sums becomes an open question
+  - ➖ **A derived flag needs an author, which this decision did not give it.** Deriving exclusion
+    from the verdict says how it goes up and nothing about how it comes down, and for a year it
+    did not: a row a person excluded and a row a verdict excluded were the same row. Added later
+    as `holdings.excluded_source` (see §5.3) — the general shape is that a field written by two
+    parties has to record which one wrote it, or the cautious party can only ever add
+  - ➖ **A signal is bought in a domain and does not leave it.** The text hard signals were bought
+    against attacker-controlled token names and fired on an exchange's own catalogue, where
+    identity is established by something stronger; scoping them cost four real positions first
+    (§5.3). Nothing in a weighted scorer makes the domain of a rule visible, so this is a review
+    question for every new signal rather than a thing the design prevents
 - **Rejected**: dropping at the adapter (unexplainable, loses a real balance silently); a status
   column mixing identity with a user's accounting decision (they answer different questions and
   change for different reasons); marking holdings directly (repeats the same judgement per row and
@@ -1485,7 +1617,7 @@ System Quality
 
 ---
 
-**Document Version**: 1.6
-**Last Updated**: 2026-08-18
+**Document Version**: 1.7
+**Last Updated**: 2026-09-04
 **Owner**: foxcool
 **Status**: Active

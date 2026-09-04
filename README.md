@@ -60,8 +60,8 @@ Go architecture for financial data.
 - Structured logging (slog), Sentry
 
 **Integrations:**
-- Prices: CoinGecko, Binance
-- On-chain: Moralis (EVM), Subscan (Substrate), tonapi, Helius (Solana),
+- Prices: CoinGecko, Binance, CBR (FX), MOEX ISS, T-Invest
+- On-chain: Alchemy and Moralis (EVM), Subscan (Substrate), tonapi, Helius (Solana),
   Esplora (Bitcoin), Cosmos LCD, TzKT (Tezos), Blockchair
 - Notifications: Telegram
 - See [docs/providers.md](docs/providers.md) for what each one needs
@@ -148,9 +148,9 @@ portfolio. The label is not modesty: the number the system reports is still bein
 made trustworthy, and that is the current focus.
 
 Done:
-- ✅ 4-service Connect-RPC monolith (MarketData, Portfolio, Automation, Analytics)
+- ✅ 5-service Connect-RPC monolith (MarketData, Portfolio, Automation, Analytics, Settings)
 - ✅ pgx raw SQL store; account credentials encrypted at rest (ADR-005), resolved
-  per account (user → system → env)
+  per account (user → system; there is no environment tier)
 - ✅ Ownership enforced on every by-ID and list RPC
 - ✅ Wallet sync across 8 ecosystems; Binance spot sync; manual and LLM import
 - ✅ Scheduled price fetch, budgeted against each credential's remaining plan
