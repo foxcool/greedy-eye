@@ -182,6 +182,21 @@ the snapshot cannot speak for what it did not read.
 | `provider` | `data` fields |
 |---|---|
 | `binance` | `api_key`, `api_secret` |
+| `gateio` | `api_key`, `api_secret`, optional `base_url` |
+
+`gateio` reads spot balances only, and is **not** registered as a price source
+even though Gate.io serves prices: a balance reader that also quotes becomes a
+second author of the total, and a price that arrives beside a balance carries no
+date, no market-depth gate and no provenance.
+
+Its `locked` is **disjoint** from `available` — what sits in open orders is held
+out of the spendable figure rather than inside it — so a position is the sum of
+the two. That is the opposite of every Substrate chain here, where `reserved` is
+a subset of `balance` and adding it doubles the largest holding. The direction
+cannot be inferred from the field names; both are pinned by tests.
+
+`base_url` is for reaching a regional host. Read-only API keys are enough:
+nothing in this path trades.
 
 ## Wallet accounts (`wallet` + `portfolio_sync`)
 

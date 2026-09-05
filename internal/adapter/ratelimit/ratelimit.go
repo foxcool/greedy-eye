@@ -150,6 +150,9 @@ var defaultLimits = map[string]Limit{
 
 	"moralis": {RPS: 5, Burst: 2},
 	"binance": {RPS: 10, Burst: 5},
+	// Gate.io documents 200 requests per 10s for private spot endpoints.
+	// A balance read is one call per sync, so this is headroom, not a target.
+	"gateio": {RPS: 10, Burst: 5},
 
 	"tonapi":                {RPS: 5, Burst: 2},
 	"tonapi:" + keylessTier: {RPS: 1, Burst: 1},

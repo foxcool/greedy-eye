@@ -10,6 +10,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
 	cosmosadapter "github.com/foxcool/greedy-eye/internal/adapter/cosmos"
 	esploraadapter "github.com/foxcool/greedy-eye/internal/adapter/esplora"
+	gateioadapter "github.com/foxcool/greedy-eye/internal/adapter/gateio"
 	moexadapter "github.com/foxcool/greedy-eye/internal/adapter/moex"
 	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
 	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
@@ -41,6 +42,16 @@ func describeAll() []catalog.Descriptor {
 			Slug:           binanceadapter.ProviderName,
 			Title:          "Binance",
 			Kinds:          []catalog.Kind{catalog.KindExchange, catalog.KindPrice},
+			NeedsAPIKey:    true,
+			NeedsAPISecret: true,
+		},
+		{
+			// Exchange only. Gate.io serves prices too and is deliberately not
+			// registered as a source: a balance reader that also quotes is a
+			// second author of the total.
+			Slug:           gateioadapter.ProviderName,
+			Title:          "Gate.io",
+			Kinds:          []catalog.Kind{catalog.KindExchange},
 			NeedsAPIKey:    true,
 			NeedsAPISecret: true,
 		},

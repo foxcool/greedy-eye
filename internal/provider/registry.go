@@ -24,6 +24,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
 	cosmosadapter "github.com/foxcool/greedy-eye/internal/adapter/cosmos"
 	esploraadapter "github.com/foxcool/greedy-eye/internal/adapter/esplora"
+	gateioadapter "github.com/foxcool/greedy-eye/internal/adapter/gateio"
 	moexadapter "github.com/foxcool/greedy-eye/internal/adapter/moex"
 	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
 	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
@@ -228,6 +229,14 @@ func (r *Registry) ExchangeSyncers() map[string]credentials.ExchangeSyncerFactor
 				APIKey:    a.Data["api_key"],
 				APISecret: a.Data["api_secret"],
 				Transport: r.transport(binanceadapter.ProviderName, a),
+			})), nil
+		},
+		gateioadapter.ProviderName: func(a *entity.Account) (entity.ExchangeSyncer, error) {
+			return gateioadapter.NewExchangeSyncer(gateioadapter.NewClient(gateioadapter.Config{
+				APIKey:    a.Data["api_key"],
+				APISecret: a.Data["api_secret"],
+				BaseURL:   a.Data["base_url"],
+				Transport: r.transport(gateioadapter.ProviderName, a),
 			})), nil
 		},
 	}
