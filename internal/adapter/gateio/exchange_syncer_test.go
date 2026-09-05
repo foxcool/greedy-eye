@@ -14,16 +14,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Credentials distinctive enough to be searched for. A one-character secret
-// made the leak test below vacuous: "s" is a substring of the request path
-// itself, so the assertion could never have failed for the right reason.
+// Distinctive enough to search for. A one-character secret made the leak test
+// below vacuous — "s" is a substring of the request path itself.
 const (
 	testKey    = "gk-4f2ab8"
 	testSecret = "gs-9c1be7"
 )
 
-// newTestSyncer points a syncer at a stub Gate.io with a frozen clock, so the
-// signature a test computes by hand is reproducible.
+// newTestSyncer points a syncer at a stub Gate.io. The clock is frozen so a
+// signature computed by hand in a test is reproducible.
 func newTestSyncer(t *testing.T, handler http.HandlerFunc) *ExchangeSyncer {
 	t.Helper()
 	srv := httptest.NewServer(handler)
@@ -52,30 +51,23 @@ func TestSyncExchange_SumsAvailableAndLocked(t *testing.T) {
 		assert.Equal(t, balanceDecimals, b.Decimals)
 		bySymbol[b.Symbol] = b.Amount
 	}
-	// Gate.io holds `locked` OUT of `available`, so the position is the sum:
-	// (0.5 + 0.1) * 10^8. Treating locked as a subset the way Substrate reports
-	// reserved would report 0.5 BTC and lose whatever sits in open orders.
-	assert.Equal(t, "60000000", bySymbol["BTC"])
-	// 1234.56789012 * 10^8, carried exactly rather than through a float.
-	assert.Equal(t, "123456789012", bySymbol["DOGE"])
+	assert.Equal(t, "60000000", bySymbol["BTC"], "(0.5 + 0.1) * 10^8")
+	assert.Equal(t, "123456789012", bySymbol["DOGE"], "1234.56789012 * 10^8, exact")
 }
 
-// A currency that has never had an order comes back without the field at all.
-// That is zero; an amount that is present and unreadable is not.
+// A currency that never had an order comes back without the field. That is
+// zero; an amount that is present and unreadable is not.
 // TestSyncExchange_LockedIsDisjointAnchor is the live proof of the balance
-// model, and the only observation that can tell the two readings apart.
+// model — the only observation that tells the two readings apart.
 //
-// Dev's Gate.io account holds MEW against a GTC sell order placed 2025-11-02
-// for 50009.1 MEW at 0.012 USDT, unfilled. The sync of 2026-09-05 reported
-// 50009.336898 MEW, which leaves 0.236898 available beside the order — dust
-// left after placing it.
+// Dev's account holds MEW against an unfilled GTC sell order for 50009.1 placed
+// 2025-11-02. The sync of 2026-09-05 reported 50009.336898, leaving 0.236898
+// available beside the order. That total is reachable only if the pools are
+// disjoint: were locked a subset, the API would have returned 50009.336898 as
+// available and this code would have published 100018.436898.
 //
-// That total is only reachable if the pools are DISJOINT. Were `locked` a
-// subset of `available` the way Substrate reports `reserved`, the API would
-// have returned available = 50009.336898 and this code would have published
-// 100018.436898 — the position counted twice, and invisible until someone had
-// an open order. The amounts below are reconstructed from that total and the
-// order, not captured from the wire.
+// The amounts below are reconstructed from that total and that order, not
+// captured from the wire.
 func TestSyncExchange_LockedIsDisjointAnchor(t *testing.T) {
 	syncer := newTestSyncer(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[{"currency":"MEW","available":"0.236898","locked":"50009.1"}]`))
@@ -129,10 +121,8 @@ func TestSyncExchange_RefusesWithoutCredentials(t *testing.T) {
 	assert.Contains(t, err.Error(), "api key and secret")
 }
 
-// The signature is pinned against an independently computed value rather than
-// against the client's own output. The body hash is the hash of the EMPTY
-// string for a GET, not an empty field: dropping it shifts every later line up
-// and produces a signature the API rejects with no usable detail.
+// Pinned against an independently computed HMAC, not against the client's own
+// output — which would only ever agree with itself.
 func TestSign_PayloadShape(t *testing.T) {
 	var got http.Header
 	syncer := newTestSyncer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -155,8 +145,7 @@ func TestSign_PayloadShape(t *testing.T) {
 	assert.Equal(t, hex.EncodeToString(mac.Sum(nil)), got.Get("SIGN"))
 }
 
-// The secret must never travel in the URL or in a header of its own: it is only
-// ever an HMAC input. This is the check that a refactor cannot quietly undo.
+// The secret is only ever an HMAC input: it must reach the wire nowhere else.
 func TestSign_SecretNeverLeavesTheProcess(t *testing.T) {
 	var (
 		gotURL    string

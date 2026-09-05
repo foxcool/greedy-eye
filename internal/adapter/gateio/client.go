@@ -1,9 +1,6 @@
-// Package gateio reads spot balances from a Gate.io account.
-//
-// It is a balance source only. Gate.io also serves prices, and deliberately is
-// not wired as one: a second author of the total that arrives beside a balance
-// carries no date, no market-depth gate and no provenance, which is the same
-// reason the EVM readers keep withPrices off.
+// Package gateio reads spot balances from a Gate.io account. Balances only —
+// pricing the venue is personal-nzir, and needs the pair binding rather than
+// another endpoint.
 package gateio
 
 import (
@@ -40,8 +37,7 @@ type Config struct {
 	APIKey    string
 	APISecret string
 
-	// BaseURL overrides the API host. Tests point it at an httptest server;
-	// an account may name it to reach a regional host.
+	// BaseURL overrides the API host: a regional host, or a test server.
 	BaseURL string
 
 	// Transport, when set, replaces the client's HTTP transport. The shared
@@ -73,20 +69,19 @@ type spotAccount struct {
 	Locked    string `json:"locked"`
 }
 
-// apiError is Gate.io's error envelope. Unlike Subscan it uses real HTTP status
-// codes, so this is only read to name the reason.
+// apiError is Gate.io's error envelope, read only to name the reason: the
+// status code already says that something failed.
 type apiError struct {
 	Label   string `json:"label"`
 	Message string `json:"message"`
 }
 
-// sign builds the v4 signature headers.
+// sign builds the v4 signature headers: method, path, query, the hex SHA-512 of
+// the body, and the timestamp, newline-separated.
 //
-// The signed payload is five newline-separated fields — method, path, query,
-// the hex SHA-512 of the body, and the timestamp — and the body hash is
-// present even when there is no body: for a GET it is the hash of the empty
-// string, not an empty field. Omitting it shifts every later field up a line
-// and the signature fails with a label the API gives no detail for.
+// The body hash is there even with no body — for a GET it is the hash of the
+// empty string, not an empty field. Omitting it shifts every later line up one
+// and the API refuses with a label carrying no detail.
 func (c *Client) sign(method, path, query string, body []byte) http.Header {
 	timestamp := strconv.FormatInt(c.now().Unix(), 10)
 
@@ -104,8 +99,8 @@ func (c *Client) sign(method, path, query string, body []byte) http.Header {
 	return h
 }
 
-// fetchSpotAccounts calls the SIGNED GET /api/v4/spot/accounts and returns the
-// raw string amounts, so precision is decided by the caller rather than lost here.
+// fetchSpotAccounts calls the SIGNED GET /api/v4/spot/accounts, returning the
+// raw strings so precision is the caller's decision rather than lost here.
 func (c *Client) fetchSpotAccounts(ctx context.Context) ([]spotAccount, error) {
 	if c.apiKey == "" || c.apiSecret == "" {
 		return nil, fmt.Errorf("gateio: api key and secret are required for signed endpoints")

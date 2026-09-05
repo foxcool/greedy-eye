@@ -46,9 +46,7 @@ func describeAll() []catalog.Descriptor {
 			NeedsAPISecret: true,
 		},
 		{
-			// Exchange only. Gate.io serves prices too and is deliberately not
-			// registered as a source: a balance reader that also quotes is a
-			// second author of the total.
+			// Exchange only; pricing the venue is personal-nzir.
 			Slug:           gateioadapter.ProviderName,
 			Title:          "Gate.io",
 			Kinds:          []catalog.Kind{catalog.KindExchange},
