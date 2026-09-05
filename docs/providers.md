@@ -182,6 +182,16 @@ the snapshot cannot speak for what it did not read.
 | `provider` | `data` fields |
 |---|---|
 | `binance` | `api_key`, `api_secret` |
+| `gateio` | `api_key`, `api_secret`, optional `base_url` |
+
+`gateio` reads spot balances only — read-only keys are enough, nothing here
+trades — and `base_url` reaches a regional host. Ticking `market_data` does
+nothing yet: there is no Gate.io price adapter, and the startup line names the
+account as skipped.
+
+A position is `available` + `locked`: Gate.io holds open orders **out** of the
+spendable figure, not inside it. Check that first if a total disagrees with the
+exchange screen.
 
 ## Wallet accounts (`wallet` + `portfolio_sync`)
 

@@ -150,6 +150,8 @@ var defaultLimits = map[string]Limit{
 
 	"moralis": {RPS: 5, Burst: 2},
 	"binance": {RPS: 10, Burst: 5},
+	// Gate.io allows far more; a balance read is one call per sync.
+	"gateio": {RPS: 10, Burst: 5},
 
 	"tonapi":                {RPS: 5, Burst: 2},
 	"tonapi:" + keylessTier: {RPS: 1, Burst: 1},
