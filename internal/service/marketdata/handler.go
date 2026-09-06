@@ -122,15 +122,22 @@ type ProviderSource interface {
 }
 
 // ContractResolver confirms a token's on-chain identity: given a chain and a
-// contract address it reports the ticker the provider lists that contract
-// under. A provider implements it opportunistically; FindOrCreateAsset uses it
-// to decide whether an unknown contract may claim an existing ticker.
+// contract address it reports the coin the provider lists that contract under.
+// A provider implements it opportunistically; FindOrCreateAsset uses it to
+// decide whether an unknown contract may claim an existing ticker.
 type ContractResolver interface {
-	// ResolveContractSymbol returns the listed coin's symbol for the contract.
-	// listed is false when the contract is not in the provider's universe (or
-	// the chain is not covered); an error means the provider could not be
-	// consulted and must never be read as "not listed".
-	ResolveContractSymbol(ctx context.Context, chain, address string) (symbol string, listed bool, err error)
+	// ResolveContract returns the coin the contract belongs to: the provider's
+	// coin id and the ticker it is listed under. listed is false when the
+	// contract is not in the provider's universe (or the chain is not covered);
+	// an error means the provider could not be consulted and must never be read
+	// as "not listed".
+	//
+	// The id travels with the ticker because only the id is an identity: a
+	// catalogue holds several coins under one ticker on one chain, and matching
+	// on the ticker alone merges them (personal-dvgm). Both are plain strings —
+	// this is a provider's answer about a listing, not a property of an asset,
+	// and it is read and discarded within one call.
+	ResolveContract(ctx context.Context, chain, address string) (coinID, symbol string, listed bool, err error)
 }
 
 // Handler implements apiv1connect.MarketDataServiceHandler.
@@ -553,7 +560,7 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 	// An unbound contract may only claim the global market once its identity is
 	// confirmed; otherwise it gets a market of its own (see marketForContract).
 	if hasRef {
-		resolved, merr := h.marketForContract(ctx, market, symbol, refSource, ref)
+		resolved, merr := h.marketForContract(ctx, market, symbol, typ, refSource, ref)
 		if merr != nil {
 			return nil, connect.NewError(connect.CodeUnavailable, merr)
 		}
@@ -951,10 +958,19 @@ func (h *Handler) bindExternalRef(ctx context.Context, assetID, source, ref stri
 // Name, ticker and amount are all copyable — the contract is the only thing
 // that is not.
 //
+// CONFIRMATION IS TWO TESTS, NOT ONE, and the second is personal-dvgm. Asking
+// which ticker a contract is listed under confirms it belongs to SOME listed
+// coin with that ticker — it does not confirm the coin. CoinGecko lists both
+// catcoin-cash and cat-inu as "CAT" on bsc; both pass the ticker test, both
+// land on one asset, and their balances merge because a holding is keyed by
+// (account, asset, chain) with no contract in it.
+//
 // Without a resolver (no market-data credential configured) nothing can be
 // confirmed, so every unbound contract is isolated: a duplicate row is visible
 // and mergeable, an inflated total is neither.
-func (h *Handler) marketForContract(ctx context.Context, market, symbol, refSource, ref string) (string, error) {
+func (h *Handler) marketForContract(
+	ctx context.Context, market, symbol string, typ entity.AssetType, refSource, ref string,
+) (string, error) {
 	chain, ok := entity.ChainFromOnchainSource(refSource)
 	if !ok {
 		// Non-chain namespaces (broker/FIGI, provider coin IDs) are assigned by
@@ -970,22 +986,96 @@ func (h *Handler) marketForContract(ctx context.Context, market, symbol, refSour
 		return entity.ContractMarket(chain, ref), nil
 	}
 
-	listed, found, err := resolver.ResolveContractSymbol(ctx, chain, ref)
+	coinID, listedSymbol, found, err := resolver.ResolveContract(ctx, chain, ref)
 	if err != nil {
 		// Fail loud: treating an unreachable provider as "not listed" would
 		// scatter genuine multi-chain tokens into per-contract rows for good.
 		return "", fmt.Errorf("confirm contract %s on %s: %w", ref, chain, err)
 	}
-	if found && entity.NormalizeSymbol(listed) == symbol {
-		return market, nil
+	if !found {
+		return entity.ContractMarket(chain, ref), nil
 	}
-	if found && h.log != nil {
-		// The contract is listed but under another ticker: the balance claims a
-		// symbol its own contract does not have.
-		h.log.Warn("contract listed under a different symbol",
-			"chain", chain, "contract", ref, "claimed", symbol, "listed", listed)
+	if entity.NormalizeSymbol(listedSymbol) != symbol {
+		if h.log != nil {
+			// The contract is listed but under another ticker: the balance claims
+			// a symbol its own contract does not have.
+			h.log.Warn("contract listed under a different symbol",
+				"chain", chain, "contract", ref, "claimed", symbol, "listed", listedSymbol)
+		}
+		return entity.ContractMarket(chain, ref), nil
 	}
-	return entity.ContractMarket(chain, ref), nil
+
+	rival, err := h.rivalOnChain(ctx, resolver, symbol, market, typ, chain, ref, coinID)
+	if err != nil {
+		return "", err
+	}
+	if rival != "" {
+		if h.log != nil {
+			// Both coins are real and both are listed under this ticker. Naming
+			// them matters: the row that follows is a legitimate asset of its
+			// own, not a quarantine.
+			h.log.Warn("contract is a different coin from the one already held on this chain",
+				"chain", chain, "contract", ref, "symbol", symbol,
+				"coin_id", coinID, "held_coin_id", rival)
+		}
+		return entity.ContractMarket(chain, ref), nil
+	}
+	return market, nil
+}
+
+// rivalOnChain names the coin an asset is already represented by on this chain,
+// when that coin is not the one the incoming contract belongs to. An empty
+// string means there is no disagreement and the contract may join.
+//
+// THE COMPARISON IS PER CHAIN, and that is the whole correctness of it. A real
+// token has one contract per chain, so two contracts on ONE chain belonging to
+// two coins is the defect. Across chains it is the opposite: a bridged
+// deployment is listed as its own coin — the Base bridge's USDT is
+// l2-standard-bridged-usdt-base, not tether — and it is still the asset's USDT.
+// Measured on dev 2026-09-06: comparing against one id stored on the asset
+// isolated REAL Tether on Ethereum, because the bridged listing had been
+// resolved first and "first" is only ever the sync's arrival order.
+//
+// An unlisted sibling asserts nothing and is skipped, which is also what keeps
+// LP tokens whole: UNI-V2 and CAKE-LP give every pool its own contract under one
+// symbol on one chain, and no catalogue lists any of them.
+func (h *Handler) rivalOnChain(
+	ctx context.Context, resolver ContractResolver,
+	symbol, market string, typ entity.AssetType, chain, ref, coinID string,
+) (string, error) {
+	incumbent, err := h.store.FindAssetByIdentity(ctx, symbol, market, typ)
+	if errors.Is(err, store.ErrNotFound) {
+		// Nothing holds this identity yet, so nothing can disagree with it.
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+
+	refs, err := h.store.ListAssetExternalRefs(ctx, []string{incumbent.ID})
+	if err != nil {
+		return "", err
+	}
+
+	source := entity.OnchainSource(chain)
+	for _, r := range refs {
+		if !strings.EqualFold(r.Source, source) || strings.EqualFold(r.Ref, ref) {
+			continue
+		}
+		heldID, _, found, err := resolver.ResolveContract(ctx, chain, r.Ref)
+		if err != nil {
+			// Same rule as the incoming contract: an unreachable catalogue is not
+			// evidence, and guessing here would split a genuine asset for good.
+			return "", fmt.Errorf("confirm held contract %s on %s: %w", r.Ref, chain, err)
+		}
+		if !found {
+			continue
+		}
+		if !strings.EqualFold(heldID, coinID) {
+			return heldID, nil
+		}
+	}
+	return "", nil
 }
 
 // contractResolver picks a price provider that can confirm contract identity,

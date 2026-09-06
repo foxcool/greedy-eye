@@ -253,9 +253,20 @@ func newHandler(s Store) *Handler {
 // fakeContractResolver is a price provider that also confirms contract
 // identity, the way the CoinGecko adapter does through its coin catalog.
 type fakeContractResolver struct {
-	listed map[string]string // "<chain>/<address>" → the symbol the coin is listed under
+	listed map[string]listing // "<chain>/<address>" → the coin it belongs to
 	err    error
 	calls  int
+}
+
+// listing is what a catalogue says about one contract, for tests only.
+type listing struct{ coinID, symbol string }
+
+// listedAs describes a contract for tests that only care about the ticker it is
+// published under. The coin id is derived from the symbol so that two contracts
+// listed as the same ticker agree by default — the contested case is what a test
+// has to state deliberately, not what it falls into by accident.
+func listedAs(symbol string) listing {
+	return listing{coinID: strings.ToLower(symbol) + "-coin", symbol: symbol}
 }
 
 func (f *fakeContractResolver) FetchPrices(context.Context, []*entity.Asset) ([]entity.StoredPrice, error) {
@@ -263,13 +274,34 @@ func (f *fakeContractResolver) FetchPrices(context.Context, []*entity.Asset) ([]
 }
 func (f *fakeContractResolver) BaseAssetSymbol() string         { return "USD" }
 func (f *fakeContractResolver) BaseAssetType() entity.AssetType { return entity.AssetTypeForex }
-func (f *fakeContractResolver) ResolveContractSymbol(_ context.Context, chain, address string) (string, bool, error) {
+func (f *fakeContractResolver) ResolveContract(_ context.Context, chain, address string) (string, string, bool, error) {
 	f.calls++
 	if f.err != nil {
-		return "", false, f.err
+		return "", "", false, f.err
 	}
-	symbol, ok := f.listed[strings.ToLower(chain+"/"+address)]
-	return symbol, ok, nil
+	l, ok := f.listed[strings.ToLower(chain+"/"+address)]
+	return l.coinID, l.symbol, ok, nil
+}
+
+// failAfterFirstResolver answers the first lookup and fails every one after it,
+// which is how a catalogue that goes down mid-decision behaves.
+type failAfterFirstResolver struct {
+	first listing
+	err   error
+	calls int
+}
+
+func (f *failAfterFirstResolver) FetchPrices(context.Context, []*entity.Asset) ([]entity.StoredPrice, error) {
+	return nil, nil
+}
+func (f *failAfterFirstResolver) BaseAssetSymbol() string         { return "USD" }
+func (f *failAfterFirstResolver) BaseAssetType() entity.AssetType { return entity.AssetTypeForex }
+func (f *failAfterFirstResolver) ResolveContract(context.Context, string, string) (string, string, bool, error) {
+	f.calls++
+	if f.calls == 1 {
+		return f.first.coinID, f.first.symbol, true, nil
+	}
+	return "", "", false, f.err
 }
 
 func testAsset(id string) *entity.Asset {
@@ -833,8 +865,10 @@ func TestFindOrCreateAsset_BindsRefOnIdentityMatch(t *testing.T) {
 	s.On("CreateAssetExternalRef", mock.Anything, mock.MatchedBy(func(r *entity.AssetExternalRef) bool {
 		return r.AssetID == "id-1" && r.Source == "onchain:bsc" && r.Ref == "0xBEEF" && r.Origin == entity.RefOriginAuto
 	})).Return(&entity.AssetExternalRef{}, nil)
+	// Nothing else is bound on bsc, so there is no rival to disagree with.
+	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return(nil, nil)
 	expectVerdict(s)
-	resolver := &fakeContractResolver{listed: map[string]string{"bsc/0xbeef": "USDC"}}
+	resolver := &fakeContractResolver{listed: map[string]listing{"bsc/0xbeef": listedAs("USDC")}}
 	h := newHandler(s).WithProvider("coingecko", resolver)
 
 	source, ref := "onchain:bsc", "0xBEEF"
@@ -866,7 +900,7 @@ func TestFindOrCreateAsset_BindsRefOnCreate(t *testing.T) {
 	})).Return(&entity.AssetExternalRef{}, nil)
 	expectVerdict(s)
 	h := newHandler(s).WithProvider("coingecko",
-		&fakeContractResolver{listed: map[string]string{"solana/mintx": "WIF"}})
+		&fakeContractResolver{listed: map[string]listing{"solana/mintx": listedAs("WIF")}})
 
 	source, ref := "onchain:solana", "MintX"
 	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
@@ -900,7 +934,7 @@ func TestFindOrCreateAsset_UnlistedContractDoesNotClaimTicker(t *testing.T) {
 	expectVerdict(s)
 	// The catalog knows the real BSC-USD contract, not this one.
 	h := newHandler(s).WithProvider("coingecko", &fakeContractResolver{
-		listed: map[string]string{"bsc/0x55d398326f99059ff775485246999027b3197955": "USDT"},
+		listed: map[string]listing{"bsc/0x55d398326f99059ff775485246999027b3197955": listedAs("USDT")},
 	})
 
 	source, ref := "onchain:bsc", fake
@@ -929,7 +963,7 @@ func TestFindOrCreateAsset_ContractListedUnderAnotherSymbol(t *testing.T) {
 	s.On("CreateAssetExternalRef", mock.Anything, mock.Anything).Return(&entity.AssetExternalRef{}, nil)
 	expectVerdict(s)
 	h := newHandler(s).WithProvider("coingecko",
-		&fakeContractResolver{listed: map[string]string{"eth/0xaaa": "USDC"}})
+		&fakeContractResolver{listed: map[string]listing{"eth/0xaaa": listedAs("USDC")}})
 
 	source, ref := "onchain:eth", "0xAAA"
 	_, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
@@ -981,6 +1015,162 @@ func TestFindOrCreateAsset_ContractCatalogUnavailable(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeUnavailable, connect.CodeOf(err))
 	s.AssertNotCalled(t, "FindAssetByIdentity")
+	s.AssertNotCalled(t, "CreateAsset")
+}
+
+// TestFindOrCreateAsset_SecondCoinOnOneChainDoesNotJoin is personal-dvgm. CAT on
+// bsc is two coins: catcoin-cash and cat-inu. Both are listed, both under "CAT",
+// so both pass the ticker test the guard had — and both landed on one asset,
+// whose balance became the sum of two unrelated tokens priced as one. The asset
+// already carries catcoin-cash's contract on bsc, so cat-inu's is refused the
+// shared identity and gets a market of its own.
+func TestFindOrCreateAsset_SecondCoinOnOneChainDoesNotJoin(t *testing.T) {
+	const catCash, catInu = "0x59f4f336bf3d0c49dbfba4a74ebd2a6ace40539a", "0xaf8e0bce56615edf2810fab024c307de352a431f"
+	s := &mockStore{}
+	s.On("FindAssetIDByExternalRef", mock.Anything, "onchain:bsc", catInu).Return("", store.ErrNotFound)
+	// The asset holding CAT in the global market is the coin the newcomer claims
+	// to be; what it is already bound to on bsc is the question.
+	s.On("FindAssetByIdentity", mock.Anything, "CAT", "crypto", entity.AssetTypeCryptocurrency).
+		Return(testAsset("id-cat"), nil)
+	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-cat"}).Return([]*entity.AssetExternalRef{
+		{AssetID: "id-cat", Source: "onchain:bsc", Ref: catCash},
+	}, nil)
+	// Refused: it lands on its own contract market instead.
+	s.On("FindAssetByIdentity", mock.Anything, "CAT", "onchain:bsc/"+catInu, entity.AssetTypeCryptocurrency).
+		Return(nil, store.ErrNotFound)
+	s.On("CreateAsset", mock.Anything, mock.MatchedBy(func(a *entity.Asset) bool {
+		return a.Symbol == "CAT" && a.Market == "onchain:bsc/"+catInu
+	})).Return(testAsset("id-cat-inu"), nil)
+	s.On("CreateAssetExternalRef", mock.Anything, mock.MatchedBy(func(r *entity.AssetExternalRef) bool {
+		return r.AssetID == "id-cat-inu" && r.Source == "onchain:bsc" && r.Ref == catInu
+	})).Return(&entity.AssetExternalRef{}, nil)
+	expectVerdict(s)
+	h := newHandler(s).WithProvider("coingecko", &fakeContractResolver{
+		listed: map[string]listing{
+			"bsc/" + catCash: {coinID: "catcoin-cash", symbol: "CAT"},
+			"bsc/" + catInu:  {coinID: "cat-inu", symbol: "CAT"},
+		},
+	})
+
+	source, ref := "onchain:bsc", catInu
+	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol:            "CAT",
+		ExternalRefSource: &source,
+		ExternalRef:       &ref,
+	}))
+	require.NoError(t, err)
+	assert.True(t, resp.Msg.Created, "the second coin becomes its own asset")
+	// The incumbent must be left exactly as it was: nothing bound to it.
+	s.AssertNotCalled(t, "CreateAssetExternalRef", mock.Anything,
+		mock.MatchedBy(func(r *entity.AssetExternalRef) bool { return r.AssetID == "id-cat" }))
+	s.AssertExpectations(t)
+}
+
+// TestFindOrCreateAsset_BridgedDeploymentOnAnotherChainStillJoins is the
+// counterexample that decided the shape of the rule, measured on dev 2026-09-06.
+//
+// A bridge's deployment is listed as a coin of its own: Base carries USDT as
+// l2-standard-bridged-usdt-base, not as tether. It is still the asset's USDT —
+// one token, several chains — which is exactly the collapse the guard exists to
+// allow. So the ids are compared only among contracts on the SAME chain. An
+// earlier draft compared against one id stored on the asset and isolated REAL
+// Tether on Ethereum, because the bridged listing had been resolved first and
+// "first" is only ever the sync's arrival order.
+func TestFindOrCreateAsset_BridgedDeploymentOnAnotherChainStillJoins(t *testing.T) {
+	const onEth, onBase = "0xdac17f958d2ee523a2206206994597c13d831ec7", "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2"
+	s := &mockStore{}
+	s.On("FindAssetIDByExternalRef", mock.Anything, "onchain:eth", onEth).Return("", store.ErrNotFound)
+	s.On("FindAssetByIdentity", mock.Anything, "USDT", "crypto", entity.AssetTypeCryptocurrency).
+		Return(testAsset("id-usdt"), nil)
+	// The asset's only other contract is on another chain, under another coin id.
+	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-usdt"}).Return([]*entity.AssetExternalRef{
+		{AssetID: "id-usdt", Source: "onchain:base", Ref: onBase},
+	}, nil)
+	s.On("CreateAssetExternalRef", mock.Anything, mock.MatchedBy(func(r *entity.AssetExternalRef) bool {
+		return r.AssetID == "id-usdt" && r.Source == "onchain:eth" && r.Ref == onEth
+	})).Return(&entity.AssetExternalRef{}, nil)
+	expectVerdict(s)
+	h := newHandler(s).WithProvider("coingecko", &fakeContractResolver{
+		listed: map[string]listing{
+			"eth/" + onEth:   {coinID: "tether", symbol: "USDT"},
+			"base/" + onBase: {coinID: "l2-standard-bridged-usdt-base", symbol: "USDT"},
+		},
+	})
+
+	source, ref := "onchain:eth", onEth
+	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol:            "USDT",
+		ExternalRefSource: &source,
+		ExternalRef:       &ref,
+	}))
+	require.NoError(t, err)
+	assert.False(t, resp.Msg.Created, "one token on several chains stays one asset")
+	assert.Equal(t, "id-usdt", resp.Msg.Asset.Id)
+	s.AssertNotCalled(t, "CreateAsset")
+	s.AssertExpectations(t)
+}
+
+// TestFindOrCreateAsset_UnlistedSiblingIsNoObjection guards the LP exception.
+// UNI-V2 and CAKE-LP give every pool its own contract under one symbol on one
+// chain, so an asset legitimately spanning several contracts on ONE chain does
+// exist. None of those pools is listed anywhere, and an unlisted sibling asserts
+// nothing — silence is not disagreement, and the ticket forbids "fixing" them
+// with a symbol heuristic.
+func TestFindOrCreateAsset_UnlistedSiblingIsNoObjection(t *testing.T) {
+	const pool, listedPool = "0xbb2b8038a1640196fbe3e38816f3e67cba72d940", "0xd3d2e2692501a5c9ca623199d38826e513033a17"
+	s := &mockStore{}
+	s.On("FindAssetIDByExternalRef", mock.Anything, "onchain:eth", pool).Return("", store.ErrNotFound)
+	s.On("FindAssetByIdentity", mock.Anything, "UNI-V2", "crypto", entity.AssetTypeCryptocurrency).
+		Return(testAsset("id-lp"), nil)
+	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-lp"}).Return([]*entity.AssetExternalRef{
+		{AssetID: "id-lp", Source: "onchain:eth", Ref: listedPool},
+	}, nil)
+	s.On("CreateAssetExternalRef", mock.Anything, mock.MatchedBy(func(r *entity.AssetExternalRef) bool {
+		return r.AssetID == "id-lp" && r.Source == "onchain:eth" && r.Ref == pool
+	})).Return(&entity.AssetExternalRef{}, nil)
+	expectVerdict(s)
+	// The incoming pool is listed (so it gets past the ticker test); its sibling
+	// is not, which is the ordinary shape for pools.
+	h := newHandler(s).WithProvider("coingecko", &fakeContractResolver{
+		listed: map[string]listing{"eth/" + pool: {coinID: "uniswap-v2", symbol: "UNI-V2"}},
+	})
+
+	source, ref := "onchain:eth", pool
+	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol:            "UNI-V2",
+		ExternalRefSource: &source,
+		ExternalRef:       &ref,
+	}))
+	require.NoError(t, err)
+	assert.False(t, resp.Msg.Created)
+	s.AssertExpectations(t)
+}
+
+// TestFindOrCreateAsset_HeldContractUnreachableFailsLoud: the sibling lookup is
+// held to the rule the incoming contract already is. An unreachable catalogue is
+// not evidence about anything, and reading it as "no rival" would let a
+// contested contract in on the day the provider is down.
+func TestFindOrCreateAsset_HeldContractUnreachableFailsLoud(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetIDByExternalRef", mock.Anything, "onchain:bsc", "0xNEW").Return("", store.ErrNotFound)
+	s.On("FindAssetByIdentity", mock.Anything, "CAT", "crypto", entity.AssetTypeCryptocurrency).
+		Return(testAsset("id-cat"), nil)
+	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-cat"}).Return([]*entity.AssetExternalRef{
+		{AssetID: "id-cat", Source: "onchain:bsc", Ref: "0xOLD"},
+	}, nil)
+	h := newHandler(s).WithProvider("coingecko", &failAfterFirstResolver{
+		first: listing{coinID: "catcoin-cash", symbol: "CAT"},
+		err:   errors.New("coingecko unreachable"),
+	})
+
+	source, ref := "onchain:bsc", "0xNEW"
+	_, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol:            "CAT",
+		ExternalRefSource: &source,
+		ExternalRef:       &ref,
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeUnavailable, connect.CodeOf(err))
 	s.AssertNotCalled(t, "CreateAsset")
 }
 
