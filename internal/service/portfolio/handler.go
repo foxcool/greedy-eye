@@ -1321,8 +1321,8 @@ type accumulated struct {
 // because what it exists to stop is a provider retry storm, not a slow sync.
 const syncTimeout = 3 * time.Minute
 
-// SyncAccount fetches external holdings for a wallet or exchange account and
-// upserts assets+holdings.
+// SyncAccount fetches external holdings for a wallet, exchange or broker
+// account and upserts assets+holdings.
 func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.SyncAccountRequest]) (*connect.Response[apiv1.SyncAccountResponse], error) {
 	if req.Msg.AccountId == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account_id is required"))

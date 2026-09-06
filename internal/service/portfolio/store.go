@@ -65,6 +65,9 @@ type Store interface {
 	// confirmed before `olderThan`, stalest first, capped at `limit`. Freshness
 	// comes from the account's own holdings, so it cannot claim a sync that
 	// never landed; an account with no holdings sorts first.
+	//
+	// Which types are eligible is the store's rule, documented there: not every
+	// account SyncAccount accepts is one the sweep may take.
 	ListStaleSyncTargets(ctx context.Context, olderThan, now time.Time, limit int) ([]*entity.Account, error)
 
 	// RecordSyncMiss stands an account down until nextAttemptAt after a sync

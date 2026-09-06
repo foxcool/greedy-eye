@@ -856,6 +856,51 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 	return accounts, nextPageToken, nil
 }
 
+// sweepableAccounts is the FROM and WHERE the sweep's selection and its count
+// both run. They are one set described twice, and describing it twice is how
+// the two can disagree — so the description has one home. The columns and the
+// ordering stay with each query, because those differ on purpose.
+//
+// Placeholders: $1, $2 the always-sweepable types, $3 the broker type, $4 the
+// staleness cutoff, $5 now.
+//
+// WHICH ACCOUNTS BELONG HERE. Wallet and exchange always: a provider can read
+// them whole from an address or a key. Manual never: those positions come from
+// a human and no provider can refresh them. Broker only once it holds
+// positions, and that qualifier is the whole of personal-c1nz.
+//
+// A broker credential is not one account, it is the key to several: the account
+// that carries the token has no positions of its own and fans out to the
+// accounts it discovers (see syncBrokerAccounts). Admitting it here would give
+// it a permanent seat — it writes no holdings, so it stays NULL-fresh, sorts
+// first every hour, and never complains, which is the one shape deferral does
+// not catch. That is personal-2sfn's starvation with the failure removed.
+//
+// So the line drawn is between refreshing and discovering. The sweep refreshes
+// positions it can already see; discovering an account at a broker creates rows
+// and spends a credential, and stays a deliberate act — the sync button, which
+// this same change puts on broker accounts. `h.synced_at IS NOT NULL` is how
+// that reads in SQL, because accounts.data is sealed as a whole (ADR-005) and
+// no query can ask whether broker_account_id is set.
+const sweepableAccounts = `
+		FROM accounts a
+		LEFT JOIN (
+			SELECT account_id, max(updated_at) AS synced_at
+			FROM holdings
+			GROUP BY account_id
+		) h ON h.account_id = a.id
+		LEFT JOIN account_sync_attempts s ON s.account_id = a.id
+		WHERE (a.type IN ($1, $2) OR (a.type = $3 AND h.synced_at IS NOT NULL))
+		  AND (h.synced_at IS NULL OR h.synced_at < $4)
+		  AND (s.next_attempt_at IS NULL OR s.next_attempt_at <= $5)`
+
+// sweepableTypes are the type arguments sweepableAccounts expects, in order.
+func sweepableTypes() (wallet, exchange, broker string) {
+	return accountTypeToString(entity.AccountTypeWallet),
+		accountTypeToString(entity.AccountTypeExchange),
+		accountTypeToString(entity.AccountTypeBroker)
+}
+
 // ListStaleSyncTargets returns syncable accounts whose balances are older than
 // `olderThan`, the ones least recently confirmed first, capped at `limit`.
 //
@@ -864,8 +909,7 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 // it cannot claim a sync that did not land. An account with no holdings at all
 // sorts first — never synced is the stalest state there is, not a fresh one.
 //
-// Only wallet and exchange accounts can be swept; a manual account's positions
-// come from a human and no provider can refresh them.
+// Which accounts are eligible at all is sweepableAccounts.
 //
 // An account standing down is skipped whatever its staleness. Staleness alone
 // decided this for a year, and because a sync that writes nothing does not move
@@ -880,23 +924,13 @@ func (s *PortfolioStore) ListStaleSyncTargets(ctx context.Context, olderThan, no
 	}
 
 	query := fmt.Sprintf(`
-		SELECT %s
-		FROM accounts a
-		LEFT JOIN (
-			SELECT account_id, max(updated_at) AS synced_at
-			FROM holdings
-			GROUP BY account_id
-		) h ON h.account_id = a.id
-		LEFT JOIN account_sync_attempts s ON s.account_id = a.id
-		WHERE a.type IN ($1, $2)
-		  AND (h.synced_at IS NULL OR h.synced_at < $3)
-		  AND (s.next_attempt_at IS NULL OR s.next_attempt_at <= $4)
+		SELECT %s%s
 		ORDER BY h.synced_at ASC NULLS FIRST, a.id
-		LIMIT $5`, prefixedAccountColumns("a"))
+		LIMIT $6`, prefixedAccountColumns("a"), sweepableAccounts)
 
+	wallet, exchange, broker := sweepableTypes()
 	rows, err := s.pool.Query(ctx, query,
-		accountTypeToString(entity.AccountTypeWallet),
-		accountTypeToString(entity.AccountTypeExchange),
+		wallet, exchange, broker,
 		olderThan, now, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list stale sync targets: %w", err)
@@ -963,23 +997,12 @@ func (s *PortfolioStore) RecordSyncMiss(ctx context.Context, accountID string, a
 // quiet instance rather than a queue nobody is getting through. The number the
 // sweep can act on and the number that need acting on are different facts.
 func (s *PortfolioStore) CountDueSyncTargets(ctx context.Context, olderThan, now time.Time) (int, error) {
-	const query = `
-		SELECT count(*)
-		FROM accounts a
-		LEFT JOIN (
-			SELECT account_id, max(updated_at) AS synced_at
-			FROM holdings
-			GROUP BY account_id
-		) h ON h.account_id = a.id
-		LEFT JOIN account_sync_attempts s ON s.account_id = a.id
-		WHERE a.type IN ($1, $2)
-		  AND (h.synced_at IS NULL OR h.synced_at < $3)
-		  AND (s.next_attempt_at IS NULL OR s.next_attempt_at <= $4)`
+	const query = `SELECT count(*)` + sweepableAccounts
 
+	wallet, exchange, broker := sweepableTypes()
 	var n int
 	err := s.pool.QueryRow(ctx, query,
-		accountTypeToString(entity.AccountTypeWallet),
-		accountTypeToString(entity.AccountTypeExchange),
+		wallet, exchange, broker,
 		olderThan, now).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count due sync targets: %w", err)
