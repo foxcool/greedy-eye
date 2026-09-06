@@ -1081,12 +1081,19 @@ somebody chose, since that would report one currency's number under another curr
     themselves, so it cannot claim a sync that never landed, and an account with no holdings sorts
     first. The cron interval is not the refresh rate — it is how often the system gets a chance
     to catch up, and what one fire does not reach stays due
+  - **Which accounts are eligible is a second gate, and it is not the dispatch.** `SyncAccount`
+    syncs wallet, exchange and broker; the sweep selects wallet and exchange always, manual never,
+    and broker **only once it holds positions** — the reasoning is on `sweepableAccounts`
+    (`internal/store/postgres/portfolio.go`), which is the one place it is acted on. Both sweep
+    queries share that constant because admitting a type used to mean editing two predicates that
+    have to agree
   - **Staleness-first ordering needs a pair, and that pair is a stand-down.** Selection measures
     staleness by the last *success*, so a sync that writes nothing leaves the account the stalest
     again next hour, and the hour after: four EVM accounts on a lapsed credential held both slots
     of every fire from 31.08 to 03.09 while TON, Solana, Cosmos and the Substrate wallets went two
     days without a turn — each of which then synced in under a second when asked by hand. The
-    price path has had this pair since its back-off table; balances now have `sync_deferrals`.
+    price path has had this pair since its back-off table; balances now have
+    `account_sync_attempts`.
   - **The trigger is "no fresher", not "failed", and the difference is the whole defect.** That
     outage returned `200` with the `401` inside the response body: the sweep counted those runs as
     synced and logged "account synced with errors", so a failure-based rule would have watched the

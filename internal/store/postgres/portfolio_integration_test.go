@@ -899,6 +899,16 @@ func TestListStaleSyncTargets(t *testing.T) {
 	manual := account("manual stash", entity.AccountTypeManual)
 	holdingAt(manual.ID, now.Add(-500*time.Hour))
 
+	// A broker account holding paper is swept like any other syncable account.
+	broker := account("broker account 2052372295", entity.AccountTypeBroker)
+	holdingAt(broker.ID, now.Add(-50*time.Hour))
+
+	// The account carrying the broker's token is not one of them. It holds no
+	// positions — it fans out to the accounts it discovers — so it would sit at
+	// the head of the queue forever: NULL-fresh every hour, and never
+	// complaining, which is the shape deferral does not catch.
+	brokerCredential := account("T-Invest", entity.AccountTypeBroker)
+
 	got, err := s.ListStaleSyncTargets(ctx, now.Add(-12*time.Hour), now, 10)
 	require.NoError(t, err)
 
@@ -908,9 +918,12 @@ func TestListStaleSyncTargets(t *testing.T) {
 	}
 	assert.NotContains(t, ids, fresh.ID, "an account synced within the window is not due")
 	assert.NotContains(t, ids, manual.ID, "a manual account has no provider to refresh it")
+	assert.NotContains(t, ids, brokerCredential.ID,
+		"a broker account with no positions is a credential, not a sweep target")
 	require.Contains(t, ids, neverSynced.ID)
 	require.Contains(t, ids, stalest.ID)
 	require.Contains(t, ids, stale.ID)
+	require.Contains(t, ids, broker.ID, "a broker account goes stale like any other")
 
 	// Never synced sorts first — it is the stalest state there is, not a fresh
 	// one — then oldest confirmation first.
@@ -923,6 +936,20 @@ func TestListStaleSyncTargets(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, limited, 2, "a sweep takes what it can afford, the rest stays due")
 		assert.Equal(t, neverSynced.ID, limited[0].ID)
+	})
+
+	// The count and the selection are one set described twice, and the run line
+	// subtracts them to say how many are waiting behind the budget. They drifted
+	// once already — the type filter lived in both, and admitting a third type
+	// meant editing both (personal-c1nz). Ask them the same question instead of
+	// trusting that they were edited together.
+	t.Run("what is counted is what would be taken", func(t *testing.T) {
+		all, err := s.ListStaleSyncTargets(ctx, now.Add(-12*time.Hour), now, 1000)
+		require.NoError(t, err)
+
+		n, err := s.CountDueSyncTargets(ctx, now.Add(-12*time.Hour), now)
+		require.NoError(t, err)
+		assert.Equal(t, len(all), n)
 	})
 
 	t.Run("rejects a non-positive limit", func(t *testing.T) {
