@@ -80,60 +80,75 @@ type contractIndex struct {
 
 	mu       sync.Mutex
 	loadedAt time.Time
-	// symbolByContract is keyed by "<platform>/<lowercased address>" and holds
-	// the coin's ticker; the ticker is what the caller compares against.
-	symbolByContract map[string]string
+	// coinByContract is keyed by "<platform>/<lowercased address>" and holds the
+	// coin the contract belongs to: its id and the ticker it is listed under.
+	// The id is kept because the ticker is not an identity — this catalogue puts
+	// several coins under one ticker on one chain (personal-dvgm) — and it costs
+	// nothing to keep, arriving in the same response.
+	coinByContract map[string]coinRef
+}
+
+// coinRef is one catalogue entry, private to the adapter that downloads it: it
+// describes a listing, not an asset, and it crosses no package boundary.
+type coinRef struct {
+	id     string
+	symbol string
 }
 
 func newContractIndex(c *Client) *contractIndex {
 	return &contractIndex{client: c, ttl: contractCatalogTTL}
 }
 
-// lookup reports the listed coin's symbol for a contract on a chain. found is
-// false when the chain has no CoinGecko platform or the contract is not listed;
-// an error means the catalog could not be consulted at all, which the caller
-// must not read as "unlisted".
-func (x *contractIndex) lookup(ctx context.Context, chain, address string) (symbol string, found bool, err error) {
+// lookup reports the coin a contract on a chain belongs to. found is false when
+// the chain has no CoinGecko platform or the contract is not listed; an error
+// means the catalog could not be consulted at all, which the caller must not
+// read as "unlisted".
+func (x *contractIndex) lookup(ctx context.Context, chain, address string) (coin coinRef, found bool, err error) {
 	platform, ok := chainPlatform[strings.ToLower(strings.TrimSpace(chain))]
 	if !ok {
-		return "", false, nil
+		return coinRef{}, false, nil
 	}
 	address = strings.ToLower(strings.TrimSpace(address))
 	if address == "" {
-		return "", false, nil
+		return coinRef{}, false, nil
 	}
 
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	// The lock is held across the fetch on purpose: concurrent syncs would
 	// otherwise each download the full catalog to build the same map.
-	if x.symbolByContract == nil || time.Since(x.loadedAt) > x.ttl {
+	if x.coinByContract == nil || time.Since(x.loadedAt) > x.ttl {
 		items, ferr := x.client.ListCoinsWithPlatforms(ctx)
 		if ferr != nil {
-			return "", false, fmt.Errorf("coingecko contract catalog: %w", ferr)
+			return coinRef{}, false, fmt.Errorf("coingecko contract catalog: %w", ferr)
 		}
-		index := make(map[string]string, len(items)*2)
+		index := make(map[string]coinRef, len(items)*2)
 		for _, it := range items {
 			for plat, addr := range it.Platforms {
 				addr = strings.ToLower(strings.TrimSpace(addr))
 				if plat == "" || addr == "" {
 					continue
 				}
-				index[plat+"/"+addr] = strings.ToUpper(it.Symbol)
+				index[plat+"/"+addr] = coinRef{
+					id:     it.ID,
+					symbol: strings.ToUpper(it.Symbol),
+				}
 			}
 		}
-		x.symbolByContract = index
+		x.coinByContract = index
 		x.loadedAt = time.Now()
 	}
 
-	symbol, found = x.symbolByContract[platform+"/"+address]
-	return symbol, found, nil
+	coin, found = x.coinByContract[platform+"/"+address]
+	return coin, found, nil
 }
 
-// ResolveContractSymbol confirms a contract's identity: it returns the ticker of
-// the coin CoinGecko lists that contract under. A false ok means the contract is
-// not listed (or the chain is not covered) and the caller must treat the token as
-// an unverified instrument rather than an instance of a known ticker.
-func (p *Provider) ResolveContractSymbol(ctx context.Context, chain, address string) (string, bool, error) {
-	return p.contracts.lookup(ctx, chain, address)
+// ResolveContract confirms a contract's identity: it returns the coin CoinGecko
+// lists that contract under — its coin id and the ticker it publishes. A false
+// ok means the contract is not listed (or the chain is not covered) and the
+// caller must treat the token as an unverified instrument rather than an
+// instance of a known ticker.
+func (p *Provider) ResolveContract(ctx context.Context, chain, address string) (coinID, symbol string, listed bool, err error) {
+	coin, found, err := p.contracts.lookup(ctx, chain, address)
+	return coin.id, coin.symbol, found, err
 }
