@@ -387,7 +387,7 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 			continue
 		}
 		coverage.PricedCount++
-		if hld.Source.Swept() {
+		if hld.DatesAmounts() {
 			oldestAmount = olderOf(oldestAmount, hld.UpdatedAt)
 		}
 		// A stale quote still counts toward the total: see ValuationCoverage on

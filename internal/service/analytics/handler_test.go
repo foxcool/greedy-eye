@@ -623,3 +623,34 @@ func TestWindowDuration(t *testing.T) {
 	assert.Equal(t, 7*24*time.Hour, windowDuration(apiv1.HeatmapWindow_HEATMAP_WINDOW_7D))
 	assert.Equal(t, 30*24*time.Hour, windowDuration(apiv1.HeatmapWindow_HEATMAP_WINDOW_30D))
 }
+
+// TestGetHeatmap_AmountAgeIgnoresZeroedRows: the map drops a zeroed row from its
+// dating for the same reason the total does — the row is a tombstone the sync
+// writes once and never revisits, so its age measures how long ago a position
+// was sold rather than how current the map is (personal-hv15).
+//
+// Paired with the portfolio handler deliberately: the two compute this date
+// independently, and a fix landing in one alone is how the map and the total
+// come to disagree (personal-psu.4).
+func TestGetHeatmap_AmountAgeIgnoresZeroedRows(t *testing.T) {
+	frozen := time.Date(2026, 9, 6, 15, 30, 0, 0, time.UTC)
+	recent := time.Date(2026, 9, 7, 5, 30, 0, 0, time.UTC)
+
+	st, md := fixture()
+	st.holdings[0].UpdatedAt = recent
+	st.holdings[0].Source = entity.SourceSync
+	st.holdings[1].UpdatedAt = frozen
+	st.holdings[1].Source = entity.SourceSync
+	st.holdings[1].Amount = decimal.Zero
+
+	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+
+	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
+	require.NoError(t, err)
+
+	cov := resp.Msg.Coverage
+	require.NotNil(t, cov)
+	assert.Equal(t, uint32(2), cov.PricedCount, "the zeroed row is still counted; only the dating changes")
+	require.NotNil(t, cov.GetAmountsAsOf())
+	assert.Equal(t, recent, cov.GetAmountsAsOf().AsTime())
+}

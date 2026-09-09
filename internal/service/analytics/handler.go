@@ -203,7 +203,7 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 			continue
 		}
 		coverage.PricedCount++
-		if hld.Source.Swept() {
+		if hld.DatesAmounts() {
 			oldestAmount = olderOf(oldestAmount, hld.UpdatedAt)
 		}
 		// Counted per holding even though pricing is cached per asset: the
