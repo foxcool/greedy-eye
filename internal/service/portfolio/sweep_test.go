@@ -583,3 +583,74 @@ func TestGetAccountSweepSchedule_NeedsAUser(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 }
+
+// TestCalculatePortfolioValue_AmountAgeIgnoresZeroedRows: a zeroed row is a
+// tombstone, not a position. The sync writes it once, when the position stops
+// being returned, and skips it on every pass after — there is nothing left to
+// refresh — so its updated_at is frozen at the emptying and grows older every
+// hour while the live rows beside it are rewritten.
+//
+// Measured on production 2026-09-07 (personal-hv15): three zeroed broker rows
+// held stocks.amounts_as_of at 2026-09-06T15:30 for twenty-one hours while both
+// brokerage accounts were being swept hourly and every other row carried that
+// morning's timestamp. The field reported the age of positions that were not in
+// the total at all, and it reported it worse the longer the sweep ran correctly.
+func TestCalculatePortfolioValue_AmountAgeIgnoresZeroedRows(t *testing.T) {
+	frozen := time.Date(2026, 9, 6, 15, 30, 0, 0, time.UTC)
+	recent := time.Date(2026, 9, 7, 5, 30, 0, 0, time.UTC)
+
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
+		{ID: "h1", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: recent, Source: entity.SourceSync},
+		{ID: "h2", AssetID: testAssetID, Amount: decimal.Zero, Decimals: 0, UpdatedAt: frozen, Source: entity.SourceSync},
+	}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("GetLatestPrice", mock.Anything, mock.Anything).Return(connect.NewResponse(&apiv1.Price{
+		AssetId: testAssetID, BaseAssetId: "usd", Last: "100", Decimals: 0,
+	}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+
+	resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
+		PortfolioId:  testPortfolioID,
+		QuoteAssetId: "usd",
+	}))
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, resp.Msg.Coverage.GetPricedCount(),
+		"a zeroed row is still priced and still disclosed; only its age stops being a fact about the total")
+	require.NotNil(t, resp.Msg.Coverage.GetAmountsAsOf())
+	assert.Equal(t, recent, resp.Msg.Coverage.GetAmountsAsOf().AsTime(),
+		"the date reports the positions the total is made of, and a zero is not one")
+}
+
+// TestCalculatePortfolioValue_AllZeroedLeavesAmountsUndated: an account whose
+// every position has been sold has no quantity behind its total, and its total
+// is zero. Saying nothing is right here for the same reason it is right with no
+// synced row at all — a date would describe the emptying, not the number.
+func TestCalculatePortfolioValue_AllZeroedLeavesAmountsUndated(t *testing.T) {
+	frozen := time.Date(2026, 9, 6, 15, 30, 0, 0, time.UTC)
+
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
+		{ID: "h1", AssetID: testAssetID, Amount: decimal.Zero, Decimals: 0, UpdatedAt: frozen, Source: entity.SourceSync},
+	}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("GetLatestPrice", mock.Anything, mock.Anything).Return(connect.NewResponse(&apiv1.Price{
+		AssetId: testAssetID, BaseAssetId: "usd", Last: "100", Decimals: 0,
+	}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md)
+
+	resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
+		PortfolioId:  testPortfolioID,
+		QuoteAssetId: "usd",
+	}))
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, resp.Msg.Coverage.GetPricedCount())
+	assert.Nil(t, resp.Msg.Coverage.GetAmountsAsOf(),
+		"no held quantity stands behind this total, and silence beats dating the sale")
+}

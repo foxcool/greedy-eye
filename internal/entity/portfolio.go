@@ -187,6 +187,21 @@ func (s ProvenanceSource) Swept() bool {
 	return s == SourceSync
 }
 
+// DatesAmounts reports whether this row's age may date a total's quantities.
+//
+// Two conditions, and only the first is obvious. The row must be swept, because
+// an age is a symptom only where a provider was answerable for the refresh (see
+// Swept). And it must still carry an amount: a zeroed row is a tombstone, not a
+// position. The sync that empties a row writes it once and skips it on every
+// later pass — there is nothing left to refresh — so its updated_at freezes at
+// the moment of the emptying and grows older forever while the live positions
+// beside it are rewritten hourly. Dating a total by it reports the age of
+// something that is not in the total at all, and reports it worse the longer
+// the instance runs correctly.
+func (h *Holding) DatesAmounts() bool {
+	return h.Source.Swept() && !h.Amount.IsZero()
+}
+
 // Liquidity says how soon a position can be spent. It is the axis the runway
 // question needs — "how much can I use, and when" — and it lives on the row
 // rather than on the asset: the same ATOM is liquid in the bank pool and staked
