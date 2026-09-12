@@ -158,15 +158,20 @@ func splitLiquidity(a Account, row func(decimal.Decimal, entity.Liquidity) entit
 // it becomes an asset_external_ref under "onchain:<chain>", so an unconfirmed
 // asset lands in its own market instead of on top of the ticker it claims.
 //
-// LIQUIDITY IS STATED ONLY WHERE IT IS KNOWN. A zero lock is a position with
-// nothing frozen, which is exactly "liquid". A non-zero lock is left
-// unpartitioned: no captured response has ever carried one, so whether it is a
-// subset of balance (as the native coin's is) or something beside it has not
-// been measured — and the two answers differ in the direction that overstates
-// spendable money. An unknown liquidity is a gap; a wrong one is a false claim.
+// LIQUIDITY IS STATED ONLY WHERE IT IS KNOWN, and "known" is three states, not
+// two. A lock the entry reports as zero — or omits, which is how Subscan
+// reports a component an account does not use — is a position with nothing
+// frozen, exactly "liquid". A non-zero lock is left unpartitioned: no captured
+// response has ever carried one, so whether it is a subset of balance (as the
+// native coin's is) or something beside it has not been measured. A lock that
+// is present and UNREADABLE is left unpartitioned too, and that third state is
+// the reason this is not a bare IsZero: a zero standing in for an unparsed
+// string would state "nothing frozen" on the strength of a number nobody read,
+// and it would state it in the direction that overstates spendable money. An
+// unknown liquidity is a gap; a wrong one is a false claim.
 func tokenBalance(chain string, net network, t Token) entity.WalletBalance {
 	liquidity := entity.LiquidityUnknown
-	if t.Lock.IsZero() {
+	if t.LockKnown && t.Lock.IsZero() {
 		liquidity = entity.LiquidityLiquid
 	}
 	return entity.WalletBalance{

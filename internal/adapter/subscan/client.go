@@ -108,6 +108,13 @@ type Token struct {
 	// Lock is the frozen part of Balance where the entry reports one. It is a
 	// subset of Balance, never an addition — same model as the native coin.
 	Lock decimal.Decimal
+	// LockKnown is false when the entry carried a lock this parser could not
+	// read. Absent is not unknown: Subscan omits a component an account does
+	// not use, so a missing lock is a zero one. An UNREADABLE lock is the
+	// third state, and it must not collapse into the zero — a zero lock is
+	// read as "nothing frozen", which is a claim about spendable money made
+	// out of a string nobody could parse.
+	LockKnown bool
 	// UniqueID is Subscan's identity for this asset ON THIS CHAIN
 	// ("standard_assets/30", "standard_foreign_assets/6212dc…"). It is what an
 	// asset_external_ref is keyed by, so a second asset claiming the same
@@ -212,9 +219,9 @@ func (d tokensData) tokens(chain string) ([]Token, []string) {
 				skipped = append(skipped, fmt.Sprintf("%s: token %s (%s) reports no decimals", chain, e.Symbol, id))
 				continue
 			}
-			balance, err := parseAmount(chain, "token balance", e.Balance)
-			if err != nil {
-				skipped = append(skipped, err.Error())
+			balance, berr := parseAmount(chain, "token balance", e.Balance)
+			if berr != nil {
+				skipped = append(skipped, berr.Error())
 				continue
 			}
 			seen[id] = true
@@ -223,12 +230,23 @@ func (d tokensData) tokens(chain string) ([]Token, []string) {
 				// response at zero. It is not a position.
 				continue
 			}
+			lock, lerr := parseAmount(chain, "token lock", e.Lock)
+			lockKnown := lerr == nil
+			if !lockKnown {
+				// The position is still real and still reported; only its
+				// partition is withheld. Named here so the withholding leaves
+				// a trace, which is the half of personal-feb.13 that applies.
+				skipped = append(skipped, fmt.Sprintf(
+					"%s: token %s (%s) has an unreadable lock %q; its liquidity is left unstated",
+					chain, e.Symbol, id, e.Lock))
+			}
 			out = append(out, Token{
-				Symbol:   e.Symbol,
-				Decimals: *e.Decimals,
-				Balance:  balance,
-				Lock:     optionalAmount(e.Lock),
-				UniqueID: id,
+				Symbol:    e.Symbol,
+				Decimals:  *e.Decimals,
+				Balance:   balance,
+				Lock:      lock,
+				LockKnown: lockKnown,
+				UniqueID:  id,
 			})
 		}
 	}
