@@ -20,7 +20,8 @@ func NewWalletSyncer(c *Client) *WalletSyncerAdapter {
 	return &WalletSyncerAdapter{client: c}
 }
 
-// SyncWallet returns the native balance of the address on each requested chain.
+// SyncWallet returns the address's holdings on each requested chain: the
+// chain's own coin, and the non-native assets it keeps beside it.
 //
 // With no chains named it sweeps every network this adapter knows and keeps
 // the ones holding a balance — the same approach the EVM syncer takes with its
@@ -57,25 +58,36 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 			continue
 		}
 
-		total := account.Total()
-		if total.IsZero() {
-			continue // nothing held here; not an error
+		// A token entry this chain reported and the parser refused is named
+		// here, beside the balances that did parse. It is not a chain failure:
+		// everything else the chain said is still true and still returned.
+		for _, reason := range account.Skipped {
+			errs = append(errs, errors.New(reason))
 		}
 
 		// Already raw planck at the precision the API stated — no shift, and
 		// no table lookup. The chain's decimals are a display detail here;
 		// the response is the authority on how to read its own number.
-		row := func(amount decimal.Decimal, liquidity entity.Liquidity) entity.WalletBalance {
-			return entity.WalletBalance{
-				Symbol:    account.Symbol,
-				Name:      net.name,
-				Amount:    amount.BigInt().String(),
-				Decimals:  int(account.Decimals),
-				Chain:     chain,
-				Liquidity: liquidity,
+		if total := account.Total(); !total.IsZero() {
+			row := func(amount decimal.Decimal, liquidity entity.Liquidity) entity.WalletBalance {
+				return entity.WalletBalance{
+					Symbol:    account.Symbol,
+					Name:      net.name,
+					Amount:    amount.BigInt().String(),
+					Decimals:  int(account.Decimals),
+					Chain:     chain,
+					Liquidity: liquidity,
+				}
 			}
+			balances = append(balances, splitLiquidity(account, row)...)
 		}
-		balances = append(balances, splitLiquidity(account, row)...)
+
+		// Tokens are separate positions, read whether or not the chain's own
+		// coin is still there: an account can hold a pallet asset having spent
+		// the last of its DOT.
+		for _, t := range account.Tokens {
+			balances = append(balances, tokenBalance(chain, net, t))
+		}
 	}
 
 	return balances, errors.Join(errs...)
@@ -134,4 +146,39 @@ func splitLiquidity(a Account, row func(decimal.Decimal, entity.Liquidity) entit
 		out = append(out, row(a.Unbonding, entity.LiquidityUnbonding))
 	}
 	return out
+}
+
+// tokenBalance turns one non-native holding into a position.
+//
+// THE UNIQUE ID IS CARRIED AS THE CONTRACT, and that is the point of reading
+// these at all. Registering an asset on an Asset Hub is permissionless, so a
+// symbol is a claim by whoever paid the deposit — the same ground on which a
+// minted ERC-20 once inherited real Tether's price by calling itself USDT
+// (personal-c3b). Carrying the id makes the identity chain-scoped: downstream
+// it becomes an asset_external_ref under "onchain:<chain>", so an unconfirmed
+// asset lands in its own market instead of on top of the ticker it claims.
+//
+// LIQUIDITY IS STATED ONLY WHERE IT IS KNOWN. A zero lock is a position with
+// nothing frozen, which is exactly "liquid". A non-zero lock is left
+// unpartitioned: no captured response has ever carried one, so whether it is a
+// subset of balance (as the native coin's is) or something beside it has not
+// been measured — and the two answers differ in the direction that overstates
+// spendable money. An unknown liquidity is a gap; a wrong one is a false claim.
+func tokenBalance(chain string, net network, t Token) entity.WalletBalance {
+	liquidity := entity.LiquidityUnknown
+	if t.Lock.IsZero() {
+		liquidity = entity.LiquidityLiquid
+	}
+	return entity.WalletBalance{
+		Symbol: t.Symbol,
+		// The chain names the place, the token names itself. "DED on Polkadot
+		// Asset Hub" is what a person needs to see to recognise the thing they
+		// were airdropped.
+		Name:            t.Symbol + " on " + net.name,
+		Amount:          t.Balance.BigInt().String(),
+		Decimals:        int(t.Decimals),
+		ContractAddress: t.UniqueID,
+		Chain:           chain,
+		Liquidity:       liquidity,
+	}
 }

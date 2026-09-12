@@ -1,5 +1,6 @@
 // Package subscan adapts the Subscan multi-network API to entity.WalletSyncer,
-// covering the Substrate chains (Polkadot, Kusama, Hydration, Astar, Moonbeam).
+// covering the Substrate chains (Polkadot, Kusama, the Asset Hubs, Hydration,
+// Astar, Moonbeam) — the chain's own coin and the assets kept beside it.
 package subscan
 
 import (
@@ -75,9 +76,47 @@ type Account struct {
 	Reserved  decimal.Decimal
 	Bonded    decimal.Decimal
 	Unbonding decimal.Decimal
+
+	// Tokens are the non-native holdings reported beside the chain's own coin.
+	// Empty on a relay chain, which carries nothing else.
+	Tokens []Token
+
+	// Skipped names the token entries this chain reported and the parser
+	// refused, one string each. They ride beside the balances rather than
+	// inside an error because they are not a failure of the sync: the chain
+	// answered, and everything else it said is usable. Dropping a token
+	// silently is the one option not on the table — a position nobody can see
+	// is indistinguishable from a position nobody holds.
+	Skipped []string
 }
 
-// Total is the account's full holding. It is Balance alone — see the type doc.
+// Token is one non-native holding on a chain: an entry of the tokens endpoint's
+// builtin or assets array.
+//
+// Asset registration on the Asset Hubs is permissionless, exactly as an ERC-20
+// deployment is. Symbol and name are therefore claims by whoever registered the
+// asset, and UniqueID is the only part of this the chain itself assigns.
+type Token struct {
+	// Symbol is what the registrant called it. Two assets may claim one ticker.
+	Symbol string
+	// Decimals comes from the entry. A token whose entry omits it is refused
+	// rather than read as whole units: the gap between 0 and 18 is the
+	// difference between a position and a lie about one (personal-feb.12).
+	Decimals int32
+	// Balance is raw, scaled by Decimals.
+	Balance decimal.Decimal
+	// Lock is the frozen part of Balance where the entry reports one. It is a
+	// subset of Balance, never an addition — same model as the native coin.
+	Lock decimal.Decimal
+	// UniqueID is Subscan's identity for this asset ON THIS CHAIN
+	// ("standard_assets/30", "standard_foreign_assets/6212dc…"). It is what an
+	// asset_external_ref is keyed by, so a second asset claiming the same
+	// ticker lands beside this one instead of on top of it.
+	UniqueID string
+}
+
+// Total is the account's full holding of the NATIVE coin. It is Balance
+// alone — see the type doc. Tokens are separate positions, never part of it.
 func (a Account) Total() decimal.Decimal {
 	return a.Balance
 }
@@ -85,26 +124,115 @@ func (a Account) Total() decimal.Decimal {
 // tokensResponse is the /api/scan/account/tokens envelope. Subscan signals
 // errors through code != 0 with HTTP 200, so the body must always be inspected.
 //
-// Only the native token is read here. The builtin/assets/erc20 arrays that
-// this endpoint also returns carry the ecosystem's non-native holdings (USDT
-// on Hydration, DED and MYTH on Polkadot Asset Hub) and are the subject of
-// personal-feb.10 — the fixtures in this package deliberately keep them so the
-// parser's indifference to them is covered by tests.
+// The response groups holdings by where the chain keeps them. Native is the
+// chain's own coin. Builtin is a chain's multi-token pallet (Hydration keeps
+// USDT there) and assets is pallet-assets on the Asset Hubs, where DED sits at
+// id 30 and MYTH arrives teleported from parachain 3369. Both carry the same
+// fields and are read the same way.
+//
+// erc20 is NOT read. It is served for the EVM-addressed chains (Moonbeam,
+// Astar's H160 side), no account here reaches one, and no response captured
+// from this endpoint has ever contained the array — so its field names would
+// be guessed rather than measured, which is how a position gets silently
+// rescaled. It is personal-feb.15, with the prior question attached: an ERC-20
+// on an EVM-compatible parachain is also readable by an EVM balance reader,
+// and two readers of one balance is how ETH counted twice on Optimism
+// (personal-b1o9).
 type tokensResponse struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Data    struct {
-		// Native is null for an address the chain has never seen, which is
-		// not an error: it maps to a zero balance.
-		Native []struct {
-			Symbol    string `json:"symbol"`
-			Decimals  int32  `json:"decimals"`
-			Balance   string `json:"balance"`
-			Reserved  string `json:"reserved"`
-			Bonded    string `json:"bonded"`
-			Unbonding string `json:"unbonding"`
-		} `json:"native"`
-	} `json:"data"`
+	Code    int        `json:"code"`
+	Message string     `json:"message"`
+	Data    tokensData `json:"data"`
+}
+
+// tokensData is the payload's groups.
+type tokensData struct {
+	// Native is null for an address the chain has never seen, which is
+	// not an error: it maps to a zero balance.
+	Native []nativeEntry `json:"native"`
+
+	Builtin []tokenEntry `json:"builtin"`
+	Assets  []tokenEntry `json:"assets"`
+}
+
+// nativeEntry is the chain's own coin.
+type nativeEntry struct {
+	Symbol    string `json:"symbol"`
+	Decimals  int32  `json:"decimals"`
+	Balance   string `json:"balance"`
+	Reserved  string `json:"reserved"`
+	Bonded    string `json:"bonded"`
+	Unbonding string `json:"unbonding"`
+}
+
+// tokenEntry is one non-native holding as the API reports it.
+//
+// Decimals is a POINTER because absent and zero must not be the same value
+// here. Zero decimals is legitimate — an asset can be denominated in whole
+// units — while an absent field means the entry does not say how to read its
+// own number, and reading it as whole units would inflate an 18-decimal
+// position by 10^18. The one case the native parser guards with `<= 0` needs
+// three states at this level, not two.
+type tokenEntry struct {
+	Symbol   string `json:"symbol"`
+	UniqueID string `json:"unique_id"`
+	Decimals *int32 `json:"decimals"`
+	Balance  string `json:"balance"`
+	Lock     string `json:"lock"`
+}
+
+// tokens reads the non-native groups into positions, and names what it refused.
+//
+// Refusals are per ENTRY, never per chain. An Asset Hub accepts a registration
+// from anyone, so one malformed entry is a thing a stranger can put in this
+// account's response — failing the chain on it would let that stranger stop
+// DOT from syncing.
+//
+// A repeated unique_id is refused for the same reason it would be expensive:
+// downstream, holdings merge per (asset, chain), so two rows of one identity
+// are summed rather than shown twice, and a doubled position states a number
+// nobody holds.
+func (d tokensData) tokens(chain string) ([]Token, []string) {
+	var (
+		out     []Token
+		skipped []string
+		seen    = make(map[string]bool)
+	)
+	for _, group := range [][]tokenEntry{d.Builtin, d.Assets} {
+		for _, e := range group {
+			id := e.UniqueID
+			if id == "" {
+				skipped = append(skipped, fmt.Sprintf("%s: token %q has no unique_id", chain, e.Symbol))
+				continue
+			}
+			if seen[id] {
+				skipped = append(skipped, fmt.Sprintf("%s: token %s reported twice under %s", chain, e.Symbol, id))
+				continue
+			}
+			if e.Decimals == nil {
+				skipped = append(skipped, fmt.Sprintf("%s: token %s (%s) reports no decimals", chain, e.Symbol, id))
+				continue
+			}
+			balance, err := parseAmount(chain, "token balance", e.Balance)
+			if err != nil {
+				skipped = append(skipped, err.Error())
+				continue
+			}
+			seen[id] = true
+			if balance.IsZero() {
+				// An asset the account has held and spent stays in the
+				// response at zero. It is not a position.
+				continue
+			}
+			out = append(out, Token{
+				Symbol:   e.Symbol,
+				Decimals: *e.Decimals,
+				Balance:  balance,
+				Lock:     optionalAmount(e.Lock),
+				UniqueID: id,
+			})
+		}
+	}
+	return out, skipped
 }
 
 // GetAccount fetches the native balance of an address on one network.
@@ -163,11 +291,17 @@ func (c *Client) GetAccount(ctx context.Context, chain, address string) (Account
 		return Account{}, fmt.Errorf("subscan error for %s: code %d: %s", chain, parsed.Code, parsed.Message)
 	}
 
+	tokens, skipped := parsed.Data.tokens(chain)
+
 	// A null or empty native array is an address the chain has never seen.
 	// Reported with the chain's own precision so the caller cannot mistake a
 	// zero for a decimals-less amount.
+	//
+	// Tokens still ride along: an account can hold a pallet asset with none of
+	// the chain's own coin left, and "no native balance" must not be read as
+	// "nothing here" (the Asset Hubs are where that is most likely).
 	if len(parsed.Data.Native) == 0 {
-		return Account{Symbol: net.symbol, Decimals: net.decimals}, nil
+		return Account{Symbol: net.symbol, Decimals: net.decimals, Tokens: tokens, Skipped: skipped}, nil
 	}
 
 	native := parsed.Data.Native[0]
@@ -198,6 +332,8 @@ func (c *Client) GetAccount(ctx context.Context, chain, address string) (Account
 		Reserved:  optionalAmount(native.Reserved),
 		Bonded:    optionalAmount(native.Bonded),
 		Unbonding: optionalAmount(native.Unbonding),
+		Tokens:    tokens,
+		Skipped:   skipped,
 	}, nil
 }
 

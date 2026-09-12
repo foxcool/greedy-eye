@@ -44,8 +44,9 @@ type network struct {
 // is correct — it is the same asset, held on another chain.
 //
 // The assets themselves ride in the same /api/scan/account/tokens response
-// this adapter already reads, under builtin/assets/erc20 — surfacing them is
-// personal-feb.10 and deliberately not done here.
+// this adapter already reads, under builtin and assets, and are read as
+// positions of their own (personal-feb.10). The erc20 group is not: see
+// tokensResponse for why an unmeasured field shape is not worth a parser.
 //
 // symbol and decimals are fallbacks only. Live balances carry their own symbol
 // and precision, which always win: a table that disagrees with the chain is
