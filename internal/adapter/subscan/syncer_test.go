@@ -62,8 +62,15 @@ func TestSyncWallet_HydrationControllerAnchor(t *testing.T) {
 	}`))
 
 	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", []string{"hydration"})
-	require.NoError(t, err)
-	require.Len(t, balances, 2, "only the native token is read; builtin assets are personal-feb.10")
+
+	// The builtin USDT entry in this fixture was abbreviated to three fields
+	// when it was pinned, and the one it lost is unique_id — which every
+	// captured response carries on every entry, native included. A token whose
+	// identity the response does not state is refused and NAMED, never guessed
+	// at from its ticker: on a chain where anyone may register an asset, the
+	// ticker is the claim under examination, not the evidence.
+	require.ErrorContains(t, err, "USDT")
+	require.Len(t, balances, 2, "the native coin is unaffected by a refused token")
 
 	// The anchor is now the SUM: the position is split by liquidity, and the
 	// total it adds up to is the figure verified against the manual baseline.
@@ -482,4 +489,216 @@ func TestConfigTransportIsUsed(t *testing.T) {
 	_, err := NewWalletSyncer(client).SyncWallet(context.Background(), "5Dsvsa", []string{"hydration"})
 	require.NoError(t, err)
 	assert.Positive(t, tr.calls, "Config.Transport must reach the HTTP client")
+}
+
+// TestSyncWallet_AssetHubAssetsAreHoldings is the live capture that closes
+// personal-feb.10: Polkadot Asset Hub, the dot-controller address, 2026-09-12,
+// taken off the dev instance through its own credential rather than retyped.
+//
+// It carries the two shapes pallet-assets comes in — a locally registered asset
+// (DED, id 30) and one teleported from a parachain (MYTH, from 3369) — and they
+// differ in precision, which is the whole reason the entry states its own.
+// Reading MYTH at DED's ten decimals would report 5.7 billion MYTH.
+func TestSyncWallet_AssetHubAssetsAreHoldings(t *testing.T) {
+	syncer := newTestSyncer(t, respondJSON(`{
+		"code": 0, "message": "Success",
+		"data": {
+			"native": [{
+				"symbol": "DOT", "unique_id": "DOT", "decimals": 10,
+				"balance": "83568869912",
+				"lock": "0", "reserved": "0", "bonded": "0", "unbonding": "0"
+			}],
+			"assets": [
+				{
+					"symbol": "DED", "unique_id": "standard_assets/30", "decimals": 10,
+					"balance": "895736192688", "lock": "0", "asset_id": "30"
+				},
+				{
+					"symbol": "MYTH",
+					"unique_id": "standard_foreign_assets/6212dc295daf309533f0f5873ec3f3e62d9dba33",
+					"decimals": 18, "balance": "57000000000000000000",
+					"asset_id": "6212dc295daf309533f0f5873ec3f3e62d9dba33"
+				}
+			]
+		}
+	}`))
+
+	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", []string{"assethub-polkadot"})
+	require.NoError(t, err)
+	require.Len(t, balances, 3, "the chain's own coin plus its two pallet assets")
+
+	assert.Equal(t, "DOT", balances[0].Symbol)
+	assert.Equal(t, "83568869912", balances[0].Amount)
+	assert.Empty(t, balances[0].ContractAddress, "a native coin has no contract to confirm")
+
+	ded := balances[1]
+	assert.Equal(t, "DED", ded.Symbol)
+	assert.Equal(t, "895736192688", ded.Amount)
+	assert.Equal(t, 10, ded.Decimals, "89.5736192688 DED")
+	assert.Equal(t, "standard_assets/30", ded.ContractAddress)
+	assert.Equal(t, "assethub-polkadot", ded.Chain)
+	assert.Equal(t, entity.LiquidityLiquid, ded.Liquidity, "nothing is locked")
+
+	myth := balances[2]
+	assert.Equal(t, "MYTH", myth.Symbol)
+	assert.Equal(t, "57000000000000000000", myth.Amount)
+	assert.Equal(t, 18, myth.Decimals, "57 MYTH, not 5.7bn")
+	assert.Equal(t, "standard_foreign_assets/6212dc295daf309533f0f5873ec3f3e62d9dba33", myth.ContractAddress)
+}
+
+// TestSyncWallet_TokenWithoutDecimalsIsRefusedNotGuessed covers the hazard this
+// whole issue was written around: absent precision read as zero turns a
+// position into 10^decimals times itself. An entry that does not say how to
+// read its number is refused and named, and the rest of the chain is untouched.
+//
+// The refusal is per ENTRY on purpose. Registration on an Asset Hub is
+// permissionless, so a malformed entry is something a stranger can put into
+// this account's response; failing the chain on it would hand that stranger a
+// way to stop DOT from syncing.
+func TestSyncWallet_TokenWithoutDecimalsIsRefusedNotGuessed(t *testing.T) {
+	syncer := newTestSyncer(t, respondJSON(`{
+		"code": 0, "message": "Success",
+		"data": {
+			"native": [{
+				"symbol": "DOT", "unique_id": "DOT", "decimals": 10,
+				"balance": "83568869912", "reserved": "0", "bonded": "0", "unbonding": "0"
+			}],
+			"assets": [
+				{"symbol": "JUNK", "unique_id": "standard_assets/999", "balance": "1000000000000000000"},
+				{"symbol": "DED", "unique_id": "standard_assets/30", "decimals": 10, "balance": "895736192688"}
+			]
+		}
+	}`))
+
+	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", []string{"assethub-polkadot"})
+	require.ErrorContains(t, err, "JUNK")
+	require.ErrorContains(t, err, "decimals")
+	require.Len(t, balances, 2, "the native coin and the well-formed asset both survive")
+	assert.Equal(t, "DOT", balances[0].Symbol)
+	assert.Equal(t, "DED", balances[1].Symbol)
+}
+
+// TestSyncWallet_ZeroDecimalsIsAPrecisionNotAnAbsence is the other half of the
+// same guard. Zero decimals is legitimate — an asset may be denominated in
+// whole units — so the parser must separate "says zero" from "says nothing",
+// which is why the field is read as a pointer.
+func TestSyncWallet_ZeroDecimalsIsAPrecisionNotAnAbsence(t *testing.T) {
+	syncer := newTestSyncer(t, respondJSON(`{
+		"code": 0, "message": "Success",
+		"data": {
+			"native": [{
+				"symbol": "DOT", "unique_id": "DOT", "decimals": 10,
+				"balance": "83568869912", "reserved": "0", "bonded": "0", "unbonding": "0"
+			}],
+			"assets": [
+				{"symbol": "TICKET", "unique_id": "standard_assets/7", "decimals": 0, "balance": "3"}
+			]
+		}
+	}`))
+
+	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", []string{"assethub-polkadot"})
+	require.NoError(t, err)
+	require.Len(t, balances, 2)
+	assert.Equal(t, "TICKET", balances[1].Symbol)
+	assert.Equal(t, "3", balances[1].Amount)
+	assert.Equal(t, 0, balances[1].Decimals, "three whole tickets")
+}
+
+// TestSyncWallet_OneIdentityIsOnePosition: downstream, holdings merge per
+// (asset, chain), so two rows carrying one identity are SUMMED rather than
+// shown twice. A response that names the same asset in two groups must
+// therefore produce one position, and say that it did not produce two.
+func TestSyncWallet_OneIdentityIsOnePosition(t *testing.T) {
+	syncer := newTestSyncer(t, respondJSON(`{
+		"code": 0, "message": "Success",
+		"data": {
+			"native": [{
+				"symbol": "HDX", "unique_id": "HDX", "decimals": 12,
+				"balance": "1000000000000", "reserved": "0", "bonded": "0", "unbonding": "0"
+			}],
+			"builtin": [
+				{"symbol": "USDT", "unique_id": "builtin/10", "decimals": 6, "balance": "156501335"}
+			],
+			"assets": [
+				{"symbol": "USDT", "unique_id": "builtin/10", "decimals": 6, "balance": "156501335"}
+			]
+		}
+	}`))
+
+	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", []string{"hydration"})
+	require.ErrorContains(t, err, "twice")
+	require.Len(t, balances, 2, "HDX and one USDT")
+	assert.Equal(t, "156501335", balances[1].Amount, "156.501335 USDT, counted once")
+}
+
+// TestSyncWallet_TokensSurviveAnEmptyNativeBalance: an account can hold a
+// pallet asset having spent the last of the chain's own coin, and on the Asset
+// Hubs that is the likely case rather than the exotic one. "No native balance"
+// must not be read as "nothing here".
+func TestSyncWallet_TokensSurviveAnEmptyNativeBalance(t *testing.T) {
+	syncer := newTestSyncer(t, respondJSON(`{
+		"code": 0, "message": "Success",
+		"data": {
+			"native": [],
+			"assets": [
+				{"symbol": "RMRK", "unique_id": "standard_assets/8", "decimals": 10, "balance": "10995332256"}
+			]
+		}
+	}`))
+
+	balances, err := syncer.SyncWallet(context.Background(), "EEg3jY", []string{"assethub-kusama"})
+	require.NoError(t, err)
+	require.Len(t, balances, 1)
+	assert.Equal(t, "RMRK", balances[0].Symbol)
+	assert.Equal(t, "10995332256", balances[0].Amount)
+	assert.Equal(t, "assethub-kusama", balances[0].Chain)
+}
+
+// TestSyncWallet_ASpentAssetIsNotAPosition: an asset the account once held
+// stays in the response at zero. Emitting it would put a row nobody holds into
+// the catalogue, and every such row is one more thing the unpriced tail has to
+// explain.
+func TestSyncWallet_ASpentAssetIsNotAPosition(t *testing.T) {
+	syncer := newTestSyncer(t, respondJSON(`{
+		"code": 0, "message": "Success",
+		"data": {
+			"native": [{
+				"symbol": "DOT", "unique_id": "DOT", "decimals": 10,
+				"balance": "83568869912", "reserved": "0", "bonded": "0", "unbonding": "0"
+			}],
+			"assets": [
+				{"symbol": "GONE", "unique_id": "standard_assets/11", "decimals": 10, "balance": "0"}
+			]
+		}
+	}`))
+
+	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", []string{"assethub-polkadot"})
+	require.NoError(t, err)
+	require.Len(t, balances, 1)
+	assert.Equal(t, "DOT", balances[0].Symbol)
+}
+
+// TestSyncWallet_ALockedTokenIsNotClaimedSpendable: no captured response has
+// carried a non-zero token lock, so whether it is a subset of balance (as the
+// native coin's is) or something beside it has not been measured. The position
+// is reported whole and unclassified — the same refusal splitLiquidity makes,
+// for the same reason: overstating spendable money is the one error that
+// matters here.
+func TestSyncWallet_ALockedTokenIsNotClaimedSpendable(t *testing.T) {
+	syncer := newTestSyncer(t, respondJSON(`{
+		"code": 0, "message": "Success",
+		"data": {
+			"native": [],
+			"assets": [
+				{"symbol": "DED", "unique_id": "standard_assets/30", "decimals": 10,
+				 "balance": "895736192688", "lock": "100000000000"}
+			]
+		}
+	}`))
+
+	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", []string{"assethub-polkadot"})
+	require.NoError(t, err)
+	require.Len(t, balances, 1, "not split into spendable and frozen")
+	assert.Equal(t, "895736192688", balances[0].Amount)
+	assert.Equal(t, entity.LiquidityUnknown, balances[0].Liquidity)
 }
