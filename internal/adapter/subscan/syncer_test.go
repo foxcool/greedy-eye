@@ -702,3 +702,54 @@ func TestSyncWallet_ALockedTokenIsNotClaimedSpendable(t *testing.T) {
 	assert.Equal(t, "895736192688", balances[0].Amount)
 	assert.Equal(t, entity.LiquidityUnknown, balances[0].Liquidity)
 }
+
+// TestSyncWallet_AnUnreadableLockIsNotAZeroLock closes the hole the adjacent
+// personal-feb.13 pointed at, one layer over from where that ticket looks.
+//
+// A lock is read with the parser that returns zero on failure, and the liquidity
+// rule asked whether the lock was zero. So a lock nobody could parse arrived as
+// "nothing frozen" — a claim about spendable money made out of a string that was
+// never read, and made in the one direction that overstates it. The entry is
+// still a position; only its partition is withheld, and the withholding is named.
+func TestSyncWallet_AnUnreadableLockIsNotAZeroLock(t *testing.T) {
+	syncer := newTestSyncer(t, respondJSON(`{
+		"code": 0, "message": "Success",
+		"data": {
+			"native": [],
+			"assets": [
+				{"symbol": "DED", "unique_id": "standard_assets/30", "decimals": 10,
+				 "balance": "895736192688", "lock": "not-a-number"}
+			]
+		}
+	}`))
+
+	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", []string{"assethub-polkadot"})
+	require.ErrorContains(t, err, "unreadable lock")
+	require.Len(t, balances, 1, "the position is reported; only its partition is withheld")
+	assert.Equal(t, "895736192688", balances[0].Amount)
+	assert.Equal(t, entity.LiquidityUnknown, balances[0].Liquidity)
+}
+
+// TestSyncWallet_AnAbsentLockIsAZeroLock is the other side of that line, and it
+// is measured rather than assumed: in one live Polkadot Asset Hub response DED
+// carries "lock": "0" and MYTH carries no lock field at all. Subscan omits a
+// component an account does not use, so absent is zero — and reading it as
+// unknown would drop every token into an unstated liquidity.
+func TestSyncWallet_AnAbsentLockIsAZeroLock(t *testing.T) {
+	syncer := newTestSyncer(t, respondJSON(`{
+		"code": 0, "message": "Success",
+		"data": {
+			"native": [],
+			"assets": [
+				{"symbol": "MYTH",
+				 "unique_id": "standard_foreign_assets/6212dc295daf309533f0f5873ec3f3e62d9dba33",
+				 "decimals": 18, "balance": "57000000000000000000"}
+			]
+		}
+	}`))
+
+	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", []string{"assethub-polkadot"})
+	require.NoError(t, err)
+	require.Len(t, balances, 1)
+	assert.Equal(t, entity.LiquidityLiquid, balances[0].Liquidity)
+}
