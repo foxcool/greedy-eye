@@ -68,11 +68,15 @@ type Provider struct {
 	client  *Client
 	catalog *catalog
 	log     *slog.Logger
+	// now is the clock the market claim is measured against. Injectable because
+	// noMarketBehind compares a print's age to a threshold, and a test that
+	// asked the wall clock would start failing two days after it was written.
+	now func() time.Time
 }
 
 // NewProvider wraps a *Client as a T-Invest price provider.
 func NewProvider(c *Client) *Provider {
-	return &Provider{client: c, catalog: newCatalog(c), log: slog.Default()}
+	return &Provider{client: c, catalog: newCatalog(c), log: slog.Default(), now: time.Now}
 }
 
 // BaseAssetSymbol returns the provider-level quote currency. Individual rows
@@ -154,6 +158,11 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 		return nil, nil
 	}
 
+	// One reading of the clock for the whole sweep. noMarketBehind compares a
+	// print's age against it, and asking per row would let the horizon fall
+	// between two instruments of the same batch.
+	now := p.now()
+
 	var result []entity.StoredPrice
 	var lastErr error
 	for start := 0; start < len(figis); start += batchSize {
@@ -181,7 +190,7 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 				lastErr = err
 				continue
 			}
-			price, ok := p.storedPrice(asset, lp, inst, known, trading[lp.FIGI])
+			price, ok := p.storedPrice(asset, lp, inst, known, trading[lp.FIGI], now)
 			if !ok {
 				continue
 			}
@@ -195,14 +204,18 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 	return result, nil
 }
 
-// tradingByFIGI reads which instruments are trading right now. Best-effort: a
-// failed status call must not stop pricing, and an absent status is handled the
-// same way as "not trading" — the conservative direction, which keeps the price
-// out of the total rather than into it.
+// tradingByFIGI reads what the venue says about each instrument right now. Two
+// fields are read from the answer — the trading status and whether the API may
+// trade the instrument at all — and both are live counterparts of copies the
+// catalogue already carries. A missing answer therefore costs nothing: the
+// catalogue still speaks, and refusesToTrade lets either source refuse without
+// letting either one grant permission.
+//
+// Best-effort: a failed status call must not stop pricing.
 func (p *Provider) tradingByFIGI(ctx context.Context, figis []string) map[string]TradingStatus {
 	statuses, err := p.client.TradingStatuses(ctx, figis)
 	if err != nil {
-		p.log.Warn("tinvest trading statuses failed, prices treated as untraded", "error", err)
+		p.log.Warn("tinvest trading statuses failed, the catalogue snapshot answers alone", "error", err)
 		return nil
 	}
 	out := make(map[string]TradingStatus, len(statuses))
@@ -224,17 +237,20 @@ func (p *Provider) tradingByFIGI(ctx context.Context, figis []string) map[string
 //
 // So the market claim is made explicitly:
 //
-//   - Trading normally, price printed on the exchange → a trade made this
-//     number and there is a market behind it. No volume is claimed, because
-//     none was measured, and the freshness axis dates the row.
+//   - The price printed on the exchange, on paper the venue will let anyone
+//     trade → a trade made this number and there is a market behind it. No
+//     volume is claimed, because none was measured, and the freshness axis
+//     dates the row.
 //
-//   - Anything else — halted, delisted, blocked, or a dealer's quote → turnover
-//     of zero. That is a measurement and not an assumption: an instrument that
+//   - Paper that cannot be traded at all, or a dealer's quote → turnover of
+//     zero. That is a measurement and not an assumption: an instrument that
 //     cannot be traded traded nothing. ADR-009 then keeps the number out of the
 //     total while it stays in the catalogue, which is exactly what PR#75 did
 //     with an exchange's recognised close.
+//
+// A CLOSED SESSION IS NEITHER. See noMarketBehind.
 func (p *Provider) storedPrice(
-	asset *entity.Asset, lp LastPrice, inst Instrument, known bool, status TradingStatus,
+	asset *entity.Asset, lp LastPrice, inst Instrument, known bool, status TradingStatus, now time.Time,
 ) (entity.StoredPrice, bool) {
 	value, ok := lp.Price.Decimal()
 	if !ok || !value.IsPositive() {
@@ -268,10 +284,8 @@ func (p *Provider) storedPrice(
 		Timestamp:  at,
 	}
 
-	if tradedNow(lp, inst, status) {
-		price.Provenance = entity.PriceProvenanceTraded
-	} else {
-		price.Provenance = provenanceOf(lp)
+	price.Provenance = provenanceOf(lp)
+	if noMarketBehind(price.Provenance, inst, status, at, now) {
 		price.Volume = decimal.NullDecimal{Decimal: decimal.Zero, Valid: true}
 	}
 
@@ -281,29 +295,139 @@ func (p *Provider) storedPrice(
 	return price, true
 }
 
-// tradedNow reports whether there is a market behind this print at this moment.
+// noMarketBehind reports whether this print stands on no market at all, as
+// opposed to standing on one that is merely shut at the moment of asking.
 //
-// Every condition has to hold: an instrument can be in normal trading and still
-// be quoted by a dealer, and it can be quotable through the catalogue while the
-// broker has it blocked. An absent status counts as not trading, because the
-// question was asked and not answered.
-func tradedNow(lp LastPrice, inst Instrument, status TradingStatus) bool {
-	if status.TradingStatus != StatusNormalTrading {
-		return false
+// BOTH HALVES ARE LOAD-BEARING, AND NEITHER IS ENOUGH ALONE. That is not a
+// design preference, it is what the venue's own answers permit. Asked about
+// three instruments at one instant, with the main session shut, the live API
+// said:
+//
+//	a share trading in the evening session   blockedTca=false apiTrade=true  DEALER_NORMAL_TRADING
+//	a share whose session had not opened     blockedTca=false apiTrade=true  NOT_AVAILABLE_FOR_TRADING
+//	a fund frozen by sanctions since 2022    blockedTca=false apiTrade=true  NOT_AVAILABLE_FOR_TRADING
+//
+// Paper frozen for years carries exactly the flags of a healthy share, so
+// neither flag can name an instrument that cannot be traded. And one status is
+// worn both by the fund that will never trade again and by the share that has
+// simply not opened yet — one code for two different claims. The only fact that
+// separates them is how long ago somebody last traded.
+//
+// So the rule is the conjunction: the venue refuses to trade this instrument AND
+// nobody has traded it within noTradeHorizon.
+//
+// THE FLAGS SIT INSIDE THE CONJUNCTION TOO, and that is a change of its own.
+// They used to zero a row by themselves, on the reading that BlockedTCAFlag
+// names paper nobody may trade; the measurement above says otherwise, and a
+// flag that misses the instrument it was chosen for does not get to remove a
+// position unaided. Paper blocked today therefore stays in the total for a
+// month, priced by the trade that really happened, with its age on show.
+//
+// THAT IS A CLAIM ABOUT DEPTH CARRYING A CLAIM ABOUT LIQUIDITY, and it is the
+// known cost of this whole function. Frozen paper has a real price and no way
+// out of the position, which belongs on a liquidity axis beside holdings already
+// marked `liquidity: locked` — not on ADR-009's gate (personal-dkae). Until that
+// axis exists, this gate is the only thing standing between a years-old print
+// and the total.
+//
+// The rule this replaced asked for NORMAL_TRADING at the moment of asking, and
+// so stamped a turnover of zero on every instrument the minute its session
+// closed: an equity portfolio dropped by a fifth every evening with nothing
+// bought or sold, and recovered each morning by itself (personal-5be7). The
+// first row above shows how narrow that test was — an evening dealer session is
+// trading, and it is not the one constant the test allowed.
+func noMarketBehind(
+	p entity.PriceProvenance, inst Instrument, status TradingStatus, printedAt, now time.Time,
+) bool {
+	// A dealer's quote is an appraisal: a market maker stated it, no trade made
+	// it. Telling those apart is what PriceProvenance exists for.
+	if p != entity.PriceProvenanceTraded {
+		return true
 	}
-	if inst.BlockedTCAFlag || !inst.APITradeAvailableFlag {
-		return false
-	}
-	return lp.LastPriceType == LastPriceExchange
+	return refusesToTrade(inst, status) && now.Sub(printedAt) > noTradeHorizon
 }
 
-// provenanceOf says what produced a number that is not a live market print.
+// refusesToTrade reports the venue's current answer to "may this be traded".
+//
+// IT IS A WHITELIST, AND THE CONJUNCTION IN noMarketBehind IS WHAT MAKES THAT
+// SAFE. A blacklist would have to enumerate every way this API can spell a
+// refusal, and the enum spells it at least twice — NOT_AVAILABLE_FOR_TRADING and
+// DEALER_NOT_AVAILABLE_FOR_TRADING — while also carrying UNSPECIFIED, which
+// proto3 JSON omits from the payload altogether, so an absent field and a
+// refusal arrive looking the same. Matching the one constant that was measured
+// would have let a 2022 print into the total on any hour when the venue answers
+// in its dealer dialect. Every unrecognised spelling therefore counts as a
+// refusal, and a status this adapter has never seen fails towards keeping paper
+// out rather than letting it in.
+//
+// That direction is only affordable because a refusal on its own does nothing:
+// the print also has to be older than noTradeHorizon. A live instrument whose
+// status is briefly unreadable is a month away from being affected, and by then
+// it has printed again.
+//
+// The live answer wins when there is one, and the catalogue's copy is the
+// fallback. Both are read with the same eyes: the catalogue's field is a snapshot
+// up to catalogTTL old, which is why it may not decide anything by itself.
+func refusesToTrade(inst Instrument, status TradingStatus) bool {
+	// The catalogue's flags say the broker will not let this be traded at all.
+	// They used to zero a row on their own; they no longer do, because the live
+	// API shows them clean on paper frozen since 2022 — a flag that misses the
+	// case it names cannot be trusted to fire alone.
+	if inst.BlockedTCAFlag || !inst.APITradeAvailableFlag {
+		return true
+	}
+	// The same statement from the live record, which is fresher than a
+	// catalogue snapshot up to catalogTTL old.
+	if status.FIGI != "" && !status.APITradeAvailableFlag {
+		return true
+	}
+	// EITHER SOURCE MAY REFUSE, AND NEITHER MAY GRANT PERMISSION OVER THE OTHER.
+	// The live answer used to replace the catalogue's, which turned out to be a
+	// way back into the total: the whitelist below admits states that describe
+	// the trading DAY — a break, an auction, a closed session — and a venue
+	// answering with one of those about a frozen instrument silently withdrew
+	// the catalogue's "not available", putting a 2022 print back into the sum at
+	// full value. A disjunction cannot do that. What it costs is the mirror
+	// case: paper whose catalogue snapshot was taken while everything was shut
+	// counts as refused until the snapshot rolls over — and refusal alone does
+	// nothing, because the print still has to be older than noTradeHorizon.
+	// Erring towards holding paper OUT of a total is the direction this project
+	// chose: a number that overstates is worse than one that discloses a gap.
+	if !tradingModes[inst.TradingStatus] {
+		return true
+	}
+	return status.FIGI != "" && !tradingModes[status.TradingStatus]
+}
+
+// tradingModes are the statuses under which the venue is running a market for an
+// instrument, or is between sessions of one. Auctions, breaks and a closed
+// session all belong here: they say where the trading day is, not whether the
+// paper has a market. Anything outside this set — a refusal, an unspecified
+// status, a member added after this was written — is read as a refusal.
+var tradingModes = map[string]bool{
+	StatusNormalTrading:              true,
+	StatusDealerNormalTrading:        true,
+	StatusOpeningPeriod:              true,
+	StatusClosingPeriod:              true,
+	StatusBreakInTrading:             true,
+	StatusDealerBreakInTrading:       true,
+	StatusOpeningAuction:             true,
+	StatusClosingAuction:             true,
+	StatusDarkPoolAuction:            true,
+	StatusDiscreteAuction:            true,
+	StatusClosingAuctionPriceTrading: true,
+	StatusSessionAssigned:            true,
+	StatusSessionClose:               true,
+	StatusSessionOpen:                true,
+}
+
+// provenanceOf says what produced this number.
 //
 // A dealer quote is an appraisal: a market maker stated it, no trade made it.
 // A halted instrument's last price is still a trade, just an old one, and
-// calling that an appraisal would misdescribe it — its problem is age, which
-// the freshness axis reports, and absence of a market today, which the zero
-// turnover beside it reports.
+// calling that an appraisal would misdescribe it — its problem is age, which the
+// freshness axis reports. The same goes for the last print before a session
+// closed, which is why this reads the price type and nothing about the clock.
 func provenanceOf(lp LastPrice) entity.PriceProvenance {
 	if lp.LastPriceType == LastPriceExchange {
 		return entity.PriceProvenanceTraded

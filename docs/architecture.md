@@ -1360,6 +1360,16 @@ somebody chose, since that would report one currency's number under another curr
   - ➕ The heatmap discloses what it dropped: `GetHeatmapResponse.coverage` carries the same
     `ValuationCoverage`, so a thin quote is reported as `THIN_MARKET` rather than vanishing
   - ➖ One global threshold for every asset class; a thinly-traded bond will need its own rule
+  - ➖ A provider that reports no turnover at all can only reach this gate by SYNTHESISING a
+    volume, and then the gate carries whatever claim that provider wanted to make. T-Invest
+    reports no turnover, so its adapter wrote `volume = 0` for anything not trading at the
+    moment of asking — which included every instrument whose exchange had shut for the night.
+    An equity portfolio lost a fifth of itself every evening and recovered every morning, with
+    nothing bought or sold, and the rows contradicted themselves while it lasted:
+    `provenance = traded` beside a turnover of zero (`personal-5be7`). A synthesised volume
+    must therefore answer the question this gate asks — *is there a market behind this print* —
+    and not a neighbouring one such as *is the session open* or *can this position be exited*;
+    the latter is a liquidity claim and belongs on its own axis (`personal-dkae`)
 - **Rejected**: a `volume > 0` floor (does not catch MNEP, which reports real volume);
   gating on a missing market cap (the 11 no-volume assets on dev are mostly Aave receipt
   tokens — aUSDC, aETHUSDC, aWETH — real money with no market of its own, and a naive gate
