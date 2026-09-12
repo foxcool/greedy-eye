@@ -289,7 +289,11 @@ type Instrument struct {
 	// reports quantity in pieces but blockedLots in LOTS, and the two differ by
 	// this factor — the capture has DASB at 10000 pieces to 1 lot.
 	Lot int `json:"lot"`
-	// TradingStatus is the instrument's current trading mode.
+	// TradingStatus is the instrument's current trading mode, as the CATALOGUE
+	// last saw it — a snapshot up to catalogTTL old. It is the fallback for the
+	// live status of the same name and never decides alone: refusesToTrade
+	// reads it only when the status call did not answer, and a refusal only
+	// matters beside a print older than noTradeHorizon.
 	TradingStatus string `json:"tradingStatus"`
 	// APITradeAvailableFlag reports whether the instrument can be traded through
 	// the API at all. False covers blocked and delisted paper.
@@ -318,16 +322,64 @@ type TradingStatus struct {
 	InstrumentUID         string `json:"instrumentUid"`
 }
 
-// Trading status values this adapter distinguishes. The enum has more members
-// (opening auction, closing auction, break); everything that is not normal
-// trading is treated alike, because none of the others is a market either.
-const (
-	StatusNormalTrading = "SECURITY_TRADING_STATUS_NORMAL_TRADING"
-)
-
 // LastPriceExchange is the price type produced by a trade on the exchange, as
 // opposed to LAST_PRICE_DEALER, which a market maker states.
 const LastPriceExchange = "LAST_PRICE_EXCHANGE"
+
+// noTradeHorizon is how long an instrument may go untraded before a refusal to
+// trade it reads as the end of its market rather than the end of a session.
+//
+// MEASURED, NOT GUESSED, in the manner ADR-009 chose its own threshold, and the
+// distribution has the same shape: print ages fall into two groups with nothing
+// between them. Paper still admitted to a market was hours old; paper frozen by
+// the 2022 sanctions was years old. There was no middle to argue about.
+//
+// So the number is chosen against the CALENDAR rather than against a sample that
+// would be different on another instance: it has to clear the longest scheduled
+// closure of the venues read here, which is the Russian New Year break — about
+// nine calendar days between the last December session and the first January
+// one. Thirty days clears that threefold and is still far below anything a
+// genuinely dead listing produces.
+//
+// TWO DAYS WOULD NOT DO, and this is the correction that produced the constant:
+// pricefresh.DefaultMaxAge was the first choice, on the reasoning that it was
+// picked to clear a weekend. It clears a weekend of QUOTES, which a daily rate
+// supplies — not a weekend of TRADES. MOEX stands from Friday's evening close,
+// about 20:50 UTC, to Monday's opening auction near 07:00 UTC: roughly 58 hours.
+// An instrument outside the extended sessions wears NOT_AVAILABLE_FOR_TRADING
+// for that whole stretch, so a 48-hour window would have zeroed its turnover
+// every Sunday evening and released it every Monday morning — personal-5be7
+// again, moved a day later and made harder to see.
+const noTradeHorizon = 30 * 24 * time.Hour
+
+// The trading-status enum, in full. It is spelled out rather than matched by
+// prefix because the adapter reads it as a WHITELIST — refusesToTrade treats
+// anything not named here as a refusal — and a whitelist is only as honest as
+// its list.
+//
+// Note the DEALER_ dialect. The venue answers in it outside the main session —
+// a liquid share was observed in DEALER_NORMAL_TRADING while the main session
+// was shut — so every state it duplicates has to appear twice, or the same
+// instrument reads differently depending on the hour it was asked.
+const (
+	StatusUnspecified                = "SECURITY_TRADING_STATUS_UNSPECIFIED"
+	StatusNotAvailableForTrading     = "SECURITY_TRADING_STATUS_NOT_AVAILABLE_FOR_TRADING"
+	StatusOpeningPeriod              = "SECURITY_TRADING_STATUS_OPENING_PERIOD"
+	StatusClosingPeriod              = "SECURITY_TRADING_STATUS_CLOSING_PERIOD"
+	StatusBreakInTrading             = "SECURITY_TRADING_STATUS_BREAK_IN_TRADING"
+	StatusNormalTrading              = "SECURITY_TRADING_STATUS_NORMAL_TRADING"
+	StatusClosingAuction             = "SECURITY_TRADING_STATUS_CLOSING_AUCTION"
+	StatusDarkPoolAuction            = "SECURITY_TRADING_STATUS_DARK_POOL_AUCTION"
+	StatusDiscreteAuction            = "SECURITY_TRADING_STATUS_DISCRETE_AUCTION"
+	StatusOpeningAuction             = "SECURITY_TRADING_STATUS_OPENING_AUCTION_PERIOD"
+	StatusClosingAuctionPriceTrading = "SECURITY_TRADING_STATUS_TRADING_AT_CLOSING_AUCTION_PRICE"
+	StatusSessionAssigned            = "SECURITY_TRADING_STATUS_SESSION_ASSIGNED"
+	StatusSessionClose               = "SECURITY_TRADING_STATUS_SESSION_CLOSE"
+	StatusSessionOpen                = "SECURITY_TRADING_STATUS_SESSION_OPEN"
+	StatusDealerNormalTrading        = "SECURITY_TRADING_STATUS_DEALER_NORMAL_TRADING"
+	StatusDealerBreakInTrading       = "SECURITY_TRADING_STATUS_DEALER_BREAK_IN_TRADING"
+	StatusDealerNotAvailable         = "SECURITY_TRADING_STATUS_DEALER_NOT_AVAILABLE_FOR_TRADING"
+)
 
 // RealExchange values, the settlement venue behind an instrument. RTS is the
 // SPB Exchange under its historical name.
