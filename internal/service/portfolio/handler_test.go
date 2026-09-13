@@ -142,6 +142,20 @@ func (m *mockStore) ListSyncDeferrals(ctx context.Context, userID, accountID str
 	return nil, args.Error(1)
 }
 
+// ListSweepDeferrals is lenient by default for the same reason RecordSyncMiss
+// is: every sweep test would otherwise have to declare an expectation for a
+// census it does not care about.
+func (m *mockStore) ListSweepDeferrals(ctx context.Context, now time.Time, limit int) ([]*entity.SyncDeferral, int, error) {
+	if !m.expects("ListSweepDeferrals") {
+		return nil, 0, nil
+	}
+	args := m.Called(ctx, now, limit)
+	if v := args.Get(0); v != nil {
+		return v.([]*entity.SyncDeferral), args.Int(1), args.Error(2)
+	}
+	return nil, args.Int(1), args.Error(2)
+}
+
 func (m *mockStore) ClearSyncDeferrals(ctx context.Context, userID string, accountIDs []string) (int, error) {
 	args := m.Called(ctx, userID, accountIDs)
 	return args.Int(0), args.Error(1)

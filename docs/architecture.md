@@ -1143,12 +1143,24 @@ somebody chose, since that would report one currency's number under another curr
   - Each account syncs **under its own owner's identity**. Ownership is attributed, not bypassed:
     `SyncAccount` resolves wallet syncers and exchange credentials per user, so a user-agnostic
     sweep would reach only what an admin shared system-wide
-  - Every run reports itself — accounts **stale** and accounts **picked** as separate numbers,
-    synced, failed, holdings written and zeroed, plus a line per account that failed or synced
-    with per-item errors. Nobody reads a scheduled job's return value, so a silent failure would
-    be indistinguishable from an account that was not due. The two counts were one number called
-    "due" that reported the *limit*: "due 2" with twelve accounts stale is what let the starvation
-    above read like a healthy sweep with little to do
+  - Every run reports itself — accounts **stale**, **picked** and **deferred** as three separate
+    numbers, plus synced, failed, partial, holdings written and zeroed. Nobody reads a scheduled
+    job's return value, so a silent failure would be indistinguishable from an account that was
+    not due. Stale and picked were one number called "due" that reported the *limit*: "due 2" with
+    twelve accounts stale is what let the starvation above read like a healthy sweep with little
+    to do. Deferred joined them later for the mirror-image reason: an account standing down is
+    excluded from both the selection and the stale count, so a queue made entirely of broken
+    accounts reported itself as "stale 0, picked 0"
+  - **The unit of the run line is the account, and the reason names the part.** The sweep queues,
+    budgets and stands down accounts, so an account is the only thing the line can promise
+    anything about — but the thing that goes dark alone is a *chain*: Hydration answered 404 for
+    sixteen days inside an account whose other four chains kept it looking fresh
+    (`personal-isy9`). So a chain is never a second unit; it is named in the reason, and a partial
+    note carries **every** complaint rather than the first, because one dead chain out of five and
+    two dead chains out of five must not read alike. One vocabulary for every named account —
+    `state` (`failed` / `no_fresher` / `partial` / `not_reached` / `standing_down`), `reasons`, and
+    `until` where there is a deadline — emitted from `LogSweepReport` alone, so the two halves of a
+    run cannot describe themselves two different ways
 - The price sweep is budgeted, not exhaustive: it asks each source only for assets whose next attempt is due (`price_fetch_attempts`), oldest first, capped by the share of the credential's remaining plan allowance that one interval affords. Naming `asset_ids` on the RPC makes it a deliberate reconciliation and bypasses both
 - Active rule schedules are fully reloaded every minute — rule CRUD needs no hooks, mutations take effect within a minute
 - Missed fires during downtime are **skipped, never caught up**: executing a stale trade plan is worse than skipping it

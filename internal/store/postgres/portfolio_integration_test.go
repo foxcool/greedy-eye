@@ -1028,6 +1028,75 @@ func indexOf(ids []string, id string) int {
 	return -1
 }
 
+// TestListSweepDeferralsCountsTheQueueTheSweepIsHoldingBack: the sweep's own
+// census, and the one place a deferral crosses owner boundaries. Its run line
+// has to say how big a queue it is standing down, and a standing-down account
+// is in neither of the other two numbers — the selection and the count both
+// skip it — so left out here it appears nowhere at all (personal-g1zt).
+func TestListSweepDeferralsCountsTheQueueTheSweepIsHoldingBack(t *testing.T) {
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	s := NewPortfolioStore(pool)
+	ctx := context.Background()
+
+	mine := createTestUser(t, users)
+	theirs := createTestUser(t, users)
+
+	account := func(userID, name string) *entity.Account {
+		a, err := s.CreateAccount(ctx, &entity.Account{
+			UserID: userID, Name: name, Type: entity.AccountTypeWallet,
+		})
+		require.NoError(t, err)
+		return a
+	}
+
+	now := time.Now()
+	ours := account(mine.ID, "ours")
+	other := account(theirs.ID, "theirs")
+	expired := account(mine.ID, "wait already served")
+
+	for _, a := range []*entity.Account{ours, other, expired} {
+		_, _, err := s.RecordSyncMiss(ctx, a.ID, now, time.Hour, 24*time.Hour)
+		require.NoError(t, err)
+	}
+
+	got, total, err := s.ListSweepDeferrals(ctx, now, 10)
+	require.NoError(t, err)
+	assert.Equal(t, 3, total)
+	assert.ElementsMatch(t, []string{ours.ID, other.ID, expired.ID}, deferralIDs(got),
+		"the sweep runs for everybody, so its census crosses owners")
+
+	// A row whose wait has run out is not standing down any more: the table
+	// keeps its miss count so the backoff goes on doubling instead of
+	// restarting at an hour, but the account is due, and already counted as due.
+	t.Run("a served wait is not a deferral", func(t *testing.T) {
+		later, total, err := s.ListSweepDeferrals(ctx, now.Add(2*time.Hour), 10)
+		require.NoError(t, err)
+		assert.Zero(t, total)
+		assert.Empty(t, later)
+	})
+
+	t.Run("the cap hides rows, never the count", func(t *testing.T) {
+		sample, total, err := s.ListSweepDeferrals(ctx, now, 1)
+		require.NoError(t, err)
+		require.Len(t, sample, 1, "the list is a sample")
+		assert.Equal(t, 3, total, "the total is not")
+	})
+
+	t.Run("rejects a non-positive limit", func(t *testing.T) {
+		_, _, err := s.ListSweepDeferrals(ctx, now, 0)
+		assert.ErrorIs(t, err, store.ErrInvalidArgument)
+	})
+}
+
+func deferralIDs(ds []*entity.SyncDeferral) []string {
+	ids := make([]string, 0, len(ds))
+	for _, d := range ds {
+		ids = append(ids, d.AccountID)
+	}
+	return ids
+}
+
 // TestSyncDeferralsAreScopedToTheirOwner: a deferral is operational detail about
 // somebody's credential. Reading or forgiving another user's schedule would let
 // one account holder decide when another's provider is retried — and, in the

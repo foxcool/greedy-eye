@@ -1,8 +1,12 @@
 package portfolio
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -142,10 +146,15 @@ func TestSyncDueAccounts_FailureIsVisibleAndDoesNotStopTheSweep(t *testing.T) {
 
 	report, err := h.SyncDueAccounts(context.Background(), SweepOpts{})
 	require.NoError(t, err)
-	assert.Equal(t, 2, report.Synced, "a partial account still wrote its snapshot")
-	require.Len(t, report.PartialAccounts, 1, "an account that could not speak for every balance is named")
-	assert.Equal(t, broken.ID, report.PartialAccounts[0].AccountID)
-	assert.Contains(t, report.PartialAccounts[0].Reason, "moralis 503")
+	assert.Equal(t, 2, report.Synced, "the healthy account still wrote its snapshot")
+	assert.Equal(t, int32(1), report.HoldingsUpserted, "and the broken one did not stop it")
+
+	// This account complained AND wrote nothing, which is no_fresher rather
+	// than partial: it is exactly as stale as the run found it, so it stands
+	// down. The distinction is the whole of leftNoFresher.
+	n := noteFor(t, report, broken.ID)
+	assert.Equal(t, sweepNoFresher, n.State, "an account that answered with nothing is named")
+	assert.Contains(t, n.Reasons[0], "moralis 503")
 }
 
 // TestSyncDueAccounts_HardFailureIsCounted: an account whose sync returns an
@@ -166,9 +175,9 @@ func TestSyncDueAccounts_HardFailureIsCounted(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, report.Failed)
 	assert.Zero(t, report.Synced)
-	require.Len(t, report.Failures, 1)
-	assert.Equal(t, bad.ID, report.Failures[0].AccountID)
-	assert.Equal(t, "misconfigured", report.Failures[0].Name)
+	n := noteFor(t, report, bad.ID)
+	assert.Equal(t, sweepFailed, n.State)
+	assert.Equal(t, "misconfigured", n.Name)
 }
 
 // TestSyncDueAccounts_ExpiredDeadlineNamesWhatItSkipped: the job's own timeout
@@ -188,8 +197,10 @@ func TestSyncDueAccounts_ExpiredDeadlineNamesWhatItSkipped(t *testing.T) {
 	report, err := h.SyncDueAccounts(ctx, SweepOpts{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, report.Failed)
-	require.Len(t, report.Failures, 1)
-	assert.Contains(t, report.Failures[0].Reason, "context canceled")
+	n := noteFor(t, report, acct.ID)
+	assert.Equal(t, sweepNotReached, n.State,
+		"never attempted is not a verdict on the account")
+	assert.Contains(t, n.Reasons[0], "context canceled")
 	s.AssertNotCalled(t, "GetAccount", mock.Anything, mock.Anything)
 }
 
@@ -490,6 +501,246 @@ func TestSweep_ReportSeparatesStaleFromPicked(t *testing.T) {
 	assert.Equal(t, 2, report.Picked, "what the budget allowed")
 	assert.Equal(t, 12, report.Stale, "what was waiting — the number the old line hid")
 	s.AssertExpectations(t)
+}
+
+// noteFor returns the run's note about one account, failing the test when the
+// account was not named at all.
+func noteFor(t *testing.T, report SweepReport, accountID string) SweepNote {
+	t.Helper()
+	for _, n := range report.Notes {
+		if n.AccountID == accountID {
+			return n
+		}
+	}
+	t.Fatalf("the run said nothing about %s; notes: %+v", accountID, report.Notes)
+	return SweepNote{}
+}
+
+// TestSweep_StandingDownAccountsAreInTheReport: an account the sweep is holding
+// back is in neither Stale nor Picked — both queries skip it — so a queue made
+// entirely of broken accounts reported itself as a run with nothing to do. The
+// deferral, its miss count and its deadline have to reach the line that nobody
+// is watching, not only the RPC nobody thought to call (personal-g1zt).
+func TestSweep_StandingDownAccountsAreInTheReport(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	until := now.Add(4 * time.Hour)
+
+	s := &mockStore{}
+	s.On("ListStaleSyncTargets", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return([]*entity.Account{}, nil).Once()
+	s.On("CountDueSyncTargets", mock.Anything, mock.Anything, mock.Anything).Return(0, nil).Once()
+	s.On("ListSweepDeferrals", mock.Anything, now, maxSweepNotesLogged).Return([]*entity.SyncDeferral{
+		{AccountID: "acct-1", AccountName: "eth-cold", Misses: 7, NextAttemptAt: until},
+	}, 3, nil).Once()
+
+	h := newHandler(s).WithMarketDataClient(&mockMDClient{})
+	report, err := h.SyncDueAccounts(context.Background(), SweepOpts{Now: now})
+	require.NoError(t, err)
+
+	assert.Zero(t, report.Stale, "a standing-down account is not counted as waiting")
+	assert.Zero(t, report.Picked)
+	assert.Equal(t, 3, report.Deferred, "the exact total, not the sample")
+
+	n := noteFor(t, report, "acct-1")
+	assert.Equal(t, sweepStandingDown, n.State)
+	assert.Equal(t, until, n.Until, "an operator reading the line knows when it retries")
+	assert.Contains(t, n.Reasons[0], "7 consecutive misses")
+	s.AssertExpectations(t)
+}
+
+// TestSweep_ReportSurvivesAnUncountableDeferralQueue: the census is its own
+// query and can fail on its own, exactly as the stale count can. Unknown is
+// reported as unknown rather than as "nobody is held back".
+func TestSweep_ReportSurvivesAnUncountableDeferralQueue(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+
+	s := &mockStore{}
+	s.On("ListStaleSyncTargets", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return([]*entity.Account{}, nil).Once()
+	s.On("CountDueSyncTargets", mock.Anything, mock.Anything, mock.Anything).Return(0, nil).Once()
+	s.On("ListSweepDeferrals", mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, 0, errors.New("statement timeout")).Once()
+
+	h := newHandler(s).WithMarketDataClient(&mockMDClient{})
+	report, err := h.SyncDueAccounts(context.Background(), SweepOpts{Now: now})
+
+	require.NoError(t, err, "the sweep still ran")
+	assert.Equal(t, -1, report.Deferred)
+}
+
+// TestSweep_PartialNamesEveryChainThatRefused: the unit that can go dark alone
+// is a chain, and the line's unit is the account — so the account's note has to
+// carry every complaint. Keeping only the first is how one dead chain out of
+// five and two dead chains out of five read the same (personal-isy9).
+func TestSweep_PartialNamesEveryChainThatRefused(t *testing.T) {
+	acct := sweepAccount("11111111-1111-1111-1111-111111111111", "user-a", "dot-controller")
+	acct.Data = map[string]string{"address": "0xsub", "chain": "hydration,astar,polkadot"}
+
+	s := &mockStore{}
+	s.On("ListStaleSyncTargets", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return([]*entity.Account{acct}, nil).Once()
+	s.On("GetAccount", mock.Anything, acct.ID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: "h1"}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xsub", []string{"hydration", "astar", "polkadot"}).
+		Return([]entity.WalletBalance{
+			{Symbol: "DOT", Amount: "100", Decimals: 10, Chain: "polkadot"},
+		}, errors.New("hydration: subscan API status 404 for hydration\nastar: subscan API status 500 for astar"))
+
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+	report, err := h.SyncDueAccounts(context.Background(), SweepOpts{})
+	require.NoError(t, err)
+
+	n := noteFor(t, report, acct.ID)
+	assert.Equal(t, sweepPartial, n.State)
+	joined := strings.Join(n.Reasons, " ")
+	assert.Contains(t, joined, "hydration")
+	assert.Contains(t, joined, "astar", "the second dead chain is not swallowed by the first")
+}
+
+// TestSweep_NoFresherIsOneNoteNotTwo: an account that complained and wrote
+// nothing is also an account that synced with errors. Named twice it would get
+// two states in one line, which is the confusion this vocabulary exists to end.
+func TestSweep_NoFresherIsOneNoteNotTwo(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	until := now.Add(time.Hour)
+	acct := sweepAccount("11111111-1111-1111-1111-111111111111", "user-a", "dead")
+
+	s := &mockStore{}
+	s.On("ListStaleSyncTargets", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return([]*entity.Account{acct}, nil).Once()
+	s.On("GetAccount", mock.Anything, acct.ID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("RecordSyncMiss", mock.Anything, acct.ID, now, mock.Anything, mock.Anything).
+		Return(4, until, nil).Once()
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0x"+acct.ID, []string{"eth"}).
+		Return([]entity.WalletBalance{}, errors.New("moralis 401"))
+
+	h := newHandler(s).WithMarketDataClient(&mockMDClient{}).WithWalletSyncer(ws)
+	report, err := h.SyncDueAccounts(context.Background(), SweepOpts{Now: now})
+	require.NoError(t, err)
+
+	require.Len(t, report.Notes, 1)
+	assert.Equal(t, sweepNoFresher, report.Notes[0].State)
+	assert.Zero(t, report.Partial, "no-fresher outranks partial rather than adding to it")
+	assert.Equal(t, until, report.Notes[0].Until, "the stand-down it just earned")
+	s.AssertExpectations(t)
+}
+
+// TestSweep_ADeferralThatWasNotWrittenIsNotClaimed: RecordSyncMiss failing is
+// swallowed so a bookkeeping outage does not stop the sweep — but the note must
+// not then promise a deadline, or an operator goes looking for a stand-down the
+// next run has forgotten.
+func TestSweep_ADeferralThatWasNotWrittenIsNotClaimed(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	bad := sweepAccount("11111111-1111-1111-1111-111111111111", "user-a", "misconfigured")
+	bad.Data = map[string]string{} // no address: SyncAccount refuses
+
+	s := &mockStore{}
+	s.On("ListStaleSyncTargets", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return([]*entity.Account{bad}, nil).Once()
+	s.On("GetAccount", mock.Anything, bad.ID).Return(bad, nil)
+	s.On("RecordSyncMiss", mock.Anything, bad.ID, now, mock.Anything, mock.Anything).
+		Return(0, time.Time{}, errors.New("connection refused")).Once()
+
+	h := newHandler(s).WithMarketDataClient(&mockMDClient{}).WithWalletSyncer(&mockWalletSyncer{})
+	report, err := h.SyncDueAccounts(context.Background(), SweepOpts{Now: now})
+	require.NoError(t, err)
+
+	n := noteFor(t, report, bad.ID)
+	assert.Equal(t, sweepFailed, n.State)
+	assert.True(t, n.Until.IsZero(), "a stand-down that was not written is not reported as one")
+	s.AssertExpectations(t)
+}
+
+// TestSweep_NotesSampleNeverCrowdsOutThisRun: the sample is capped, and a long
+// standing-down queue must not push the accounts this run actually touched out
+// of the line — those are the ones whose state just changed.
+func TestSweep_NotesSampleNeverCrowdsOutThisRun(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	bad := sweepAccount("11111111-1111-1111-1111-111111111111", "user-a", "misconfigured")
+	bad.Data = map[string]string{}
+
+	queue := make([]*entity.SyncDeferral, 0, maxSweepNotesLogged)
+	for i := 0; i < maxSweepNotesLogged; i++ {
+		queue = append(queue, &entity.SyncDeferral{
+			AccountID:     fmt.Sprintf("held-%02d", i),
+			AccountName:   "held",
+			Misses:        1,
+			NextAttemptAt: now.Add(time.Hour),
+		})
+	}
+
+	s := &mockStore{}
+	s.On("ListStaleSyncTargets", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return([]*entity.Account{bad}, nil).Once()
+	s.On("GetAccount", mock.Anything, bad.ID).Return(bad, nil)
+	s.On("ListSweepDeferrals", mock.Anything, mock.Anything, mock.Anything).
+		Return(queue, 40, nil).Once()
+
+	h := newHandler(s).WithMarketDataClient(&mockMDClient{}).WithWalletSyncer(&mockWalletSyncer{})
+	report, err := h.SyncDueAccounts(context.Background(), SweepOpts{Now: now})
+	require.NoError(t, err)
+
+	assert.Len(t, report.Notes, maxSweepNotesLogged, "the sample is capped")
+	assert.Equal(t, bad.ID, report.Notes[0].AccountID, "this run's own account is named first")
+	assert.Equal(t, 40, report.Deferred, "and the count the cap hid is still exact")
+}
+
+// TestLogSweepReport_SaysWhatItDoesNotKnow pins the sentence itself, because
+// the sentence IS the deliverable: the fields can all be right and the line
+// still leave an operator with no way to tell an account standing down from one
+// that was simply not picked. Every named account speaks the same vocabulary —
+// state, reasons, and a deadline where there is one.
+func TestLogSweepReport_SaysWhatItDoesNotKnow(t *testing.T) {
+	var buf bytes.Buffer
+	h := NewHandler(&mockStore{}, slog.New(slog.NewTextHandler(&buf, nil)))
+	until := time.Date(2026, 9, 13, 23, 30, 0, 0, time.UTC)
+
+	h.LogSweepReport(SweepReport{
+		Stale: 12, Picked: 2, Deferred: 3, Synced: 2, Partial: 1,
+		Notes: []SweepNote{
+			{AccountID: "acct-1", Name: "dot-controller", State: sweepPartial,
+				Reasons: []string{"hydration: subscan API status 404 for hydration"}},
+			{AccountID: "acct-2", Name: "darkfox.eth", State: sweepStandingDown,
+				Reasons: []string{"7 consecutive misses"}, Until: until},
+		},
+	}, 3*time.Second)
+
+	out := buf.String()
+	assert.Contains(t, out, "stale=12 picked=2 deferred=3",
+		"the three numbers that describe the queue stand together")
+	assert.Contains(t, out, `state=partial`)
+	assert.Contains(t, out, "hydration", "the chain that refused is named, though the unit is the account")
+	assert.Contains(t, out, `state=standing_down`)
+	assert.Contains(t, out, "until=2026-09-13T23:30:00.000Z", "and when it will be tried again")
+
+	lines := strings.Count(strings.TrimSpace(out), "\n") + 1
+	assert.Equal(t, 3, lines, "one summary and one line per account, no second vocabulary")
+}
+
+// TestSweep_TruncatedReasonsSayTheyAreTruncated: a wallet objects once per token
+// it could not read. The list is cut, and the cut says how much it hid — a
+// truncated list that reads as a complete one is the silence in miniature.
+func TestSweep_TruncatedReasonsSayTheyAreTruncated(t *testing.T) {
+	report := SweepReport{}
+	reasons := make([]string, maxReasonsPerNote+3)
+	for i := range reasons {
+		reasons[i] = fmt.Sprintf("chain-%d: 404", i)
+	}
+
+	report.note(&entity.Account{ID: "acct-1", Name: "many"}, sweepPartial, reasons, time.Time{})
+
+	require.Len(t, report.Notes[0].Reasons, maxReasonsPerNote+1)
+	assert.Equal(t, "(+3 more)", report.Notes[0].Reasons[maxReasonsPerNote])
 }
 
 // TestSweep_ReportSurvivesAnUncountableQueue: the count is a separate query and

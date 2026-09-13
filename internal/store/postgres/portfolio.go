@@ -1051,6 +1051,67 @@ func (s *PortfolioStore) ListSyncDeferrals(ctx context.Context, userID, accountI
 	return out, nil
 }
 
+// ListSweepDeferrals returns the accounts standing down at `now`, soonest first,
+// capped at `limit`, with the exact total beside the capped list.
+//
+// Unscoped by owner, unlike ListSyncDeferrals, and that is the difference
+// between the two: this one answers the sweep, which runs for everybody and has
+// to say how big a queue it is holding back. The user-facing twin answers a
+// person about their own accounts, and a deferral is operational detail about
+// somebody's credential.
+//
+// `next_attempt_at > now` and not merely the row's existence: the table keeps a
+// broken account's miss count after its wait expires, so that the backoff keeps
+// doubling instead of restarting at an hour. Such a row is standing down no
+// longer — it is due, and already counted as such.
+//
+// The total comes from the same statement as the sample, so the count cannot
+// disagree with the list it summarises.
+func (s *PortfolioStore) ListSweepDeferrals(ctx context.Context, now time.Time, limit int) ([]*entity.SyncDeferral, int, error) {
+	if limit <= 0 {
+		return nil, 0, fmt.Errorf("%w: limit must be positive", store.ErrInvalidArgument)
+	}
+
+	const query = `
+		SELECT a.id, a.name, h.synced_at, s.misses, s.next_attempt_at, count(*) OVER () AS total
+		FROM account_sync_attempts s
+		JOIN accounts a ON a.id = s.account_id
+		LEFT JOIN (
+			SELECT account_id, max(updated_at) AS synced_at
+			FROM holdings
+			GROUP BY account_id
+		) h ON h.account_id = a.id
+		WHERE s.next_attempt_at > $1
+		ORDER BY s.next_attempt_at, a.id
+		LIMIT $2`
+
+	rows, err := s.pool.Query(ctx, query, now, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list sweep deferrals: %w", err)
+	}
+	defer rows.Close()
+
+	var (
+		out   []*entity.SyncDeferral
+		total int
+	)
+	for rows.Next() {
+		var (
+			d        entity.SyncDeferral
+			syncedAt *time.Time
+		)
+		if err := rows.Scan(&d.AccountID, &d.AccountName, &syncedAt, &d.Misses, &d.NextAttemptAt, &total); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan sweep deferral: %w", err)
+		}
+		d.LastSyncedAt = syncedAt
+		out = append(out, &d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("failed to read sweep deferrals: %w", err)
+	}
+	return out, total, nil
+}
+
 // ClearSyncDeferrals forgives the named accounts and reports how many owed
 // anything. Scoped to the owner so one user cannot withdraw another's schedule.
 func (s *PortfolioStore) ClearSyncDeferrals(ctx context.Context, userID string, accountIDs []string) (int, error) {
