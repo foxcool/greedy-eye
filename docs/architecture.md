@@ -448,7 +448,7 @@ without linking them.
   |---|---|---|
   | `alchemy` | EVM, eleven chains incl. scroll, zksync and fantom | native + ERC-20 for up to five networks in ONE request, so ten chains cost two calls where Moralis needed twenty-two. Asking every supported chain **is** the discovery step. `withPrices` is false and must stay false |
   | `moralis` | EVM: eth, base, arbitrum, optimism, linea, polygon, bsc, avalanche | native + ERC-20; reports `possible_spam`/`verified` as signals, which no other EVM reader here does |
-  | `subscan` | Substrate: Polkadot, Kusama, Hydration, Astar, Moonbeam + Asset Hub | position = `balance` (raw planck, precision from the response); split into liquid/staked/unbonding when the parts reconcile |
+  | `subscan` | Substrate: Polkadot, Kusama, Hydration, Astar, Moonbeam + Asset Hub | native position = `balance` (raw planck, precision from the response), split into liquid/staked/unbonding when the parts reconcile; the `builtin` and `assets` groups are read as positions of their own, keyed by the chain's `unique_id` |
   | `tonapi` | TON + jettons | |
   | `solana` | Solana via Helius | both token programs, DAS symbols, batched asset lookups |
   | `esplora` | Bitcoin | confirmed balances only |
@@ -549,6 +549,34 @@ covering *every* requested chain.
   endpoint that does is unusable because it mixes whole tokens and planck in one object with no
   precision field. The subtraction is checked against it instead: for the Asset Hub account
   above, balance minus the hold comes out at exactly the 0.394224319384 that endpoint reports.
+
+  **Non-native assets are positions too**, and reading them is where this adapter stops being
+  about one number per chain. The same response carries `builtin` (a chain's own multi-token
+  pallet) and `assets` (pallet-assets on the Asset Hubs, where DED sits at id 30 and MYTH
+  arrives teleported from parachain 3369). Three rules govern them, and each exists because
+  registration on an Asset Hub is **permissionless** — a symbol is a claim by whoever paid the
+  deposit, exactly as an ERC-20's is:
+
+  - *Precision is read per entry and refused when absent.* One response carries DED at ten
+    decimals and MYTH at eighteen, so a table would have to be wrong about one of them. The
+    field is decoded as a pointer because zero is a legitimate precision (whole units) while
+    absent means the entry never said how to read its number — and reading MYTH as whole units
+    reports 5.7 billion of them. The lock beside it takes the same three states: absent is a
+    measured zero (the API omits a component an account does not use), unreadable leaves the
+    liquidity unstated rather than claiming the position spendable.
+  - *A refusal is per entry, never per chain.* A malformed entry is something a stranger can
+    place in this account's response; failing the chain on it would hand that stranger a way to
+    stop DOT from syncing. Refused entries are named beside the balances that parsed.
+  - *Identity is chain-scoped through `unique_id`*, carried as the contract address and stored
+    as an `onchain:<chain>` external ref. An unconfirmed token therefore lands in its own market
+    instead of on top of the ticker it claims, and is disclosed as unpriced rather than valued
+    by a ticker match — the hole a minted ERC-20 went through when it inherited real Tether's
+    price.
+
+  The `erc20` group is **not** read: no captured response has contained the array, so its field
+  names would be guessed rather than measured, and an ERC-20 on an EVM-compatible parachain is
+  reachable by an EVM balance reader too — two readers of one balance is how the same wei once
+  counted twice on Optimism.
 
   Amounts arrive as raw planck at the precision the response states — no table lookup.
   SS58 re-encodes one public key per network (generic `5…`, Polkadot `1…`,
@@ -1634,7 +1662,7 @@ System Quality
 
 ---
 
-**Document Version**: 1.7
-**Last Updated**: 2026-09-04
+**Document Version**: 1.8
+**Last Updated**: 2026-09-12
 **Owner**: foxcool
 **Status**: Active
