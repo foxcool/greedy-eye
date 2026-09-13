@@ -78,35 +78,110 @@ func (o SweepOpts) withDefaults() SweepOpts {
 // sync has no user watching its return value, so the run has to describe itself:
 // an account that failed silently is indistinguishable from one that was never
 // due.
+//
+// THE UNIT OF THE LINE IS THE ACCOUNT, and that is a decision rather than an
+// accident. The sweep queues accounts, budgets accounts and stands accounts
+// down, so an account is the only thing the line can promise anything about. A
+// chain is not: nothing here can schedule one, skip one or wait for one.
+//
+// But the thing that goes dark alone IS a chain. Hydration answered 404 for
+// sixteen days inside an account whose other four chains kept it looking fresh,
+// and the account was never late (personal-isy9). So the chain is not made a
+// second unit — it is named in the REASON, and a partial note carries EVERY
+// complaint rather than the first, because one of five chains failing and two
+// of five failing must not read the same.
+//
+// The result is one vocabulary — state, reasons, until — for everything a run
+// cannot vouch for, whether the unit that failed is the whole account or a part
+// of it.
 type SweepReport struct {
-	// Picked is how many accounts this run took. Stale is how many were
-	// waiting. They were one number called Due, which reported the LIMIT and
-	// read like the queue: "due 2" with twelve stale is what let four broken
-	// accounts hold every slot for two days without the line ever looking wrong.
-	Picked           int
-	Stale            int
+	// Picked is how many accounts this run took, Stale how many were waiting,
+	// Deferred how many the sweep is holding back. The third is in neither of
+	// the first two — the selection and the count both exclude a standing-down
+	// account — so without it three permanently broken accounts render as
+	// "stale 0, picked 0", which reads as a run with nothing to do
+	// (personal-g1zt).
+	//
+	// Picked was once the only one of the three, called Due, and reported the
+	// LIMIT: "due 2" with twelve stale is what let four broken accounts hold
+	// every slot for two days without the line ever looking wrong.
+	Picked   int
+	Stale    int
+	Deferred int
+
 	Synced           int // accounts whose sync returned
-	Failed           int // accounts whose sync returned an error
+	Failed           int // accounts whose sync errored, or that never got a turn
+	Partial          int // accounts that synced without speaking for every balance
 	HoldingsUpserted int32
 	HoldingsZeroed   int32
-	// Failures names the accounts that did not sync and why, capped for log size.
-	Failures []SweepFailure
-	// PartialAccounts names accounts that synced with per-item errors: the
-	// snapshot landed but could not speak for every balance in it.
-	PartialAccounts []SweepFailure
+
+	// Notes name the accounts this run has something to say about. The counts
+	// above stay exact; this is a sample, because a provider outage fails every
+	// account at once and the log line is not the place to enumerate them.
+	Notes []SweepNote
 }
 
-// SweepFailure is one account the sweep could not finish, and the reason.
-type SweepFailure struct {
+// Sweep note states. Five ways a run can fail to vouch for an account, kept
+// apart because the operator's next move differs: a failed account may be
+// misconfigured, a no-fresher one is standing down and will retry itself, a
+// partial one holds real numbers with a hole in them, one never reached says
+// the budget or the deadline is too small, and one standing down says the
+// sweep already knows and is waiting.
+const (
+	// sweepFailed: the sync returned an error, so nothing landed at all.
+	sweepFailed = "failed"
+	// sweepNoFresher: the sync returned, complained, and wrote nothing. The
+	// account is exactly as stale as the run found it, so it stands down.
+	sweepNoFresher = "no_fresher"
+	// sweepPartial: the snapshot landed and could not speak for every balance
+	// in it. The account IS fresher, so it is not stood down — but "synced"
+	// stops meaning "every chain it holds answered".
+	sweepPartial = "partial"
+	// sweepNotReached: picked and never attempted, because the run's own
+	// deadline expired first. Not a verdict on the account.
+	sweepNotReached = "not_reached"
+	// sweepStandingDown: not picked, because an earlier run stood it down. It
+	// appears in no count but Deferred, and used to appear in nothing at all.
+	sweepStandingDown = "standing_down"
+)
+
+// SweepNote is one account the run could not fully vouch for, in the one
+// vocabulary the line uses.
+type SweepNote struct {
 	AccountID string
 	Name      string
-	Reason    string
+	// State is one of the constants above.
+	State string
+	// Reasons is what the account, or the part of it that refused, actually
+	// said. Plural on purpose: the first complaint alone hides how much of the
+	// account is dark.
+	Reasons []string
+	// Until is when the sweep may look at this account again. Zero when it is
+	// not standing down — a partial account is fresher than it was and keeps
+	// its place in the queue.
+	Until time.Time
 }
 
-// maxSweepFailuresLogged caps the named failures in a report. The counts stay
-// exact; the list is a sample, because a provider outage fails every account at
-// once and the log line is not the place to enumerate them.
-const maxSweepFailuresLogged = 20
+// maxSweepNotesLogged caps the named accounts in a report, and
+// maxReasonsPerNote the complaints named for one of them: a wallet can object
+// once per token it could not read, and a provider outage objects once per
+// account. Both are samples over exact counts.
+const (
+	maxSweepNotesLogged = 20
+	maxReasonsPerNote   = 5
+)
+
+// note records what the run has against one account. Reasons past the cap are
+// replaced by their own count, so a truncated list never reads as a complete
+// one.
+func (r *SweepReport) note(acct *entity.Account, state string, reasons []string, until time.Time) {
+	n := SweepNote{AccountID: acct.ID, Name: acct.Name, State: state, Reasons: reasons, Until: until}
+	if len(reasons) > maxReasonsPerNote {
+		n.Reasons = append(append([]string{}, reasons[:maxReasonsPerNote]...),
+			fmt.Sprintf("(+%d more)", len(reasons)-maxReasonsPerNote))
+	}
+	r.Notes = append(r.Notes, n)
+}
 
 // SyncDueAccounts re-reads the balances of accounts nobody has synced lately.
 //
@@ -151,17 +226,47 @@ func (h *Handler) SyncDueAccounts(ctx context.Context, opts SweepOpts) (SweepRep
 		report.Stale = stale
 	}
 
+	// The rest of the queue: accounts nobody picked because the sweep is
+	// standing them down. They are in neither number above — ListStaleSyncTargets
+	// and CountDueSyncTargets skip them by the same clause — so a queue made
+	// entirely of broken accounts reported itself as empty.
+	//
+	// Read BEFORE the loop on purpose: this is the queue the run found, not the
+	// one it leaves behind. Accounts stood down BY this run are named on their
+	// own, under the state that says why.
+	deferrals, deferred, err := h.store.ListSweepDeferrals(ctx, opts.Now, maxSweepNotesLogged)
+	if err != nil {
+		h.log.WarnContext(ctx, "balance sweep: cannot see who is standing down", "error", err)
+		report.Deferred = -1
+	} else {
+		report.Deferred = deferred
+	}
+
 	for _, acct := range accounts {
 		if ctx.Err() != nil {
 			// The sweep's own deadline expired. Say which accounts never got
 			// their turn instead of reporting a short run as a complete one.
-			report.Failures = append(report.Failures, SweepFailure{
-				AccountID: acct.ID, Name: acct.Name, Reason: ctx.Err().Error(),
-			})
+			report.note(acct, sweepNotReached, []string{ctx.Err().Error()}, time.Time{})
 			report.Failed++
 			continue
 		}
 		h.sweepAccount(ctx, acct, &report, opts.Now)
+	}
+
+	// Appended after the loop so the accounts this run actually touched can
+	// never be crowded out of the sample by a long-standing queue.
+	for _, d := range deferrals {
+		if len(report.Notes) >= maxSweepNotesLogged {
+			break
+		}
+		report.note(
+			&entity.Account{ID: d.AccountID, Name: d.AccountName},
+			sweepStandingDown,
+			// The miss count, not a verdict: the store keeps how often an
+			// account came back with nothing, not what it said the last time.
+			[]string{fmt.Sprintf("%d consecutive misses", d.Misses)},
+			d.NextAttemptAt,
+		)
 	}
 
 	return report, nil
@@ -173,60 +278,62 @@ func (h *Handler) sweepAccount(ctx context.Context, acct *entity.Account, report
 	resp, err := h.SyncAccount(owned, connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: acct.ID}))
 	if err != nil {
 		report.Failed++
-		if len(report.Failures) < maxSweepFailuresLogged {
-			report.Failures = append(report.Failures, SweepFailure{
-				AccountID: acct.ID, Name: acct.Name, Reason: err.Error(),
-			})
-		}
-		h.log.WarnContext(ctx, "balance sweep: account sync failed",
-			"account_id", acct.ID, "account", acct.Name, "error", err)
-		h.deferAccount(ctx, acct, now)
+		report.note(acct, sweepFailed, []string{err.Error()}, h.deferAccount(ctx, acct, now))
 		return
-	}
-
-	if leftNoFresher(resp.Msg) {
-		h.deferAccount(ctx, acct, now)
 	}
 
 	report.Synced++
 	report.HoldingsUpserted += resp.Msg.GetHoldingsUpserted()
 	report.HoldingsZeroed += resp.Msg.GetHoldingsZeroed()
 
-	// A sync that returned with per-item errors wrote a snapshot it could not
-	// fully vouch for — and, by the removal gate, one that was not allowed to
-	// drop vanished positions. Interactively the caller reads those strings;
-	// on a schedule nobody does unless the sweep repeats them.
-	if errs := resp.Msg.GetErrors(); len(errs) > 0 {
-		if len(report.PartialAccounts) < maxSweepFailuresLogged {
-			report.PartialAccounts = append(report.PartialAccounts, SweepFailure{
-				AccountID: acct.ID, Name: acct.Name, Reason: errs[0],
-			})
-		}
-		h.log.WarnContext(ctx, "balance sweep: account synced with errors",
-			"account_id", acct.ID, "account", acct.Name,
-			"error_count", len(errs), "errors", errs)
+	// One note per account, and no-fresher outranks partial: an account that
+	// complained and wrote nothing IS an account that synced with errors, and
+	// naming it twice in two vocabularies is the confusion this line was rebuilt
+	// to end.
+	errs := resp.Msg.GetErrors()
+	switch {
+	case leftNoFresher(resp.Msg):
+		report.note(acct, sweepNoFresher, errs, h.deferAccount(ctx, acct, now))
+
+	case len(errs) > 0:
+		// A sync that returned with per-item errors wrote a snapshot it could
+		// not fully vouch for — and, by the removal gate, one that was not
+		// allowed to drop vanished positions. Interactively the caller reads
+		// those strings; on a schedule nobody does unless the run line repeats
+		// them.
+		report.Partial++
+		report.note(acct, sweepPartial, errs, time.Time{})
 	}
 }
 
-// LogSweepReport emits one line per sweep plus a line per account that did not
-// finish. It lives here rather than in the caller so every scheduler, test or
-// operator command reports a sweep the same way.
+// LogSweepReport emits one line per sweep plus a line per account the run could
+// not vouch for. It lives here rather than in the caller so every scheduler,
+// test or operator command reports a sweep the same way — and it is the ONLY
+// place that names an account, so the two halves of a run cannot describe
+// themselves in two vocabularies.
 func (h *Handler) LogSweepReport(report SweepReport, elapsed time.Duration) {
 	h.log.Info("balance sweep complete",
 		slog.Int("stale", report.Stale),
 		slog.Int("picked", report.Picked),
+		slog.Int("deferred", report.Deferred),
 		slog.Int("synced", report.Synced),
 		slog.Int("failed", report.Failed),
-		slog.Int("partial", len(report.PartialAccounts)),
+		slog.Int("partial", report.Partial),
 		slog.Int("holdings_upserted", int(report.HoldingsUpserted)),
 		slog.Int("holdings_zeroed", int(report.HoldingsZeroed)),
 		slog.Duration("duration", elapsed))
 
-	for _, f := range report.Failures {
-		h.log.Warn("balance sweep: account not synced",
-			slog.String("account_id", f.AccountID),
-			slog.String("account", f.Name),
-			slog.String("reason", f.Reason))
+	for _, n := range report.Notes {
+		attrs := []any{
+			slog.String("account_id", n.AccountID),
+			slog.String("account", n.Name),
+			slog.String("state", n.State),
+			slog.Any("reasons", n.Reasons),
+		}
+		if !n.Until.IsZero() {
+			attrs = append(attrs, slog.Time("until", n.Until))
+		}
+		h.log.Warn("balance sweep: account not fully confirmed", attrs...)
 	}
 }
 
@@ -260,20 +367,19 @@ func leftNoFresher(resp *apiv1.SyncAccountResponse) bool {
 // the numbers it doubles are declared here, because the schedule is the sweep's
 // policy and not the table's.
 //
-// A failure to record is logged and swallowed. The sweep's job is to refresh
-// balances, and refusing to run because the bookkeeping is unavailable would
-// trade a scheduling problem for an outage.
-func (h *Handler) deferAccount(ctx context.Context, acct *entity.Account, now time.Time) {
-	misses, next, err := h.store.RecordSyncMiss(ctx, acct.ID, now, missBackoffBase, missBackoffCap)
+// A failure to record is logged and swallowed, and reported as a zero deadline.
+// The sweep's job is to refresh balances, and refusing to run because the
+// bookkeeping is unavailable would trade a scheduling problem for an outage —
+// but a note that claimed a stand-down which was never written would send an
+// operator looking for a deferral the next run has forgotten.
+func (h *Handler) deferAccount(ctx context.Context, acct *entity.Account, now time.Time) time.Time {
+	_, next, err := h.store.RecordSyncMiss(ctx, acct.ID, now, missBackoffBase, missBackoffCap)
 	if err != nil {
 		h.log.WarnContext(ctx, "balance sweep: cannot defer the account",
 			"account_id", acct.ID, "account", acct.Name, "error", err)
-		return
+		return time.Time{}
 	}
-
-	h.log.WarnContext(ctx, "balance sweep: account left no fresher, standing it down",
-		"account_id", acct.ID, "account", acct.Name,
-		"misses", misses, "next_attempt_at", next)
+	return next
 }
 
 // GetAccountSweepSchedule reports which of the caller's accounts the balance

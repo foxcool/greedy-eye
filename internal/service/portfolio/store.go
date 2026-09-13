@@ -88,6 +88,12 @@ type Store interface {
 	// An empty accountID means all of them.
 	ListSyncDeferrals(ctx context.Context, userID, accountID string) ([]*entity.SyncDeferral, error)
 
+	// ListSweepDeferrals returns the accounts standing down at `now` across
+	// every owner, soonest first, capped at `limit`, together with the exact
+	// total the cap hid. The sweep is a system caller and its run line has to
+	// account for a queue it is holding back regardless of whose account it is.
+	ListSweepDeferrals(ctx context.Context, now time.Time, limit int) ([]*entity.SyncDeferral, int, error)
+
 	// ClearSyncDeferrals withdraws the deferral of the named accounts and
 	// reports how many owed anything.
 	ClearSyncDeferrals(ctx context.Context, userID string, accountIDs []string) (int, error)
