@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shopspring/decimal"
 )
 
 const defaultPageSize = 20
@@ -1185,6 +1186,7 @@ func (s *MarketDataStore) CreatePrice(ctx context.Context, price *entity.StoredP
 	query := `
 		INSERT INTO prices (id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, market_cap, timestamp, provenance)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		ON CONFLICT (asset_id, source_id, timestamp, base_asset_id) DO NOTHING
 		RETURNING timestamp`
 
 	err = s.pool.QueryRow(ctx, query,
@@ -1204,6 +1206,9 @@ func (s *MarketDataStore) CreatePrice(ctx context.Context, price *entity.StoredP
 		price.Timestamp,
 		provenanceValue(price.Provenance),
 	).Scan(&price.Timestamp)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return s.priceAlreadyHeld(ctx, price)
+	}
 	if err != nil {
 		if isConstraintError(err) {
 			return nil, fmt.Errorf("%w: price constraint failed: %v", store.ErrConstraint, err)
@@ -1214,9 +1219,40 @@ func (s *MarketDataStore) CreatePrice(ctx context.Context, price *entity.StoredP
 	return price, nil
 }
 
+// priceAlreadyHeld settles a write that found its (asset, source, instant, pair)
+// taken. Sources whose observation time does not move between sweeps — a daily
+// fixing, a quote dated by its trade or session — re-deliver the same row every
+// hour, and that is a normal outcome: the held row is returned as if written.
+// A held row stating a different price is a contradiction between two readings
+// of one instant and stays a constraint error.
+func (s *MarketDataStore) priceAlreadyHeld(ctx context.Context, price *entity.StoredPrice) (*entity.StoredPrice, error) {
+	held := *price
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, decimals, last, timestamp
+		FROM prices
+		WHERE asset_id = $1 AND source_id = $2 AND timestamp = $3 AND base_asset_id = $4`,
+		price.AssetID, price.SourceID, price.Timestamp, price.BaseAssetID,
+	).Scan(&held.ID, &held.Decimals, &held.Last, &held.Timestamp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the price held for this instant: %w", err)
+	}
+
+	if !scaledPrice(&held).Equal(scaledPrice(price)) {
+		return nil, fmt.Errorf("%w: %s already holds a different price for %s at %s",
+			store.ErrConstraint, price.SourceID, price.AssetID, price.Timestamp.Format(time.RFC3339))
+	}
+	return &held, nil
+}
+
+// scaledPrice compares prices across rows that may carry different decimals.
+func scaledPrice(p *entity.StoredPrice) decimal.Decimal {
+	return p.Last.Shift(-int32(p.Decimals)) // #nosec G115 -- decimals is a small scale factor
+}
+
 // CreatePrices creates multiple prices in bulk.
 // Individual failures are counted and returned as a combined error so callers
-// can surface partial success instead of silently dropping records.
+// can surface partial success instead of silently dropping records. A quote
+// already held unchanged counts as stored (see priceAlreadyHeld).
 func (s *MarketDataStore) CreatePrices(ctx context.Context, prices []*entity.StoredPrice) (int, error) {
 	count := 0
 	var errs []string

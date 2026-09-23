@@ -1057,6 +1057,60 @@ func TestCreatePrices_TwoSourcesSameInstant(t *testing.T) {
 	assert.Equal(t, 2, count)
 }
 
+// TestCreatePrices_SameQuoteAgain: a source whose observation time does not move
+// between sweeps re-delivers the row it delivered last hour. That is the quote
+// being unchanged, not a failed write; only a different price for the same
+// instant is a contradiction worth reporting.
+func TestCreatePrices_SameQuoteAgain(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	asset := createTestAsset(t, s, "SameQuoteAsset")
+	base := createTestAsset(t, s, "SameQuoteBase")
+	ts := time.Now().Truncate(time.Hour)
+
+	price := func(last int64, decimals uint32) *entity.StoredPrice {
+		return &entity.StoredPrice{
+			SourceID:    "cbr",
+			AssetID:     asset.ID,
+			BaseAssetID: base.ID,
+			Interval:    "latest",
+			Decimals:    decimals,
+			Last:        decimal.NewFromInt(last),
+			Timestamp:   ts,
+		}
+	}
+
+	first, err := s.CreatePrice(ctx, price(8150, 2))
+	require.NoError(t, err)
+
+	t.Run("unchanged quote is stored, not failed", func(t *testing.T) {
+		count, err := s.CreatePrices(ctx, []*entity.StoredPrice{price(8150, 2)})
+		require.NoError(t, err)
+		assert.Equal(t, 1, count)
+	})
+
+	t.Run("same value at another scale is the same quote", func(t *testing.T) {
+		held, err := s.CreatePrice(ctx, price(815000, 4))
+		require.NoError(t, err)
+		assert.Equal(t, first.ID, held.ID)
+	})
+
+	t.Run("different price for the same instant is surfaced", func(t *testing.T) {
+		_, err := s.CreatePrice(ctx, price(8151, 2))
+		require.ErrorIs(t, err, store.ErrConstraint)
+
+		count, err := s.CreatePrices(ctx, []*entity.StoredPrice{price(8151, 2)})
+		require.ErrorContains(t, err, "1 price(s) failed")
+		assert.Equal(t, 0, count)
+	})
+
+	history, _, err := s.ListPriceHistory(ctx, marketdata.ListPriceHistoryOpts{AssetID: asset.ID, BaseAssetID: base.ID})
+	require.NoError(t, err)
+	assert.Len(t, history, 1)
+}
+
 // TestListAssets_IDsFilter: the explicit reconciliation path reads exactly the
 // assets it names instead of paging the catalogue and filtering in Go.
 func TestListAssets_IDsFilter(t *testing.T) {
