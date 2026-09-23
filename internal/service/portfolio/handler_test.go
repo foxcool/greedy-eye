@@ -3164,6 +3164,7 @@ func TestSyncAccount_AdoptsImportedPreDimensionHolding(t *testing.T) {
 	require.NotNil(t, updated, "the imported row is reused, not left to double the position")
 	assert.Equal(t, "h-imported", updated.ID)
 	assert.Equal(t, entity.SourceLLMImport, updated.Source, "provenance is not rewritten")
+	assert.NotNil(t, updated.SyncedAt, "the adopted row is now the sync's to refresh")
 	assert.Equal(t, "21835346", updated.Amount.String())
 	assert.Equal(t, 1, createdCount, "only the second state becomes a new row")
 }
@@ -3507,6 +3508,107 @@ func TestSyncAccount_LeavesForeignProvenanceAlone(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int32(0), resp.Msg.HoldingsZeroed)
 	assert.Equal(t, "500", manual.Amount.String(), "sync does not erase what it did not write")
+}
+
+// TestSyncAccount_ZeroesAdoptedHoldingOnceGone: an imported row a sync adopted
+// is refreshed by the provider, so the provider's silence must remove it too.
+// Deciding by source left it refreshed forever and removable never.
+func TestSyncAccount_ZeroesAdoptedHoldingOnceGone(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
+
+	imported := &entity.Holding{
+		ID:        "h-imported",
+		AssetID:   "asset-USDC",
+		AccountID: testAccountID,
+		Amount:    decimal.RequireFromString("5000000"),
+		Decimals:  6,
+		Source:    entity.SourceLLMImport,
+	}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{imported}, "", nil)
+	var zeroFields []string
+	s.On("UpdateHolding", mock.Anything, mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			if args.Get(1).(*entity.Holding).Amount.IsZero() {
+				zeroFields = args.Get(2).([]string)
+			}
+		}).
+		Return(&entity.Holding{}, nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: "h-dai"}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{
+		{Symbol: "USDC", Amount: "1000000", Decimals: 6, ContractAddress: "0xusdc", Chain: "eth"},
+	}, nil).Once()
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{
+		{Symbol: "DAI", Amount: "100", Decimals: 18, ContractAddress: "0xdai", Chain: "eth"},
+	}, nil).Once()
+
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+	sync := func() *apiv1.SyncAccountResponse {
+		resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+			AccountId: testAccountID,
+		}))
+		require.NoError(t, err)
+		return resp.Msg
+	}
+
+	first := sync()
+	assert.Equal(t, int32(0), first.HoldingsZeroed)
+	require.NotNil(t, imported.SyncedAt, "the first sync adopts the imported row")
+
+	second := sync()
+	assert.Equal(t, int32(1), second.HoldingsZeroed)
+	assert.True(t, imported.Amount.IsZero(), "a position the provider stopped reporting is gone")
+	assert.Equal(t, entity.SourceLLMImport, imported.Source, "provenance survives the removal")
+	assert.Contains(t, zeroFields, "synced_at")
+}
+
+// TestSyncAccount_EmptySnapshotGuardsAdoptedRows: the empty-snapshot guard
+// counts the rows a sync answers for. Counting by source saw zero on an account
+// whose only rows were adopted, and let an empty answer through as removal.
+func TestSyncAccount_EmptySnapshotGuardsAdoptedRows(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
+
+	synced := time.Now().Add(-time.Hour)
+	adopted := &entity.Holding{
+		ID:        "h-adopted",
+		AssetID:   "asset-DAI",
+		AccountID: testAccountID,
+		Amount:    decimal.RequireFromString("100"),
+		Decimals:  18,
+		Chain:     "eth",
+		Source:    entity.SourceLLMImport,
+		SyncedAt:  &synced,
+	}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{adopted}, "", nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{}, nil)
+
+	h := newHandler(s).WithMarketDataClient(&mockMDClient{autoAsset: true}).WithWalletSyncer(ws)
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), resp.Msg.HoldingsZeroed)
+	require.Len(t, resp.Msg.Errors, 1)
+	assert.Contains(t, resp.Msg.Errors[0], "no positions")
+	s.AssertNotCalled(t, "UpdateHolding", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // TestSyncAccount_AdoptedRowIsNotZeroed: adoption of a pre-chain row happens

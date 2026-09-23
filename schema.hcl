@@ -496,6 +496,12 @@ table "holdings" {
     type = uuid
     null = true
   }
+  # When a sync last wrote this row; NULL means none ever has. Unlike source, it
+  # follows a row a sync adopted. No backfill: source = sync covers older rows.
+  column "synced_at" {
+    type = timestamptz
+    null = true
+  }
 
   primary_key {
     columns = [column.id]
