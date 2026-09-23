@@ -175,18 +175,6 @@ func (s ProvenanceSource) Valid() bool {
 	}
 }
 
-// Swept reports whether a provider is responsible for keeping this row current.
-// Only a synced row has one: a hand-entered or imported amount is a claim its
-// author owns, and no sweep will ever revisit it.
-//
-// The distinction matters wherever an age is read as a symptom. A synced amount
-// that is two weeks old means the sweep failed to reach its account; a manual
-// amount that is two weeks old means it was entered two weeks ago and is exactly
-// as true as it was then.
-func (s ProvenanceSource) Swept() bool {
-	return s == SourceSync
-}
-
 // DatesAmounts reports whether this row's age may date a total's quantities.
 //
 // Two conditions, and only the first is obvious. The row must be swept, because
@@ -199,7 +187,19 @@ func (s ProvenanceSource) Swept() bool {
 // something that is not in the total at all, and reports it worse the longer
 // the instance runs correctly.
 func (h *Holding) DatesAmounts() bool {
-	return h.Source.Swept() && !h.Amount.IsZero()
+	return h.Swept() && !h.Amount.IsZero()
+}
+
+// Swept reports whether a provider is responsible for keeping this row current:
+// a sync created it or has written it since. Only such a row may be zeroed by a
+// snapshot that no longer contains it, and only its age is a symptom — a manual
+// amount two weeks old is exactly as true as when it was entered.
+//
+// Source alone cannot answer this: it names who first asserted the row, and a
+// sync that adopts an imported row refreshes it while Source stays unchanged.
+// Source = sync still counts because rows synced before SyncedAt carry no stamp.
+func (h *Holding) Swept() bool {
+	return h.Source == SourceSync || h.SyncedAt != nil
 }
 
 // Liquidity says how soon a position can be spent. It is the axis the runway
@@ -263,8 +263,10 @@ type Holding struct {
 	ExcludedSource ExclusionSource
 	Source         ProvenanceSource // Creation provenance; immutable after create
 	ImportID       string           // Optional batch id linking rows created by one import
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// SyncedAt is when a sync last wrote this row; nil means none ever has. See Swept.
+	SyncedAt  *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // TransactionType represents the type of financial transaction.

@@ -167,7 +167,7 @@ func TestSyncAccount_BrokerSoldPositionIsZeroed(t *testing.T) {
 	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: testHoldingID}, nil)
 	s.On("UpdateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
 		return h.ID == sold.ID && h.Amount.IsZero()
-	}), []string{"amount"}).Return(sold, nil)
+	}), []string{"amount", "synced_at"}).Return(sold, nil)
 
 	syncer := &mockBrokerSyncer{}
 	syncer.On("SyncBroker", mock.Anything).Return([]entity.BrokerPosition{
@@ -238,7 +238,7 @@ func TestSyncAccount_BrokerDefaultedMarketIsCountedNotWithheld(t *testing.T) {
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{sold}, "", nil)
 	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: testHoldingID}, nil)
-	s.On("UpdateHolding", mock.Anything, mock.Anything, []string{"amount"}).Return(sold, nil)
+	s.On("UpdateHolding", mock.Anything, mock.Anything, []string{"amount", "synced_at"}).Return(sold, nil)
 
 	syncer := &mockBrokerSyncer{}
 	syncer.On("SyncBroker", mock.Anything).Return([]entity.BrokerPosition{

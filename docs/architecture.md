@@ -834,8 +834,11 @@ address and chain must have answered without error, every returned balance must
 have resolved to an asset, and the snapshot must not be empty while the account
 still carries synced rows. When a guard blocks removal the reason goes into
 `errors` — a skipped removal that says nothing is the failure this replaces.
-Only rows with `source = sync` are eligible: an imported or manual position is
-the user's claim about the account, not the provider's to erase.
+Only rows a sync answers for are eligible — created by one (`source = sync`) or
+written by one since (`synced_at` set, as on an imported row a sync adopted). An
+imported or manual position no sync has written is the user's claim about the
+account, not the provider's to erase. `source` records who first asserted a row
+and never changes; `synced_at` records who refreshes it now.
 
 A balance with no symbol is the exception to the second guard. The catalogue is
 still asked, because `FindOrCreateAsset` resolves a known contract by its

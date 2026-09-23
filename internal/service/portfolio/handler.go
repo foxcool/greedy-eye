@@ -1927,12 +1927,12 @@ type syncResult struct {
 	syncErrors       []string
 }
 
-// countSyncWritten counts the rows a sync is allowed to zero: the ones a sync
-// wrote in the first place.
+// countSyncWritten counts the rows a sync is allowed to zero, adopted ones
+// included (see entity.Holding.Swept).
 func countSyncWritten(holdings []*entity.Holding) int {
 	n := 0
 	for _, hld := range holdings {
-		if hld.Source == entity.SourceSync && !hld.Amount.IsZero() {
+		if hld.Swept() && !hld.Amount.IsZero() {
 			n++
 		}
 	}
@@ -1984,6 +1984,8 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 	// here rather than in the plan, so the vanished set can only be known after
 	// the write loop has run.
 	refreshed := make(map[string]struct{}, len(plan.existing))
+	// One instant per snapshot: it is one observation of the account.
+	syncedAt := time.Now()
 
 	for _, key := range plan.order {
 		entry := plan.byPosition[key]
@@ -2007,7 +2009,8 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 			// chain when adopting a pre-chain row); never touch portfolio assignment.
 			existing.Amount = amount
 			existing.Decimals = decimals
-			fields := []string{"amount", "decimals"}
+			existing.SyncedAt = &syncedAt
+			fields := []string{"amount", "decimals", "synced_at"}
 			if adopted {
 				existing.Chain = key.chain
 				existing.Liquidity = key.liquidity
@@ -2055,6 +2058,7 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 				Chain:       key.chain,
 				Liquidity:   key.liquidity,
 				Source:      entity.SourceSync,
+				SyncedAt:    &syncedAt,
 				Excluded:    entry.excluded,
 				ExcludedSource: func() entity.ExclusionSource {
 					if entry.excluded {
@@ -2081,8 +2085,8 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 	//
 	// Zero rather than delete: the row keeps its id, provenance and history, falls
 	// out of every sum, and a later sync that sees the position again refreshes it
-	// in place. Only rows this sync's own kind wrote are eligible — an imported or
-	// manual position is the user's claim, not the provider's to erase.
+	// in place. Only swept rows are eligible — an imported or manual position no
+	// sync has ever written is the user's claim, not the provider's to erase.
 	//
 	// plan.zeroVanished is the guard the whole pass hangs on: a failed chain, an
 	// unresolved balance or an empty result must never be read as an emptied
@@ -2092,11 +2096,12 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 			if _, ok := refreshed[hld.ID]; ok {
 				continue
 			}
-			if hld.Source != entity.SourceSync || hld.Amount.IsZero() {
+			if !hld.Swept() || hld.Amount.IsZero() {
 				continue
 			}
 			hld.Amount = decimal.Zero
-			if _, err := w.UpdateHolding(ctx, hld, []string{"amount"}); err != nil {
+			hld.SyncedAt = &syncedAt
+			if _, err := w.UpdateHolding(ctx, hld, []string{"amount", "synced_at"}); err != nil {
 				return writtenSnapshot{}, fmt.Errorf("zero vanished holding %s: %w", hld.ID, err)
 			}
 			// Deliberately not added to syncedAssetIDs: a zero position needs no

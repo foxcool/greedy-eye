@@ -633,6 +633,44 @@ func TestHoldingProvenanceRoundtrip(t *testing.T) {
 		assert.False(t, found.ReleasableBySync(), "a person's exclusion is not the sync's to lift")
 	})
 
+	// An imported row carries no stamp until a sync writes it; once one does,
+	// the stamp persists beside the unchanged source, on both read paths.
+	t.Run("synced_at round-trip on an adopted row", func(t *testing.T) {
+		created, err := s.CreateHolding(ctx, &entity.Holding{
+			AssetID:   asset.ID,
+			AccountID: account.ID,
+			Amount:    decimal.RequireFromString("5"),
+			Decimals:  8,
+			Chain:     "synced-at",
+			Source:    entity.SourceLLMImport,
+		})
+		require.NoError(t, err)
+
+		got, err := s.GetHolding(ctx, created.ID)
+		require.NoError(t, err)
+		assert.Nil(t, got.SyncedAt, "no sync has written an imported row")
+		assert.False(t, got.Swept())
+
+		at := time.Now().UTC().Truncate(time.Microsecond)
+		got.SyncedAt = &at
+		_, err = s.UpdateHolding(ctx, got, []string{"synced_at"})
+		require.NoError(t, err)
+
+		listed, _, err := s.ListHoldings(ctx, portfolio.ListHoldingsOpts{AccountID: account.ID, PageSize: 200})
+		require.NoError(t, err)
+		var found *entity.Holding
+		for _, h := range listed {
+			if h.ID == created.ID {
+				found = h
+			}
+		}
+		require.NotNil(t, found)
+		require.NotNil(t, found.SyncedAt)
+		assert.True(t, at.Equal(*found.SyncedAt))
+		assert.Equal(t, entity.SourceLLMImport, found.Source, "the stamp does not rewrite provenance")
+		assert.True(t, found.Swept())
+	})
+
 	// Two rows for one (account, asset) pair that differ only by chain: the row
 	// is the position, and the chain is part of what identifies it. A pre-chain
 	// row reads back as empty — never as "eth".
