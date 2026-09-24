@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -53,4 +54,10 @@ func TestHealthPayloadSurvivesAHostileVersion(t *testing.T) {
 		"a version string must not be able to break the document")
 	assert.Equal(t, "ok", got["status"], "and must not be able to overwrite another field")
 	assert.Equal(t, `0.8.2","status":"down`, got["version"])
+}
+
+// The label an RPC puts on its provider spend is the method name alone.
+func TestRPCCallerNamesTheMethod(t *testing.T) {
+	assert.Equal(t, "rpc:FetchExternalPrices",
+		rpcCaller(apiv1connect.MarketDataServiceFetchExternalPricesProcedure))
 }

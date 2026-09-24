@@ -70,7 +70,8 @@ func (t *limitedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 	// The volume check comes before the waits: a request that has no allowance
 	// left should fail now rather than after sitting out a freeze for it.
-	if err := t.bucket.reserve(ClassFromContext(ctx), t.clock()); err != nil {
+	caller := CallerFromContext(ctx)
+	if err := t.bucket.reserve(ClassFromContext(ctx), caller, t.clock()); err != nil {
 		return nil, err
 	}
 
@@ -100,7 +101,7 @@ func (t *limitedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		// Escalating asserts nothing about which reason applies. It only stops
 		// paying for an answer we keep being given, and it heals itself: one
 		// successful response resets the run.
-		streak := t.bucket.noteBackoff()
+		streak := t.bucket.noteBackoff(caller)
 		t.bucket.freezeUntil(t.clock().Add(escalate(retryAfter(resp), streak)))
 	} else {
 		t.bucket.noteSuccess()

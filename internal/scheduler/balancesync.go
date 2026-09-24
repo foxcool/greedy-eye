@@ -20,8 +20,8 @@ import (
 // count (see portfolio.SweepOpts) and by this job's timeout; whatever it does
 // not reach stays stale and is picked first on the next fire.
 func (s *Scheduler) syncBalances() {
-	ctx, cancel := context.WithTimeout(
-		ratelimit.WithClass(context.Background(), ratelimit.ClassBackground), balanceSyncTimeout)
+	ctx, cancel := context.WithTimeout(ratelimit.WithCaller(
+		ratelimit.WithClass(context.Background(), ratelimit.ClassBackground), "job:balance_sync"), balanceSyncTimeout)
 	defer cancel()
 
 	start := time.Now()

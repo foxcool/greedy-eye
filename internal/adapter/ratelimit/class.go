@@ -35,3 +35,29 @@ func ClassFromContext(ctx context.Context) Class {
 	}
 	return ClassInteractive
 }
+
+// Unlabelled is the caller recorded for a request made under no WithCaller.
+// It is a bucket of its own rather than a gap: spend nobody claims is exactly
+// the spend an operator needs to see growing.
+const Unlabelled = "unlabelled"
+
+type callerKey struct{}
+
+// WithCaller names who is spending the requests made under ctx, so a plan's
+// spend can be split by what spent it — the counter alone says how much, not
+// why. A label set under an existing one nests as "outer/inner": the entry
+// point says which job or RPC, the inner one which operation inside it.
+func WithCaller(ctx context.Context, name string) context.Context {
+	if outer, ok := ctx.Value(callerKey{}).(string); ok {
+		name = outer + "/" + name
+	}
+	return context.WithValue(ctx, callerKey{}, name)
+}
+
+// CallerFromContext reports the caller carried by ctx, or Unlabelled.
+func CallerFromContext(ctx context.Context) string {
+	if c, ok := ctx.Value(callerKey{}).(string); ok {
+		return c
+	}
+	return Unlabelled
+}
