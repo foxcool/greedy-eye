@@ -17,8 +17,8 @@ import (
 func (s *Scheduler) fetchPrices() {
 	// Background class: on a plan metered by volume, an unattended sweep yields
 	// its last fifth of the month's allowance to whoever presses Sync.
-	ctx, cancel := context.WithTimeout(
-		ratelimit.WithClass(context.Background(), ratelimit.ClassBackground), jobTimeout)
+	ctx, cancel := context.WithTimeout(ratelimit.WithCaller(
+		ratelimit.WithClass(context.Background(), ratelimit.ClassBackground), "job:price_sweep"), jobTimeout)
 	defer cancel()
 
 	start := time.Now()

@@ -269,9 +269,23 @@ type fakeUsageStore struct {
 func (f *fakeUsageStore) LoadUsage(_ context.Context, periodStart time.Time) ([]Usage, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	// Summed over callers, like the real store: restore reads one total per key.
 	var out []Usage
 	for _, u := range f.rows {
-		if u.PeriodStart.Equal(periodStart) {
+		if !u.PeriodStart.Equal(periodStart) {
+			continue
+		}
+		merged := false
+		for i := range out {
+			if out[i].Provider == u.Provider && out[i].Fingerprint == u.Fingerprint {
+				out[i].Requests += u.Requests
+				out[i].Backoffs += u.Backoffs
+				merged = true
+				break
+			}
+		}
+		if !merged {
+			u.Caller = ""
 			out = append(out, u)
 		}
 	}
@@ -285,7 +299,8 @@ func (f *fakeUsageStore) AddUsage(_ context.Context, deltas []Usage) error {
 	for _, d := range deltas {
 		found := false
 		for i, u := range f.rows {
-			if u.Provider == d.Provider && u.Fingerprint == d.Fingerprint && u.PeriodStart.Equal(d.PeriodStart) {
+			if u.Provider == d.Provider && u.Fingerprint == d.Fingerprint &&
+				u.PeriodStart.Equal(d.PeriodStart) && u.Caller == d.Caller {
 				f.rows[i].Requests += d.Requests
 				f.rows[i].Backoffs += d.Backoffs
 				found = true
@@ -319,12 +334,12 @@ func TestQuotaClassReserve(t *testing.T) {
 
 	// backgroundReserve is 0.8, so background gets 8 of 10.
 	for i := range 8 {
-		require.NoError(t, b.reserve(ClassBackground, now), "background request %d", i)
+		require.NoError(t, b.reserve(ClassBackground, Unlabelled, now), "background request %d", i)
 	}
-	require.ErrorIs(t, b.reserve(ClassBackground, now), ErrQuotaExhausted)
-	require.NoError(t, b.reserve(ClassInteractive, now), "the reserve is for interactive work")
-	require.NoError(t, b.reserve(ClassInteractive, now))
-	require.ErrorIs(t, b.reserve(ClassInteractive, now), ErrQuotaExhausted, "hard ceiling for everyone")
+	require.ErrorIs(t, b.reserve(ClassBackground, Unlabelled, now), ErrQuotaExhausted)
+	require.NoError(t, b.reserve(ClassInteractive, Unlabelled, now), "the reserve is for interactive work")
+	require.NoError(t, b.reserve(ClassInteractive, Unlabelled, now))
+	require.ErrorIs(t, b.reserve(ClassInteractive, Unlabelled, now), ErrQuotaExhausted, "hard ceiling for everyone")
 }
 
 // TestQuotaPeriodRollover: the allowance resets on the provider's calendar
@@ -334,12 +349,12 @@ func TestQuotaPeriodRollover(t *testing.T) {
 	reg := quotaRegistry(2, func() time.Time { return now })
 	b := reg.bucket(Credential{Provider: "test", APIKey: "key"})
 
-	require.NoError(t, b.reserve(ClassInteractive, now))
-	require.NoError(t, b.reserve(ClassInteractive, now))
-	require.ErrorIs(t, b.reserve(ClassInteractive, now), ErrQuotaExhausted)
+	require.NoError(t, b.reserve(ClassInteractive, Unlabelled, now))
+	require.NoError(t, b.reserve(ClassInteractive, Unlabelled, now))
+	require.ErrorIs(t, b.reserve(ClassInteractive, Unlabelled, now), ErrQuotaExhausted)
 
 	next := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
-	require.NoError(t, b.reserve(ClassInteractive, next), "a new month is a new allowance")
+	require.NoError(t, b.reserve(ClassInteractive, Unlabelled, next), "a new month is a new allowance")
 }
 
 // TestRemainingSizesTheSweep: the portion a sweep may spend comes from what is
@@ -354,7 +369,7 @@ func TestRemainingSizesTheSweep(t *testing.T) {
 	assert.Equal(t, 800, left, "background may spend the reserve share")
 	assert.Equal(t, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), end)
 
-	require.NoError(t, reg.bucket(cred).reserve(ClassBackground, now))
+	require.NoError(t, reg.bucket(cred).reserve(ClassBackground, Unlabelled, now))
 	left, _, _ = reg.Remaining(cred)
 	assert.Equal(t, 799, left)
 
@@ -376,7 +391,7 @@ func TestUsagePersistsAcrossRestart(t *testing.T) {
 	require.NoError(t, reg.Start(ctx))
 	b := reg.bucket(cred)
 	for range 6 {
-		require.NoError(t, b.reserve(ClassInteractive, now))
+		require.NoError(t, b.reserve(ClassInteractive, Unlabelled, now))
 	}
 	require.NoError(t, reg.Stop(ctx))
 
@@ -389,9 +404,9 @@ func TestUsagePersistsAcrossRestart(t *testing.T) {
 
 	// Restored spend counts against the background reserve (8 of 10): two more
 	// background requests fit, the third does not.
-	require.NoError(t, restarted.bucket(cred).reserve(ClassBackground, now))
-	require.NoError(t, restarted.bucket(cred).reserve(ClassBackground, now))
-	require.ErrorIs(t, restarted.bucket(cred).reserve(ClassBackground, now), ErrQuotaExhausted)
+	require.NoError(t, restarted.bucket(cred).reserve(ClassBackground, Unlabelled, now))
+	require.NoError(t, restarted.bucket(cred).reserve(ClassBackground, Unlabelled, now))
+	require.ErrorIs(t, restarted.bucket(cred).reserve(ClassBackground, Unlabelled, now), ErrQuotaExhausted)
 }
 
 // TestFlushSendsOnlyDeltas: counters are added to, not set, so two backend
@@ -403,9 +418,9 @@ func TestFlushSendsOnlyDeltas(t *testing.T) {
 	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
 	b := reg.bucket(Credential{Provider: "test", APIKey: "key"})
 
-	require.NoError(t, b.reserve(ClassInteractive, now))
+	require.NoError(t, b.reserve(ClassInteractive, Unlabelled, now))
 	require.NoError(t, reg.Flush(ctx))
-	require.NoError(t, b.reserve(ClassInteractive, now))
+	require.NoError(t, b.reserve(ClassInteractive, Unlabelled, now))
 	require.NoError(t, reg.Flush(ctx))
 	require.NoError(t, reg.Flush(ctx), "nothing pending is not a write")
 
@@ -413,6 +428,54 @@ func TestFlushSendsOnlyDeltas(t *testing.T) {
 	assert.EqualValues(t, 1, store.added[0][0].Requests)
 	assert.EqualValues(t, 1, store.added[1][0].Requests)
 	assert.EqualValues(t, 2, store.rows[0].Requests)
+}
+
+// TestSpendIsSplitByCaller: the counter says how much of a plan went, the
+// caller label says what spent it. Two callers on one key are flushed apart and
+// still summed for the quota gate, which meters the key, not the caller.
+func TestSpendIsSplitByCaller(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	store := &fakeUsageStore{}
+	reg := quotaRegistry(5, func() time.Time { return now }, WithUsageStore(store))
+	client := &http.Client{Transport: reg.Transport(Credential{Provider: "test", APIKey: "key"}, nil)}
+
+	get := func(ctx context.Context) error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+		require.NoError(t, err)
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		return resp.Body.Close()
+	}
+
+	sweep := WithCaller(WithClass(ctx, ClassBackground), "job:price_sweep")
+	guard := WithCaller(sweep, "contract_guard")
+	require.NoError(t, get(sweep))
+	require.NoError(t, get(guard))
+	require.NoError(t, get(guard))
+	require.NoError(t, get(ctx))
+
+	// 4 of the 5-request background ceiling (80%) are spent across three callers.
+	require.ErrorIs(t, get(sweep), ErrQuotaExhausted, "the gate reads the key's total")
+
+	require.NoError(t, reg.Flush(ctx))
+	require.Len(t, store.added, 1)
+	byCaller := map[string]int64{}
+	for _, d := range store.added[0] {
+		byCaller[d.Caller] += d.Requests
+	}
+	assert.Equal(t, map[string]int64{
+		"job:price_sweep":                1,
+		"job:price_sweep/contract_guard": 2,
+		Unlabelled:                       1,
+	}, byCaller)
 }
 
 // TestTierSelectsLimit: the plan named on the account picks the limit, and an
@@ -586,7 +649,7 @@ func TestUnusableReportsWhyAndWhen(t *testing.T) {
 	// Background may spend 8 of 10; spending them all leaves the sweep nothing.
 	b := reg.bucket(cred)
 	for range 8 {
-		require.NoError(t, b.reserve(ClassBackground, now))
+		require.NoError(t, b.reserve(ClassBackground, Unlabelled, now))
 	}
 	reason, unusable := reg.Unusable(cred)
 	require.True(t, unusable)
@@ -625,7 +688,7 @@ func TestBudgetHandleReportsUnusable(t *testing.T) {
 
 	b := reg.bucket(cred)
 	for range 8 {
-		require.NoError(t, b.reserve(ClassBackground, now))
+		require.NoError(t, b.reserve(ClassBackground, Unlabelled, now))
 	}
 	_, unusable = budget.Unusable()
 	assert.True(t, unusable)

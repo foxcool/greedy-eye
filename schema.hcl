@@ -683,6 +683,15 @@ table "provider_usage" {
     type = timestamptz
     null = false
   }
+  // What spent it: the job or RPC that made the requests, nested with the
+  // operation inside it ("job:price_sweep/contract_guard"). 'unlabelled' is
+  // spend nobody claimed; '' is spend recorded before callers were. The quota
+  // gate reads the sum over callers — the provider meters the key.
+  column "caller" {
+    type    = character_varying
+    null    = false
+    default = ""
+  }
   column "requests" {
     type    = bigint
     null    = false
@@ -701,7 +710,7 @@ table "provider_usage" {
   }
 
   primary_key {
-    columns = [column.provider, column.key_fingerprint, column.period_start]
+    columns = [column.provider, column.key_fingerprint, column.period_start, column.caller]
   }
 }
 

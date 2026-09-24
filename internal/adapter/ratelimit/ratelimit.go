@@ -202,15 +202,19 @@ type Usage struct {
 	// Fingerprint identifies the key without keeping it.
 	Fingerprint string
 	PeriodStart time.Time
-	Requests    int64
-	Backoffs    int64
+	// Caller is who spent it (see WithCaller). Set on the deltas a flush
+	// writes; empty on totals, which is what the quota gate reads.
+	Caller   string
+	Requests int64
+	Backoffs int64
 }
 
 // UsageStore persists spend so a restart does not forget the month. A monthly
 // allowance tracked only in memory is no allowance at all: a deploy would hand
 // the process a fresh one.
 type UsageStore interface {
-	// LoadUsage returns every credential's spend within the period.
+	// LoadUsage returns every credential's total spend within the period,
+	// summed over callers.
 	LoadUsage(ctx context.Context, periodStart time.Time) ([]Usage, error)
 	// AddUsage adds deltas to the stored counters, inserting rows that do not
 	// exist yet.
@@ -340,11 +344,9 @@ func (r *Registry) Flush(ctx context.Context) error {
 	}
 
 	r.mu.Lock()
-	deltas := make([]Usage, 0, len(r.buckets))
+	var deltas []Usage
 	for _, b := range r.buckets {
-		if u, ok := b.takePending(); ok {
-			deltas = append(deltas, u)
-		}
+		deltas = append(deltas, b.takePending()...)
 	}
 	r.mu.Unlock()
 
@@ -567,11 +569,11 @@ type bucket struct {
 	frozenUntil time.Time
 	periodStart time.Time
 	// requests and backoffs count the whole period, including spend restored
-	// from the store; pending counts only what the store has not seen yet.
-	requests        int64
-	backoffs        int64
-	pendingRequests int64
-	pendingBackoffs int64
+	// from the store; pending holds only what the store has not seen yet, per
+	// caller.
+	requests int64
+	backoffs int64
+	pending  map[string]*Usage
 	// streak is how many refusals have arrived with no success between them.
 	// It sizes the escalating pause and is deliberately NOT persisted: the
 	// stored counters add rather than set (so a reset cannot be expressed) and
@@ -621,7 +623,7 @@ func (b *bucket) rollPeriod(now time.Time) {
 // allowance for its class is spent. It is called before the request goes out:
 // a request that fails in transit may still have been metered by the provider,
 // so the conservative direction is to count it.
-func (b *bucket) reserve(class Class, now time.Time) error {
+func (b *bucket) reserve(class Class, caller string, now time.Time) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.rollPeriod(now)
@@ -637,17 +639,30 @@ func (b *bucket) reserve(class Class, now time.Time) error {
 	}
 
 	b.requests++
-	b.pendingRequests++
+	b.pendingFor(caller).Requests++
 	return nil
+}
+
+// pendingFor returns the unflushed spend of one caller. Callers must hold b.mu.
+func (b *bucket) pendingFor(caller string) *Usage {
+	if b.pending == nil {
+		b.pending = make(map[string]*Usage)
+	}
+	u, ok := b.pending[caller]
+	if !ok {
+		u = &Usage{Caller: caller}
+		b.pending[caller] = u
+	}
+	return u
 }
 
 // noteBackoff records that the provider asked us to slow down and returns how
 // many refusals have now arrived without a success between them.
-func (b *bucket) noteBackoff() int64 {
+func (b *bucket) noteBackoff(caller string) int64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.backoffs++
-	b.pendingBackoffs++
+	b.pendingFor(caller).Backoffs++
 	b.streak++
 	return b.streak
 }
@@ -661,23 +676,24 @@ func (b *bucket) noteSuccess() {
 	b.streak = 0
 }
 
-// takePending returns and clears the spend the store has not seen.
-func (b *bucket) takePending() (Usage, bool) {
+// takePending returns and clears the spend the store has not seen, one delta
+// per caller.
+func (b *bucket) takePending() []Usage {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.pendingRequests == 0 && b.pendingBackoffs == 0 {
-		return Usage{}, false
+	out := make([]Usage, 0, len(b.pending))
+	for _, u := range b.pending {
+		out = append(out, Usage{
+			Provider:    b.provider,
+			Fingerprint: b.fp,
+			PeriodStart: b.periodStart,
+			Caller:      u.Caller,
+			Requests:    u.Requests,
+			Backoffs:    u.Backoffs,
+		})
 	}
-	u := Usage{
-		Provider:    b.provider,
-		Fingerprint: b.fp,
-		PeriodStart: b.periodStart,
-		Requests:    b.pendingRequests,
-		Backoffs:    b.pendingBackoffs,
-	}
-	b.pendingRequests = 0
-	b.pendingBackoffs = 0
-	return u, true
+	b.pending = nil
+	return out
 }
 
 func (b *bucket) snapshot() Usage {

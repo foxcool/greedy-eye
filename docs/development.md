@@ -584,6 +584,17 @@ an empty database and fails when the result differs from `schema.hcl`. That is w
 lets `schema.hcl` stay the authoring surface without the two drifting apart: forgetting
 step 2 fails the build with the missing DDL printed.
 
+### Rolling back an image
+
+Migrations only run forward, so rolling back means pinning an older image over a
+newer schema. That is safe only while the older binary can still read and write what
+the migrations left. A migration that breaks this is listed here, with what an older
+image does against it:
+
+| Migration | An image older than it |
+|---|---|
+| `20260923131020_provider_usage_caller` | Cannot flush spend (its `ON CONFLICT` names the old key) and restores one caller's row instead of the sum, so the quota gate under-counts. Roll back to a release that has it, or undo the migration first — summing each key's rows into one before restoring the old key, which a key with several callers would otherwise violate. |
+
 ### A database that predates migrations
 
 dev and production were built by declarative apply, so they carry the schema and no

@@ -12,8 +12,8 @@ import (
 // The rescorer logs its own detailed report (counts, flagged assets); here we
 // only bound the run and record that it fired.
 func (s *Scheduler) rescoreAssets() {
-	ctx, cancel := context.WithTimeout(
-		ratelimit.WithClass(context.Background(), ratelimit.ClassBackground), jobTimeout)
+	ctx, cancel := context.WithTimeout(ratelimit.WithCaller(
+		ratelimit.WithClass(context.Background(), ratelimit.ClassBackground), "job:rescore"), jobTimeout)
 	defer cancel()
 
 	start := time.Now()

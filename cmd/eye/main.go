@@ -181,6 +181,7 @@ func run() error {
 	interceptor := connect.WithInterceptors(
 		middleware.UserProvisioningInterceptor(userStore, log),
 		loggingInterceptor(log),
+		callerInterceptor(),
 	)
 	mdHandler := marketdata.NewHandler(mdStore, log).
 		WithProviderSource(credResolver).
@@ -352,6 +353,22 @@ func loggingInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {
 			return resp, err
 		}
 	}
+}
+
+// callerInterceptor names the RPC as the caller of whatever provider requests it
+// makes, so a plan's spend can be traced to the procedure that spent it.
+func callerInterceptor() connect.UnaryInterceptorFunc {
+	return func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			return next(ratelimit.WithCaller(ctx, rpcCaller(req.Spec().Procedure)), req)
+		}
+	}
+}
+
+// rpcCaller turns "/eye.v1.MarketDataService/FetchExternalPrices" into
+// "rpc:FetchExternalPrices": method names are unique across the services.
+func rpcCaller(procedure string) string {
+	return "rpc:" + procedure[strings.LastIndex(procedure, "/")+1:]
 }
 
 // healthPayload is the body of GET /eye/health. It carries the build so that
