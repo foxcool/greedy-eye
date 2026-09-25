@@ -24,6 +24,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Verdict is the identity judgement for an asset. It is terminal for scam and
@@ -228,12 +229,15 @@ func verdictFor(score float64, w Weights) Verdict {
 // a ticker or name. Ordinary spaces are allowed; everything else in the format
 // (Cf) and control (Cc) categories — zero-width joiners, bidi overrides, the
 // invisible separator U+2063 seen in the catalogue — is a smuggling vector.
+// U+FFFD counts too: it is what intake stores in place of a NUL byte or invalid
+// UTF-8 (entity.NormalizeName), so it marks a control byte the database could
+// not hold, and the verdict must survive the substitution.
 func hasInvisibleRune(s string) bool {
 	for _, r := range s {
 		if r == ' ' {
 			continue
 		}
-		if unicode.Is(unicode.Cf, r) || unicode.IsControl(r) {
+		if r == utf8.RuneError || unicode.Is(unicode.Cf, r) || unicode.IsControl(r) {
 			return true
 		}
 	}

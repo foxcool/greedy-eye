@@ -710,6 +710,35 @@ func TestFindOrCreateAsset_Creates(t *testing.T) {
 	s.AssertExpectations(t)
 }
 
+// TestFindOrCreateAsset_NulByteKeepsThePosition is personal-1vuy: a token whose
+// name carries a NUL byte used to fail the insert (SQLSTATE 22021), dropping the
+// balance and marking the snapshot incomplete. It lands now, with the byte
+// marked, and is condemned by the invisible-rune signal rather than lost.
+func TestFindOrCreateAsset_NulByteKeepsThePosition(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetByIdentity", mock.Anything, "GTPS\uFFFD", "crypto", entity.AssetTypeCryptocurrency).
+		Return(nil, store.ErrNotFound)
+	stored := &entity.Asset{ID: "id-nul", Symbol: "GTPS\uFFFD", Name: "Get\uFFFDPaid", Market: "crypto", Type: entity.AssetTypeCryptocurrency}
+	s.On("CreateAsset", mock.Anything, mock.MatchedBy(func(a *entity.Asset) bool {
+		return a.Symbol == stored.Symbol && a.Name == stored.Name
+	})).Return(stored, nil)
+	s.On("FindTickerIncumbent", mock.Anything, "id-nul").Return("", store.ErrNotFound)
+	s.On("SetAssetVerdict", mock.Anything, "id-nul", "scam", mock.Anything,
+		mock.MatchedBy(func(sig map[string]float64) bool { return sig["invisible_unicode"] == 1 }),
+		mock.Anything).Return(true, nil)
+	h := newHandler(s)
+
+	name := "Get\x00Paid"
+	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol: "gtps\x00",
+		Name:   &name,
+	}))
+	require.NoError(t, err)
+	assert.True(t, resp.Msg.Created)
+	assert.Equal(t, "scam", resp.Msg.Asset.GetIdentityVerdict())
+	s.AssertExpectations(t)
+}
+
 // TestFindOrCreateAsset_LosesCreationRace verifies a concurrent insert is
 // resolved by reading back the winner instead of surfacing the constraint.
 func TestFindOrCreateAsset_LosesCreationRace(t *testing.T) {

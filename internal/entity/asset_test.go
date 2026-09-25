@@ -26,3 +26,21 @@ func TestIsListedVenue(t *testing.T) {
 		assert.False(t, IsListedVenue(m), "market %q", m)
 	}
 }
+
+// TestNormalizeName pins what Postgres text cannot hold: a NUL byte and invalid
+// UTF-8 both become U+FFFD instead of failing the write or disappearing, so the
+// position lands and the marker is still there for the scam filter to judge.
+func TestNormalizeName(t *testing.T) {
+	cases := map[string]struct{ in, want string }{
+		"plain name unchanged":      {"Tether USD", "Tether USD"},
+		"surrounding space trimmed": {"  GTPS ", "GTPS"},
+		"NUL byte marked":           {"GTPS\x00", "GTPS�"},
+		"invalid UTF-8 marked":      {"BUY\xffSAFU", "BUY�SAFU"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, c.want, NormalizeName(c.in))
+		})
+	}
+	assert.Equal(t, "GT�PS", NormalizeSymbol(" gt\x00ps"), "symbols get the same treatment before uppercasing")
+}
