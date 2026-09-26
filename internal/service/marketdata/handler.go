@@ -233,8 +233,27 @@ func (h *Handler) GetAsset(ctx context.Context, req *connect.Request[apiv1.GetAs
 	return connect.NewResponse(assetToProto(asset)), nil
 }
 
-// UpdateAsset updates an asset.
+// requireAdmin gates a write to the catalogue. An asset is one row shared by
+// every user who holds it, so changing it — or anything bound to it — changes
+// it for everyone; that is catalogue maintenance, not a personal preference.
+// Admin-only until per-asset RBAC lands (personal-rme). The FE hiding a button
+// is presentation; this is the enforcement.
+func requireAdmin(ctx context.Context, action string) (*entity.User, error) {
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
+	}
+	if !user.IsAdmin() {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New(action+" is admin-only"))
+	}
+	return user, nil
+}
+
+// UpdateAsset updates an asset. Admin-only: the row is global.
 func (h *Handler) UpdateAsset(ctx context.Context, req *connect.Request[apiv1.UpdateAssetRequest]) (*connect.Response[apiv1.Asset], error) {
+	if _, err := requireAdmin(ctx, "updating a catalogue asset"); err != nil {
+		return nil, err
+	}
 	if req.Msg.Asset == nil || req.Msg.Asset.Id == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset with ID is required"))
 	}
@@ -253,8 +272,11 @@ func (h *Handler) UpdateAsset(ctx context.Context, req *connect.Request[apiv1.Up
 	return connect.NewResponse(assetToProto(updated)), nil
 }
 
-// DeleteAsset deletes an asset by ID.
+// DeleteAsset deletes an asset by ID. Admin-only: it disappears for everyone.
 func (h *Handler) DeleteAsset(ctx context.Context, req *connect.Request[apiv1.DeleteAssetRequest]) (*connect.Response[emptypb.Empty], error) {
+	if _, err := requireAdmin(ctx, "deleting a catalogue asset"); err != nil {
+		return nil, err
+	}
 	if req.Msg.Id == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset ID is required"))
 	}
@@ -701,12 +723,9 @@ var settableVerdicts = map[string]bool{
 // the automated scorer never overwrites it. Admin-only until per-asset RBAC
 // lands (personal-rme).
 func (h *Handler) SetAssetVerdict(ctx context.Context, req *connect.Request[apiv1.SetAssetVerdictRequest]) (*connect.Response[apiv1.Asset], error) {
-	user, ok := middleware.UserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
-	}
-	if !user.IsAdmin() {
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("setting an asset verdict is admin-only"))
+	user, err := requireAdmin(ctx, "setting an asset verdict")
+	if err != nil {
+		return nil, err
 	}
 	if req.Msg.AssetId == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset_id is required"))
@@ -758,13 +777,9 @@ var riskActionHints = map[string]bool{
 //
 // Admin-only, like a verdict: a flag is catalogue-wide and every user sees it.
 func (h *Handler) AddAssetRiskFlag(ctx context.Context, req *connect.Request[apiv1.AddAssetRiskFlagRequest]) (*connect.Response[apiv1.AssetRiskFlag], error) {
-	user, ok := middleware.UserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
-	}
-	if !user.IsAdmin() {
-		return nil, connect.NewError(connect.CodePermissionDenied,
-			errors.New("adding an asset risk flag is admin-only"))
+	user, err := requireAdmin(ctx, "adding an asset risk flag")
+	if err != nil {
+		return nil, err
 	}
 	if req.Msg.AssetId == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset_id is required"))
@@ -809,13 +824,8 @@ func (h *Handler) AddAssetRiskFlag(ctx context.Context, req *connect.Request[api
 // Removal is ordinary here, unlike removing an external ref: review_at exists
 // precisely so flags are revisited and retired.
 func (h *Handler) DeleteAssetRiskFlag(ctx context.Context, req *connect.Request[apiv1.DeleteAssetRiskFlagRequest]) (*connect.Response[emptypb.Empty], error) {
-	user, ok := middleware.UserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
-	}
-	if !user.IsAdmin() {
-		return nil, connect.NewError(connect.CodePermissionDenied,
-			errors.New("removing an asset risk flag is admin-only"))
+	if _, err := requireAdmin(ctx, "removing an asset risk flag"); err != nil {
+		return nil, err
 	}
 	if req.Msg.AssetId == "" || req.Msg.Id == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset_id and id are required"))
@@ -904,13 +914,9 @@ func (h *Handler) attachRiskFlags(ctx context.Context, asset *entity.Asset) {
 // here would mean this RPC deciding what the balance IS, which is exactly the
 // judgement that produced the wrong binding in the first place.
 func (h *Handler) DeleteAssetExternalRef(ctx context.Context, req *connect.Request[apiv1.DeleteAssetExternalRefRequest]) (*connect.Response[emptypb.Empty], error) {
-	user, ok := middleware.UserFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
-	}
-	if !user.IsAdmin() {
-		return nil, connect.NewError(connect.CodePermissionDenied,
-			errors.New("removing an asset external ref is admin-only"))
+	user, err := requireAdmin(ctx, "removing an asset external ref")
+	if err != nil {
+		return nil, err
 	}
 	if req.Msg.AssetId == "" || req.Msg.Id == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument,

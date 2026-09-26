@@ -37,6 +37,17 @@ func newMDClient(userID string) apiv1connect.MarketDataServiceClient {
 	)
 }
 
+// newMDAdminClient is newMDClient with the admin role, which catalogue writes
+// (UpdateAsset, DeleteAsset, verdicts, bindings) require.
+func newMDAdminClient(userID string) apiv1connect.MarketDataServiceClient {
+	h := userHeaders(userID)
+	h["X-User-Roles"] = "admin"
+	return apiv1connect.NewMarketDataServiceClient(
+		http.DefaultClient, serverURL,
+		connect.WithInterceptors(h),
+	)
+}
+
 func newPortfolioClient(userID string) apiv1connect.PortfolioServiceClient {
 	return apiv1connect.NewPortfolioServiceClient(
 		http.DefaultClient, serverURL,

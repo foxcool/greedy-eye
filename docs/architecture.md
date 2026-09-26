@@ -968,7 +968,11 @@ Cron / API Client → AutomationService/ExecuteRule
   existence isn't leaked. Holdings/transactions inherit ownership through their account.
   `user_id` list overrides are admin-only.
 - **Admin-gated mutations**: sharing account credentials system-wide (`system_scopes`) requires the
-  admin role and an explicit update mask.
+  admin role and an explicit update mask. Every write to the asset catalogue is admin-only too —
+  `UpdateAsset`, `DeleteAsset`, `SetAssetVerdict`, `Add`/`DeleteAssetRiskFlag`,
+  `DeleteAssetExternalRef` — because an asset is one row shared by every user who holds it, so an
+  edit by one is an edit for all. The check lives in the handler (`requireAdmin`); the FE hiding a
+  control is presentation, not enforcement. Per-asset RBAC is `personal-rme`.
 
 **Data Protection:**
 - **Encryption at Rest**: `accounts.data` (provider API keys) is encrypted with AES-256-GCM +
