@@ -587,8 +587,8 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 	}
 
 	name := symbol
-	if req.Msg.Name != nil && strings.TrimSpace(*req.Msg.Name) != "" {
-		name = strings.TrimSpace(*req.Msg.Name)
+	if n := entity.NormalizeName(req.Msg.GetName()); n != "" {
+		name = n
 	}
 	// Mirror the contract as a tag on an on-chain create so the price providers
 	// that look tokens up by address (coingecko) keep resolving; the external ref

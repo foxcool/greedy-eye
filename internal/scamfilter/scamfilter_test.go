@@ -28,6 +28,14 @@ func TestScore_Fixtures(t *testing.T) {
 			wantSignal:  SignalInvisibleUnicode,
 		},
 		{
+			// intake stores a NUL byte as U+FFFD (entity.NormalizeName); the
+			// substitute must condemn exactly as the byte would have
+			name:        "control byte stored as replacement char",
+			in:          Input{Symbol: "GTPS\uFFFD", Name: "GTPS"},
+			wantVerdict: VerdictScam,
+			wantSignal:  SignalInvisibleUnicode,
+		},
+		{
 			name:        "cyrillic lookalike USDT",
 			in:          Input{Symbol: "UЅDT", Name: "Tether USD"}, // U+0405 Cyrillic S
 			wantVerdict: VerdictImpersonation,
@@ -205,7 +213,7 @@ func TestScore_TickerCollisionBeatsCleanContext(t *testing.T) {
 // TestScore_ClampsAtOne verifies a pile of soft signals cannot exceed 1.
 func TestScore_ClampsAtOne(t *testing.T) {
 	got := Score(Input{
-		Symbol:           "CLAIMREWARDNOW",             // overlong + airdrop
+		Symbol:           "CLAIMREWARDNOW",              // overlong + airdrop
 		Name:             "visit claim-rewards.xyz now", // domain + airdrop
 		ProviderSpam:     ptr(true),
 		ContractVerified: ptr(false),

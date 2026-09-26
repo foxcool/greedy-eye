@@ -9,8 +9,22 @@ import (
 // and the unique constraint are case-insensitive. Tickers are conventionally uppercase
 // (BTC, USDC); applying this on every write keeps "usdc" and "USDC" the same asset.
 func NormalizeSymbol(symbol string) string {
-	return strings.ToUpper(strings.TrimSpace(symbol))
+	return strings.ToUpper(NormalizeName(symbol))
 }
+
+// NormalizeName makes issuer-chosen text storable: Postgres text rejects a NUL
+// byte and invalid UTF-8 outright, so one such token name failed the create and
+// dropped a real position from the snapshot (personal-1vuy). Both become U+FFFD
+// rather than vanishing — the label is hostile, not the holding, and the marker
+// keeps the scam filter's invisible-rune signal alive on the stored text, which
+// is all a later rescore sees.
+func NormalizeName(s string) string {
+	s = strings.ToValidUTF8(s, unrepresentable)
+	return strings.TrimSpace(strings.ReplaceAll(s, "\x00", unrepresentable))
+}
+
+// unrepresentable stands in for a byte the database cannot store.
+const unrepresentable = "\uFFFD"
 
 // MarketCrypto is the global market for crypto assets. Crypto trades everywhere at
 // once, so one asset row represents e.g. BTC regardless of which provider priced it;
