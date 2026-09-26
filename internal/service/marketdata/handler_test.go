@@ -449,7 +449,7 @@ func TestGetAsset_ResolvesATicker(t *testing.T) {
 
 func TestDeleteAsset_MissingID(t *testing.T) {
 	h := newHandler(&mockStore{})
-	_, err := h.DeleteAsset(context.Background(), connect.NewRequest(&apiv1.DeleteAssetRequest{}))
+	_, err := h.DeleteAsset(adminCtx(), connect.NewRequest(&apiv1.DeleteAssetRequest{}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 }
@@ -459,8 +459,26 @@ func TestDeleteAsset_OK(t *testing.T) {
 	s.On("DeleteAsset", mock.Anything, "id-1").Return(nil)
 	h := newHandler(s)
 
-	_, err := h.DeleteAsset(context.Background(), connect.NewRequest(&apiv1.DeleteAssetRequest{Id: "id-1"}))
+	_, err := h.DeleteAsset(adminCtx(), connect.NewRequest(&apiv1.DeleteAssetRequest{Id: "id-1"}))
 	require.NoError(t, err)
+}
+
+func TestDeleteAsset_IsAdminOnly(t *testing.T) {
+	s := &mockStore{}
+	h := newHandler(s)
+	req := connect.NewRequest(&apiv1.DeleteAssetRequest{Id: "id-1"})
+
+	// The row is global: deleting it removes it for every user who holds it.
+	plain := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	_, err := h.DeleteAsset(plain, req)
+	require.Error(t, err)
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+	_, err = h.DeleteAsset(context.Background(), req)
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+
+	s.AssertNotCalled(t, "DeleteAsset", mock.Anything, mock.Anything)
 }
 
 // --- Tests: ListAssets ---
@@ -500,7 +518,7 @@ func TestListAssets_WithFilters(t *testing.T) {
 
 func TestUpdateAsset_MissingID(t *testing.T) {
 	h := newHandler(&mockStore{})
-	_, err := h.UpdateAsset(context.Background(), connect.NewRequest(&apiv1.UpdateAssetRequest{
+	_, err := h.UpdateAsset(adminCtx(), connect.NewRequest(&apiv1.UpdateAssetRequest{
 		Asset: &apiv1.Asset{},
 	}))
 	require.Error(t, err)
@@ -514,11 +532,31 @@ func TestUpdateAsset_OK(t *testing.T) {
 	s.On("UpdateAsset", mock.Anything, mock.Anything, []string(nil)).Return(updated, nil)
 	h := newHandler(s)
 
-	resp, err := h.UpdateAsset(context.Background(), connect.NewRequest(&apiv1.UpdateAssetRequest{
+	resp, err := h.UpdateAsset(adminCtx(), connect.NewRequest(&apiv1.UpdateAssetRequest{
 		Asset: &apiv1.Asset{Id: "id-1", Name: "Updated"},
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, "Updated", resp.Msg.Name)
+}
+
+func TestUpdateAsset_IsAdminOnly(t *testing.T) {
+	s := &mockStore{}
+	h := newHandler(s)
+	req := connect.NewRequest(&apiv1.UpdateAssetRequest{
+		Asset: &apiv1.Asset{Id: "id-1", Name: "Renamed by a stranger"},
+	})
+
+	// One user renaming an asset renames it for everyone who holds it.
+	plain := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	_, err := h.UpdateAsset(plain, req)
+	require.Error(t, err)
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+	_, err = h.UpdateAsset(context.Background(), req)
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+
+	s.AssertNotCalled(t, "UpdateAsset", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // --- Tests: CreatePrice ---

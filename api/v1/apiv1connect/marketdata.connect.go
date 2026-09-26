@@ -110,7 +110,10 @@ type MarketDataServiceClient interface {
 	// --- Asset CRUD ---
 	CreateAsset(context.Context, *connect.Request[v1.CreateAssetRequest]) (*connect.Response[v1.Asset], error)
 	GetAsset(context.Context, *connect.Request[v1.GetAssetRequest]) (*connect.Response[v1.Asset], error)
+	// UpdateAsset rewrites a catalogue entry. Admin-only: an asset is one row
+	// shared by every user who holds it, so an edit is an edit for everyone.
 	UpdateAsset(context.Context, *connect.Request[v1.UpdateAssetRequest]) (*connect.Response[v1.Asset], error)
+	// DeleteAsset removes a catalogue entry for every user. Admin-only.
 	DeleteAsset(context.Context, *connect.Request[v1.DeleteAssetRequest]) (*connect.Response[emptypb.Empty], error)
 	ListAssets(context.Context, *connect.Request[v1.ListAssetsRequest]) (*connect.Response[v1.ListAssetsResponse], error)
 	// --- Asset business logic ---
@@ -501,7 +504,10 @@ type MarketDataServiceHandler interface {
 	// --- Asset CRUD ---
 	CreateAsset(context.Context, *connect.Request[v1.CreateAssetRequest]) (*connect.Response[v1.Asset], error)
 	GetAsset(context.Context, *connect.Request[v1.GetAssetRequest]) (*connect.Response[v1.Asset], error)
+	// UpdateAsset rewrites a catalogue entry. Admin-only: an asset is one row
+	// shared by every user who holds it, so an edit is an edit for everyone.
 	UpdateAsset(context.Context, *connect.Request[v1.UpdateAssetRequest]) (*connect.Response[v1.Asset], error)
+	// DeleteAsset removes a catalogue entry for every user. Admin-only.
 	DeleteAsset(context.Context, *connect.Request[v1.DeleteAssetRequest]) (*connect.Response[emptypb.Empty], error)
 	ListAssets(context.Context, *connect.Request[v1.ListAssetsRequest]) (*connect.Response[v1.ListAssetsResponse], error)
 	// --- Asset business logic ---

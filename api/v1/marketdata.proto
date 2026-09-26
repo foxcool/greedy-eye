@@ -291,6 +291,8 @@ service MarketDataService {
     };
   }
 
+  // UpdateAsset rewrites a catalogue entry. Admin-only: an asset is one row
+  // shared by every user who holds it, so an edit is an edit for everyone.
   rpc UpdateAsset(UpdateAssetRequest) returns (Asset) {
     option (google.api.http) = {
       put: "/api/v1/assets/{asset.id}"
@@ -298,6 +300,7 @@ service MarketDataService {
     };
   }
 
+  // DeleteAsset removes a catalogue entry for every user. Admin-only.
   rpc DeleteAsset(DeleteAssetRequest) returns (google.protobuf.Empty) {
     option (google.api.http) = {
       delete: "/api/v1/assets/{id}"

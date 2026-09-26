@@ -19,6 +19,7 @@ func TestAssetCRUD(t *testing.T) {
 	resetDB(t)
 	ctx := context.Background()
 	client := newMDClient(smokeTestUserID)
+	admin := newMDAdminClient(smokeTestUserID)
 
 	sym := "BTC"
 
@@ -43,15 +44,20 @@ func TestAssetCRUD(t *testing.T) {
 	assert.Equal(t, btcID, getResp.Msg.GetId())
 	assert.Equal(t, "Bitcoin", getResp.Msg.GetName())
 
-	// Update name via UpdateMask
+	// Update name via UpdateMask — admin-only, the row is global
 	updatedName := "Bitcoin (Updated)"
-	updateResp, err := client.UpdateAsset(ctx, connect.NewRequest(&v1.UpdateAssetRequest{
+	updateReq := &v1.UpdateAssetRequest{
 		Asset: &v1.Asset{
 			Id:   btcID,
 			Name: updatedName,
 		},
 		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"name"}},
-	}))
+	}
+	_, err = client.UpdateAsset(ctx, connect.NewRequest(updateReq))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+	updateResp, err := admin.UpdateAsset(ctx, connect.NewRequest(updateReq))
 	require.NoError(t, err)
 	assert.Equal(t, updatedName, updateResp.Msg.GetName())
 
@@ -76,8 +82,12 @@ func TestAssetCRUD(t *testing.T) {
 	assert.Len(t, listResp.Msg.GetAssets(), 2)
 	assert.NotEmpty(t, listResp.Msg.GetNextPageToken(), "expect more pages")
 
-	// Delete
+	// Delete — admin-only, it disappears for everyone
 	_, err = client.DeleteAsset(ctx, connect.NewRequest(&v1.DeleteAssetRequest{Id: btcID}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+	_, err = admin.DeleteAsset(ctx, connect.NewRequest(&v1.DeleteAssetRequest{Id: btcID}))
 	require.NoError(t, err)
 
 	// Get deleted — expect NotFound
