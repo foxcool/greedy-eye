@@ -138,7 +138,7 @@ services:
   # A database that already carries the schema (dev, prod, anything created
   # before migrations existed) has to be baselined once; see docs/development.md.
   migrate:
-    profiles: ["default", "dev", "test"]
+    profiles: ["default", "dev"]
     # Pinned to the version the release image installs, so dev runs the deploy's
     # migration engine rather than whatever :latest became overnight.
     image: arigaio/atlas:1.3.2
@@ -168,9 +168,66 @@ services:
     environment:
       EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
 
-  # Service for running tests in isolation
+  # Smoke stand: its own database, migrated the way a deploy migrates, and a
+  # backend built from source without air. The suite truncates every table, so
+  # it must never share a database with eye-dev (personal-o9wv).
+  #
+  # Recreates greedy_eye_smoke on every run: migrations are exercised from an
+  # empty database, and nothing left by a previous run can make a test pass.
+  smoke-db:
+    profiles: ["smoke"]
+    image: postgres:17
+    environment:
+      PGPASSWORD: password
+    command: >
+      sh -c "psql -h postgres -U greedy_eye -d postgres -v ON_ERROR_STOP=1
+      -c 'DROP DATABASE IF EXISTS greedy_eye_smoke WITH (FORCE)'
+      -c 'CREATE DATABASE greedy_eye_smoke OWNER greedy_eye'"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  migrate-smoke:
+    profiles: ["smoke"]
+    image: arigaio/atlas:1.3.2
+    volumes:
+      - ../migrations:/migrations:ro
+    command: >
+      migrate apply
+      --url "postgres://greedy_eye:password@postgres:5432/greedy_eye_smoke?sslmode=disable"
+      --dir "file:///migrations"
+      --revisions-schema atlas
+    depends_on:
+      smoke-db:
+        condition: service_completed_successfully
+
+  eye-smoke:
+    profiles: ["smoke"]
+    build:
+      context: ..
+      dockerfile: build/Dockerfile
+    # Provider keys are optional: a smoke test that needs one skips without it.
+    env_file:
+      - path: secrets.env
+        required: false
+    environment:
+      EYE_LOGGING_LEVEL: INFO
+      EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye_smoke?sslmode=disable"
+      # Test traffic is not an incident.
+      EYE_SENTRY_DSN: ""
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/eye/health || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    depends_on:
+      migrate-smoke:
+        condition: service_completed_successfully
+
+  # Runs test/smoke against eye-smoke; TestMain refuses any database whose name
+  # does not end in _smoke.
   eye-test:
-    profiles: ["test"]
+    profiles: ["smoke"]
     build:
       context: ..
       dockerfile: build/dev.Dockerfile
@@ -181,10 +238,14 @@ services:
       - ..:/go/src/github.com/foxcool/greedy-eye
       - go_modules:/go/pkg/mod
     working_dir: /go/src/github.com/foxcool/greedy-eye
-    env_file: secrets.env
+    env_file:
+      - path: secrets.env
+        required: false
     environment:
-      EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye?sslmode=disable"
-      SMOKE_BACKEND_URL: "http://eye-dev:8080"
+      EYE_DB_URL: "postgres://greedy_eye:password@postgres:5432/greedy_eye_smoke?sslmode=disable"
+      SMOKE_BACKEND_URL: "http://eye-smoke:8080"
+      # A cached golang:alpine lags go.mod; fetch the toolchain go.mod asks for.
+      GOTOOLCHAIN: auto
     depends_on:
-      eye-dev:
+      eye-smoke:
         condition: service_healthy

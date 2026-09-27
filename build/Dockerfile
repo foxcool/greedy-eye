@@ -1,34 +1,19 @@
-FROM golang:alpine AS builder
+# Builds the service from source into the same runtime shape as
+# release.Dockerfile, which expects a binary GoReleaser already built. Used by
+# the compose smoke stand: it tests the binary an instance would run, without
+# air, the debugger or a mounted source tree.
+FROM golang:1.26-alpine AS builder
 
-ENV PROJECT_PATH=github.com/foxcool/greedy-eye
+WORKDIR /src
 
-# get CMD path argument (default: cmd/eye)
-ARG _path="cmd/eye"
-
-# Set environment variable for Go
-ENV GOPATH=/go \
-    PATH="/go/bin:$PATH"
-
-# Copy project files
-WORKDIR ${GOPATH}/src/${PROJECT_PATH}
-
-# Copy go.mod and go.sum first for better caching
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy the rest of the source code
 COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w -X main.version=smoke" -o /eye ./cmd/eye
 
-# Build from project root, specifying the cmd path
-RUN CGO_ENABLED=0 GOOS=linux go build -o ${GOPATH}/bin/app ./${_path}
-
-# Init new lightweight container
-FROM alpine
-RUN apk --no-cache add ca-certificates curl
-RUN curl -sSf https://atlasgo.sh | sh
-
-COPY deploy/migrations /migrations
-COPY --from=builder /go/bin/app .
-
-# Run the compiled bin by default when the container start.
-CMD [ "/app" ]
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates
+COPY --from=builder /eye /eye
+EXPOSE 8080
+CMD ["/eye"]

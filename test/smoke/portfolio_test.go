@@ -10,6 +10,7 @@ import (
 	v1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
 func TestPortfolioCRUD(t *testing.T) {
@@ -35,7 +36,8 @@ func TestPortfolioCRUD(t *testing.T) {
 	// Update name
 	desc := "Updated description"
 	_, err = client.UpdatePortfolio(ctx, connect.NewRequest(&v1.UpdatePortfolioRequest{
-		Portfolio: &v1.Portfolio{Id: portID, Name: "My Crypto", Description: &desc},
+		Portfolio:  &v1.Portfolio{Id: portID, Name: "My Crypto", Description: &desc},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"name", "description"}},
 	}))
 	require.NoError(t, err)
 
@@ -95,7 +97,8 @@ func TestAccountCRUD(t *testing.T) {
 
 	// Update name
 	_, err = client.UpdateAccount(ctx, connect.NewRequest(&v1.UpdateAccountRequest{
-		Account: &v1.Account{Id: accountID, Name: "Vitalik's ETH Wallet", Type: v1.AccountType_ACCOUNT_TYPE_WALLET},
+		Account:    &v1.Account{Id: accountID, Name: "Vitalik's ETH Wallet", Type: v1.AccountType_ACCOUNT_TYPE_WALLET},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"name"}},
 	}))
 	require.NoError(t, err)
 

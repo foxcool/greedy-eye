@@ -51,12 +51,20 @@ test-integration:
 	@echo "Running integration tests..."
 	go test -v -p 1 -tags=integration ./internal/store/postgres/...
 
-# Run smoke tests against the live compose stack.
-# Starts eye-dev (and its deps postgres + migrate) automatically via depends_on.
-# API keys come from deploy/secrets.env. Binance always runs; CoinGecko/Moralis need keys.
+# Run smoke tests against their own stand, never against eye-dev: the suite
+# truncates every table. Steps are explicit (--no-deps) so a run never recreates
+# the shared postgres the dev stack is using, and each run starts from an empty,
+# freshly migrated greedy_eye_smoke with a backend built from the working tree.
+# API keys come from deploy/secrets.env when it exists; tests that need one skip.
+SMOKE=$(COMPOSE) -f $(COMPOSE_FILE) --profile smoke
 test-smoke:
-	$(COMPOSE) -f $(COMPOSE_FILE) --profile default --profile test run --rm \
-		eye-test go test -v -p 1 -tags=smoke -timeout 120s ./test/smoke/...
+	$(SMOKE) up -d --wait postgres
+	$(SMOKE) run --rm --no-deps smoke-db
+	$(SMOKE) run --rm --no-deps migrate-smoke
+	$(SMOKE) up -d --build --no-deps --force-recreate --wait eye-smoke
+	$(SMOKE) run --rm --no-deps eye-test \
+		go test -v -p 1 -tags=smoke -timeout 120s ./test/smoke/...; \
+		status=$$?; $(SMOKE) rm -sf eye-smoke; exit $$status
 
 # Atlas targets all run inside the compose migrate service, against the compose
 # postgres — same image and same commands an instance runs on deploy.
