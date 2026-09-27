@@ -8,7 +8,8 @@ import (
 )
 
 // resetDB truncates all tables to give each test a clean state.
-// Uses a direct DB connection — the same database the running backend writes to.
+// Uses a direct DB connection — the same database the running backend writes to,
+// which TestMain requires to be a disposable *_smoke one.
 func resetDB(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
