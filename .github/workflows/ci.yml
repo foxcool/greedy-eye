@@ -67,8 +67,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # COMPOSE passes --env-file deploy/.env, which compose requires to exist.
+      # It only carries EYE_DOMAIN for the dev stack's Traefik labels.
       - name: Run smoke tests
-        run: make test-smoke
+        run: |
+          touch deploy/.env
+          make test-smoke
 
   release:
     name: Release
