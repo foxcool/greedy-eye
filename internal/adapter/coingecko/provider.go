@@ -192,19 +192,20 @@ func (p *Provider) BaseAssetType() entity.AssetType { return entity.AssetTypeFor
 // Strategy:
 //  1. Native/well-known coins → CoinGecko coin ID from the curated symbol map,
 //     one /coins/markets request for all of them
-//  2. Assets with a contract → token_price on the platform their chain maps to,
-//     one request per platform; the chain comes from the asset's
-//     "onchain:<chain>" external ref
+//  2. Assets bound to a contract → token_price on the platform their chain maps
+//     to, one request per platform; address and chain both come from one
+//     "onchain:<chain>" external ref (see contractRoute)
 //  3. Unknown symbols, contracts with no chain, and chains CoinGecko does not
 //     list → skipped, because a guessed platform prices somebody else's token
 //
 // Asked reports which of these assets CoinGecko is actually asked about: a
 // curated native coin, or a contract this adapter can route to a platform.
 //
-// The remainder is dropped by FetchPrices without a request — a token with no
-// contract tag, one whose chain is unknown, one on a chain CoinGecko does not
-// list. Recording those as misses charges the provider's silence to assets it
-// was never handed, and the back-off doubles per miss up to a week.
+// The remainder is dropped by FetchPrices without a request — a token not
+// created from a contract, one with no on-chain binding, or one whose oldest
+// binding is on a chain CoinGecko does not list. Recording those as misses charges the
+// provider's silence to assets it was never handed, and the back-off doubles
+// per miss up to a week.
 //
 // It mirrors the split in FetchPrices rather than sharing it, because the two
 // answer different questions: this one only needs to know WHETHER an asset is
@@ -217,14 +218,7 @@ func (p *Provider) Asked(assets []*entity.Asset) []*entity.Asset {
 			out = append(out, a)
 			continue
 		}
-		if contractTag(a.Tags) == "" {
-			continue
-		}
-		chain, ok := onchainChain(a)
-		if !ok {
-			continue
-		}
-		if _, ok := chainPlatform[chain]; !ok {
+		if r, _ := contractRoute(a); r.platform == "" {
 			continue
 		}
 		out = append(out, a)
@@ -249,7 +243,7 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 	var unmappedChains []string
 
 	for _, a := range assets {
-		// The curated symbol map wins over a contract tag: contract addresses
+		// The curated symbol map wins over a contract binding: contract addresses
 		// synced from L2 chains (e.g. OP on Optimism) are not listed under the
 		// Ethereum platform, while the map targets the canonical coin ID.
 		//
@@ -262,23 +256,19 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 			continue
 		}
 
-		addr := contractTag(a.Tags)
-		if addr == "" {
-			continue // unknown, skip — no reliable CoinGecko mapping
-		}
-		chain, ok := onchainChain(a)
-		if !ok {
-			// A contract with no chain cannot be routed. Guessing Ethereum is
-			// how a Base address gets priced as an unrelated Ethereum token.
+		r, unmapped := contractRoute(a)
+		if r.platform == "" {
+			// Nothing to route on: not created from a contract, a contract
+			// with no binding, or its oldest binding on a chain CoinGecko
+			// does not list. Guessing a
+			// platform is how a token gets priced as somebody else's.
+			if unmapped != "" {
+				unmappedChains = append(unmappedChains, unmapped)
+			}
 			continue
 		}
-		platform, ok := chainPlatform[chain]
-		if !ok {
-			unmappedChains = append(unmappedChains, chain)
-			continue
-		}
-		contractsByPlatform[platform] = append(
-			contractsByPlatform[platform], contractAsset{id: a.ID, address: addr})
+		contractsByPlatform[r.platform] = append(
+			contractsByPlatform[r.platform], contractAsset{id: a.ID, address: r.address})
 	}
 
 	now := time.Now()
@@ -347,26 +337,64 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 	return result, nil
 }
 
-// onchainChain reports the chain a contract-bearing asset lives on, read from
-// its "onchain:<chain>" external ref. Refs are loaded only on the pricing path,
-// so an asset without them yields false and is skipped rather than guessed at.
-func onchainChain(a *entity.Asset) (string, bool) {
-	for _, ref := range a.ExternalRefs {
-		if chain, ok := entity.ChainFromOnchainSource(ref.Source); ok {
-			return chain, true
-		}
-	}
-	return "", false
+// route is one contract binding CoinGecko can be asked about: the platform its
+// chain maps to and the address bound on that chain.
+type route struct {
+	platform string
+	address  string
 }
 
-// contractTag extracts the contract address from a "contract:0x..." tag, or returns "".
-func contractTag(tags []string) string {
+// contractRoute picks the binding an asset is priced by: its oldest on-chain
+// external ref. Address and chain are read from that SAME ref, because they are
+// only meaningful together.
+//
+// The "contract:" tag decides only WHETHER an asset is priced by contract, never
+// by WHICH one. FindOrCreateAsset writes it once, at create, and nothing keeps it
+// in agreement with the refs: an asset whose counterfeit binding was replaced by
+// the canonical one (personal-3uq9) kept the counterfeit address in its tag, and
+// pricing by the tag with the chain of a ref asked CoinGecko about the contract
+// the asset had been unbound from (personal-qyxn).
+//
+// Both limits keep the path exactly as wide as it was. The tag marks an asset
+// created FROM a contract; a global asset from an exchange or broker sync
+// carries refs too. And only the oldest ref is considered: it is the one the
+// asset was created from while it lives, and when its chain is one CoinGecko
+// does not list the asset stays unpriced rather than falling through to a later
+// ref. Later refs on a global asset are bound by a guard that compares the
+// ticker across chains, not the coin, so any of them may be a lookalike, and
+// pricing by one would hand that contract the real asset's quote. Widening
+// either limit is its own decision (personal-rrls), not a side effect of this.
+//
+// Refs are loaded only on the pricing path, so an asset without them has no
+// route and is skipped rather than guessed at. unmapped names the chain of the
+// oldest ref when CoinGecko has no platform for it.
+func contractRoute(a *entity.Asset) (r route, unmapped string) {
+	if !hasContractTag(a.Tags) {
+		return route{}, ""
+	}
+	for _, ref := range a.ExternalRefs {
+		chain, ok := entity.ChainFromOnchainSource(ref.Source)
+		if !ok || ref.Ref == "" {
+			continue
+		}
+		platform, ok := chainPlatform[chain]
+		if !ok {
+			return route{}, chain
+		}
+		return route{platform: platform, address: ref.Ref}, ""
+	}
+	return route{}, ""
+}
+
+// hasContractTag reports whether the asset was created from an on-chain
+// contract (FindOrCreateAsset mirrors it as a "contract:" tag).
+func hasContractTag(tags []string) bool {
 	for _, t := range tags {
-		if after, ok := strings.CutPrefix(t, "contract:"); ok {
-			return after
+		if strings.HasPrefix(t, "contract:") {
+			return true
 		}
 	}
-	return ""
+	return false
 }
 
 // scaled converts a float price to a raw integer scaled by priceDecimals as a decimal.

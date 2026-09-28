@@ -570,6 +570,10 @@ func (s *MarketDataStore) DeleteAssetExternalRef(ctx context.Context, assetID, i
 // The pricing path needs the reverse of FindAssetIDByExternalRef — which chain
 // a contract lives on — for every asset in a sweep, and asking per asset would
 // be hundreds of round trips.
+//
+// Oldest first, with id breaking a tie: pricing routes by the oldest on-chain
+// binding, and two refs written in the same instant must not trade places
+// between sweeps.
 func (s *MarketDataStore) ListAssetExternalRefs(ctx context.Context, assetIDs []string) ([]*entity.AssetExternalRef, error) {
 	if len(assetIDs) == 0 {
 		return nil, nil
@@ -579,7 +583,7 @@ func (s *MarketDataStore) ListAssetExternalRefs(ctx context.Context, assetIDs []
 		SELECT id, asset_id, source, ref, origin, created_at
 		FROM asset_external_refs
 		WHERE asset_id = ANY($1::uuid[])
-		ORDER BY asset_id, created_at`, assetIDs)
+		ORDER BY asset_id, created_at, id`, assetIDs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list asset external refs: %w", err)
 	}
