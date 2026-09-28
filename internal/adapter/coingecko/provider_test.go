@@ -14,9 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// contractAssetOn builds a synced token: the contract lives in both the pricing
-// tag and the external ref that names its chain, the way FindOrCreateAsset
-// writes it.
+// contractAssetOn builds a synced token the way FindOrCreateAsset writes it:
+// the contract in the external ref that names its chain, mirrored as a tag.
 func contractAssetOn(id, chain, address string) *entity.Asset {
 	return &entity.Asset{
 		ID:     id,
@@ -92,6 +91,88 @@ func TestFetchPrices_SkipsContractWithoutChain(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got)
 	assert.Zero(t, calls, "no request may go out for an unroutable contract")
+}
+
+// TestFetchPrices_AddressComesFromTheRef: an asset whose counterfeit binding was
+// replaced by the canonical one keeps the counterfeit address in its create-time
+// tag. Pricing by the tag with the chain of the ref asked CoinGecko about the
+// contract the asset had been unbound from (personal-qyxn); address and chain
+// must come from the same ref.
+func TestFetchPrices_AddressComesFromTheRef(t *testing.T) {
+	counterfeit := "0x" + strings.Repeat("e5", 20)
+	canonical := "0x" + strings.Repeat("f6", 20)
+	onPolygon := "0x" + strings.Repeat("a7", 20)
+
+	var asked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		addr := r.URL.Query().Get("contract_addresses")
+		asked = append(asked, r.URL.Path+"?"+addr)
+		_, _ = fmt.Fprintf(w, `{"%s": {"usd": 1.0}}`, addr)
+	}))
+	defer srv.Close()
+
+	client := NewClient(Config{APIKey: "demo-key"})
+	client.baseURL = srv.URL
+	client.httpClient = srv.Client()
+	p := NewProvider(client)
+
+	rebound := &entity.Asset{
+		ID:     "rebound-1",
+		Symbol: "TKNR",
+		Market: entity.MarketCrypto,
+		Tags:   []string{"contract:" + counterfeit},
+		ExternalRefs: []entity.AssetExternalRef{
+			{AssetID: "rebound-1", Source: entity.OnchainSource("eth"), Ref: canonical},
+			{AssetID: "rebound-1", Source: entity.OnchainSource("polygon"), Ref: onPolygon},
+		},
+	}
+
+	assert.Len(t, p.Asked([]*entity.Asset{rebound}), 1)
+	got, err := p.FetchPrices(context.Background(), []*entity.Asset{rebound})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"/simple/token_price/ethereum?" + canonical}, asked,
+		"the oldest routable ref names both the platform and the address; the tag is never asked about")
+	require.Len(t, got, 1)
+	assert.Equal(t, "rebound-1", got[0].AssetID)
+}
+
+// TestFetchPrices_RoutesPastAnUnlistedChain: a binding on a chain CoinGecko does
+// not list does not hide one it does, and an asset bound without a tag (a ref
+// added to an existing row) is routable all the same — the ref is the identity.
+func TestFetchPrices_RoutesPastAnUnlistedChain(t *testing.T) {
+	onKusama := "0x" + strings.Repeat("b8", 20)
+	onBase := "0x" + strings.Repeat("c9", 20)
+
+	var asked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		addr := r.URL.Query().Get("contract_addresses")
+		asked = append(asked, r.URL.Path+"?"+addr)
+		_, _ = fmt.Fprintf(w, `{"%s": {"usd": 3.0}}`, addr)
+	}))
+	defer srv.Close()
+
+	client := NewClient(Config{APIKey: "demo-key"})
+	client.baseURL = srv.URL
+	client.httpClient = srv.Client()
+	p := NewProvider(client)
+
+	untagged := &entity.Asset{
+		ID:     "multi-1",
+		Symbol: "TKNM",
+		Market: entity.MarketCrypto,
+		ExternalRefs: []entity.AssetExternalRef{
+			{AssetID: "multi-1", Source: entity.OnchainSource("kusama"), Ref: onKusama},
+			{AssetID: "multi-1", Source: entity.OnchainSource("base"), Ref: onBase},
+		},
+	}
+
+	assert.Len(t, p.Asked([]*entity.Asset{untagged}), 1)
+	got, err := p.FetchPrices(context.Background(), []*entity.Asset{untagged})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"/simple/token_price/base?" + onBase}, asked)
+	assert.Len(t, got, 1)
 }
 
 // TestBudgetExemptSymbols covers the curated set one /coins/markets call
