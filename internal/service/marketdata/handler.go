@@ -613,9 +613,10 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 		name = n
 	}
 	// Mirror the contract as a tag on an on-chain create. It is a snapshot of the
-	// first binding, never updated when refs are re-bound, so nothing that prices
-	// may read it: pricing routes by the external ref (personal-qyxn). What is
-	// left is a display fallback for a client that has no refs to show.
+	// first binding, never updated when refs are re-bound, so its ADDRESS is not
+	// a pricing input: CoinGecko routes by the external ref (personal-qyxn). Its
+	// presence still says "created from a contract", which is what admits the
+	// asset to the contract price path; clients also show it when no refs load.
 	tags := []string{}
 	if hasRef && strings.HasPrefix(refSource, "onchain:") {
 		tags = append(tags, "contract:"+ref)

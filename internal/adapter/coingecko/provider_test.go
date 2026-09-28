@@ -14,6 +14,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// serveProvider builds a Provider whose client talks to a local server running
+// handler instead of CoinGecko. The server is closed when the test ends.
+func serveProvider(t *testing.T, handler http.HandlerFunc) *Provider {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+
+	client := NewClient(Config{APIKey: "demo-key"})
+	client.baseURL = srv.URL
+	client.httpClient = srv.Client()
+	return NewProvider(client)
+}
+
 // contractAssetOn builds a synced token the way FindOrCreateAsset writes it:
 // the contract in the external ref that names its chain, mirrored as a tag.
 func contractAssetOn(id, chain, address string) *entity.Asset {
@@ -38,17 +51,11 @@ func TestFetchPrices_RoutesContractsByChain(t *testing.T) {
 	ksmAddr := "0x" + strings.Repeat("c3", 20)
 
 	var paths []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	p := serveProvider(t, func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.URL.Path)
 		addr := r.URL.Query().Get("contract_addresses")
 		_, _ = fmt.Fprintf(w, `{"%s": {"usd": 2.5}}`, addr)
-	}))
-	defer srv.Close()
-
-	client := NewClient(Config{APIKey: "demo-key"})
-	client.baseURL = srv.URL
-	client.httpClient = srv.Client()
-	p := NewProvider(client)
+	})
 
 	got, err := p.FetchPrices(context.Background(), []*entity.Asset{
 		contractAssetOn("eth-1", "eth", ethAddr),
@@ -69,16 +76,10 @@ func TestFetchPrices_RoutesContractsByChain(t *testing.T) {
 // somebody else's.
 func TestFetchPrices_SkipsContractWithoutChain(t *testing.T) {
 	var calls int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	p := serveProvider(t, func(w http.ResponseWriter, _ *http.Request) {
 		calls++
 		_, _ = fmt.Fprint(w, `{}`)
-	}))
-	defer srv.Close()
-
-	client := NewClient(Config{APIKey: "demo-key"})
-	client.baseURL = srv.URL
-	client.httpClient = srv.Client()
-	p := NewProvider(client)
+	})
 
 	chainless := &entity.Asset{
 		ID:     "orphan-1",
@@ -104,17 +105,11 @@ func TestFetchPrices_AddressComesFromTheRef(t *testing.T) {
 	onPolygon := "0x" + strings.Repeat("a7", 20)
 
 	var asked []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	p := serveProvider(t, func(w http.ResponseWriter, r *http.Request) {
 		addr := r.URL.Query().Get("contract_addresses")
 		asked = append(asked, r.URL.Path+"?"+addr)
 		_, _ = fmt.Fprintf(w, `{"%s": {"usd": 1.0}}`, addr)
-	}))
-	defer srv.Close()
-
-	client := NewClient(Config{APIKey: "demo-key"})
-	client.baseURL = srv.URL
-	client.httpClient = srv.Client()
-	p := NewProvider(client)
+	})
 
 	rebound := &entity.Asset{
 		ID:     "rebound-1",
@@ -137,42 +132,64 @@ func TestFetchPrices_AddressComesFromTheRef(t *testing.T) {
 	assert.Equal(t, "rebound-1", got[0].AssetID)
 }
 
-// TestFetchPrices_RoutesPastAnUnlistedChain: a binding on a chain CoinGecko does
-// not list does not hide one it does, and an asset bound without a tag (a ref
-// added to an existing row) is routable all the same — the ref is the identity.
-func TestFetchPrices_RoutesPastAnUnlistedChain(t *testing.T) {
+// TestFetchPrices_OldestBindingDecides: when the oldest ref is on a chain
+// CoinGecko does not list, the asset stays unpriced instead of falling through
+// to a later ref. A later ref on a global asset was bound by a ticker-only
+// cross-chain guard and may be a lookalike; main never asked about it either.
+func TestFetchPrices_OldestBindingDecides(t *testing.T) {
 	onKusama := "0x" + strings.Repeat("b8", 20)
 	onBase := "0x" + strings.Repeat("c9", 20)
 
-	var asked []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		addr := r.URL.Query().Get("contract_addresses")
-		asked = append(asked, r.URL.Path+"?"+addr)
-		_, _ = fmt.Fprintf(w, `{"%s": {"usd": 3.0}}`, addr)
-	}))
-	defer srv.Close()
+	var calls int
+	p := serveProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		_, _ = fmt.Fprint(w, `{}`)
+	})
 
-	client := NewClient(Config{APIKey: "demo-key"})
-	client.baseURL = srv.URL
-	client.httpClient = srv.Client()
-	p := NewProvider(client)
-
-	untagged := &entity.Asset{
+	multi := &entity.Asset{
 		ID:     "multi-1",
 		Symbol: "TKNM",
 		Market: entity.MarketCrypto,
+		Tags:   []string{"contract:" + onKusama},
 		ExternalRefs: []entity.AssetExternalRef{
 			{AssetID: "multi-1", Source: entity.OnchainSource("kusama"), Ref: onKusama},
 			{AssetID: "multi-1", Source: entity.OnchainSource("base"), Ref: onBase},
 		},
 	}
 
-	assert.Len(t, p.Asked([]*entity.Asset{untagged}), 1)
-	got, err := p.FetchPrices(context.Background(), []*entity.Asset{untagged})
+	assert.Empty(t, p.Asked([]*entity.Asset{multi}), "not asked, so no miss is recorded against it")
+	got, err := p.FetchPrices(context.Background(), []*entity.Asset{multi})
 	require.NoError(t, err)
+	assert.Empty(t, got)
+	assert.Zero(t, calls, "the later base ref is never asked about")
+}
 
-	assert.Equal(t, []string{"/simple/token_price/base?" + onBase}, asked)
-	assert.Len(t, got, 1)
+// TestFetchPrices_UntaggedAssetIsNotPricedByContract: a global asset created by
+// an exchange or broker sync carries refs bound later by a ticker-only
+// cross-chain guard, so its oldest ref may be a lookalike deployed elsewhere.
+// Routing by it would hand that contract the real asset's quote; the contract
+// path stays limited to assets created from a contract.
+func TestFetchPrices_UntaggedAssetIsNotPricedByContract(t *testing.T) {
+	var calls int
+	p := serveProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		_, _ = fmt.Fprint(w, `{}`)
+	})
+
+	fromExchange := &entity.Asset{
+		ID:     "cex-1",
+		Symbol: "XYZ",
+		Market: entity.MarketCrypto,
+		ExternalRefs: []entity.AssetExternalRef{
+			{AssetID: "cex-1", Source: entity.OnchainSource("base"), Ref: "0x" + strings.Repeat("d0", 20)},
+		},
+	}
+
+	assert.Empty(t, p.Asked([]*entity.Asset{fromExchange}), "not asked, so no miss is recorded against it")
+	got, err := p.FetchPrices(context.Background(), []*entity.Asset{fromExchange})
+	require.NoError(t, err)
+	assert.Empty(t, got)
+	assert.Zero(t, calls)
 }
 
 // TestBudgetExemptSymbols covers the curated set one /coins/markets call
@@ -194,20 +211,14 @@ func TestBudgetExemptSymbols(t *testing.T) {
 func TestFetchPrices_CarriesMarketContext(t *testing.T) {
 	addr := "0x" + strings.Repeat("a1", 20)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	p := serveProvider(t, func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/coins/markets") {
 			_, _ = fmt.Fprint(w, `[{"id":"ethereum","symbol":"eth","current_price":2000,`+
 				`"market_cap":240000000000,"total_volume":15000000000}]`)
 			return
 		}
 		_, _ = fmt.Fprintf(w, `{"%s": {"usd": 2.5, "usd_market_cap": 4000000, "usd_24h_vol": 125000}}`, addr)
-	}))
-	defer srv.Close()
-
-	client := NewClient(Config{APIKey: "demo-key"})
-	client.baseURL = srv.URL
-	client.httpClient = srv.Client()
-	p := NewProvider(client)
+	})
 
 	got, err := p.FetchPrices(context.Background(), []*entity.Asset{
 		{ID: "eth-1", Symbol: "ETH", Market: entity.MarketCrypto},
