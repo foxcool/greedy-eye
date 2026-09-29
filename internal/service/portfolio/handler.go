@@ -1120,8 +1120,42 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 			return nil, err
 		}
 	}
+	var rotated, stale []string
+	if slices.Contains(fields, "data") {
+		// The copies of the old secret are carried BEFORE this row is written.
+		// The other order leaves this row holding the new secret after a copy
+		// fails, and a retry of the same request then sees nothing changed and
+		// reports success over the copy still sending the old credential. This
+		// way the row keeps the old value until every copy has the new one, so
+		// a retry finds the stragglers again — and the error names them.
+		//
+		// So everything that can still refuse this row is asked first: the
+		// capability invariant otherwise lives only in the store write, and a
+		// request it rejects must not have moved another account's secret.
+		if err := checkMergedCapabilities(existing, account, fields); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		rotated, stale, err = h.rotateCopiedSecrets(ctx, existing, account.Data)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf(
+				"not saved: the other accounts holding the old secret could not be listed: %w%s", err, alreadyRotated(rotated)))
+		}
+		if len(stale) > 0 {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf(
+				"not saved: these accounts still hold the old secret and could not be updated, retry to finish the rotation: %s%s",
+				strings.Join(stale, ", "), alreadyRotated(rotated)))
+		}
+	}
+
 	updated, err := h.store.UpdateAccount(ctx, account, fields)
 	if err != nil {
+		if len(rotated) > 0 {
+			// The copies already send the new secret; this row still holds the
+			// old one. A retry converges (the row is still a change), but the
+			// person has to know the credential is already split.
+			return nil, connect.NewError(connect.CodeOf(toConnectError(err)),
+				fmt.Errorf("%w%s", err, alreadyRotated(rotated)))
+		}
 		return nil, toConnectError(err)
 	}
 
@@ -1161,6 +1195,40 @@ func checkOperatorData(user *entity.User, data, stored map[string]string) error 
 			fmt.Errorf("only admins may set data key %q", k))
 	}
 	return nil
+}
+
+// checkMergedCapabilities runs the capability invariant the store runs on
+// write, under the same condition — only when the mask names type,
+// capabilities or system_scopes, so a data-only update of a row stored before
+// the invariant tightened is not newly refused. The handler needs the answer
+// earlier than the store gives it: before a rotation touches other rows.
+func checkMergedCapabilities(existing, patch *entity.Account, fields []string) error {
+	if !slices.ContainsFunc(fields, func(f string) bool {
+		return f == "type" || f == "capabilities" || f == "system_scopes"
+	}) {
+		return nil
+	}
+	merged := *existing
+	for _, f := range fields {
+		switch f {
+		case "type":
+			merged.Type = patch.Type
+		case "capabilities":
+			merged.Capabilities = patch.Capabilities
+		case "system_scopes":
+			merged.SystemScopes = patch.SystemScopes
+		}
+	}
+	return merged.ValidateCapabilities()
+}
+
+// alreadyRotated is the clause an error carries when copies already hold the
+// new secret: without it a failed save reads as "nothing happened".
+func alreadyRotated(ids []string) string {
+	if len(ids) == 0 {
+		return ""
+	}
+	return "; these accounts already carry the new secret: " + strings.Join(ids, ", ")
 }
 
 // restoreMaskedSecrets implements write-only secret semantics on update:

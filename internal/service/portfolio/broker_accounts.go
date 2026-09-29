@@ -282,3 +282,72 @@ func (h *Handler) createBrokerAccount(ctx context.Context, parent *entity.Accoun
 		"broker_account_id", ref.ID, "name", created.Name)
 	return created, nil
 }
+
+// rotateCopiedSecrets carries a changed secret to the broker accounts that
+// still hold the old one.
+//
+// Discovery copies the token into every account it opens (createBrokerAccount
+// records why), and UpdateAccount edits one row. Without this, a person who
+// revokes a token and pastes the new one into the account they know leaves the
+// old secret in every sibling, which keeps sending it on each sync: "I rotated
+// the key" stops meaning "the key is unused", and nothing says so
+// (personal-9m3i).
+//
+// The siblings are found by the secret itself, not by a parent link: the
+// user's broker accounts of the same provider whose stored value for that key
+// is the value being replaced. That is exactly the set still carrying the old
+// credential, whoever created it, and needs no hierarchy the design refused.
+//
+// before is the account as stored, after the data about to be written (masked
+// values already restored). It runs before that write and reports both sides:
+// the siblings it moved to the new secret, which the caller must name if its
+// own write then fails, and the ones it could not update — still holding the
+// old secret — so the caller can refuse the write and name them.
+func (h *Handler) rotateCopiedSecrets(ctx context.Context, before *entity.Account, after map[string]string) (rotated, stale []string, err error) {
+	if before.Type != entity.AccountTypeBroker || after == nil {
+		return nil, nil, nil
+	}
+	changed := map[string]string{} // key -> old value
+	for k, old := range before.Data {
+		if isSecretKey(k) && old != "" && after[k] != "" && after[k] != old {
+			changed[k] = old
+		}
+	}
+	if len(changed) == 0 {
+		return nil, nil, nil
+	}
+
+	provider := before.Data[providerDataKey]
+	opts := ListAccountsOpts{UserID: before.UserID, Type: entity.AccountTypeBroker, PageSize: brokerAccountsPageSize}
+	for {
+		page, next, err := h.store.ListAccounts(ctx, opts)
+		if err != nil {
+			return rotated, stale, err
+		}
+		for _, sib := range page {
+			if sib.ID == before.ID || sib.Data[providerDataKey] != provider {
+				continue
+			}
+			data := maps.Clone(sib.Data)
+			carried := false
+			for k, old := range changed {
+				if data[k] == old {
+					data[k] = after[k]
+					carried = true
+				}
+			}
+			if !carried {
+				continue
+			}
+			if _, err := h.store.UpdateAccount(ctx, &entity.Account{ID: sib.ID, Data: data}, []string{"data"}); err != nil {
+				stale = append(stale, sib.ID)
+				continue
+			}
+			rotated = append(rotated, sib.ID)
+		}
+		if next == "" || len(page) == 0 {
+			return rotated, stale, nil
+		}
+		opts.PageToken = next
+	}
+}
