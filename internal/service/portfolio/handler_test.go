@@ -689,6 +689,90 @@ func TestUpdateAccount_SystemScopesRequireAdmin(t *testing.T) {
 	s.AssertExpectations(t)
 }
 
+// TestCreateAccount_BaseURLRequiresAdmin: base_url sends the account's requests
+// to a host of the caller's choosing, from inside the server's network, and
+// SyncAccount reports back what answered (personal-5sgx). Only an operator may
+// point an account somewhere.
+func TestCreateAccount_BaseURLRequiresAdmin(t *testing.T) {
+	account := &apiv1.Account{
+		Name: "T-Invest",
+		Type: apiv1.AccountType(entity.AccountTypeBroker),
+		Data: map[string]string{"provider": "tinvest", "api_key": "t.token", "base_url": "http://10.0.0.5:8080/rest"},
+	}
+
+	h := newHandler(&mockStore{})
+	_, err := h.CreateAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreateAccountRequest{Account: account}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+	s := &mockStore{}
+	s.On("CreateAccount", mock.Anything, mock.Anything).Return(testAccount(testAccountID), nil)
+	h = newHandler(s)
+	_, err = h.CreateAccount(ctxWithAdmin(testUserID), connect.NewRequest(&apiv1.CreateAccountRequest{Account: account}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+}
+
+// TestUpdateAccount_BaseURLRequiresAdmin: a user may not set or change base_url,
+// but may echo back the value an admin set — the account form sends the whole
+// data map — and may drop it, which only narrows where the account can reach.
+func TestUpdateAccount_BaseURLRequiresAdmin(t *testing.T) {
+	const replay = "http://127.0.0.1:9090/rest"
+	stored := func() *entity.Account {
+		a := testAccount(testAccountID)
+		a.Data = map[string]string{"provider": "tinvest", "base_url": replay}
+		return a
+	}
+	update := func(data map[string]string) *connect.Request[apiv1.UpdateAccountRequest] {
+		return connect.NewRequest(&apiv1.UpdateAccountRequest{
+			Account:    &apiv1.Account{Id: testAccountID, Data: data},
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"data"}},
+		})
+	}
+
+	denied := &mockStore{}
+	denied.On("GetAccount", mock.Anything, testAccountID).Return(stored(), nil)
+	_, err := newHandler(denied).UpdateAccount(ctxWithUser(testUserID),
+		update(map[string]string{"provider": "tinvest", "base_url": "http://169.254.169.254/"}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "changing it is refused")
+	denied.AssertNotCalled(t, "UpdateAccount", mock.Anything, mock.Anything, mock.Anything)
+
+	for name, value := range map[string]string{
+		"padded":          " " + replay, // written as sent, so a change, not an echo
+		"whitespace-only": "   ",        // not a drop: no adapter falls back to its default for it
+	} {
+		s := &mockStore{}
+		s.On("GetAccount", mock.Anything, testAccountID).Return(stored(), nil)
+		_, err := newHandler(s).UpdateAccount(ctxWithUser(testUserID),
+			update(map[string]string{"provider": "tinvest", "base_url": value}))
+		require.Error(t, err, name)
+		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), name)
+	}
+
+	for name, data := range map[string]map[string]string{
+		"echoed":  {"provider": "tinvest", "base_url": replay},
+		"dropped": {"provider": "tinvest"},
+	} {
+		s := &mockStore{}
+		s.On("GetAccount", mock.Anything, testAccountID).Return(stored(), nil)
+		s.On("UpdateAccount", mock.Anything, mock.Anything, []string{"data"}).Return(stored(), nil)
+		_, err := newHandler(s).UpdateAccount(ctxWithUser(testUserID), update(data))
+		require.NoError(t, err, name)
+		s.AssertExpectations(t)
+	}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(stored(), nil)
+	s.On("UpdateAccount", mock.Anything, mock.MatchedBy(func(a *entity.Account) bool {
+		return a.Data["base_url"] == "http://replay.local:9090/rest"
+	}), []string{"data"}).Return(stored(), nil)
+	_, err = newHandler(s).UpdateAccount(ctxWithAdmin(testUserID),
+		update(map[string]string{"provider": "tinvest", "base_url": "http://replay.local:9090/rest"}))
+	require.NoError(t, err, "an admin may point the account anywhere")
+	s.AssertExpectations(t)
+}
+
 // --- Tests: ownership (IDOR) ---
 
 func TestOwnership_ForeignEntitiesReportNotFound(t *testing.T) {

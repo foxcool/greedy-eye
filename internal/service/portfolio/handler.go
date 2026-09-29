@@ -1056,6 +1056,9 @@ func (h *Handler) CreateAccount(ctx context.Context, req *connect.Request[apiv1.
 	if len(account.SystemScopes) > 0 && !user.IsAdmin() {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("only admins may set system scopes"))
 	}
+	if err := checkOperatorData(user, account.Data, nil); err != nil {
+		return nil, err
+	}
 	created, err := h.store.CreateAccount(ctx, account)
 	if err != nil {
 		return nil, toConnectError(err)
@@ -1086,6 +1089,10 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 	if err != nil {
 		return nil, err
 	}
+	user, ok := middleware.UserFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+	}
 
 	// system_scopes is only touched when the mask names it, and only by admins.
 	fields, err := resolveMask(req.Msg.UpdateMask, accountUpdatable)
@@ -1094,10 +1101,6 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 	}
 
 	if slices.Contains(fields, "system_scopes") {
-		user, ok := middleware.UserFromContext(ctx)
-		if !ok {
-			return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
-		}
 		if !user.IsAdmin() {
 			return nil, connect.NewError(connect.CodePermissionDenied, errors.New("only admins may change system scopes"))
 		}
@@ -1110,6 +1113,9 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 		}
 	}
 	if slices.Contains(fields, "data") {
+		if err := checkOperatorData(user, account.Data, existing.Data); err != nil {
+			return nil, err
+		}
 		if err := restoreMaskedSecrets(account, existing); err != nil {
 			return nil, err
 		}
@@ -1120,6 +1126,41 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 	}
 
 	return connect.NewResponse(accountToProto(updated)), nil
+}
+
+// operatorDataKeys are accounts.data keys only an admin may set or change.
+//
+// base_url sends an account's requests to a host of the caller's choosing,
+// from inside the server's network. Open to every user it is an SSRF sink with
+// an oracle attached: SyncAccount hands back whether the host refused the
+// connection or answered, and with what (personal-5sgx). The field exists for
+// an operator pointing an account at a local replay server — an operator tool,
+// not a user setting — so it is gated where it is written rather than narrowed
+// per adapter, which would have to be repeated for every provider that reads
+// it (T-Invest and Gate.io today).
+var operatorDataKeys = []string{"base_url"}
+
+// checkOperatorData refuses a non-admin write that sets or changes an operator
+// key. stored is the account's current data (nil on create): echoing back a
+// value an admin already set is not a change, and dropping one only narrows
+// where the account can reach, so neither is refused. Both are compared byte
+// for byte, because what arrives is what gets written: a trimmed match would
+// let a user rewrite the stored value while the gate called it a no-op, and a
+// whitespace-only value is not a drop — the adapters do not fall back to their
+// default for it, so it would break an account an admin configured.
+func checkOperatorData(user *entity.User, data, stored map[string]string) error {
+	if user.IsAdmin() {
+		return nil
+	}
+	for _, k := range operatorDataKeys {
+		v := data[k]
+		if v == "" || v == stored[k] {
+			continue
+		}
+		return connect.NewError(connect.CodePermissionDenied,
+			fmt.Errorf("only admins may set data key %q", k))
+	}
+	return nil
 }
 
 // restoreMaskedSecrets implements write-only secret semantics on update:
