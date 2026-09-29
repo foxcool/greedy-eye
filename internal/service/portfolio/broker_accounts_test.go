@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
 type mockBrokerLister struct {
@@ -437,4 +439,167 @@ func TestSyncAccount_BrokerNamedAccountDoesNotFanOut(t *testing.T) {
 	assert.Equal(t, int32(0), resp.Msg.AccountsCreated)
 	assert.Equal(t, 0, lister.calls, "an account that names its own broker account asks nobody")
 	s.AssertNotCalled(t, "ListAccounts", mock.Anything, mock.Anything)
+}
+
+// discoveredCopy is a broker account opened by discovery: the parent's data
+// cloned, plus the broker account id it syncs.
+func discoveredCopy(id, brokerID string, data map[string]string) *entity.Account {
+	a := testAccount(id)
+	a.Type = entity.AccountTypeBroker
+	a.Data = maps.Clone(data)
+	a.Data[entity.BrokerAccountDataKey] = brokerID
+	return a
+}
+
+func rotateTokenRequest(newToken string) *connect.Request[apiv1.UpdateAccountRequest] {
+	return connect.NewRequest(&apiv1.UpdateAccountRequest{
+		Account: &apiv1.Account{
+			Id:   testAccountID,
+			Data: map[string]string{"provider": "tinvest", "api_key": newToken, "root_ca": "PEM"},
+		},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"data"}},
+	})
+}
+
+// TestUpdateAccount_RotationReachesDiscoveredCopies: discovery copies the token
+// into every account it opens, so pasting a new token into the account a
+// person knows must reach the copies too — otherwise they keep sending the
+// revoked one on every sync (personal-9m3i). Only the accounts holding the old
+// value are touched: a different token, or the same token at another
+// provider, is somebody else's credential.
+func TestUpdateAccount_RotationReachesDiscoveredCopies(t *testing.T) {
+	parent := tokenAccount()
+	copyA := discoveredCopy("019a0000-0000-7000-8000-00000000000a", "2052372295", parent.Data)
+	copyB := discoveredCopy("019a0000-0000-7000-8000-00000000000b", "2285710299", parent.Data)
+	otherToken := discoveredCopy("019a0000-0000-7000-8000-00000000000c", "9999", map[string]string{"provider": "tinvest", "api_key": "other"})
+	otherProvider := discoveredCopy("019a0000-0000-7000-8000-00000000000d", "8888", map[string]string{"provider": "finam", "api_key": "t"})
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(parent, nil)
+	s.On("UpdateAccount", mock.Anything, mock.MatchedBy(func(a *entity.Account) bool { return a.ID == testAccountID }), []string{"data"}).
+		Return(parent, nil).Once()
+	s.On("ListAccounts", mock.Anything, mock.MatchedBy(func(o ListAccountsOpts) bool {
+		return o.UserID == testUserID && o.Type == entity.AccountTypeBroker
+	})).Return([]*entity.Account{parent, copyA, copyB, otherToken, otherProvider}, "", nil)
+	for _, c := range []*entity.Account{copyA, copyB} {
+		id, brokerID := c.ID, c.Data[entity.BrokerAccountDataKey]
+		s.On("UpdateAccount", mock.Anything, mock.MatchedBy(func(a *entity.Account) bool {
+			return a.ID == id && a.Data["api_key"] == "t-new" &&
+				a.Data[entity.BrokerAccountDataKey] == brokerID && a.Data["root_ca"] == "PEM"
+		}), []string{"data"}).Return(c, nil).Once()
+	}
+
+	_, err := newHandler(s).UpdateAccount(ctxWithUser(testUserID), rotateTokenRequest("t-new"))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+	s.AssertNumberOfCalls(t, "UpdateAccount", 3) // the parent and its two copies, nothing else
+}
+
+// TestUpdateAccount_RotationNamesCopiesItCouldNotReach: a copy that cannot be
+// updated stops the rotation before the edited row is written, and the answer
+// names it. The row keeping the old value is what makes a retry work: the next
+// attempt still sees a change, finds the straggler by the old value, and
+// finishes. Written the other way round, the retry reported success over a
+// copy still sending the revoked token.
+func TestUpdateAccount_RotationNamesCopiesItCouldNotReach(t *testing.T) {
+	parent := tokenAccount()
+	stuck := discoveredCopy("019a0000-0000-7000-8000-00000000000e", "2052372295", parent.Data)
+	isParent := mock.MatchedBy(func(a *entity.Account) bool { return a.ID == testAccountID })
+	isStuck := mock.MatchedBy(func(a *entity.Account) bool { return a.ID == stuck.ID && a.Data["api_key"] == "t-new" })
+
+	first := &mockStore{}
+	first.On("GetAccount", mock.Anything, testAccountID).Return(parent, nil)
+	first.On("ListAccounts", mock.Anything, mock.Anything).Return([]*entity.Account{stuck}, "", nil)
+	first.On("UpdateAccount", mock.Anything, isStuck, []string{"data"}).Return(nil, errors.New("connection reset")).Once()
+
+	_, err := newHandler(first).UpdateAccount(ctxWithUser(testUserID), rotateTokenRequest("t-new"))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInternal, connect.CodeOf(err))
+	assert.Contains(t, err.Error(), stuck.ID)
+	assert.Contains(t, err.Error(), "still hold the old secret")
+	first.AssertNotCalled(t, "UpdateAccount", mock.Anything, isParent, mock.Anything)
+
+	// The retry: the row still holds "t", the straggler too.
+	retry := &mockStore{}
+	retry.On("GetAccount", mock.Anything, testAccountID).Return(parent, nil)
+	retry.On("ListAccounts", mock.Anything, mock.Anything).Return([]*entity.Account{stuck}, "", nil)
+	retry.On("UpdateAccount", mock.Anything, isStuck, []string{"data"}).Return(stuck, nil).Once()
+	retry.On("UpdateAccount", mock.Anything, isParent, []string{"data"}).Return(parent, nil).Once()
+
+	_, err = newHandler(retry).UpdateAccount(ctxWithUser(testUserID), rotateTokenRequest("t-new"))
+	require.NoError(t, err)
+	retry.AssertExpectations(t)
+}
+
+// TestUpdateAccount_NoRotationWithoutChangedSecret: renaming, re-saving the
+// masked form, or editing a non-broker account reads nothing beyond the row.
+func TestUpdateAccount_NoRotationWithoutChangedSecret(t *testing.T) {
+	parent := tokenAccount()
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(parent, nil)
+	s.On("UpdateAccount", mock.Anything, mock.Anything, []string{"data"}).Return(parent, nil).Once()
+
+	// The form echoes the masked token back: restored, so not a change.
+	_, err := newHandler(s).UpdateAccount(ctxWithUser(testUserID), rotateTokenRequest(maskPrefix))
+	require.NoError(t, err)
+	s.AssertNotCalled(t, "ListAccounts", mock.Anything, mock.Anything)
+
+	exchange := testAccount(testAccountID)
+	exchange.Data = map[string]string{"provider": "binance", "api_key": "old"}
+	e := &mockStore{}
+	e.On("GetAccount", mock.Anything, testAccountID).Return(exchange, nil)
+	e.On("UpdateAccount", mock.Anything, mock.Anything, []string{"data"}).Return(exchange, nil).Once()
+	_, err = newHandler(e).UpdateAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdateAccountRequest{
+		Account:    &apiv1.Account{Id: testAccountID, Data: map[string]string{"provider": "binance", "api_key": "new"}},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"data"}},
+	}))
+	require.NoError(t, err)
+	e.AssertNotCalled(t, "ListAccounts", mock.Anything, mock.Anything)
+}
+
+// TestUpdateAccount_RefusedRequestRotatesNothing: a request the capability
+// invariant rejects must not have moved another account's secret. The store
+// checks the invariant only on write, which now comes after the rotation, so
+// the handler asks it first.
+func TestUpdateAccount_RefusedRequestRotatesNothing(t *testing.T) {
+	parent := tokenAccount()
+	parent.Capabilities = []entity.AccountCapability{entity.CapabilityPortfolioSync, entity.CapabilityMarketData}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(parent, nil)
+
+	_, err := newHandler(s).UpdateAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdateAccountRequest{
+		Account: &apiv1.Account{
+			Id:           testAccountID,
+			Data:         map[string]string{"provider": "tinvest", "api_key": "t-new", "root_ca": "PEM"},
+			Capabilities: []string{string(entity.CapabilityManualPositions)}, // not allowed on a broker account
+		},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"data", "capabilities"}},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	s.AssertNotCalled(t, "ListAccounts", mock.Anything, mock.Anything)
+	s.AssertNotCalled(t, "UpdateAccount", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestUpdateAccount_FailedSaveNamesCopiesAlreadyRotated: when the copies took
+// the new secret and the edited row's own write then fails, the credential is
+// split — and the answer must say so instead of reading as "nothing happened".
+func TestUpdateAccount_FailedSaveNamesCopiesAlreadyRotated(t *testing.T) {
+	parent := tokenAccount()
+	moved := discoveredCopy("019a0000-0000-7000-8000-00000000000f", "2052372295", parent.Data)
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(parent, nil)
+	s.On("ListAccounts", mock.Anything, mock.Anything).Return([]*entity.Account{moved}, "", nil)
+	s.On("UpdateAccount", mock.Anything, mock.MatchedBy(func(a *entity.Account) bool { return a.ID == moved.ID }), []string{"data"}).
+		Return(moved, nil).Once()
+	s.On("UpdateAccount", mock.Anything, mock.MatchedBy(func(a *entity.Account) bool { return a.ID == testAccountID }), []string{"data"}).
+		Return(nil, errors.New("connection reset")).Once()
+
+	_, err := newHandler(s).UpdateAccount(ctxWithUser(testUserID), rotateTokenRequest("t-new"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already carry the new secret")
+	assert.Contains(t, err.Error(), moved.ID)
+	s.AssertExpectations(t)
 }

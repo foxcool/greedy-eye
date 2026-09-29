@@ -785,6 +785,16 @@ thirty-two accounts is refused **whole**, because each row carries an encrypted
 copy of a credential and half of an unbelievable answer is still unbelievable.
 The response names what it created rather than growing an account list quietly.
 
+The copies are why a rotation cannot stop at one row. Changing a secret on a broker
+account writes the new value into every broker account of the same owner and
+provider that still holds the old one — found by the value itself, not by a parent
+link, so it reaches the discovering account and its siblings alike. The copies are
+written first and the edited row last: a copy that cannot be updated stops the
+save and is named in the error, and the edited row still holding the old value is
+what lets a retry find the straggler again. Written the other way round, the retry
+saw nothing to change and reported success over a copy still sending the revoked
+token — "I rotated the key" is only true once nothing sends the old one.
+
 **A broker position is not an exchange balance.** An exchange reports a ticker and
 an amount; a broker line carries three more facts the valuation cannot do without
 — the instrument id that is its only honest identity (its ticker field frequently
