@@ -164,6 +164,13 @@ first account the token reaches: reading somebody's other portfolio into this on
 and reporting success is exactly the silent degradation this field exists to
 prevent.
 
+`base_url` is an operator field: only an admin may set or change it, on any
+provider that reads it. It sends the account's requests to a host of the
+caller's choosing from inside the server's network, and the sync reports back
+what answered — open to every user, that is a probe of the internal network
+(`personal-5sgx`). A user may still save an account that carries the value an
+admin set, or drop it.
+
 What arrives: shares, funds, bonds and cash, each bound by the broker's own
 instrument id (`asset_external_refs`, source `tinvest`) — except cash, which
 resolves to the currency and is bound to nothing, because the broker's id for a
@@ -182,7 +189,7 @@ the snapshot cannot speak for what it did not read.
 | `provider` | `data` fields |
 |---|---|
 | `binance` | `api_key`, `api_secret` |
-| `gateio` | `api_key`, `api_secret`, optional `base_url` |
+| `gateio` | `api_key`, `api_secret`, optional `base_url` (admin only) |
 
 `gateio` reads spot balances only — read-only keys are enough, nothing here
 trades — and `base_url` reaches a regional host. Ticking `market_data` does
