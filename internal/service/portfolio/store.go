@@ -76,6 +76,17 @@ type Store interface {
 	// leaves the account exactly as stale as it found it.
 	RecordSyncMiss(ctx context.Context, accountID string, attemptedAt time.Time, base, cap time.Duration) (int, time.Time, error)
 
+	// RecordChainFailures writes one sync's verdict on the chains of a wallet
+	// account: every chain in failed extends its run of failures (or starts
+	// one), and every chain in answered that did not fail has its run ended.
+	// A chain in neither was not asked this time and keeps its run. It returns
+	// the runs extended by this write.
+	RecordChainFailures(ctx context.Context, accountID string, failed map[string]string, answered []string, at time.Time) ([]*entity.ChainFailure, error)
+
+	// ListChainFailures returns the chains of an account currently on a run of
+	// whole-chain failures, oldest run first.
+	ListChainFailures(ctx context.Context, accountID string) ([]*entity.ChainFailure, error)
+
 	// ClearSyncDeferral forgives what an account owes after it answers, from a
 	// swept sync or a hand-triggered one alike.
 	ClearSyncDeferral(ctx context.Context, accountID string) error

@@ -1178,6 +1178,20 @@ somebody chose, since that would report one currency's number under another curr
     `state` (`failed` / `no_fresher` / `partial` / `not_reached` / `standing_down`), `reasons`, and
     `until` where there is a deadline — emitted from `LogSweepReport` alone, so the two halves of a
     run cannot describe themselves two different ways
+  - **A chain keeps a run, not a schedule.** The complaint says what a chain answered this hour;
+    only its history says whether that is a hiccup or the three-hundredth hour of the same refusal.
+    A syncer that loses a whole chain returns `entity.ChainError`, and every wallet sync writes its
+    verdict to `account_chain_failures`: a chain that failed extends its run (count, `failing_since`,
+    last error), and a chain with positive evidence of answering — named in the account's chain list,
+    or returning a balance — has its run ended. A chain the sync did not ask about keeps its run:
+    auto-discovery can quietly fall back to one chain, and silence from a chain nobody asked is not
+    an answer. A partial or no-fresher note leads with "hydration has failed 384 syncs in a row
+    since …" for a run past its first failure that this very sync extended, at most two named and
+    the rest counted, so a run that froze does not repeat forever and runs cannot crowd out the
+    complaints.
+    Deliberately not a failure of one *item* on a live chain — a token with no decimals would
+    otherwise make every junk airdrop read as an outage — and deliberately not a schedule: nothing
+    stands a chain down, because the account is what the sweep queues
 - The price sweep is budgeted, not exhaustive: it asks each source only for assets whose next attempt is due (`price_fetch_attempts`), oldest first, capped by the share of the credential's remaining plan allowance that one interval affords. Naming `asset_ids` on the RPC makes it a deliberate reconciliation and bypasses both
 - Active rule schedules are fully reloaded every minute — rule CRUD needs no hooks, mutations take effect within a minute
 - Missed fires during downtime are **skipped, never caught up**: executing a stale trade plan is worse than skipping it

@@ -753,3 +753,19 @@ func TestSyncWallet_AnAbsentLockIsAZeroLock(t *testing.T) {
 	require.Len(t, balances, 1)
 	assert.Equal(t, entity.LiquidityLiquid, balances[0].Liquidity)
 }
+
+// TestSyncWallet_ADeadChainIsAChainError: the live case of personal-isy9 —
+// Subscan has had no host for Hydration since 27.08 and answers 404. That
+// refusal is the whole chain's, so it is carried as entity.ChainError and the
+// account's watchers can count it. So is a chain this build has no reader for.
+func TestSyncWallet_ADeadChainIsAChainError(t *testing.T) {
+	dead := newTestSyncer(t, func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "404 page not found", http.StatusNotFound)
+	})
+	_, err := dead.SyncWallet(context.Background(), "addr", []string{"hydration"})
+	require.Error(t, err)
+	require.Contains(t, entity.FailedChains(err), "hydration")
+
+	_, err = dead.SyncWallet(context.Background(), "addr", []string{"nosuchchain"})
+	assert.Contains(t, entity.FailedChains(err), "nosuchchain", "a chain with no reader here is unread whole")
+}

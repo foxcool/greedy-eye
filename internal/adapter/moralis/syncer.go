@@ -76,14 +76,19 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 	for _, chain := range chains {
 		tokens, err := a.tokenBalances(ctx, chain, address)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("chain %s tokens: %w", chain, err))
+			// A chain whose token endpoint fails is counted as failed whole
+			// even when its native balance answers: every token position on
+			// it is frozen at its last read, which is the silence a run
+			// exists to name (personal-isy9). The message keeps "tokens:" so
+			// a reader can tell it from a chain that answered nothing.
+			errs = append(errs, &entity.ChainError{Chain: chain, Err: fmt.Errorf("tokens: %w", err)})
 		} else {
 			result = append(result, tokens...)
 		}
 
 		native, err := a.nativeBalance(ctx, chain, address)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("chain %s native: %w", chain, err))
+			errs = append(errs, &entity.ChainError{Chain: chain, Err: fmt.Errorf("native: %w", err)})
 		} else if native != nil {
 			result = append(result, *native)
 		}

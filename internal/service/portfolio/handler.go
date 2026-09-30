@@ -1552,10 +1552,13 @@ func (h *Handler) syncOneAccount(ctx context.Context, account *entity.Account) (
 		syncErrors []string
 		skips      entity.BrokerSkips
 		err        error
+		// Empty for every account type but a wallet, which is the only one
+		// whose parts can go dark alone.
+		verdict chainVerdict
 	)
 	switch account.Type {
 	case entity.AccountTypeWallet:
-		balances, syncErrors, err = h.syncWalletBalances(ctx, account)
+		balances, syncErrors, verdict, err = h.syncWalletBalances(ctx, account)
 	case entity.AccountTypeExchange:
 		balances, syncErrors, err = h.syncExchangeBalances(ctx, account)
 	case entity.AccountTypeBroker:
@@ -1589,6 +1592,16 @@ func (h *Handler) syncOneAccount(ctx context.Context, account *entity.Account) (
 		return syncOutcome{}, err
 	}
 
+	// The snapshot landed, so this sync has a verdict on every chain of the
+	// account: the ones that failed whole extend their run, the rest clear
+	// theirs. Best effort — the run is bookkeeping for whoever watches, and
+	// the balances above are already written.
+	if account.Type == entity.AccountTypeWallet {
+		if _, ferr := h.store.RecordChainFailures(ctx, account.ID, verdict.failed, verdict.answered, time.Now()); ferr != nil {
+			h.log.Warn("chain failure bookkeeping failed", "account_id", account.ID, "error", ferr)
+		}
+	}
+
 	// Skips reach the caller as a count; the log is where the operator looking
 	// at a total that seems short will actually be. Four indistinguishable
 	// silent branches cost seventeen days of blindness on prod once already
@@ -1618,7 +1631,7 @@ func (h *Handler) syncOneAccount(ctx context.Context, account *entity.Account) (
 // syncWalletBalances resolves the wallet syncer for the account owner and
 // returns its balances normalized to syncedBalance. A partial failure surfaces
 // as a sync error string, not a hard error.
-func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Account) ([]syncedBalance, []string, error) {
+func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Account) ([]syncedBalance, []string, chainVerdict, error) {
 	// An account normally holds one address, but UTXO chains spread a wallet
 	// over many, so "addresses" accepts a list. Every address on an account
 	// belongs to the same ecosystem: the syncer is resolved once, from the
@@ -1630,7 +1643,7 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 		}
 	}
 	if len(addresses) == 0 {
-		return nil, nil, connect.NewError(connect.CodeInvalidArgument,
+		return nil, nil, chainVerdict{}, connect.NewError(connect.CodeInvalidArgument,
 			errors.New("account.data.address or account.data.addresses is required for wallet sync"))
 	}
 	address := addresses[0]
@@ -1653,16 +1666,16 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 	if h.syncerSource != nil {
 		resolved, err := h.syncerSource.WalletSyncerFor(ctx, account.UserID, address, chains)
 		if err != nil {
-			return nil, nil, toConnectError(err)
+			return nil, nil, chainVerdict{}, toConnectError(err)
 		}
 		walletSyncer = resolved
 	}
 	if walletSyncer == nil {
 		if len(chains) > 0 {
-			return nil, nil, connect.NewError(connect.CodeUnimplemented,
+			return nil, nil, chainVerdict{}, connect.NewError(connect.CodeUnimplemented,
 				fmt.Errorf("no wallet syncer configured for chain(s) %s", strings.Join(chains, ",")))
 		}
-		return nil, nil, connect.NewError(connect.CodeUnimplemented, errors.New("wallet sync not configured"))
+		return nil, nil, chainVerdict{}, connect.NewError(connect.CodeUnimplemented, errors.New("wallet sync not configured"))
 	}
 
 	// The syncer owns all provider mechanics (discovery, fan-out, native vs token).
@@ -1674,9 +1687,17 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 	var (
 		syncErrors []string
 		balances   []entity.WalletBalance
+		// Chains that failed whole on ANY address: two addresses on one
+		// chain are one place, and half of it unread is still unread.
+		failedChains = map[string]string{}
 	)
 	for _, addr := range addresses {
 		got, err := walletSyncer.SyncWallet(ctx, addr, chains)
+		for chain, msg := range entity.FailedChains(err) {
+			if _, seen := failedChains[chain]; !seen {
+				failedChains[chain] = msg
+			}
+		}
 		if err != nil {
 			// Name the address: with several in play, an unqualified provider
 			// error says nothing about which part of the wallet went missing.
@@ -1713,7 +1734,7 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 		}
 		result = append(result, sb)
 	}
-	return result, syncErrors, nil
+	return result, syncErrors, chainVerdict{failed: failedChains, answered: answeredChains(chains, balances, failedChains)}, nil
 }
 
 // syncExchangeBalances builds the exchange syncer from the account's own stored
@@ -2023,6 +2044,42 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 	}
 
 	return result, nil
+}
+
+// chainVerdict is what one wallet sync can say about each chain: the ones that
+// failed whole, and the ones that positively answered.
+type chainVerdict struct {
+	failed   map[string]string
+	answered []string
+}
+
+// answeredChains is the chains this sync has positive evidence for: the ones
+// the account names explicitly (they were asked, and did not fail) and the ones
+// that returned a balance. Not "every chain that did not fail": an account on
+// auto-discovery is asked about whatever the discovery answered with, and a
+// discovery call that hiccups falls back to one chain without an error — a
+// dead chain nobody asked would read as a chain that answered, and its run
+// would be erased by the very silence it exists to count.
+func answeredChains(configured []string, balances []entity.WalletBalance, failed map[string]string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(chain string) {
+		if chain == "" || seen[chain] {
+			return
+		}
+		if _, f := failed[chain]; f {
+			return
+		}
+		seen[chain] = true
+		out = append(out, chain)
+	}
+	for _, c := range configured {
+		add(c)
+	}
+	for _, b := range balances {
+		add(b.Chain)
+	}
+	return out
 }
 
 // syncResult is what one SyncAccount write produced, reported back to the

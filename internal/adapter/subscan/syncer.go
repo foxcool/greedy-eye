@@ -3,7 +3,6 @@ package subscan
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/shopspring/decimal"
 
@@ -48,13 +47,13 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 	for _, chain := range chains {
 		net, ok := networks[chain]
 		if !ok {
-			errs = append(errs, fmt.Errorf("unsupported chain %q", chain))
+			errs = append(errs, &entity.ChainError{Chain: chain, Err: entity.ErrNoChainReader})
 			continue
 		}
 
 		account, err := a.client.GetAccount(ctx, chain, address)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", chain, err))
+			errs = append(errs, &entity.ChainError{Chain: chain, Err: err})
 			continue
 		}
 

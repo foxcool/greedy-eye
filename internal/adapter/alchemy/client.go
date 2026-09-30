@@ -12,8 +12,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/foxcool/greedy-eye/internal/adapter/internal/urlerr"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"time"
 )
 
@@ -242,19 +244,20 @@ func (c *Client) postTokens(ctx context.Context, payload tokensRequest) ([]byte,
 	}
 
 	// The key is a path segment here, not a header. It therefore must never
-	// reach an error message or a log line: the URL is not quoted below for
-	// that reason.
-	url := fmt.Sprintf("%s/%s/assets/tokens/by-address", c.baseURL, c.apiKey)
+	// reach an error message or a log line — and not quoting the URL below is
+	// not enough: a transport error from Do quotes it itself, so that error is
+	// stripped of it (urlerr).
+	url := fmt.Sprintf("%s/%s/assets/tokens/by-address", c.baseURL, neturl.PathEscape(c.apiKey))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(encoded))
 	if err != nil {
-		return nil, fmt.Errorf("alchemy: create request: %w", err)
+		return nil, fmt.Errorf("alchemy: create request: %w", urlerr.Strip(err))
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("alchemy: do request: %w", err)
+		return nil, fmt.Errorf("alchemy: do request: %w", urlerr.Strip(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 

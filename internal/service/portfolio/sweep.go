@@ -275,6 +275,7 @@ func (h *Handler) SyncDueAccounts(ctx context.Context, opts SweepOpts) (SweepRep
 // sweepAccount syncs one account and folds the outcome into the report.
 func (h *Handler) sweepAccount(ctx context.Context, acct *entity.Account, report *SweepReport, now time.Time) {
 	owned := middleware.ContextWithUser(ctx, &entity.User{ID: acct.UserID})
+	syncStarted := time.Now()
 	resp, err := h.SyncAccount(owned, connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: acct.ID}))
 	if err != nil {
 		report.Failed++
@@ -291,6 +292,9 @@ func (h *Handler) sweepAccount(ctx context.Context, acct *entity.Account, report
 	// naming it twice in two vocabularies is the confusion this line was rebuilt
 	// to end.
 	errs := resp.Msg.GetErrors()
+	if len(errs) > 0 {
+		errs = append(h.chainStreaks(ctx, acct, syncStarted), errs...)
+	}
 	switch {
 	case leftNoFresher(resp.Msg):
 		report.note(acct, sweepNoFresher, errs, h.deferAccount(ctx, acct, now))
@@ -304,6 +308,55 @@ func (h *Handler) sweepAccount(ctx context.Context, acct *entity.Account, report
 		report.Partial++
 		report.note(acct, sweepPartial, errs, time.Time{})
 	}
+}
+
+// minFailuresToNameARun is where a chain's failures become a run worth naming.
+// One failure is already in the note as a complaint; the run only adds
+// something once it says the same refusal came back.
+const minFailuresToNameARun = 2
+
+// maxRunsNamed caps the run lines ahead of a note's complaints. The note keeps
+// maxReasonsPerNote reasons in all, and runs go first; uncapped, six chains on
+// a run would fill every slot and fold this hour's complaints — including a
+// failure never seen before — into "(+N more)". Past the cap the runs are
+// counted in one line, so the note still says how much is dark.
+const maxRunsNamed = 2
+
+// chainStreaks names the chains of an account that have failed whole more than
+// once in a row, ahead of the run's own complaints. The complaint says what a
+// chain answered this time; only the streak says whether that is a hiccup or
+// the three-hundredth hour of the same refusal — which is the difference an
+// hourly WARN could never carry (personal-isy9). Best effort: without it the
+// note still carries the complaints.
+//
+// Only a run THIS sync extended is named. On an auto-discovery account a chain
+// that recovers and holds nothing gives no evidence of answering, so its row is
+// never cleared; naming it anyway would repeat "has failed N syncs in a row"
+// forever about a chain that stopped failing. A run not extended since the sync
+// began is left in the table and out of the note.
+func (h *Handler) chainStreaks(ctx context.Context, acct *entity.Account, syncStarted time.Time) []string {
+	runs, err := h.store.ListChainFailures(ctx, acct.ID)
+	if err != nil {
+		h.log.Warn("chain failure lookup failed", "account_id", acct.ID, "error", err)
+		return nil
+	}
+	var out []string
+	more := 0
+	for _, f := range runs {
+		if f.Failures < minFailuresToNameARun || f.LastFailedAt.Before(syncStarted) {
+			continue
+		}
+		if len(out) == maxRunsNamed {
+			more++
+			continue
+		}
+		out = append(out, fmt.Sprintf("%s has failed %d syncs in a row since %s",
+			f.Chain, f.Failures, f.FailingSince.UTC().Format("2006-01-02 15:04Z")))
+	}
+	if more > 0 {
+		out = append(out, fmt.Sprintf("%d more chain(s) on a run of failures", more))
+	}
+	return out
 }
 
 // LogSweepReport emits one line per sweep plus a line per account the run could

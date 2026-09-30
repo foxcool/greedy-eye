@@ -118,6 +118,30 @@ func (m *mockStore) RecordSyncMiss(ctx context.Context, accountID string, attemp
 	return args.Int(0), args.Get(1).(time.Time), args.Error(2)
 }
 
+// RecordChainFailures is lenient for the same reason: every wallet sync test
+// would otherwise declare bookkeeping it does not look at.
+func (m *mockStore) RecordChainFailures(ctx context.Context, accountID string, failed map[string]string, answered []string, at time.Time) ([]*entity.ChainFailure, error) {
+	if !m.expects("RecordChainFailures") {
+		return nil, nil
+	}
+	args := m.Called(ctx, accountID, failed, answered, at)
+	if v := args.Get(0); v != nil {
+		return v.([]*entity.ChainFailure), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockStore) ListChainFailures(ctx context.Context, accountID string) ([]*entity.ChainFailure, error) {
+	if !m.expects("ListChainFailures") {
+		return nil, nil
+	}
+	args := m.Called(ctx, accountID)
+	if v := args.Get(0); v != nil {
+		return v.([]*entity.ChainFailure), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockStore) ClearSyncDeferral(ctx context.Context, accountID string) error {
 	if !m.expects("ClearSyncDeferral") {
 		return nil
