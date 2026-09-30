@@ -7,7 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/foxcool/greedy-eye/internal/adapter/internal/urlerr"
 	"net/http"
+	"net/url"
 	"slices"
 	"time"
 )
@@ -61,7 +63,7 @@ type Client struct {
 func NewClient(cfg Config) *Client {
 	baseURL := "https://api.mainnet-beta.solana.com"
 	if cfg.APIKey != "" {
-		baseURL = "https://mainnet.helius-rpc.com/?api-key=" + cfg.APIKey
+		baseURL = "https://mainnet.helius-rpc.com/?api-key=" + url.QueryEscape(cfg.APIKey)
 	}
 	return &Client{
 		apiKey:     cfg.APIKey,
@@ -212,13 +214,14 @@ func (c *Client) call(ctx context.Context, method string, params any, out any) e
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return fmt.Errorf("create request: %w", urlerr.Strip(err))
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("do request: %w", err)
+		// Helius takes its key in the query; a transport error would quote it.
+		return fmt.Errorf("do request: %w", urlerr.Strip(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 

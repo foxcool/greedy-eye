@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -145,8 +146,10 @@ func TestSyncWallet_NetworkFailureDoesNotDiscardTheRest(t *testing.T) {
 	require.Len(t, balances, 1, "what answered is returned")
 	assert.Equal(t, "ETH", balances[0].Symbol)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "base-mainnet")
 	assert.Contains(t, err.Error(), "Internal server error")
+	// Named by this build's chain id, not the API's slug: the account's
+	// watchers count failures per chain (personal-isy9).
+	assert.Equal(t, map[string]string{"base": "Internal server error"}, entity.FailedChains(err))
 }
 
 // TestSyncWallet_ChunksNetworks pins the API's cap of five networks per call:
@@ -346,4 +349,26 @@ func syncerAgainst(srv *httptest.Server) *WalletSyncerAdapter {
 func writeJSON(w http.ResponseWriter, body string) {
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = io.WriteString(w, strings.TrimSpace(body))
+}
+
+// TestClient_AKeyThatBreaksAURLStaysOutOfTheError: a key pasted with a trailing
+// newline used to make URL parsing fail, and the parse error quotes the whole
+// URL — key included — into the sync response, the sweep log and the chain
+// failure row. Escaped, the request goes out; and whatever does fail, the key
+// is not in the text.
+func TestClient_AKeyThatBreaksAURLStaysOutOfTheError(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.EscapedPath()
+		http.Error(w, "nope", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	client := NewClient(Config{APIKey: "SEC%RET\n"})
+	client.baseURL = srv.URL
+	_, err := NewWalletSyncer(client).SyncWallet(context.Background(), "0xabc", []string{"eth"})
+
+	require.Error(t, err)
+	assert.NotEmpty(t, gotPath, "the request was made rather than refused at parse time")
+	assert.NotContains(t, err.Error(), "SEC")
 }

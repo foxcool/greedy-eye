@@ -784,6 +784,62 @@ table "account_sync_attempts" {
   }
 }
 
+# Chains of a wallet account that failed whole on consecutive syncs.
+#
+# account_sync_attempts watches the ACCOUNT, and an account whose other chains
+# answer is fresher after every sync, so it never stands down and never
+# complains. The unit that goes dark alone is the chain: Hydration answered 404
+# for sixteen days inside dot-controller while four other chains kept it
+# looking healthy, and every hour logged the same WARN, indistinguishable from
+# a one-off hiccup (personal-isy9). This table is what makes the hundredth
+# refusal read as the hundredth rather than the first.
+#
+# A row exists only while the chain keeps failing: the first sync in which the
+# chain answers deletes it, so no row means the chain answered last time.
+table "account_chain_failures" {
+  schema = schema.public
+
+  column "account_id" {
+    type = uuid
+    null = false
+  }
+  # This build's chain id ("hydration", "base"), not a provider's slug.
+  column "chain" {
+    type = text
+    null = false
+  }
+  # First failure of the current run of failures.
+  column "failing_since" {
+    type = timestamptz
+    null = false
+  }
+  column "last_failed_at" {
+    type = timestamptz
+    null = false
+  }
+  # Consecutive syncs in which this chain failed whole.
+  column "failures" {
+    type    = integer
+    null    = false
+    default = 1
+  }
+  column "last_error" {
+    type = text
+    null = false
+  }
+
+  primary_key {
+    columns = [column.account_id, column.chain]
+  }
+
+  foreign_key "account_chain_failures_accounts" {
+    columns     = [column.account_id]
+    ref_columns = [table.accounts.column.id]
+    on_update   = NO_ACTION
+    on_delete   = CASCADE
+  }
+}
+
 table "price_fetch_attempts" {
   schema = schema.public
 

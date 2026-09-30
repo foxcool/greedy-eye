@@ -18,6 +18,7 @@ import (
 
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/store"
 )
 
@@ -904,4 +905,158 @@ func TestCalculatePortfolioValue_AllZeroedLeavesAmountsUndated(t *testing.T) {
 	assert.EqualValues(t, 1, resp.Msg.Coverage.GetPricedCount())
 	assert.Nil(t, resp.Msg.Coverage.GetAmountsAsOf(),
 		"no held quantity stands behind this total, and silence beats dating the sale")
+}
+
+// TestSyncAccount_RecordsTheChainsThatFailedWhole: a wallet sync writes its
+// verdict on every chain — the ones that failed whole extend their run, and an
+// empty set clears the account's runs, because every chain answered. An
+// item-level complaint on a live chain is not a dead chain (personal-isy9).
+func TestSyncAccount_RecordsTheChainsThatFailedWhole(t *testing.T) {
+	acct := sweepAccount("11111111-1111-1111-1111-111111111111", "user-a", "dot-controller")
+	acct.Data = map[string]string{"address": "0xsub", "chain": "hydration,polkadot"}
+
+	for name, tc := range map[string]struct {
+		err          error
+		want         map[string]string
+		wantAnswered []string
+	}{
+		"dead chain": {
+			err: errors.Join(
+				&entity.ChainError{Chain: "hydration", Err: errors.New("subscan API status 404")},
+				errors.New("polkadot, token FOO: no decimals"),
+			),
+			want:         map[string]string{"hydration": "subscan API status 404"},
+			wantAnswered: []string{"polkadot"},
+		},
+		"all answered": {err: nil, want: map[string]string{}, wantAnswered: []string{"hydration", "polkadot"}},
+	} {
+		s := &mockStore{}
+		s.On("GetAccount", mock.Anything, acct.ID).Return(acct, nil)
+		s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+		s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: "h1"}, nil)
+		s.On("RecordChainFailures", mock.Anything, acct.ID, tc.want, tc.wantAnswered, mock.Anything).Return(nil, nil).Once()
+
+		ws := &mockWalletSyncer{}
+		ws.On("SyncWallet", mock.Anything, "0xsub", []string{"hydration", "polkadot"}).
+			Return([]entity.WalletBalance{{Symbol: "DOT", Amount: "100", Decimals: 10, Chain: "polkadot"}}, tc.err)
+		md := &mockMDClient{autoAsset: true}
+		md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+			Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+		h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+		_, err := h.SyncAccount(middleware.ContextWithUser(context.Background(), &entity.User{ID: acct.UserID}),
+			connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: acct.ID}))
+		require.NoError(t, err, name)
+		s.AssertExpectations(t)
+	}
+}
+
+// TestSweep_PartialLeadsWithHowLongAChainHasBeenDark: the complaint says what
+// the chain answered this hour; only the run says it is the 384th hour of the
+// same refusal. That is what an hourly WARN never carried, so it leads the
+// note — ahead of the per-run complaints the reason cap may truncate.
+func TestSweep_PartialLeadsWithHowLongAChainHasBeenDark(t *testing.T) {
+	acct := sweepAccount("11111111-1111-1111-1111-111111111111", "user-a", "dot-controller")
+	acct.Data = map[string]string{"address": "0xsub", "chain": "hydration,polkadot"}
+	since := time.Date(2026, 8, 27, 1, 30, 0, 0, time.UTC)
+	thisSync := time.Now().Add(time.Hour) // written during the sync under test
+
+	s := &mockStore{}
+	s.On("ListStaleSyncTargets", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return([]*entity.Account{acct}, nil).Once()
+	s.On("GetAccount", mock.Anything, acct.ID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: "h1"}, nil)
+	s.On("ListChainFailures", mock.Anything, acct.ID).Return([]*entity.ChainFailure{
+		{AccountID: acct.ID, Chain: "hydration", FailingSince: since, LastFailedAt: thisSync, Failures: 384},
+		{AccountID: acct.ID, Chain: "astar", FailingSince: since, LastFailedAt: thisSync, Failures: 1}, // a first failure is not a run
+		// Frozen: not extended by this sync (recovered, empty, never cleared).
+		{AccountID: acct.ID, Chain: "kusama", FailingSince: since, LastFailedAt: since, Failures: 7},
+	}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xsub", []string{"hydration", "polkadot"}).
+		Return([]entity.WalletBalance{{Symbol: "DOT", Amount: "100", Decimals: 10, Chain: "polkadot"}},
+			&entity.ChainError{Chain: "hydration", Err: errors.New("subscan API status 404")})
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+	report, err := h.SyncDueAccounts(context.Background(), SweepOpts{})
+	require.NoError(t, err)
+
+	n := noteFor(t, report, acct.ID)
+	assert.Equal(t, sweepPartial, n.State)
+	require.NotEmpty(t, n.Reasons)
+	assert.Equal(t, "hydration has failed 384 syncs in a row since 2026-08-27 01:30Z", n.Reasons[0])
+	assert.NotContains(t, strings.Join(n.Reasons, " "), "astar has failed")
+	assert.NotContains(t, strings.Join(n.Reasons, " "), "kusama", "a run this sync did not extend is not named")
+	assert.Contains(t, strings.Join(n.Reasons[1:], " "), "subscan API status 404", "the run's own complaint is still there")
+}
+
+// TestSyncAccount_ADiscoveredWalletOnlyClearsWhatAnswered: on auto-discovery
+// the syncer is asked about whatever discovery returned, and a discovery call
+// that hiccups falls back to one chain without an error. A dead chain nobody
+// asked must keep its run — only a chain with a balance in this sync counts as
+// having answered.
+func TestSyncAccount_ADiscoveredWalletOnlyClearsWhatAnswered(t *testing.T) {
+	acct := sweepAccount("11111111-1111-1111-1111-111111111111", "user-a", "evm")
+	acct.Data = map[string]string{"address": "0xevm"} // no chain list: discovery
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, acct.ID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: "h1"}, nil)
+	s.On("RecordChainFailures", mock.Anything, acct.ID, map[string]string{}, []string{"eth"}, mock.Anything).Return(nil, nil).Once()
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xevm", []string(nil)).
+		Return([]entity.WalletBalance{{Symbol: "ETH", Amount: "1", Decimals: 18, Chain: "eth"}}, nil)
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+	_, err := h.SyncAccount(middleware.ContextWithUser(context.Background(), &entity.User{ID: acct.UserID}),
+		connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: acct.ID}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+}
+
+// TestSweep_RunsDoNotCrowdOutTheComplaints: runs lead the note but are capped,
+// so a wallet with many chains on a run still shows what failed this hour.
+func TestSweep_RunsDoNotCrowdOutTheComplaints(t *testing.T) {
+	acct := sweepAccount("11111111-1111-1111-1111-111111111111", "user-a", "many")
+	acct.Data = map[string]string{"address": "0xm", "chain": "a,b,c,d,e,f"}
+	since := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+
+	var runs []*entity.ChainFailure
+	for _, c := range []string{"a", "b", "c", "d", "e", "f"} {
+		runs = append(runs, &entity.ChainFailure{AccountID: acct.ID, Chain: c, FailingSince: since, LastFailedAt: time.Now().Add(time.Hour), Failures: 9})
+	}
+	s := &mockStore{}
+	s.On("ListStaleSyncTargets", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return([]*entity.Account{acct}, nil).Once()
+	s.On("GetAccount", mock.Anything, acct.ID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: "h1"}, nil)
+	s.On("ListChainFailures", mock.Anything, acct.ID).Return(runs, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xm", []string{"a", "b", "c", "d", "e", "f"}).
+		Return([]entity.WalletBalance{{Symbol: "X", Amount: "1", Decimals: 0, Chain: "g"}},
+			&entity.ChainError{Chain: "a", Err: errors.New("never seen before")})
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+	report, err := h.SyncDueAccounts(context.Background(), SweepOpts{})
+	require.NoError(t, err)
+
+	n := noteFor(t, report, acct.ID)
+	joined := strings.Join(n.Reasons, " | ")
+	assert.Contains(t, joined, "4 more chain(s) on a run of failures")
+	assert.Contains(t, joined, "never seen before", "this hour's complaint survives the cap")
 }

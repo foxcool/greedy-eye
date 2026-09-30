@@ -70,13 +70,13 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 	for _, chain := range chains {
 		net, ok := networks[chain]
 		if !ok {
-			errs = append(errs, fmt.Errorf("unsupported chain %q", chain))
+			errs = append(errs, &entity.ChainError{Chain: chain, Err: entity.ErrNoChainReader})
 			continue
 		}
 
 		amount, err := a.client.GetBalance(ctx, chain, address)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", chain, err))
+			errs = append(errs, &entity.ChainError{Chain: chain, Err: err})
 			continue
 		}
 		if amount <= 0 {

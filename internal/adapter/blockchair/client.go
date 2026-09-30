@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/foxcool/greedy-eye/internal/adapter/internal/urlerr"
 	"net/http"
 	"net/url"
 	"time"
@@ -69,13 +70,14 @@ func (c *Client) GetBalance(ctx context.Context, chain, address string) (int64, 
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return 0, fmt.Errorf("create request: %w", err)
+		return 0, fmt.Errorf("create request: %w", urlerr.Strip(err))
 	}
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("do request: %w", err)
+		// The key rides in the query; a transport error would quote it.
+		return 0, fmt.Errorf("do request: %w", urlerr.Strip(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 

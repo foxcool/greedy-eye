@@ -2,6 +2,7 @@ package entity
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -199,4 +200,68 @@ type SyncDeferral struct {
 	LastSyncedAt  *time.Time
 	Misses        int
 	NextAttemptAt time.Time
+}
+
+// ChainError is a wallet read that failed for one whole chain: the chain did
+// not answer, answered with a refusal, or has no reader here at all. It is the
+// failure that can go dark on its own inside an account whose other chains keep
+// it looking fresh (personal-isy9), so it is carried as a type rather than as a
+// prefix in a message — the account's watchers have to count it per chain.
+//
+// A failure of one item on a chain that did answer — a token with no decimals,
+// an unparsable balance — is NOT a ChainError: the chain is alive, and counting
+// it as dark would make every junk airdrop look like an outage.
+type ChainError struct {
+	Chain string
+	Err   error
+}
+
+func (e *ChainError) Error() string { return e.Chain + ": " + e.Err.Error() }
+func (e *ChainError) Unwrap() error { return e.Err }
+
+// ErrNoChainReader is the whole-chain failure of a chain an adapter was asked
+// about and has no reader for: nothing was read, so the chain is unread whole.
+var ErrNoChainReader = errors.New("no reader for this chain here")
+
+// FailedChains walks an error — including every branch of an errors.Join — and
+// returns each chain that failed whole, with the first message it failed with.
+// Nil when nothing in the tree is a ChainError.
+func FailedChains(err error) map[string]string {
+	var out map[string]string
+	var walk func(error)
+	walk = func(e error) {
+		if e == nil {
+			return
+		}
+		if ce, ok := e.(*ChainError); ok {
+			if out == nil {
+				out = map[string]string{}
+			}
+			if _, seen := out[ce.Chain]; !seen {
+				out[ce.Chain] = ce.Err.Error()
+			}
+			return
+		}
+		switch u := e.(type) {
+		case interface{ Unwrap() []error }:
+			for _, inner := range u.Unwrap() {
+				walk(inner)
+			}
+		case interface{ Unwrap() error }:
+			walk(u.Unwrap())
+		}
+	}
+	walk(err)
+	return out
+}
+
+// ChainFailure is a chain of one wallet account that has failed whole on
+// consecutive syncs. It exists only while the chain keeps failing.
+type ChainFailure struct {
+	AccountID    string
+	Chain        string
+	FailingSince time.Time
+	LastFailedAt time.Time
+	Failures     int
+	LastError    string
 }

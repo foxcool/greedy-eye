@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -1198,4 +1199,76 @@ func TestSyncDeferralsAreScopedToTheirOwner(t *testing.T) {
 		_, err := s.ClearSyncDeferrals(ctx, mine.ID, nil)
 		assert.ErrorIs(t, err, store.ErrInvalidArgument)
 	})
+}
+
+// TestChainFailuresRunUntilTheChainAnswers: a chain's run grows while it keeps
+// failing, keeps the date it started, and ends the first sync it answers — and
+// one chain answering does not end another's run (personal-isy9).
+func TestChainFailuresRunUntilTheChainAnswers(t *testing.T) {
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	s := NewPortfolioStore(pool)
+	ctx := context.Background()
+
+	user := createTestUser(t, users)
+	acct, err := s.CreateAccount(ctx, &entity.Account{UserID: user.ID, Name: "dot-controller", Type: entity.AccountTypeWallet})
+	require.NoError(t, err)
+
+	t0 := time.Date(2026, 8, 27, 1, 30, 0, 0, time.UTC)
+	t1, t2, t3 := t0.Add(time.Hour), t0.Add(2*time.Hour), t0.Add(3*time.Hour)
+
+	_, err = s.RecordChainFailures(ctx, acct.ID, map[string]string{"hydration": "404"}, []string{"polkadot"}, t0)
+	require.NoError(t, err)
+	runs, err := s.RecordChainFailures(ctx, acct.ID, map[string]string{"hydration": "404 again", "astar": "timeout"}, nil, t1)
+	require.NoError(t, err)
+	require.Len(t, runs, 2)
+
+	got, err := s.ListChainFailures(ctx, acct.ID)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "hydration", got[0].Chain, "oldest run first")
+	assert.Equal(t, 2, got[0].Failures)
+	assert.True(t, got[0].FailingSince.Equal(t0), "the run keeps the date it started")
+	assert.True(t, got[0].LastFailedAt.Equal(t1))
+	assert.Equal(t, "404 again", got[0].LastError)
+	assert.Equal(t, 1, got[1].Failures)
+
+	// A sync that asked about neither chain ends neither run: silence from a
+	// chain nobody asked is not an answer.
+	_, err = s.RecordChainFailures(ctx, acct.ID, map[string]string{}, []string{"eth"}, t1)
+	require.NoError(t, err)
+	got, err = s.ListChainFailures(ctx, acct.ID)
+	require.NoError(t, err)
+	require.Len(t, got, 2, "neither run ended by a sync that did not ask")
+
+	// astar answers, hydration does not: only astar's run ends.
+	_, err = s.RecordChainFailures(ctx, acct.ID, map[string]string{"hydration": "404"}, []string{"astar"}, t2)
+	require.NoError(t, err)
+	got, err = s.ListChainFailures(ctx, acct.ID)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "hydration", got[0].Chain)
+	assert.Equal(t, 3, got[0].Failures)
+
+	// A provider's page of text is kept as a bounded message, not stored whole.
+	long := strings.Repeat("x", 5000)
+	runs, err = s.RecordChainFailures(ctx, acct.ID, map[string]string{"hydration": long}, nil, t2)
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	assert.Less(t, len([]rune(runs[0].LastError)), 600)
+
+	// Every chain answers: nothing is dark.
+	_, err = s.RecordChainFailures(ctx, acct.ID, nil, []string{"hydration", "astar"}, t3)
+	require.NoError(t, err)
+	got, err = s.ListChainFailures(ctx, acct.ID)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+
+	// A run belongs to its account and goes with it.
+	_, err = s.RecordChainFailures(ctx, acct.ID, map[string]string{"hydration": "404"}, nil, t3)
+	require.NoError(t, err)
+	require.NoError(t, s.DeleteAccount(ctx, acct.ID))
+	got, err = s.ListChainFailures(ctx, acct.ID)
+	require.NoError(t, err)
+	assert.Empty(t, got)
 }

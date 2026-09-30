@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -949,6 +950,95 @@ func (s *PortfolioStore) ListStaleSyncTargets(ctx context.Context, olderThan, no
 		return nil, fmt.Errorf("failed to iterate stale sync targets: %w", err)
 	}
 	return accounts, nil
+}
+
+// maxChainErrorLen bounds the provider text kept per failing chain.
+const maxChainErrorLen = 512
+
+// truncateRunes cuts s to at most n runes, marking the cut.
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
+// RecordChainFailures extends the run of every chain that failed whole in this
+// sync and ends the runs of the chains that answered. A chain the sync did not
+// ask about is in neither set and keeps its run: silence from a chain nobody
+// asked is not an answer. One transaction: a reader must never see a chain
+// cleared while its sibling's run is still being extended from the same sync.
+func (s *PortfolioStore) RecordChainFailures(ctx context.Context, accountID string, failed map[string]string, answered []string, at time.Time) ([]*entity.ChainFailure, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin chain failure write: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	cleared := make([]string, 0, len(answered))
+	for _, chain := range answered {
+		if _, stillFailing := failed[chain]; !stillFailing {
+			cleared = append(cleared, chain)
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM account_chain_failures WHERE account_id = $1 AND chain = ANY($2::text[])`,
+		accountID, cleared); err != nil {
+		return nil, fmt.Errorf("failed to clear answering chains: %w", err)
+	}
+
+	const upsert = `
+		INSERT INTO account_chain_failures (account_id, chain, failing_since, last_failed_at, failures, last_error)
+		VALUES ($1, $2, $3::timestamptz, $3::timestamptz, 1, $4)
+		ON CONFLICT (account_id, chain) DO UPDATE
+		SET last_failed_at = EXCLUDED.last_failed_at,
+		    failures       = account_chain_failures.failures + 1,
+		    last_error     = EXCLUDED.last_error
+		RETURNING failing_since, last_failed_at, failures`
+	out := make([]*entity.ChainFailure, 0, len(failed))
+	for _, chain := range slices.Sorted(maps.Keys(failed)) {
+		// The message is the provider's text, kept for a person to read, not
+		// a payload to store whole: a misbehaving endpoint can answer with a
+		// page of HTML.
+		msg := truncateRunes(failed[chain], maxChainErrorLen)
+		f := &entity.ChainFailure{AccountID: accountID, Chain: chain, LastError: msg}
+		if err := tx.QueryRow(ctx, upsert, accountID, chain, at, msg).
+			Scan(&f.FailingSince, &f.LastFailedAt, &f.Failures); err != nil {
+			return nil, fmt.Errorf("failed to record chain failure: %w", err)
+		}
+		out = append(out, f)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit chain failures: %w", err)
+	}
+	return out, nil
+}
+
+// ListChainFailures returns the account's chains on a run of failures.
+func (s *PortfolioStore) ListChainFailures(ctx context.Context, accountID string) ([]*entity.ChainFailure, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT chain, failing_since, last_failed_at, failures, last_error
+		FROM account_chain_failures
+		WHERE account_id = $1
+		ORDER BY failing_since, chain`, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list chain failures: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*entity.ChainFailure
+	for rows.Next() {
+		f := &entity.ChainFailure{AccountID: accountID}
+		if err := rows.Scan(&f.Chain, &f.FailingSince, &f.LastFailedAt, &f.Failures, &f.LastError); err != nil {
+			return nil, fmt.Errorf("failed to scan chain failure: %w", err)
+		}
+		out = append(out, f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate chain failures: %w", err)
+	}
+	return out, nil
 }
 
 // RecordSyncMiss counts a miss and stands the account down, doubling the wait

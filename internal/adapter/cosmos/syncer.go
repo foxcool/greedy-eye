@@ -3,7 +3,6 @@ package cosmos
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/shopspring/decimal"
@@ -57,19 +56,19 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 	for _, chain := range chains {
 		net, ok := networks[chain]
 		if !ok {
-			errs = append(errs, fmt.Errorf("unsupported chain %q", chain))
+			errs = append(errs, &entity.ChainError{Chain: chain, Err: entity.ErrNoChainReader})
 			continue
 		}
 
 		chainAddress, err := reencode(address, net.hrp)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", chain, err))
+			errs = append(errs, &entity.ChainError{Chain: chain, Err: err})
 			continue
 		}
 
 		balance, err := a.client.GetBalance(ctx, chain, chainAddress)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", chain, err))
+			errs = append(errs, &entity.ChainError{Chain: chain, Err: err})
 			continue
 		}
 

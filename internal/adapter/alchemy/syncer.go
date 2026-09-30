@@ -126,11 +126,20 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 	for _, batch := range slices.Collect(slices.Chunk(slugs, maxNetworksPerCall)) {
 		tokens, netErrs, err := a.client.TokensByAddress(ctx, address, batch)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("chains %s: %w", strings.Join(batch, ","), err))
+			// One request carries the whole batch, so its failure is each
+			// chain's: every one of them went unread.
+			for _, slug := range batch {
+				chain, _ := chainOf(slug)
+				errs = append(errs, &entity.ChainError{Chain: chain, Err: err})
+			}
 			continue
 		}
 		for _, ne := range netErrs {
-			errs = append(errs, fmt.Errorf("chain %s: %s", ne.Network, ne.Message))
+			chain, ok := chainOf(ne.Network)
+			if !ok {
+				chain = ne.Network
+			}
+			errs = append(errs, &entity.ChainError{Chain: chain, Err: errors.New(ne.Message)})
 		}
 
 		balances, converted := a.convert(tokens)
@@ -152,7 +161,7 @@ func (a *WalletSyncerAdapter) slugsFor(chains []string) ([]string, []error) {
 	for _, chain := range chains {
 		n, ok := network[chain]
 		if !ok {
-			errs = append(errs, fmt.Errorf("chain %s: alchemy has no network for it", chain))
+			errs = append(errs, &entity.ChainError{Chain: chain, Err: errors.New("alchemy has no network for it")})
 			continue
 		}
 		slugs = append(slugs, n.slug)
