@@ -831,7 +831,11 @@ func (s *MarketDataStore) ListAssets(ctx context.Context, opts marketdata.ListAs
 	// browser (personal-1asm): over seven thousand rows on prod, most of them
 	// airdropped litter, grow by ~400 a month. A contract address or a FIGI is
 	// matched exactly through the refs, because pasting one is how a person
-	// asks "is THIS the token I hold".
+	// asks "is THIS the token I hold". Exactly means case too: a Solana mint
+	// and a FIGI are case-sensitive, and two different tokens may differ only
+	// in case. Only a 0x-prefixed hex ref ignores it (EVM and EVM-style
+	// chains): hex does not change value with case, and on EVM case is a
+	// checksum, not part of the identity.
 	if q := strings.TrimSpace(opts.Query); q != "" {
 		like := escapeLike(q)
 		whereClauses = append(whereClauses, fmt.Sprintf(`(
@@ -839,7 +843,9 @@ func (s *MarketDataStore) ListAssets(ctx context.Context, opts marketdata.ListAs
 			OR name ILIKE '%%' || $%[1]d || '%%' ESCAPE '\'
 			OR id::text = lower($%[2]d)
 			OR EXISTS (SELECT 1 FROM asset_external_refs r
-			           WHERE r.asset_id = assets.id AND lower(r.ref) = lower($%[2]d)))`, argIdx, argIdx+1))
+			           WHERE r.asset_id = assets.id
+			             AND (r.ref = $%[2]d
+			                  OR (r.ref ILIKE '0x%%' AND lower(r.ref) = lower($%[2]d)))))`, argIdx, argIdx+1))
 		args = append(args, like, q)
 		argIdx += 2
 	}

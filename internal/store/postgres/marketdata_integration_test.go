@@ -1681,4 +1681,14 @@ func TestListAssets_QueryFindsWithoutTheCatalogue(t *testing.T) {
 	assert.NotContains(t, find("zqx_"), plain.ID)
 	assert.Empty(t, find("0xabcdef"), "a contract matches exactly, not by prefix")
 	assert.Empty(t, find("%"), "percent is literal")
+
+	// A Solana mint is case-sensitive: two tokens may differ only in case,
+	// and an exact paste must find exactly one of them.
+	upper := createTestAsset(t, s, "Zqxmintupper")
+	lower := createTestAsset(t, s, "Zqxmintlower")
+	for asset, mint := range map[*entity.Asset]string{upper: "ZqxMintAAAA1111", lower: "zqxmintaaaa1111"} {
+		_, err := s.CreateAssetExternalRef(ctx, &entity.AssetExternalRef{AssetID: asset.ID, Source: entity.OnchainSource("solana"), Ref: mint})
+		require.NoError(t, err)
+	}
+	assert.Equal(t, []string{upper.ID}, find("ZqxMintAAAA1111"), "a case-sensitive ref matches its own case only")
 }

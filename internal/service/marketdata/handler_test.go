@@ -519,9 +519,9 @@ func TestListAssets_WithFilters(t *testing.T) {
 func TestListAssets_IDsAndQueryReachTheStore(t *testing.T) {
 	s := &mockStore{}
 	id := "019a0000-0000-7000-8000-000000000001"
-	q := "usdt"
-	s.On("ListAssets", mock.Anything, ListAssetsOpts{IDs: []string{id}, Query: "usdt"}).
-		Return([]*entity.Asset{testAsset("a1")}, "", nil).Once()
+	q := "  usdt "
+	s.On("ListAssets", mock.Anything, ListAssetsOpts{IDs: []string{id}, Query: "usdt"}). // query arrives trimmed
+												Return([]*entity.Asset{testAsset("a1")}, "", nil).Once()
 	h := newHandler(s)
 
 	_, err := h.ListAssets(context.Background(), connect.NewRequest(&apiv1.ListAssetsRequest{Ids: []string{id}, Query: &q}))

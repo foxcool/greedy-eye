@@ -1234,11 +1234,14 @@ type ListAssetsRequest struct {
 	IdentityVerdict *string `protobuf:"bytes,4,opt,name=identity_verdict,json=identityVerdict,proto3,oneof" json:"identity_verdict,omitempty"`
 	// Restricts the result to exactly these asset IDs — the read for "label the
 	// assets I hold" that used to page the whole catalogue into the browser.
-	// At most 1000.
+	// At most 1000. An EMPTY list is indistinguishable from an absent one on
+	// the wire and means no id filter at all: a caller with no ids to ask for
+	// must not send the request.
 	Ids []string `protobuf:"bytes,5,rep,name=ids,proto3" json:"ids,omitempty"`
-	// Case-insensitive text search: symbol by prefix, name by substring, and an
-	// exact asset id or bound external ref (a contract address, a FIGI). Empty
-	// returns everything. At most 200 characters.
+	// Text search: symbol by prefix and name by substring (case-insensitive),
+	// an exact asset id, or an exact bound external ref — a FIGI or a Solana
+	// mint by its exact case, an EVM 0x address in any case. Empty or
+	// whitespace-only means no query. At most 200 bytes after trimming.
 	Query         *string `protobuf:"bytes,6,opt,name=query,proto3,oneof" json:"query,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

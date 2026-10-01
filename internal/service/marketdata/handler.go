@@ -320,11 +320,15 @@ func (h *Handler) ListAssets(ctx context.Context, req *connect.Request[apiv1.Lis
 	}
 	opts.IDs = req.Msg.Ids
 	if req.Msg.Query != nil {
-		if len(*req.Msg.Query) > maxAssetQueryLen {
+		// Trimmed here, before the bound is checked, so the handler and the
+		// store agree on what was asked. A query that trims to nothing is no
+		// query: the request is an unfiltered list, as the field documents.
+		q := strings.TrimSpace(*req.Msg.Query)
+		if len(q) > maxAssetQueryLen {
 			return nil, connect.NewError(connect.CodeInvalidArgument,
 				fmt.Errorf("query longer than %d characters", maxAssetQueryLen))
 		}
-		opts.Query = *req.Msg.Query
+		opts.Query = q
 	}
 
 	assets, nextPageToken, err := h.store.ListAssets(ctx, opts)
