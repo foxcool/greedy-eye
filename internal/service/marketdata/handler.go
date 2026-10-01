@@ -289,6 +289,13 @@ func (h *Handler) DeleteAsset(ctx context.Context, req *connect.Request[apiv1.De
 }
 
 // ListAssets lists assets with pagination and optional tag filtering.
+// Bounds on a ListAssets request: an id list is a page of holdings, not the
+// catalogue, and a query is something a person typed.
+const (
+	maxListAssetIDs  = 1000
+	maxAssetQueryLen = 200
+)
+
 func (h *Handler) ListAssets(ctx context.Context, req *connect.Request[apiv1.ListAssetsRequest]) (*connect.Response[apiv1.ListAssetsResponse], error) {
 	opts := ListAssetsOpts{
 		Tags: req.Msg.Tags,
@@ -301,6 +308,23 @@ func (h *Handler) ListAssets(ctx context.Context, req *connect.Request[apiv1.Lis
 	}
 	if req.Msg.IdentityVerdict != nil {
 		opts.IdentityVerdict = *req.Msg.IdentityVerdict
+	}
+	if len(req.Msg.Ids) > maxListAssetIDs {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("at most %d ids per request", maxListAssetIDs))
+	}
+	for _, id := range req.Msg.Ids {
+		if _, err := uuid.Parse(id); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("id %q is not a UUID", id))
+		}
+	}
+	opts.IDs = req.Msg.Ids
+	if req.Msg.Query != nil {
+		if len(*req.Msg.Query) > maxAssetQueryLen {
+			return nil, connect.NewError(connect.CodeInvalidArgument,
+				fmt.Errorf("query longer than %d characters", maxAssetQueryLen))
+		}
+		opts.Query = *req.Msg.Query
 	}
 
 	assets, nextPageToken, err := h.store.ListAssets(ctx, opts)

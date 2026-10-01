@@ -530,6 +530,14 @@ message ListAssetsRequest {
   // "suspect" | "scam" | "impersonation". Empty returns all. Drives the
   // Quarantine view.
   optional string identity_verdict = 4;
+  // Restricts the result to exactly these asset IDs — the read for "label the
+  // assets I hold" that used to page the whole catalogue into the browser.
+  // At most 1000.
+  repeated string ids = 5;
+  // Case-insensitive text search: symbol by prefix, name by substring, and an
+  // exact asset id or bound external ref (a contract address, a FIGI). Empty
+  // returns everything. At most 200 characters.
+  optional string query = 6;
 }
 
 message ListAssetsResponse {

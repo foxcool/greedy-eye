@@ -827,6 +827,23 @@ func (s *MarketDataStore) ListAssets(ctx context.Context, opts marketdata.ListAs
 		argIdx++
 	}
 
+	// Search is what lets a reader find one asset without the catalogue in the
+	// browser (personal-1asm): over seven thousand rows on prod, most of them
+	// airdropped litter, grow by ~400 a month. A contract address or a FIGI is
+	// matched exactly through the refs, because pasting one is how a person
+	// asks "is THIS the token I hold".
+	if q := strings.TrimSpace(opts.Query); q != "" {
+		like := escapeLike(q)
+		whereClauses = append(whereClauses, fmt.Sprintf(`(
+			symbol ILIKE $%[1]d || '%%' ESCAPE '\'
+			OR name ILIKE '%%' || $%[1]d || '%%' ESCAPE '\'
+			OR id::text = lower($%[2]d)
+			OR EXISTS (SELECT 1 FROM asset_external_refs r
+			           WHERE r.asset_id = assets.id AND lower(r.ref) = lower($%[2]d)))`, argIdx, argIdx+1))
+		args = append(args, like, q)
+		argIdx += 2
+	}
+
 	whereClause := ""
 	if len(whereClauses) > 0 {
 		whereClause = "WHERE " + strings.Join(whereClauses, " AND ")
@@ -1643,4 +1660,10 @@ func (s *MarketDataStore) PricingStatus(ctx context.Context, assetIDs []string) 
 		return nil, fmt.Errorf("failed to iterate pricing status: %w", err)
 	}
 	return out, nil
+}
+
+// escapeLike makes user text literal inside a LIKE pattern: % and _ are
+// wildcards there, and a search for "USD_T" must not match "USDXT".
+func escapeLike(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
