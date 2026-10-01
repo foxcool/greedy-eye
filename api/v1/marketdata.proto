@@ -530,6 +530,17 @@ message ListAssetsRequest {
   // "suspect" | "scam" | "impersonation". Empty returns all. Drives the
   // Quarantine view.
   optional string identity_verdict = 4;
+  // Restricts the result to exactly these asset IDs — the read for "label the
+  // assets I hold" that used to page the whole catalogue into the browser.
+  // At most 1000. An EMPTY list is indistinguishable from an absent one on
+  // the wire and means no id filter at all: a caller with no ids to ask for
+  // must not send the request.
+  repeated string ids = 5;
+  // Text search: symbol by prefix and name by substring (case-insensitive),
+  // an exact asset id, or an exact bound external ref — a FIGI or a Solana
+  // mint by its exact case, an EVM 0x address in any case. Empty or
+  // whitespace-only means no query. At most 200 bytes after trimming.
+  optional string query = 6;
 }
 
 message ListAssetsResponse {

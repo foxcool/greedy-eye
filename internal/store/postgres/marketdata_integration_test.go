@@ -1648,3 +1648,47 @@ func TestSweepSchedule(t *testing.T) {
 			"the sweep never asks about quarantined assets, so counting them would report work nobody intends to do")
 	})
 }
+
+// TestListAssets_QueryFindsWithoutTheCatalogue: search is what lets a reader
+// find one asset without paging the catalogue into the browser (personal-1asm).
+// Symbol by prefix, name by substring, an exact id or bound contract — and the
+// LIKE wildcards in what a person types are literal.
+func TestListAssets_QueryFindsWithoutTheCatalogue(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	coin := createTestAsset(t, s, "Zqxsearch Coin")  // symbol ZQXSEARCHCOIN
+	other := createTestAsset(t, s, "Zqxsearchother") // symbol ZQXSEARCHOTHER
+	under := createTestAsset(t, s, "Zqx_under")      // symbol ZQX_UNDER
+	plain := createTestAsset(t, s, "Zqxaunder")      // symbol ZQXAUNDER: "_" must not match "A"
+	_, err := s.CreateAssetExternalRef(ctx, &entity.AssetExternalRef{
+		AssetID: coin.ID, Source: entity.OnchainSource("eth"), Ref: "0xAbCdEf0000000000000000000000000000ZqX1",
+	})
+	require.NoError(t, err)
+
+	find := func(q string) []string {
+		got, _, err := s.ListAssets(ctx, marketdata.ListAssetsOpts{Query: q, PageSize: 50})
+		require.NoError(t, err)
+		return assetIDs(got)
+	}
+
+	assert.ElementsMatch(t, []string{coin.ID, other.ID}, find("zqxsearch"), "symbol prefix, any case")
+	assert.Equal(t, []string{coin.ID}, find("search coin"), "name substring")
+	assert.Equal(t, []string{coin.ID}, find("0xabcdef0000000000000000000000000000zqx1"), "exact bound contract, any case")
+	assert.Equal(t, []string{other.ID}, find(other.ID), "exact id")
+	assert.Equal(t, []string{under.ID}, find("zqx_"), "underscore is literal")
+	assert.NotContains(t, find("zqx_"), plain.ID)
+	assert.Empty(t, find("0xabcdef"), "a contract matches exactly, not by prefix")
+	assert.Empty(t, find("%"), "percent is literal")
+
+	// A Solana mint is case-sensitive: two tokens may differ only in case,
+	// and an exact paste must find exactly one of them.
+	upper := createTestAsset(t, s, "Zqxmintupper")
+	lower := createTestAsset(t, s, "Zqxmintlower")
+	for asset, mint := range map[*entity.Asset]string{upper: "ZqxMintAAAA1111", lower: "zqxmintaaaa1111"} {
+		_, err := s.CreateAssetExternalRef(ctx, &entity.AssetExternalRef{AssetID: asset.ID, Source: entity.OnchainSource("solana"), Ref: mint})
+		require.NoError(t, err)
+	}
+	assert.Equal(t, []string{upper.ID}, find("ZqxMintAAAA1111"), "a case-sensitive ref matches its own case only")
+}

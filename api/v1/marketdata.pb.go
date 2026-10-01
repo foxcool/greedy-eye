@@ -1232,8 +1232,19 @@ type ListAssetsRequest struct {
 	// "suspect" | "scam" | "impersonation". Empty returns all. Drives the
 	// Quarantine view.
 	IdentityVerdict *string `protobuf:"bytes,4,opt,name=identity_verdict,json=identityVerdict,proto3,oneof" json:"identity_verdict,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Restricts the result to exactly these asset IDs — the read for "label the
+	// assets I hold" that used to page the whole catalogue into the browser.
+	// At most 1000. An EMPTY list is indistinguishable from an absent one on
+	// the wire and means no id filter at all: a caller with no ids to ask for
+	// must not send the request.
+	Ids []string `protobuf:"bytes,5,rep,name=ids,proto3" json:"ids,omitempty"`
+	// Text search: symbol by prefix and name by substring (case-insensitive),
+	// an exact asset id, or an exact bound external ref — a FIGI or a Solana
+	// mint by its exact case, an EVM 0x address in any case. Empty or
+	// whitespace-only means no query. At most 200 bytes after trimming.
+	Query         *string `protobuf:"bytes,6,opt,name=query,proto3,oneof" json:"query,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListAssetsRequest) Reset() {
@@ -1290,6 +1301,20 @@ func (x *ListAssetsRequest) GetTags() []string {
 func (x *ListAssetsRequest) GetIdentityVerdict() string {
 	if x != nil && x.IdentityVerdict != nil {
 		return *x.IdentityVerdict
+	}
+	return ""
+}
+
+func (x *ListAssetsRequest) GetIds() []string {
+	if x != nil {
+		return x.Ids
+	}
+	return nil
+}
+
+func (x *ListAssetsRequest) GetQuery() string {
+	if x != nil && x.Query != nil {
+		return *x.Query
 	}
 	return ""
 }
@@ -3072,17 +3097,20 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\vupdate_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
 	"updateMask\"$\n" +
 	"\x12DeleteAssetRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xcf\x01\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x86\x02\n" +
 	"\x11ListAssetsRequest\x12 \n" +
 	"\tpage_size\x18\x01 \x01(\x05H\x00R\bpageSize\x88\x01\x01\x12\"\n" +
 	"\n" +
 	"page_token\x18\x02 \x01(\tH\x01R\tpageToken\x88\x01\x01\x12\x12\n" +
 	"\x04tags\x18\x03 \x03(\tR\x04tags\x12.\n" +
-	"\x10identity_verdict\x18\x04 \x01(\tH\x02R\x0fidentityVerdict\x88\x01\x01B\f\n" +
+	"\x10identity_verdict\x18\x04 \x01(\tH\x02R\x0fidentityVerdict\x88\x01\x01\x12\x10\n" +
+	"\x03ids\x18\x05 \x03(\tR\x03ids\x12\x19\n" +
+	"\x05query\x18\x06 \x01(\tH\x03R\x05query\x88\x01\x01B\f\n" +
 	"\n" +
 	"_page_sizeB\r\n" +
 	"\v_page_tokenB\x13\n" +
-	"\x11_identity_verdict\"c\n" +
+	"\x11_identity_verdictB\b\n" +
+	"\x06_query\"c\n" +
 	"\x12ListAssetsResponse\x12%\n" +
 	"\x06assets\x18\x01 \x03(\v2\r.eye.v1.AssetR\x06assets\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"M\n" +

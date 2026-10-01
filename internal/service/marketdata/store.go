@@ -107,6 +107,9 @@ type ListAssetsOpts struct {
 	// knows what it wants read exactly those rows instead of paging the whole
 	// catalogue and filtering in Go.
 	IDs []string
+	// Query is a case-insensitive text search: symbol by prefix, name by
+	// substring, an exact asset id or an exact bound external ref.
+	Query string
 }
 
 // StalePricingOpts selects what one sweep refreshes from one source.

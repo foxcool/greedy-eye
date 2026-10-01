@@ -514,6 +514,36 @@ func TestListAssets_WithFilters(t *testing.T) {
 	assert.Equal(t, "next", resp.Msg.NextPageToken)
 }
 
+// TestListAssets_IDsAndQueryReachTheStore: the two reads that replace paging
+// the catalogue into the browser (personal-1asm), with bounds on both.
+func TestListAssets_IDsAndQueryReachTheStore(t *testing.T) {
+	s := &mockStore{}
+	id := "019a0000-0000-7000-8000-000000000001"
+	q := "  usdt "
+	s.On("ListAssets", mock.Anything, ListAssetsOpts{IDs: []string{id}, Query: "usdt"}). // query arrives trimmed
+												Return([]*entity.Asset{testAsset("a1")}, "", nil).Once()
+	h := newHandler(s)
+
+	_, err := h.ListAssets(context.Background(), connect.NewRequest(&apiv1.ListAssetsRequest{Ids: []string{id}, Query: &q}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+
+	tooMany := make([]string, maxListAssetIDs+1)
+	for i := range tooMany {
+		tooMany[i] = id
+	}
+	long := strings.Repeat("x", maxAssetQueryLen+1)
+	for name, req := range map[string]*apiv1.ListAssetsRequest{
+		"too many ids": {Ids: tooMany},
+		"not a uuid":   {Ids: []string{"1; drop table"}},
+		"long query":   {Query: &long},
+	} {
+		_, err := h.ListAssets(context.Background(), connect.NewRequest(req))
+		require.Error(t, err, name)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), name)
+	}
+}
+
 // --- Tests: UpdateAsset ---
 
 func TestUpdateAsset_MissingID(t *testing.T) {
