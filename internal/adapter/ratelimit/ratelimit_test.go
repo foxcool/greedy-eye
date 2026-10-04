@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/foxcool/greedy-eye/internal/spend"
 )
 
 // newTestRegistry builds a registry whose only provider is paced fast enough
@@ -334,12 +336,12 @@ func TestQuotaClassReserve(t *testing.T) {
 
 	// backgroundReserve is 0.8, so background gets 8 of 10.
 	for i := range 8 {
-		require.NoError(t, b.reserve(ClassBackground, Unlabelled, now), "background request %d", i)
+		require.NoError(t, b.reserve(spend.ClassBackground, spend.Unlabelled, now), "background request %d", i)
 	}
-	require.ErrorIs(t, b.reserve(ClassBackground, Unlabelled, now), ErrQuotaExhausted)
-	require.NoError(t, b.reserve(ClassInteractive, Unlabelled, now), "the reserve is for interactive work")
-	require.NoError(t, b.reserve(ClassInteractive, Unlabelled, now))
-	require.ErrorIs(t, b.reserve(ClassInteractive, Unlabelled, now), ErrQuotaExhausted, "hard ceiling for everyone")
+	require.ErrorIs(t, b.reserve(spend.ClassBackground, spend.Unlabelled, now), ErrQuotaExhausted)
+	require.NoError(t, b.reserve(spend.ClassInteractive, spend.Unlabelled, now), "the reserve is for interactive work")
+	require.NoError(t, b.reserve(spend.ClassInteractive, spend.Unlabelled, now))
+	require.ErrorIs(t, b.reserve(spend.ClassInteractive, spend.Unlabelled, now), ErrQuotaExhausted, "hard ceiling for everyone")
 }
 
 // TestQuotaPeriodRollover: the allowance resets on the provider's calendar
@@ -349,12 +351,12 @@ func TestQuotaPeriodRollover(t *testing.T) {
 	reg := quotaRegistry(2, func() time.Time { return now })
 	b := reg.bucket(Credential{Provider: "test", APIKey: "key"})
 
-	require.NoError(t, b.reserve(ClassInteractive, Unlabelled, now))
-	require.NoError(t, b.reserve(ClassInteractive, Unlabelled, now))
-	require.ErrorIs(t, b.reserve(ClassInteractive, Unlabelled, now), ErrQuotaExhausted)
+	require.NoError(t, b.reserve(spend.ClassInteractive, spend.Unlabelled, now))
+	require.NoError(t, b.reserve(spend.ClassInteractive, spend.Unlabelled, now))
+	require.ErrorIs(t, b.reserve(spend.ClassInteractive, spend.Unlabelled, now), ErrQuotaExhausted)
 
 	next := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
-	require.NoError(t, b.reserve(ClassInteractive, Unlabelled, next), "a new month is a new allowance")
+	require.NoError(t, b.reserve(spend.ClassInteractive, spend.Unlabelled, next), "a new month is a new allowance")
 }
 
 // TestRemainingSizesTheSweep: the portion a sweep may spend comes from what is
@@ -369,7 +371,7 @@ func TestRemainingSizesTheSweep(t *testing.T) {
 	assert.Equal(t, 800, left, "background may spend the reserve share")
 	assert.Equal(t, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), end)
 
-	require.NoError(t, reg.bucket(cred).reserve(ClassBackground, Unlabelled, now))
+	require.NoError(t, reg.bucket(cred).reserve(spend.ClassBackground, spend.Unlabelled, now))
 	left, _, _ = reg.Remaining(cred)
 	assert.Equal(t, 799, left)
 
@@ -391,7 +393,7 @@ func TestUsagePersistsAcrossRestart(t *testing.T) {
 	require.NoError(t, reg.Start(ctx))
 	b := reg.bucket(cred)
 	for range 6 {
-		require.NoError(t, b.reserve(ClassInteractive, Unlabelled, now))
+		require.NoError(t, b.reserve(spend.ClassInteractive, spend.Unlabelled, now))
 	}
 	require.NoError(t, reg.Stop(ctx))
 
@@ -404,9 +406,9 @@ func TestUsagePersistsAcrossRestart(t *testing.T) {
 
 	// Restored spend counts against the background reserve (8 of 10): two more
 	// background requests fit, the third does not.
-	require.NoError(t, restarted.bucket(cred).reserve(ClassBackground, Unlabelled, now))
-	require.NoError(t, restarted.bucket(cred).reserve(ClassBackground, Unlabelled, now))
-	require.ErrorIs(t, restarted.bucket(cred).reserve(ClassBackground, Unlabelled, now), ErrQuotaExhausted)
+	require.NoError(t, restarted.bucket(cred).reserve(spend.ClassBackground, spend.Unlabelled, now))
+	require.NoError(t, restarted.bucket(cred).reserve(spend.ClassBackground, spend.Unlabelled, now))
+	require.ErrorIs(t, restarted.bucket(cred).reserve(spend.ClassBackground, spend.Unlabelled, now), ErrQuotaExhausted)
 }
 
 // TestFlushSendsOnlyDeltas: counters are added to, not set, so two backend
@@ -418,9 +420,9 @@ func TestFlushSendsOnlyDeltas(t *testing.T) {
 	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
 	b := reg.bucket(Credential{Provider: "test", APIKey: "key"})
 
-	require.NoError(t, b.reserve(ClassInteractive, Unlabelled, now))
+	require.NoError(t, b.reserve(spend.ClassInteractive, spend.Unlabelled, now))
 	require.NoError(t, reg.Flush(ctx))
-	require.NoError(t, b.reserve(ClassInteractive, Unlabelled, now))
+	require.NoError(t, b.reserve(spend.ClassInteractive, spend.Unlabelled, now))
 	require.NoError(t, reg.Flush(ctx))
 	require.NoError(t, reg.Flush(ctx), "nothing pending is not a write")
 
@@ -455,8 +457,8 @@ func TestSpendIsSplitByCaller(t *testing.T) {
 		return resp.Body.Close()
 	}
 
-	sweep := WithCaller(WithClass(ctx, ClassBackground), "job:price_sweep")
-	guard := WithCaller(sweep, "contract_guard")
+	sweep := spend.WithCaller(spend.WithClass(ctx, spend.ClassBackground), "job:price_sweep")
+	guard := spend.WithCaller(sweep, "contract_guard")
 	require.NoError(t, get(sweep))
 	require.NoError(t, get(guard))
 	require.NoError(t, get(guard))
@@ -474,7 +476,7 @@ func TestSpendIsSplitByCaller(t *testing.T) {
 	assert.Equal(t, map[string]int64{
 		"job:price_sweep":                1,
 		"job:price_sweep/contract_guard": 2,
-		Unlabelled:                       1,
+		spend.Unlabelled:                 1,
 	}, byCaller)
 }
 
@@ -649,7 +651,7 @@ func TestUnusableReportsWhyAndWhen(t *testing.T) {
 	// Background may spend 8 of 10; spending them all leaves the sweep nothing.
 	b := reg.bucket(cred)
 	for range 8 {
-		require.NoError(t, b.reserve(ClassBackground, Unlabelled, now))
+		require.NoError(t, b.reserve(spend.ClassBackground, spend.Unlabelled, now))
 	}
 	reason, unusable := reg.Unusable(cred)
 	require.True(t, unusable)
@@ -688,7 +690,7 @@ func TestBudgetHandleReportsUnusable(t *testing.T) {
 
 	b := reg.bucket(cred)
 	for range 8 {
-		require.NoError(t, b.reserve(ClassBackground, Unlabelled, now))
+		require.NoError(t, b.reserve(spend.ClassBackground, spend.Unlabelled, now))
 	}
 	_, unusable = budget.Unusable()
 	assert.True(t, unusable)

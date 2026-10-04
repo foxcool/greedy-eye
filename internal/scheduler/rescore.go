@@ -5,15 +5,15 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
+	"github.com/foxcool/greedy-eye/internal/spend"
 )
 
 // rescoreAssets rescores the catalogue for scam-filtering identity verdicts.
 // The rescorer logs its own detailed report (counts, flagged assets); here we
 // only bound the run and record that it fired.
 func (s *Scheduler) rescoreAssets() {
-	ctx, cancel := context.WithTimeout(ratelimit.WithCaller(
-		ratelimit.WithClass(context.Background(), ratelimit.ClassBackground), "job:rescore"), jobTimeout)
+	ctx, cancel := context.WithTimeout(spend.WithCaller(
+		spend.WithClass(context.Background(), spend.ClassBackground), "job:rescore"), jobTimeout)
 	defer cancel()
 
 	start := time.Now()

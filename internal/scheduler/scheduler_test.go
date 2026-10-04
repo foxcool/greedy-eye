@@ -12,11 +12,11 @@ import (
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
-	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
+	"github.com/foxcool/greedy-eye/internal/spend"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -269,13 +269,13 @@ type fakeSweeper struct {
 	report  portfolio.SweepReport
 	err     error
 	calls   []portfolio.SweepOpts
-	classes []ratelimit.Class
+	classes []spend.Class
 	logged  int
 }
 
 func (f *fakeSweeper) SyncDueAccounts(ctx context.Context, opts portfolio.SweepOpts) (portfolio.SweepReport, error) {
 	f.calls = append(f.calls, opts)
-	f.classes = append(f.classes, ratelimit.ClassFromContext(ctx))
+	f.classes = append(f.classes, spend.ClassFromContext(ctx))
 	return f.report, f.err
 }
 
@@ -295,7 +295,7 @@ func TestSyncBalances_RunsAsBackgroundAndReports(t *testing.T) {
 	require.Len(t, sweeper.calls, 1)
 	assert.Equal(t, 6*time.Hour, sweeper.calls[0].MaxAge)
 	assert.Equal(t, 3, sweeper.calls[0].Limit)
-	assert.Equal(t, ratelimit.ClassBackground, sweeper.classes[0])
+	assert.Equal(t, spend.ClassBackground, sweeper.classes[0])
 	assert.Equal(t, 1, sweeper.logged)
 }
 

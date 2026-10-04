@@ -8,7 +8,7 @@ import (
 	"connectrpc.com/connect"
 
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
-	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
+	"github.com/foxcool/greedy-eye/internal/spend"
 )
 
 // fetchPrices pulls fresh prices for all assets from external providers.
@@ -17,8 +17,8 @@ import (
 func (s *Scheduler) fetchPrices() {
 	// Background class: on a plan metered by volume, an unattended sweep yields
 	// its last fifth of the month's allowance to whoever presses Sync.
-	ctx, cancel := context.WithTimeout(ratelimit.WithCaller(
-		ratelimit.WithClass(context.Background(), ratelimit.ClassBackground), "job:price_sweep"), jobTimeout)
+	ctx, cancel := context.WithTimeout(spend.WithCaller(
+		spend.WithClass(context.Background(), spend.ClassBackground), "job:price_sweep"), jobTimeout)
 	defer cancel()
 
 	start := time.Now()
