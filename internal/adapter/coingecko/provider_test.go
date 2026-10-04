@@ -273,3 +273,69 @@ func TestStoredPrice_NegativeValuesAreNotReported(t *testing.T) {
 	assert.False(t, sp.MarketCap.Valid, "market_cap = -1 is not a capitalisation")
 	assert.False(t, sp.Volume.Valid)
 }
+
+// TestFetchPrices_NonEVMContractsAreSentInThePlatformsForm: Solana and TON were
+// mapped to platforms, so Asked() counted their tokens as asked, while the
+// client filtered every address through the EVM pattern and sent nothing. Each
+// sweep then recorded a miss CoinGecko never earned, and the back-off reached
+// its weekly cap — on dev, USD₮ on TON among them (personal-gl8w).
+//
+// TON is the half that needed more than a filter: wallets report the raw form
+// "0:<hex>", and CoinGecko answers that with an empty object. It lists jettons
+// by the user-friendly bounceable form, so the address is converted, and the
+// price is still filed against the asset that holds the raw one.
+func TestFetchPrices_NonEVMContractsAreSentInThePlatformsForm(t *testing.T) {
+	const (
+		usdtRaw      = "0:b113a994b5024a16719f69139328eb759596c38a25f59028b146fecdc3621dfe"
+		usdtFriendly = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"
+		usdcMint     = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+	)
+
+	asked := map[string]string{}
+	p := serveProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		addr := r.URL.Query().Get("contract_addresses")
+		asked[r.URL.Path] = addr
+		_, _ = fmt.Fprintf(w, `{"%s": {"usd": 1.0}}`, addr)
+	})
+
+	assets := []*entity.Asset{
+		contractAssetOn("ton-usdt", "ton", usdtRaw),
+		contractAssetOn("sol-usdc", "solana", usdcMint),
+	}
+	assert.Len(t, p.Asked(assets), 2)
+
+	got, err := p.FetchPrices(context.Background(), assets)
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]string{
+		"/simple/token_price/the-open-network": usdtFriendly,
+		"/simple/token_price/solana":           usdcMint,
+	}, asked, "the mint as is, the jetton in the form CoinGecko lists it under")
+	ids := []string{}
+	for _, sp := range got {
+		ids = append(ids, sp.AssetID)
+	}
+	assert.ElementsMatch(t, []string{"ton-usdt", "sol-usdc"}, ids)
+}
+
+// TestAsked_AgreesWithWhatIsSent: an address the platform cannot take is not
+// asked about, so no miss is filed against an asset no request named.
+func TestAsked_AgreesWithWhatIsSent(t *testing.T) {
+	var calls int
+	p := serveProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		_, _ = fmt.Fprint(w, `{}`)
+	})
+
+	unsendable := []*entity.Asset{
+		contractAssetOn("ton-bad", "ton", "not-a-ton-address"),
+		contractAssetOn("sol-evm", "solana", "0x"+strings.Repeat("ab", 20)),
+		contractAssetOn("eth-b58", "eth", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"),
+	}
+	assert.Empty(t, p.Asked(unsendable))
+
+	got, err := p.FetchPrices(context.Background(), unsendable)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+	assert.Zero(t, calls)
+}

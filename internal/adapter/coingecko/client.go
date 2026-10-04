@@ -244,8 +244,9 @@ var backoffStatuses = map[int]bool{
 	430:                        true,
 }
 
-// GetTokenPricesByContract retrieves prices for ERC-20 tokens by their contract addresses.
-// platform is the CoinGecko platform ID, e.g. "ethereum", "base", "polygon-pos".
+// GetTokenPricesByContract retrieves prices for tokens by their contract addresses.
+// platform is the CoinGecko platform ID, e.g. "ethereum", "solana",
+// "the-open-network"; each address is checked and normalised for it.
 //
 // Malformed addresses are skipped up front, and a failed batch does not abort
 // the rest: the returned map holds every price that was fetched, and the error
@@ -254,7 +255,8 @@ func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, 
 	seen := make(map[string]struct{}, len(addresses))
 	valid := make([]string, 0, len(addresses))
 	for _, addr := range addresses {
-		if !evmAddressRe.MatchString(addr) {
+		addr, ok := platformAddress(platform, addr)
+		if !ok {
 			continue
 		}
 		key := strings.ToLower(addr)

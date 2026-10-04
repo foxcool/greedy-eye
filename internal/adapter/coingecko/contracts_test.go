@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
@@ -128,4 +129,34 @@ func TestFetchPrices_CuratedMapSkipsPerContractMarket(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, prices)
 	assert.Zero(t, calls, "no coin-ID lookup may be issued for a per-contract row")
+}
+
+// TestPlatformAddress: one predicate decides both whether an asset is asked
+// about and what is sent, so the two cannot disagree again.
+func TestPlatformAddress(t *testing.T) {
+	evm := "0x" + strings.Repeat("Ab", 20)
+	cases := []struct {
+		name, platform, in, want string
+		ok                       bool
+	}{
+		{"evm as is", "ethereum", evm, evm, true},
+		{"evm rejects base58", "base", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "", false},
+		{"evm rejects garbage", "ethereum", "0xZZ", "", false},
+		{"solana mint as is, case kept", "solana", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", true},
+		{"solana rejects evm", "solana", evm, "", false},
+		{"solana rejects non-base58", "solana", "0OIl" + strings.Repeat("1", 40), "", false},
+		{"ton raw to bounceable", "the-open-network", "0:b113a994b5024a16719f69139328eb759596c38a25f59028b146fecdc3621dfe", "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs", true},
+		{"ton raw upper hex", "the-open-network", "0:B113A994B5024A16719F69139328EB759596C38A25F59028B146FECDC3621DFE", "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs", true},
+		{"ton friendly as is", "the-open-network", "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs", "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs", true},
+		{"ton rejects short hash", "the-open-network", "0:b113", "", false},
+		{"ton rejects garbage", "the-open-network", "not-a-ton-address", "", false},
+		{"unknown platform", "kusama", evm, "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := platformAddress(c.platform, c.in)
+			assert.Equal(t, c.ok, ok)
+			assert.Equal(t, c.want, got)
+		})
+	}
 }

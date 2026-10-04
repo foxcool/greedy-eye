@@ -381,7 +381,13 @@ func contractRoute(a *entity.Asset) (r route, unmapped string) {
 		if !ok {
 			return route{}, chain
 		}
-		return route{platform: platform, address: ref.Ref}, ""
+		address, sendable := platformAddress(platform, ref.Ref)
+		if !sendable {
+			// Not asked rather than sent malformed: a 400 would sink the
+			// platform's whole batch, and silence would be filed as a miss.
+			return route{}, ""
+		}
+		return route{platform: platform, address: address}, ""
 	}
 	return route{}, ""
 }

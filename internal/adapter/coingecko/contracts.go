@@ -2,9 +2,14 @@ package coingecko
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +30,101 @@ var chainPlatform = map[string]string{
 	"avalanche": "avalanche",
 	"solana":    "solana",
 	"ton":       "the-open-network",
+}
+
+const (
+	platformSolana = "solana"
+	platformTON    = "the-open-network"
+)
+
+var (
+	// solanaMintRe is a base58 public key: Solana's alphabet has no 0, O, I or l.
+	solanaMintRe = regexp.MustCompile(`^[1-9A-HJ-NP-Za-km-z]{32,44}$`)
+	// tonRawRe is the raw form wallets report: workchain, colon, 32-byte hash.
+	tonRawRe = regexp.MustCompile(`^(-?[0-9]{1,3}):([0-9a-fA-F]{64})$`)
+	// tonFriendlyRe is the 36-byte user-friendly form, base64url.
+	tonFriendlyRe = regexp.MustCompile(`^[A-Za-z0-9_-]{48}$`)
+)
+
+// platformAddress returns an address in the form CoinGecko lists it under on
+// platform, or false when that platform cannot be asked about it.
+//
+// It is the single answer to "can this contract be sent", used both to decide
+// whether an asset is asked about and to build the request. The two used to
+// disagree: Solana and TON were mapped to platforms, so their tokens counted as
+// asked, while the client passed only EVM-shaped addresses and sent nothing —
+// every sweep filed a miss CoinGecko never earned (personal-gl8w).
+//
+// TON is converted, not just checked: wallets report "0:<hex>", and CoinGecko
+// answers that with an empty object while pricing the same jetton by its
+// bounceable user-friendly form.
+func platformAddress(platform, addr string) (string, bool) {
+	addr = strings.TrimSpace(addr)
+	switch platform {
+	case platformSolana:
+		return matched(addr, solanaMintRe)
+	case platformTON:
+		if m := tonRawRe.FindStringSubmatch(addr); m != nil {
+			return tonBounceable(m[1], m[2])
+		}
+		return matched(addr, tonFriendlyRe)
+	default:
+		if _, listed := evmPlatforms[platform]; !listed {
+			return "", false
+		}
+		return matched(addr, evmAddressRe)
+	}
+}
+
+func matched(addr string, re *regexp.Regexp) (string, bool) {
+	if !re.MatchString(addr) {
+		return "", false
+	}
+	return addr, true
+}
+
+// evmPlatforms are the platforms that take a 0x-prefixed 20-byte address.
+var evmPlatforms = func() map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, platform := range chainPlatform {
+		if platform != platformSolana && platform != platformTON {
+			out[platform] = struct{}{}
+		}
+	}
+	return out
+}()
+
+// tonBounceable encodes a raw TON address as the user-friendly bounceable,
+// mainnet, URL-safe form: tag 0x11, workchain byte, hash, CRC16-XMODEM.
+func tonBounceable(workchain, hash string) (string, bool) {
+	wc, err := strconv.Atoi(workchain)
+	if err != nil || wc < -128 || wc > 127 {
+		return "", false
+	}
+	raw, err := hex.DecodeString(hash)
+	if err != nil {
+		return "", false
+	}
+	body := make([]byte, 0, 36)
+	body = append(body, 0x11, byte(int8(wc))) // #nosec G115 -- range-checked to int8 above; the wire byte is its two's complement
+	body = append(body, raw...)
+	body = binary.BigEndian.AppendUint16(body, crc16XModem(body))
+	return base64.URLEncoding.EncodeToString(body), true
+}
+
+func crc16XModem(data []byte) uint16 {
+	var crc uint16
+	for _, b := range data {
+		crc ^= uint16(b) << 8
+		for range 8 {
+			if crc&0x8000 != 0 {
+				crc = crc<<1 ^ 0x1021
+			} else {
+				crc <<= 1
+			}
+		}
+	}
+	return crc
 }
 
 // contractCatalogTTL bounds how long one /coins/list snapshot is trusted. The
