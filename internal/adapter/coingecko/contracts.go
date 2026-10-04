@@ -3,6 +3,7 @@ package coingecko
 import (
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -105,10 +106,9 @@ func tonBounceable(workchain, hash string) (string, bool) {
 		return "", false
 	}
 	body := make([]byte, 0, 36)
-	body = append(body, 0x11, byte(int8(wc)))
+	body = append(body, 0x11, byte(int8(wc))) // #nosec G115 -- range-checked to int8 above; the wire byte is its two's complement
 	body = append(body, raw...)
-	sum := crc16XModem(body)
-	body = append(body, byte(sum>>8), byte(sum))
+	body = binary.BigEndian.AppendUint16(body, crc16XModem(body))
 	return base64.URLEncoding.EncodeToString(body), true
 }
 
