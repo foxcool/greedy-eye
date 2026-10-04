@@ -265,6 +265,14 @@ func (d tokensData) tokens(chain string) ([]Token, []string) {
 // them apart. Reading it produced a holding of 5.62 trillion KSM against a
 // total supply of 15 million. The tokens endpoint reports every field as raw
 // planck and states its own precision.
+//
+// It is also the only endpoint this adapter calls, which bounds what the free
+// plan's 2026-08-20 restrictions can reach: the request carries only an
+// address — no row or page, so the 25-row page cap has nothing to cap — and no
+// time range, so the three-month history window does not apply. What is NOT
+// established is whether Subscan truncates a token list longer than 25 on its
+// own; no account here holds that many, and a list cut at exactly 25 would be
+// the sign to look for.
 func (c *Client) GetAccount(ctx context.Context, chain, address string) (Account, error) {
 	net, ok := networks[chain]
 	if !ok {

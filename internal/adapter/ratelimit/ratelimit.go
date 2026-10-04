@@ -127,7 +127,15 @@ var defaultLimits = map[string]Limit{
 	// fires one request per network with nothing between them. 1.8 leaves
 	// room for the boundary case where evenly spaced requests still land
 	// three to a wall-clock second.
-	"subscan": {RPS: 1.8, Burst: 1},
+	//
+	// Volume is the free plan as of 2026-08-20: 20k a day and 500k a month,
+	// and a call the plan refuses still counts. Only the month is tracked —
+	// the bucket holds one period, and the month is the tighter of the two on
+	// average (500k/31 ≈ 16k a day); the daily cap binds only on a day above
+	// 20k, which a sweep reading one endpoint per network cannot produce.
+	// Refusals are counted because spend is reserved before a request goes
+	// out, whatever comes back.
+	"subscan": {RPS: 1.8, Burst: 1, Quota: 500000, Period: QuotaMonth},
 
 	// Blockchair answers 430 ("IP temporarily blacklisted") from the free
 	// tier under very little load, so keyless is throttled hard.

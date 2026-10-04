@@ -135,6 +135,16 @@ func TestSubscanDefaultUnderPlanCeiling(t *testing.T) {
 	assert.Equal(t, 1, l.Burst, "any burst above 1 is what trips a per-second meter")
 }
 
+// TestSubscanVolumeIsMetered: from 2026-08-20 the free plan caps volume and
+// bills refused calls. Without a quota the spend is filed under a period that
+// never rolls over, so the instance cannot say how much of the month it used.
+func TestSubscanVolumeIsMetered(t *testing.T) {
+	l := defaultLimits["subscan"]
+	assert.Equal(t, QuotaMonth, l.Period)
+	assert.LessOrEqual(t, l.Quota, 500000, "the free plan's monthly ceiling")
+	assert.Positive(t, l.Quota)
+}
+
 // TestFingerprintDoesNotKeepTheKey: the registry outlives every request and is
 // reachable from a panic dump.
 func TestFingerprintDoesNotKeepTheKey(t *testing.T) {
