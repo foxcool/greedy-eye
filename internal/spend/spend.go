@@ -1,4 +1,9 @@
-package ratelimit
+// Package spend carries, through a context, who is spending a provider plan and
+// how urgently. It sits outside the adapters because both ends of that question
+// do: jobs and RPC handlers set it, services read it to decide what to ask for,
+// and the rate limiter reads it to decide whether to let a request through.
+// Service code imports no adapter, so the label cannot live in one.
+package spend
 
 import "context"
 

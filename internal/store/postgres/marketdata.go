@@ -930,6 +930,11 @@ func (s *MarketDataStore) ListStalePricingTargets(ctx context.Context, opts mark
 		args = append(args, opts.ExcludeVerdicts)
 		argIdx++
 	}
+	if len(opts.IDs) > 0 {
+		whereClauses = append(whereClauses, fmt.Sprintf("a.id = ANY($%d::uuid[])", argIdx))
+		args = append(args, opts.IDs)
+		argIdx++
+	}
 
 	limitClause := ""
 	if opts.Limit > 0 {

@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
+	"github.com/foxcool/greedy-eye/internal/spend"
 )
 
 // syncBalances re-reads the balances of accounts that went stale.
@@ -20,8 +20,8 @@ import (
 // count (see portfolio.SweepOpts) and by this job's timeout; whatever it does
 // not reach stays stale and is picked first on the next fire.
 func (s *Scheduler) syncBalances() {
-	ctx, cancel := context.WithTimeout(ratelimit.WithCaller(
-		ratelimit.WithClass(context.Background(), ratelimit.ClassBackground), "job:balance_sync"), balanceSyncTimeout)
+	ctx, cancel := context.WithTimeout(spend.WithCaller(
+		spend.WithClass(context.Background(), spend.ClassBackground), "job:balance_sync"), balanceSyncTimeout)
 	defer cancel()
 
 	start := time.Now()

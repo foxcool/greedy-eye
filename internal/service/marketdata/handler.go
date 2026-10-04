@@ -19,6 +19,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/scamfilter"
+	"github.com/foxcool/greedy-eye/internal/spend"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -1216,17 +1217,32 @@ var quarantineVerdicts = []string{
 // (the credential's plan quota still does — a ceiling is a ceiling). An empty
 // request is an unattended sweep and takes only what is due, oldest first,
 // within what the plan can afford until the next sweep.
+//
+// Background work that names assets is neither. A balance sweep pricing what
+// each sync touched used to take the reconciliation path, and on prod in
+// October 2026 it spent 77% of the CoinGecko plan, outside the share the
+// planner sizes and out of the remainder the planned sweep is sized from
+// (personal-ozdu). Such a call is selected the way the sweep selects —
+// narrowed to the named assets — and what it leaves is counted in
+// deferred_assets for the next sweep to pick up.
 func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[apiv1.FetchExternalPricesRequest]) (*connect.Response[apiv1.FetchExternalPricesResponse], error) {
 	providers, err := h.resolveProviders(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	// A background caller's list narrows the sweep's own selection instead of
+	// replacing it, so it is never loaded as a list to price in full.
+	var backgroundIDs []string
+	if len(req.Msg.AssetIds) > 0 && spend.ClassFromContext(ctx) == spend.ClassBackground {
+		backgroundIDs = uniqueIDs(req.Msg.AssetIds)
+	}
+
 	// Reconciliation reads exactly the assets it names. Paging the catalogue and
 	// filtering in Go is both wasteful and lossy — the discarded page token used
 	// to cap the whole sweep at 500 assets.
 	var named []*entity.Asset
-	if len(req.Msg.AssetIds) > 0 {
+	if len(req.Msg.AssetIds) > 0 && backgroundIDs == nil {
 		var err error
 		named, _, err = h.store.ListAssets(ctx, ListAssetsOpts{
 			IDs:      req.Msg.AssetIds,
@@ -1246,6 +1262,8 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	// Sources this run had nothing to ask, keyed by why. Reported so an
 	// unattended sweep can say "postponed" rather than only "zero".
 	idleSources := map[string]string{}
+	// Named assets background work left to the sweep, per source.
+	deferredAssets := map[string]int32{}
 
 	// Cache base asset UUIDs to avoid repeated lookups across providers. Keyed by
 	// symbol AND type: identity is composite, and two providers naming the same
@@ -1266,10 +1284,14 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		// Only the reconciliation path (named assets, a person waiting) goes
 		// through regardless: that is not background work, it is not sized by
 		// the background share, and the request may well be somebody checking
-		// whether the provider is back.
+		// whether the provider is back. Background work naming its assets is
+		// not that path, and is skipped like the sweep.
 		if hp, ok := provider.(HealthReportingProvider); ok && named == nil {
 			if reason, unusable := hp.Unusable(); unusable {
 				h.log.Info("price sweep: provider skipped", "provider", name, "reason", reason)
+				if backgroundIDs != nil {
+					deferredAssets[name] = int32(len(backgroundIDs)) // #nosec G115 -- bounded by request size
+				}
 				continue
 			}
 		}
@@ -1280,9 +1302,23 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		outcome := outcomeSelected
 		if assets == nil {
 			var err error
-			assets, outcome, err = h.refreshTargets(ctx, name, provider)
+			assets, outcome, err = h.refreshTargets(ctx, name, provider, backgroundIDs)
 			if err != nil {
 				fetchErrs = append(fetchErrs, fmt.Sprintf("%s: select targets: %v", name, err))
+				continue
+			}
+		}
+		if backgroundIDs != nil {
+			// What is left over is a statement about these assets, not about
+			// the source, so it is counted here and kept out of idle_sources:
+			// nothing due among them is the normal case, the hourly sweep
+			// having priced them half an hour earlier.
+			if left := len(backgroundIDs) - len(assets); left > 0 {
+				deferredAssets[name] = int32(left) // #nosec G115 -- bounded by request size
+				h.log.Info("price fetch: named assets left to the sweep",
+					"provider", name, "named", len(backgroundIDs), "asked", len(assets), "deferred", left)
+			}
+			if len(assets) == 0 {
 				continue
 			}
 		}
@@ -1389,27 +1425,44 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	}
 
 	return connect.NewResponse(&apiv1.FetchExternalPricesResponse{
-		PricesFetched: int32(totalFetched), // #nosec G115 -- count of fetched prices, bounded by request size
-		PricesStored:  int32(stored),       // #nosec G115 -- count of rows stored, bounded by request size
-		Errors:        fetchErrs,
-		IdleSources:   idleSources,
+		PricesFetched:  int32(totalFetched), // #nosec G115 -- count of fetched prices, bounded by request size
+		PricesStored:   int32(stored),       // #nosec G115 -- count of rows stored, bounded by request size
+		Errors:         fetchErrs,
+		IdleSources:    idleSources,
+		DeferredAssets: deferredAssets,
 	}), nil
+}
+
+// uniqueIDs drops repeats while keeping order, so that what is counted as
+// deferred is assets, not mentions of them.
+func uniqueIDs(ids []string) []string {
+	seen := make(map[string]bool, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // refreshTargets picks what an unattended sweep asks one source for: assets
 // whose next attempt is due, oldest first, capped by the portion the source's
-// remaining plan allowance affords between now and the next sweep.
+// remaining plan allowance affords between now and the next sweep. A non-nil
+// ids narrows the same selection to the assets background work named.
 //
 // The symbols a provider prices for free are selected separately and uncapped —
 // one /coins/markets call covers them however many there are, and they carry
 // most of the portfolio's value, so budgeting them would cost freshness and
 // save nothing.
-func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PriceProvider) ([]*entity.Asset, selectionOutcome, error) {
+func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PriceProvider, ids []string) ([]*entity.Asset, selectionOutcome, error) {
 	now := time.Now()
 	base := StalePricingOpts{
 		SourceID:        sourceID,
 		Now:             now,
 		ExcludeVerdicts: quarantineVerdicts,
+		IDs:             ids,
 	}
 
 	var exempt []string
@@ -1451,6 +1504,10 @@ func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PricePr
 	targets = append(targets, got...)
 	if len(targets) > 0 {
 		return targets, outcomeSelected, nil
+	}
+	if ids != nil {
+		// The schedule explains a source's silence, not a short list's.
+		return targets, outcomeNothingDue, nil
 	}
 
 	// Nothing came back, and the empty slice cannot say which silence this is:

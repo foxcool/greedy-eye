@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/foxcool/greedy-eye/internal/spend"
 )
 
 const (
@@ -70,8 +72,8 @@ func (t *limitedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 	// The volume check comes before the waits: a request that has no allowance
 	// left should fail now rather than after sitting out a freeze for it.
-	caller := CallerFromContext(ctx)
-	if err := t.bucket.reserve(ClassFromContext(ctx), caller, t.clock()); err != nil {
+	caller := spend.CallerFromContext(ctx)
+	if err := t.bucket.reserve(spend.ClassFromContext(ctx), caller, t.clock()); err != nil {
 		return nil, err
 	}
 

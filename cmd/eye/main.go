@@ -26,6 +26,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
 	"github.com/foxcool/greedy-eye/internal/service/settings"
+	"github.com/foxcool/greedy-eye/internal/spend"
 	"github.com/foxcool/greedy-eye/internal/store/postgres"
 	"github.com/getsentry/sentry-go"
 	"github.com/robfig/cron/v3"
@@ -360,7 +361,7 @@ func loggingInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {
 func callerInterceptor() connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			return next(ratelimit.WithCaller(ctx, rpcCaller(req.Spec().Procedure)), req)
+			return next(spend.WithCaller(ctx, rpcCaller(req.Spec().Procedure)), req)
 		}
 	}
 }

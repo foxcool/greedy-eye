@@ -871,6 +871,19 @@ func TestListStalePricingTargets(t *testing.T) {
 		assert.Equal(t, []string{overdue.ID}, assetIDs(got))
 	})
 
+	// Background work that names its assets is narrowed to them, and the
+	// freshness rule still applies inside the list: a fresh asset is not
+	// re-asked because a sync happened to touch it.
+	t.Run("ids narrow the selection without lifting freshness", func(t *testing.T) {
+		got, err := s.ListStalePricingTargets(ctx, marketdata.StalePricingOpts{
+			SourceID: "coingecko",
+			Now:      now,
+			IDs:      []string{fresh.ID, never.ID},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []string{never.ID}, assetIDs(got))
+	})
+
 	t.Run("quarantined assets are excluded", func(t *testing.T) {
 		_, err := s.SetAssetVerdict(ctx, never.ID, "scam", nil, nil, "heuristic")
 		require.NoError(t, err)

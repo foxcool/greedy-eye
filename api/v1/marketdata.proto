@@ -713,6 +713,13 @@ message FetchExternalPricesResponse {
   // backed off until next week" — the two states an instance most needs to tell
   // apart, since one is health and the other is a week of silent staleness.
   map<string, string> idle_sources = 4;
+  // Named assets each source did not ask about, counted. Only background work
+  // that names its assets produces it (a balance sweep pricing what it synced):
+  // such a call is selected like the sweep — due only, within the plan's share
+  // for this interval, not from a provider that cannot be asked — and the rest
+  // is left to the next unattended sweep. A request someone is waiting on is
+  // priced in full and never reports here.
+  map<string, int32> deferred_assets = 5;
 }
 
 message GetPricingStatusRequest {

@@ -27,6 +27,8 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
+
+	"github.com/foxcool/greedy-eye/internal/spend"
 )
 
 // ErrQuotaExhausted is returned instead of performing a request when the
@@ -623,14 +625,14 @@ func (b *bucket) rollPeriod(now time.Time) {
 // allowance for its class is spent. It is called before the request goes out:
 // a request that fails in transit may still have been metered by the provider,
 // so the conservative direction is to count it.
-func (b *bucket) reserve(class Class, caller string, now time.Time) error {
+func (b *bucket) reserve(class spend.Class, caller string, now time.Time) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.rollPeriod(now)
 
 	if b.limit.Quota > 0 {
 		ceiling := b.limit.Quota
-		if class == ClassBackground {
+		if class == spend.ClassBackground {
 			ceiling = int(float64(b.limit.Quota) * backgroundReserve)
 		}
 		if b.requests >= int64(ceiling) {
@@ -742,14 +744,14 @@ func (b *bucket) freezeUntil(t time.Time) {
 // pause ends when it ends, and may end early on the next successful call from
 // another caller. Collapsing them into "unavailable" would hide the difference
 // between "come back next month" and "come back after lunch".
-func (b *bucket) unusableFor(class Class, now time.Time) (string, time.Time, bool) {
+func (b *bucket) unusableFor(class spend.Class, now time.Time) (string, time.Time, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.rollPeriod(now)
 
 	if b.limit.Quota > 0 {
 		ceiling := b.limit.Quota
-		if class == ClassBackground {
+		if class == spend.ClassBackground {
 			ceiling = int(float64(b.limit.Quota) * backgroundReserve)
 		}
 		if b.requests >= int64(ceiling) {
@@ -777,7 +779,7 @@ func (r *Registry) Unusable(c Credential) (string, bool) {
 		return "", false
 	}
 	now := r.now()
-	reason, until, unusable := r.bucket(c).unusableFor(ClassBackground, now)
+	reason, until, unusable := r.bucket(c).unusableFor(spend.ClassBackground, now)
 	if !unusable {
 		return "", false
 	}
