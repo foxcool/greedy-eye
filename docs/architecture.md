@@ -739,7 +739,8 @@ API Client → MarketDataService/FetchExternalPrices → resolver → adapter �
   3. Each provider (CoinGecko / Binance / CBR / MOEX / T-Invest) fetches prices for the
      assets that are due
   4. Prices are bulk-inserted via CreatePrices
-  5. Response: FetchExternalPricesResponse{prices_fetched, prices_stored, errors}
+  5. Response: FetchExternalPricesResponse{prices_fetched, prices_stored, errors,
+     idle_sources, deferred_assets}
 ```
 
 #### Scenario 2b: Sync Account Balances
@@ -1192,7 +1193,7 @@ somebody chose, since that would report one currency's number under another curr
     Deliberately not a failure of one *item* on a live chain — a token with no decimals would
     otherwise make every junk airdrop read as an outage — and deliberately not a schedule: nothing
     stands a chain down, because the account is what the sweep queues
-- The price sweep is budgeted, not exhaustive: it asks each source only for assets whose next attempt is due (`price_fetch_attempts`), oldest first, capped by the share of the credential's remaining plan allowance that one interval affords. Naming `asset_ids` on the RPC makes it a deliberate reconciliation and bypasses both
+- The price sweep is budgeted, not exhaustive: it asks each source only for assets whose next attempt is due (`price_fetch_attempts`), oldest first, capped by the share of the credential's remaining plan allowance that one interval affords. Naming `asset_ids` on the RPC makes it a deliberate reconciliation and bypasses both the freshness check and the per-sweep share — when a person is waiting. Background work that names assets is not that: the balance sweep pricing what each sync touched only **narrows** the sweep's own selection to those assets (due only, within the share, never from a provider that reports itself unusable), and what it leaves is counted per source in `FetchExternalPricesResponse.deferred_assets` for the next sweep. Before this the post-sync path spent 77% of prod's CoinGecko plan in October 2026, outside the planner and out of the very remainder the planned sweep is sized from (`personal-ozdu`). Which of the two a call is — and who is spending — travels in the context through `internal/spend`, read by the services and by the rate limiter alike; it lives outside `internal/adapter` because service code imports no adapter
 - Active rule schedules are fully reloaded every minute — rule CRUD needs no hooks, mutations take effect within a minute
 - Missed fires during downtime are **skipped, never caught up**: executing a stale trade plan is worse than skipping it
 - Rule jobs call `ExecuteRule` in-process on behalf of the rule owner, so executions are recorded identically to the RPC path
@@ -1705,7 +1706,7 @@ System Quality
 
 ---
 
-**Document Version**: 1.8
-**Last Updated**: 2026-09-12
+**Document Version**: 1.9
+**Last Updated**: 2026-10-04
 **Owner**: foxcool
 **Status**: Active

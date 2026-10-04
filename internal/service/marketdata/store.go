@@ -133,6 +133,10 @@ type StalePricingOpts struct {
 	// ExcludeVerdicts drops assets quarantined from the portfolio sums. Pricing
 	// money that is not counted buys nothing.
 	ExcludeVerdicts []string
+	// IDs narrows the selection to these assets, for background work that
+	// names what it touched. Freshness still applies inside the list: a sync
+	// touching an asset is no reason to re-ask for a price the sweep just got.
+	IDs []string
 }
 
 // SweepScheduleOpts selects which sources to report a queue for.

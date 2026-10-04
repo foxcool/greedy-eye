@@ -14,6 +14,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/scamfilter"
+	"github.com/foxcool/greedy-eye/internal/spend"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
@@ -1955,6 +1956,80 @@ func TestFetchExternalPrices_ReconciliationIgnoresHealth(t *testing.T) {
 		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a1"}}))
 	require.NoError(t, err)
 	assert.NotEmpty(t, p.asked, "an explicitly named asset is still asked for")
+}
+
+// --- Tests: background work that names its assets is still background (personal-ozdu) ---
+
+func backgroundCtx() context.Context {
+	return spend.WithClass(context.Background(), spend.ClassBackground)
+}
+
+// The balance sweep names what each sync touched, and naming used to make the
+// call a reconciliation: every asset priced whatever its freshness, outside the
+// share the planner sizes. On prod in October 2026 that path spent 77% of the
+// CoinGecko plan while the planned sweep got 20% — the unplanned spender ate
+// the allowance the planner sizes from. Background work that names assets is
+// selected the way the sweep selects: due only, within the share, and what it
+// leaves is counted rather than dropped.
+func TestFetchExternalPrices_BackgroundNamedIsPlanned(t *testing.T) {
+	newAsset := testAsset("new-1")
+	named := []string{"new-1", "fresh-1", "tail-1"}
+
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {
+		return o.SourceID == "fake" && o.Limit == 1 && assert.ObjectsAreEqual(named, o.IDs)
+	})).Return([]*entity.Asset{newAsset}, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+
+	p := &fakePriceProvider{budget: 1, hasBudget: true, prices: map[string]bool{"new-1": true}}
+	h := newHandler(s).WithProvider("fake", p).WithRefreshWindow(time.Hour)
+
+	resp, err := h.FetchExternalPrices(backgroundCtx(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: named}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+	require.Len(t, p.asked, 1)
+	assert.Equal(t, []*entity.Asset{newAsset}, p.asked[0], "only what is due and affordable is asked for")
+	assert.Equal(t, int32(2), resp.Msg.GetDeferredAssets()["fake"], "the rest is left to the sweep, and counted")
+}
+
+// The health check was waived for named assets because a person was waiting.
+// A sweep is not a person: a provider whose share is spent is not asked, and
+// everything named for it is reported as left over.
+func TestFetchExternalPrices_BackgroundNamedRespectsHealth(t *testing.T) {
+	s := &mockStore{}
+	p := &stuckProvider{reason: "share spent"}
+	h := newHandler(s).WithProvider("coingecko", p)
+
+	resp, err := h.FetchExternalPrices(backgroundCtx(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a1", "a2"}}))
+	require.NoError(t, err)
+	assert.Empty(t, p.asked, "an unusable provider is not asked by background work")
+	assert.Equal(t, int32(2), resp.Msg.GetDeferredAssets()["coingecko"])
+	s.AssertNotCalled(t, "ListStalePricingTargets", mock.Anything, mock.Anything)
+}
+
+// Nothing due among the named assets is the normal case — the hourly sweep
+// priced them half an hour ago. That is a statement about these assets, not
+// about the source, so it must not land in idle_sources, and the source-wide
+// schedule is not consulted to explain it.
+func TestFetchExternalPrices_BackgroundNamedNothingDueIsNotAnIdleSource(t *testing.T) {
+	s := &mockStore{}
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{}, nil)
+
+	p := &fakePriceProvider{}
+	h := newHandler(s).WithProvider("fake", p)
+
+	resp, err := h.FetchExternalPrices(backgroundCtx(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a1"}}))
+	require.NoError(t, err)
+	assert.Empty(t, p.asked)
+	assert.Empty(t, resp.Msg.GetIdleSources())
+	assert.Equal(t, int32(1), resp.Msg.GetDeferredAssets()["fake"])
+	s.AssertNotCalled(t, "SweepSchedule", mock.Anything, mock.Anything)
 }
 
 // --- Tests: an empty sweep says which silence it is (personal-2du9) ---
