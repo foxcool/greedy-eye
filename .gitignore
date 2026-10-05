@@ -45,3 +45,6 @@ CLAUDE.md
 
 # Local beads working database
 embeddeddolt/
+
+# Golden set for the scamfilter eval: built from the owner catalogue, never committed
+internal/scamfilter/testdata/identity_golden.jsonl
