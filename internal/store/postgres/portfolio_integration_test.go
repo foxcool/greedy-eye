@@ -5,6 +5,7 @@ package postgres
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/store"
 	storecrypto "github.com/foxcool/greedy-eye/internal/store/crypto"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -385,11 +387,328 @@ func TestRewrapAccountDataConvergesLegacyPlaintext(t *testing.T) {
 
 	require.NoError(t, pool.QueryRow(ctx, "SELECT data FROM accounts WHERE id = $1", plain.ID).Scan(&rawData))
 	assert.NotContains(t, string(rawData), "legacy-secret")
-	assert.Contains(t, string(rawData), `"enc": "v1:`)
+	assert.Contains(t, string(rawData), `"sealed": "v1:`)
 
 	got, err := s.GetAccount(ctx, plain.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "legacy-secret", got.Data["api_key"])
+}
+
+// TestRewrapAccountDataKeepsAConcurrentUpdate: the pass reads every row, then
+// writes every row. An account updated in between — a rotated broker token
+// reaching its copies (personal-9m3i) — must keep the update, not get the
+// pass's stale copy written over it. Before, the write was unconditional.
+func TestRewrapAccountDataKeepsAConcurrentUpdate(t *testing.T) {
+	pool := getTestPool(t)
+	ctx := context.Background()
+	user := createTestUser(t, NewUserStore(pool))
+
+	// Plaintext row, so the pass has real work to do on it.
+	created, err := NewPortfolioStore(pool).CreateAccount(ctx, &entity.Account{
+		UserID: user.ID, Name: "rotated meanwhile", Type: entity.AccountTypeBroker,
+		Data: map[string]string{"provider": "tinvest", "api_key": "old-token"},
+	})
+	require.NoError(t, err)
+
+	s := NewPortfolioStore(pool, WithEncryptor(newTestEncryptor(t)))
+	rotated := map[string]string{"provider": "tinvest", "api_key": "new-token"}
+	s.rewrapRead = func() {
+		_, err := s.UpdateAccount(ctx, &entity.Account{ID: created.ID, Data: rotated}, []string{"data"})
+		require.NoError(t, err)
+	}
+
+	res, err := s.RewrapAccountData(ctx)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, res.Overtaken, 1)
+	assert.Equal(t, res.Scanned, res.Rewritten+res.Overtaken)
+
+	got, err := s.GetAccount(ctx, created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, rotated, got.Data, "the update made during the pass survives it")
+}
+
+// TestRewrapAccountDataConvergesFirstLayout: rows sealed whole under "enc" come
+// out of the pass with their identity in the open — the state the unique index
+// on broker accounts needs (personal-gskb).
+func TestRewrapAccountDataConvergesFirstLayout(t *testing.T) {
+	pool := getTestPool(t)
+	ctx := context.Background()
+	enc := newTestEncryptor(t)
+	s := NewPortfolioStore(pool, WithEncryptor(enc))
+	user := createTestUser(t, NewUserStore(pool))
+
+	created, err := s.CreateAccount(ctx, &entity.Account{
+		UserID: user.ID, Name: "sealed whole", Type: entity.AccountTypeBroker,
+	})
+	require.NoError(t, err)
+	data := map[string]string{"provider": "tinvest", "broker_account_id": "42", "api_key": "tok"}
+	plain, err := json.Marshal(data)
+	require.NoError(t, err)
+	sealed, err := enc.Encrypt(created.ID, plain)
+	require.NoError(t, err)
+	firstLayout, err := json.Marshal(map[string]string{"enc": sealed})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, "UPDATE accounts SET data = $2 WHERE id = $1", created.ID, firstLayout)
+	require.NoError(t, err)
+
+	behind, err := s.CountAccountsNotInCurrentLayout(ctx)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, behind, 1, "precondition: the row starts in the first layout")
+
+	_, err = s.RewrapAccountData(ctx)
+	require.NoError(t, err)
+
+	behind, err = s.CountAccountsNotInCurrentLayout(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, behind)
+
+	var brokerID string
+	require.NoError(t, pool.QueryRow(ctx,
+		"SELECT data->>'broker_account_id' FROM accounts WHERE id = $1", created.ID).Scan(&brokerID))
+	assert.Equal(t, "42", brokerID)
+	got, err := s.GetAccount(ctx, created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, data, got.Data)
+}
+
+// TestBrokerAccountIdentityIsUniqueUnderConcurrency is the acceptance of
+// personal-gskb at the layer that holds it: many writers racing to create the
+// account for one broker account, real Postgres, real goroutines. Exactly one
+// wins; every other one is told who did, so it can use that row.
+func TestBrokerAccountIdentityIsUniqueUnderConcurrency(t *testing.T) {
+	pool := getTestPool(t)
+	ctx := context.Background()
+	user := createTestUser(t, NewUserStore(pool))
+
+	for _, mode := range []struct {
+		name  string
+		store *PortfolioStore
+	}{
+		{"encrypted", NewPortfolioStore(pool, WithEncryptor(newTestEncryptor(t)))},
+		{"plaintext", NewPortfolioStore(pool)},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			brokerID := uuid.Must(uuid.NewV7()).String()
+			const writers = 8
+			errs := make(chan error, writers)
+			start := make(chan struct{})
+			for range writers {
+				go func() {
+					<-start
+					_, err := mode.store.CreateAccount(ctx, &entity.Account{
+						UserID: user.ID, Name: "racer", Type: entity.AccountTypeBroker,
+						Data: map[string]string{"provider": "tinvest", "broker_account_id": brokerID, "api_key": "t"},
+					})
+					errs <- err
+				}()
+			}
+			close(start)
+
+			var won int
+			for range writers {
+				err := <-errs
+				if err == nil {
+					won++
+					continue
+				}
+				require.ErrorIs(t, err, store.ErrAlreadyExists)
+				assert.Contains(t, err.Error(), "already belongs to account")
+			}
+			assert.Equal(t, 1, won)
+
+			var rows int
+			require.NoError(t, pool.QueryRow(ctx,
+				"SELECT count(*) FROM accounts WHERE data->>'broker_account_id' = $1", brokerID).Scan(&rows))
+			assert.Equal(t, 1, rows, "one account per broker account, however many syncs raced")
+		})
+	}
+}
+
+// TestBrokerAccountIdentityUniquenessBoundaries: the index is per owner and per
+// provider, and it holds for an update as much as for an insert.
+func TestBrokerAccountIdentityUniquenessBoundaries(t *testing.T) {
+	pool := getTestPool(t)
+	ctx := context.Background()
+	s := NewPortfolioStore(pool, WithEncryptor(newTestEncryptor(t)))
+	users := NewUserStore(pool)
+	alice, bob := createTestUser(t, users), createTestUser(t, users)
+
+	broker := func(owner, provider, id string) *entity.Account {
+		return &entity.Account{
+			UserID: owner, Name: "b", Type: entity.AccountTypeBroker,
+			Data: map[string]string{"provider": provider, "broker_account_id": id},
+		}
+	}
+	first, err := s.CreateAccount(ctx, broker(alice.ID, "tinvest", "777"))
+	require.NoError(t, err)
+
+	_, err = s.CreateAccount(ctx, broker(bob.ID, "tinvest", "777"))
+	require.NoError(t, err, "another person holding the same broker account is legitimate")
+	_, err = s.CreateAccount(ctx, broker(alice.ID, "otherbroker", "777"))
+	require.NoError(t, err, "the id is the broker's, so another broker's 777 is another account")
+
+	// The token account names no broker account and falls outside the index.
+	_, err = s.CreateAccount(ctx, &entity.Account{
+		UserID: alice.ID, Name: "token", Type: entity.AccountTypeBroker,
+		Data: map[string]string{"provider": "tinvest", "api_key": "t"},
+	})
+	require.NoError(t, err)
+
+	other, err := s.CreateAccount(ctx, broker(alice.ID, "tinvest", "888"))
+	require.NoError(t, err)
+	_, err = s.UpdateAccount(ctx, &entity.Account{
+		ID: other.ID, Data: map[string]string{"provider": "tinvest", "broker_account_id": "777"},
+	}, []string{"data"})
+	require.ErrorIs(t, err, store.ErrAlreadyExists)
+	assert.Contains(t, err.Error(), first.ID, "the update is told which account holds it")
+}
+
+// sealWholeForTest rewrites a row into the first layout, {"enc": …}, the way an
+// instance before the open-plus-sealed layout stored it.
+func sealWholeForTest(t *testing.T, pool interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}, enc *storecrypto.Encryptor, id string, data map[string]string) {
+	t.Helper()
+	plain, err := json.Marshal(data)
+	require.NoError(t, err)
+	sealed, err := enc.Encrypt(id, plain)
+	require.NoError(t, err)
+	firstLayout, err := json.Marshal(map[string]string{"enc": sealed})
+	require.NoError(t, err)
+	_, err = pool.Exec(context.Background(), "UPDATE accounts SET data = $2 WHERE id = $1", id, firstLayout)
+	require.NoError(t, err)
+}
+
+// TestRewrapAccountDataLeavesStuckRowsAndConvergesTheRest: one row the pass
+// cannot write back used to end it for the whole table, on every boot — and
+// with it any key rotation. Two shapes that exist only in data written before
+// this layout: a duplicate broker account sealed whole (outside the index
+// until the pass opens it), and a user key that is now reserved.
+func TestRewrapAccountDataLeavesStuckRowsAndConvergesTheRest(t *testing.T) {
+	pool := getTestPool(t)
+	ctx := context.Background()
+	enc := newTestEncryptor(t)
+	s := NewPortfolioStore(pool, WithEncryptor(enc))
+	user := createTestUser(t, NewUserStore(pool))
+
+	mk := func(name string, data map[string]string) string {
+		a, err := s.CreateAccount(ctx, &entity.Account{UserID: user.ID, Name: name, Type: entity.AccountTypeBroker})
+		require.NoError(t, err)
+		sealWholeForTest(t, pool, enc, a.ID, data)
+		return a.ID
+	}
+	brokerID := uuid.Must(uuid.NewV7()).String()
+	dupA := mk("dup a", map[string]string{"provider": "tinvest", "broker_account_id": brokerID})
+	dupB := mk("dup b", map[string]string{"provider": "tinvest", "broker_account_id": brokerID})
+	reserved := mk("reserved", map[string]string{"provider": "tinvest", "sealed": "user value"})
+	fine := mk("fine", map[string]string{"provider": "tinvest", "broker_account_id": brokerID + "-other"})
+
+	res, err := s.RewrapAccountData(ctx)
+	require.NoError(t, err, "a stuck row must not end the pass")
+	require.Len(t, res.Stuck, 2)
+	// Each entry starts with the id of the row left behind; a duplicate's
+	// reason also names the row that holds the broker account.
+	left := map[string]bool{}
+	for _, entry := range res.Stuck {
+		id, _, _ := strings.Cut(entry, ":")
+		left[id] = true
+	}
+	assert.True(t, left[reserved])
+	assert.True(t, left[dupA] != left[dupB], "exactly one of the duplicates is left behind; the other converges")
+
+	var fineOpen bool
+	require.NoError(t, pool.QueryRow(ctx, "SELECT data ? 'sealed' FROM accounts WHERE id = $1", fine).Scan(&fineOpen))
+	assert.True(t, fineOpen, "rows after a stuck one still converge")
+
+	behind, err := s.CountAccountsNotInCurrentLayout(ctx)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, behind, 2, "the stuck rows stay visible to the convergence check")
+}
+
+// TestAccountDataLegacyKeyNamedSealedStaysReadable: before the key was
+// reserved, a plaintext row could carry a user's own "sealed". It is not
+// ciphertext, and reading it as such would fail the whole account.
+func TestAccountDataLegacyKeyNamedSealedStaysReadable(t *testing.T) {
+	pool := getTestPool(t)
+	ctx := context.Background()
+	user := createTestUser(t, NewUserStore(pool))
+	plain := NewPortfolioStore(pool)
+
+	created, err := plain.CreateAccount(ctx, &entity.Account{UserID: user.ID, Name: "legacy", Type: entity.AccountTypeService})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE accounts SET data = '{"provider": "x", "sealed": "a note"}'::jsonb WHERE id = $1`, created.ID)
+	require.NoError(t, err)
+
+	for _, s := range []*PortfolioStore{plain, NewPortfolioStore(pool, WithEncryptor(newTestEncryptor(t)))} {
+		got, err := s.GetAccount(ctx, created.ID)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{"provider": "x", "sealed": "a note"}, got.Data)
+	}
+}
+
+// TestRewrapAccountDataDoesNotCallALegacySealedKeyConverged: the same row,
+// carrying a credential in the open. The pass cannot write it back (the key is
+// reserved now), and the convergence check must keep counting it — or the
+// instance reports every row sealed while a token sits in plain jsonb, and
+// stops looking on the next boot.
+func TestRewrapAccountDataDoesNotCallALegacySealedKeyConverged(t *testing.T) {
+	pool := getTestPool(t)
+	ctx := context.Background()
+	user := createTestUser(t, NewUserStore(pool))
+	s := NewPortfolioStore(pool, WithEncryptor(newTestEncryptor(t)))
+
+	created, err := s.CreateAccount(ctx, &entity.Account{UserID: user.ID, Name: "legacy", Type: entity.AccountTypeService})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`UPDATE accounts SET data = '{"api_key": "open-token", "sealed": "a note"}'::jsonb WHERE id = $1`, created.ID)
+	require.NoError(t, err)
+
+	res, err := s.RewrapAccountData(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, res.Stuck)
+
+	var counted bool
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT NOT (data ? 'sealed' AND starts_with(data ->> 'sealed', 'v1:')) FROM accounts WHERE id = $1`,
+		created.ID).Scan(&counted))
+	assert.True(t, counted, "precondition: the predicate sees this row as not converged")
+	behind, err := s.CountAccountsNotInCurrentLayout(ctx)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, behind, 1)
+}
+
+// TestBrokerAccountTakenIgnoresAForgedOwner: on an update the struct comes from
+// the request, and its user_id is whatever the caller typed. The holder named in
+// the refusal must be looked up under the STORED owner — otherwise the message
+// tells the caller whether another person holds broker account X, and which of
+// their accounts does.
+func TestBrokerAccountTakenIgnoresAForgedOwner(t *testing.T) {
+	pool := getTestPool(t)
+	ctx := context.Background()
+	s := NewPortfolioStore(pool, WithEncryptor(newTestEncryptor(t)))
+	users := NewUserStore(pool)
+	attacker, victim := createTestUser(t, users), createTestUser(t, users)
+
+	broker := func(owner, id string) *entity.Account {
+		a, err := s.CreateAccount(ctx, &entity.Account{
+			UserID: owner, Name: "b", Type: entity.AccountTypeBroker,
+			Data: map[string]string{"provider": "tinvest", "broker_account_id": id},
+		})
+		require.NoError(t, err)
+		return a
+	}
+	target := uuid.Must(uuid.NewV7()).String()
+	victims := broker(victim.ID, target)
+	own := broker(attacker.ID, target)
+	other := broker(attacker.ID, uuid.Must(uuid.NewV7()).String())
+
+	_, err := s.UpdateAccount(ctx, &entity.Account{
+		ID: other.ID, UserID: victim.ID,
+		Data: map[string]string{"provider": "tinvest", "broker_account_id": target},
+	}, []string{"data"})
+	require.ErrorIs(t, err, store.ErrAlreadyExists)
+	assert.Contains(t, err.Error(), own.ID)
+	assert.NotContains(t, err.Error(), victims.ID)
 }
 
 // TestRewrapAccountDataRefusesPlaintextMode: a pass with no key to seal with
@@ -417,11 +736,11 @@ func TestAccountDataEncryptionRoundtrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// On disk: {"enc": "v1:..."} wrapper, no plaintext secrets.
+	// On disk: the address in the open, the secret under "sealed".
 	var rawData []byte
 	require.NoError(t, pool.QueryRow(ctx, "SELECT data FROM accounts WHERE id = $1", created.ID).Scan(&rawData))
 	assert.NotContains(t, string(rawData), "top-secret")
-	assert.Contains(t, string(rawData), `"enc": "v1:`)
+	assert.Contains(t, string(rawData), `"sealed": "v1:`)
 
 	// Through the store: transparent decryption.
 	got, err := s.GetAccount(ctx, created.ID)
@@ -486,6 +805,170 @@ func TestAccountDataEncryptedUnreadableWithoutKey(t *testing.T) {
 	_, err = plain.GetAccount(ctx, created.ID)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no master key")
+}
+
+// TestAccountDataSealsOnlySecrets is the storage half of personal-gskb: what an
+// account IS (provider, broker account) has to be visible to SQL so a unique
+// index can hold it, and what it can DO (credentials) must not be.
+//
+// Checked on the parsed jsonb, not on the map the store hands back — the map is
+// identical in every layout, so only the bytes on disk can show which side of
+// the seal a value is on.
+func TestAccountDataSealsOnlySecrets(t *testing.T) {
+	pool := getTestPool(t)
+	ctx := context.Background()
+	s := NewPortfolioStore(pool, WithEncryptor(newTestEncryptor(t)))
+	user := createTestUser(t, NewUserStore(pool))
+
+	data := map[string]string{
+		"provider":          "tinvest",
+		"broker_account_id": "2052372295",
+		"api_key":           "key-value-1",
+		"api_secret":        "secret-value-2",
+		// Not in the allowlist and not secret-looking by name either: the
+		// case a name-based rule would have written in the open.
+		"passphrase": "phrase-value-3",
+		// An endpoint is not identity, and it can carry userinfo.
+		"base_url": "https://user:url-token-4@proxy.internal/",
+	}
+	created, err := s.CreateAccount(ctx, &entity.Account{
+		UserID: user.ID, Name: "split", Type: entity.AccountTypeBroker, Data: data,
+	})
+	require.NoError(t, err)
+
+	var raw []byte
+	require.NoError(t, pool.QueryRow(ctx, "SELECT data FROM accounts WHERE id = $1", created.ID).Scan(&raw))
+	var stored map[string]string
+	require.NoError(t, json.Unmarshal(raw, &stored))
+	assert.Equal(t, "tinvest", stored["provider"])
+	assert.Equal(t, "2052372295", stored["broker_account_id"])
+	assert.True(t, strings.HasPrefix(stored["sealed"], "v1:"), "secrets sit under the sealed key")
+	assert.Len(t, stored, 3, "nothing but the open keys and the sealed blob")
+	for _, secret := range []string{"key-value-1", "secret-value-2", "phrase-value-3", "url-token-4"} {
+		assert.NotContains(t, string(raw), secret)
+	}
+
+	var provider, brokerID string
+	require.NoError(t, pool.QueryRow(ctx,
+		"SELECT data->>'provider', data->>'broker_account_id' FROM accounts WHERE id = $1", created.ID).
+		Scan(&provider, &brokerID))
+	assert.Equal(t, "tinvest", provider)
+	assert.Equal(t, "2052372295", brokerID)
+
+	got, err := s.GetAccount(ctx, created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, data, got.Data)
+}
+
+// TestAccountDataSealsEvenNoSecrets: the sealed key is how SQL tells the layout
+// apart, so a row without a single secret still carries it.
+func TestAccountDataSealsEvenNoSecrets(t *testing.T) {
+	pool := getTestPool(t)
+	ctx := context.Background()
+	s := NewPortfolioStore(pool, WithEncryptor(newTestEncryptor(t)))
+	user := createTestUser(t, NewUserStore(pool))
+
+	created, err := s.CreateAccount(ctx, &entity.Account{
+		UserID: user.ID, Name: "address only", Type: entity.AccountTypeWallet,
+		Data: map[string]string{"address": "0xabc"},
+	})
+	require.NoError(t, err)
+
+	var hasSealed bool
+	require.NoError(t, pool.QueryRow(ctx, "SELECT data ? 'sealed' FROM accounts WHERE id = $1", created.ID).Scan(&hasSealed))
+	assert.True(t, hasSealed)
+
+	got, err := s.GetAccount(ctx, created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"address": "0xabc"}, got.Data)
+}
+
+// TestAccountDataFirstLayoutStillReadable: rows sealed whole before this change
+// stay readable until the rewrap pass reaches them — or, with no rollback, the
+// instance would lose every credential the moment it starts.
+func TestAccountDataFirstLayoutStillReadable(t *testing.T) {
+	pool := getTestPool(t)
+	ctx := context.Background()
+	enc := newTestEncryptor(t)
+	s := NewPortfolioStore(pool, WithEncryptor(enc))
+	user := createTestUser(t, NewUserStore(pool))
+
+	created, err := s.CreateAccount(ctx, &entity.Account{
+		UserID: user.ID, Name: "first layout", Type: entity.AccountTypeService,
+	})
+	require.NoError(t, err)
+
+	data := map[string]string{"provider": "coingecko", "api_key": "first-layout-key"}
+	plain, err := json.Marshal(data)
+	require.NoError(t, err)
+	sealed, err := enc.Encrypt(created.ID, plain)
+	require.NoError(t, err)
+	firstLayout, err := json.Marshal(map[string]string{"enc": sealed})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, "UPDATE accounts SET data = $2 WHERE id = $1", created.ID, firstLayout)
+	require.NoError(t, err)
+
+	got, err := s.GetAccount(ctx, created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, data, got.Data)
+}
+
+// TestAccountDataReservedKeysRefused: a user-supplied "enc" or "sealed" would be
+// taken for ciphertext on the next read and fail the whole account row.
+func TestAccountDataReservedKeysRefused(t *testing.T) {
+	pool := getTestPool(t)
+	ctx := context.Background()
+	user := createTestUser(t, NewUserStore(pool))
+
+	for _, mode := range []struct {
+		name  string
+		store *PortfolioStore
+	}{
+		{"encrypted", NewPortfolioStore(pool, WithEncryptor(newTestEncryptor(t)))},
+		{"plaintext", NewPortfolioStore(pool)},
+	} {
+		for _, key := range []string{"enc", "sealed"} {
+			t.Run(mode.name+"/"+key, func(t *testing.T) {
+				_, err := mode.store.CreateAccount(ctx, &entity.Account{
+					UserID: user.ID, Name: "reserved", Type: entity.AccountTypeService,
+					Data: map[string]string{key: "v1:whatever"},
+				})
+				require.ErrorIs(t, err, store.ErrInvalidArgument)
+
+				ok, err := mode.store.CreateAccount(ctx, &entity.Account{
+					UserID: user.ID, Name: "reserved later", Type: entity.AccountTypeService,
+				})
+				require.NoError(t, err)
+				_, err = mode.store.UpdateAccount(ctx, &entity.Account{
+					ID: ok.ID, Data: map[string]string{key: "v1:whatever"},
+				}, []string{"data"})
+				require.ErrorIs(t, err, store.ErrInvalidArgument)
+			})
+		}
+	}
+}
+
+// TestAccountDataKeyBothOpenAndSealedRefused: the writer never puts a key on
+// both sides, so one that is was put there by hand, and picking a copy would be
+// a guess about where the credential gets sent.
+func TestAccountDataKeyBothOpenAndSealedRefused(t *testing.T) {
+	pool := getTestPool(t)
+	ctx := context.Background()
+	s := NewPortfolioStore(pool, WithEncryptor(newTestEncryptor(t)))
+	user := createTestUser(t, NewUserStore(pool))
+
+	created, err := s.CreateAccount(ctx, &entity.Account{
+		UserID: user.ID, Name: "tampered", Type: entity.AccountTypeService,
+		Data: map[string]string{"api_key": "k"},
+	})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`UPDATE accounts SET data = data || '{"api_key": "planted"}'::jsonb WHERE id = $1`, created.ID)
+	require.NoError(t, err)
+
+	_, err = s.GetAccount(ctx, created.ID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "both open and sealed")
 }
 
 func TestHoldingProvenanceRoundtrip(t *testing.T) {

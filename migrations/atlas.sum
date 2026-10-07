@@ -1,7 +1,8 @@
-h1:Y87j7+rhmlyJYtBEhKAyNvTrKfjBhUxfidhdGZbOtVQ=
+h1:rPZruw21T3j/2fPHjOaIRTbA95wtdHG94DCPMsVEA9U=
 20260902112348_baseline_v0_11_0.sql h1:KOXTm9nMdJzPUoDs7EVD51k9i5A9OzPpCLf5KDiL4p0=
 20260902112400_holdings_excluded_source.sql h1:D4LmiSSSygyvxLWoRqv/Xae3WZBzBQwBxehqIgKAChg=
 20260903032052_account_sync_attempts.sql h1:ThJ+BtI/cFTiqZ4nYtgDqIIbkIpTMMh4FcwyY3BuCKc=
 20260923024245_holdings_synced_at.sql h1:fZzUpffa5OD5/QxGSqoot/wjMvlPJDLiX68Vne2/fKY=
 20260923131020_provider_usage_caller.sql h1:9+TAC05ggdJ3E126EjooDIMq8EnxsldvG+eRHmytEYY=
 20260929093954_account_chain_failures.sql h1:Uu3r9gQwkrRGwDYnBb2TrjXRZr5Y+IPHSpTWbILeSTQ=
+20261007032530_account_broker_identity.sql h1:qGzYp5Xs+Ljt+waUAl35WbFw39js0uYA/73P8sCfmto=

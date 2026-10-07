@@ -9,6 +9,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/store"
 )
 
 // maxDiscoveredAccounts caps how many accounts one listing may create.
@@ -124,8 +125,8 @@ func (h *Handler) ensureBrokerAccounts(ctx context.Context, parent *entity.Accou
 	}
 
 	var (
-		accounts []*entity.Account
-		created  int32
+		accounts     []*entity.Account
+		createdCount int32
 	)
 	// What this call has already handled. The map read from the store is a
 	// SNAPSHOT taken before the loop, so without this a listing that names the
@@ -134,10 +135,10 @@ func (h *Handler) ensureBrokerAccounts(ctx context.Context, parent *entity.Accou
 	// position in every total. Lying in the plus, from an input nobody here
 	// controls.
 	//
-	// It closes the duplicate WITHIN one call. Two syncs of the same account
-	// running at once can still both find nothing and both create; the durable
-	// guard for that is a unique index on the pair, which is a schema change
-	// (personal-gskb).
+	// It closes the duplicate WITHIN one call. Across calls — two syncs of the
+	// same token running at once, both finding nothing — the guard is the
+	// unique index account_broker_identity, and the loser takes the winner's
+	// row below (personal-gskb).
 	seen := make(map[string]bool, len(refs))
 	for _, ref := range refs {
 		if !ref.Syncable {
@@ -175,33 +176,63 @@ func (h *Handler) ensureBrokerAccounts(ctx context.Context, parent *entity.Accou
 		}
 		seen[ref.ID] = true
 
-		if account, ok := existing[ref.ID]; ok {
-			// The same broker account can be seen by two tokens — a second key
-			// with the same rights is an ordinary thing to hold. Syncing the
-			// row that belongs to another portfolio would rewrite positions the
-			// caller did not name, in a portfolio they did not name, with
-			// credentials that are not the ones they just used. Creating a
-			// second row instead would put the same money in two portfolios.
-			// Neither: say who already owns it.
-			if account.PortfolioID != parent.PortfolioID {
-				errs = append(errs, fmt.Sprintf(
-					"broker account %s already belongs to account %s in another portfolio; it was left alone",
-					ref.ID, account.ID))
+		account, ok := existing[ref.ID]
+		if !ok {
+			created, err := h.createBrokerAccount(ctx, parent, ref)
+			switch {
+			case err == nil:
+				existing[ref.ID] = created
+				createdCount++
+				accounts = append(accounts, created)
+				continue
+			case errors.Is(err, store.ErrAlreadyExists):
+				// Lost the race: another sync created it after the snapshot
+				// was taken. Its row is the one to sync — a second success,
+				// not an error the person pressing the button has to read.
+				// The row goes through the same portfolio check as any other.
+				account, err = h.brokerAccountOf(ctx, parent, ref.ID)
+				if err != nil {
+					errs = append(errs, fmt.Sprintf("broker account %s was created by a concurrent sync and could not be read back: %v", ref.ID, err))
+					continue
+				}
+			default:
+				errs = append(errs, fmt.Sprintf("create account for broker account %s: %v", ref.ID, err))
 				continue
 			}
-			accounts = append(accounts, account)
+		}
+
+		// The same broker account can be seen by two tokens — a second key
+		// with the same rights is an ordinary thing to hold. Syncing the row
+		// that belongs to another portfolio would rewrite positions the caller
+		// did not name, in a portfolio they did not name, with credentials
+		// that are not the ones they just used. Creating a second row instead
+		// would put the same money in two portfolios. Neither: say who already
+		// owns it.
+		if account.PortfolioID != parent.PortfolioID {
+			errs = append(errs, fmt.Sprintf(
+				"broker account %s already belongs to account %s in another portfolio; it was left alone",
+				ref.ID, account.ID))
 			continue
 		}
-		account, err := h.createBrokerAccount(ctx, parent, ref)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("create account for broker account %s: %v", ref.ID, err))
-			continue
-		}
-		existing[ref.ID] = account
-		created++
 		accounts = append(accounts, account)
 	}
-	return accounts, created, errs
+	return accounts, createdCount, errs
+}
+
+// brokerAccountOf re-reads the one account here that holds a broker account,
+// for the sync that lost the race to create it.
+func (h *Handler) brokerAccountOf(ctx context.Context, parent *entity.Account, brokerAccountID string) (*entity.Account, error) {
+	byID, err := h.brokerAccountsOf(ctx, parent.UserID, parent.Data[providerDataKey])
+	if err != nil {
+		return nil, err
+	}
+	account, ok := byID[brokerAccountID]
+	if !ok {
+		// The index said it exists and the listing does not show it: deleted
+		// in between. Saying so beats creating it a third time.
+		return nil, errors.New("it is no longer there")
+	}
+	return account, nil
 }
 
 // brokerAccountsOf indexes the user's broker accounts of one provider by the

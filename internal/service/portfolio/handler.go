@@ -2450,6 +2450,9 @@ func toConnectError(err error) error {
 	if errors.Is(err, store.ErrConstraint) {
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	}
+	if errors.Is(err, store.ErrAlreadyExists) {
+		return connect.NewError(connect.CodeAlreadyExists, err)
+	}
 	return connect.NewError(connect.CodeInternal, err)
 }
 

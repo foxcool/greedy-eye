@@ -345,7 +345,8 @@ EYE_SECURITY_MASTERKEY=<new>,<old>      # openssl rand -base64 32
 #    background rekey job because more than one key is configured.
 
 # 3. wait for the log line:
-#    "rekey: finished — every row is sealed under the current key, stale keys can be removed"
+#    "rekey: finished — every row is sealed under the current key in the current layout;
+#     stale keys can be removed from SECURITY_MASTERKEY"
 
 # 4. drop the tail: EYE_SECURITY_MASTERKEY=<new>, restart
 ```
@@ -360,8 +361,18 @@ if you see no completion line, the old key is still needed.
 
 Notes on how it behaves:
 
-- One key configured: the job does not run. Nothing to converge, and rewriting every credential
-  on every deploy is not free.
+- One key configured and every row in the current layout: the job does not run. Nothing to
+  converge, and rewriting every credential on every deploy is not free. A row still sealed whole
+  (`{"enc": …}`, the first layout) or in legacy plaintext makes it run with a single key too —
+  the first boot of the release that introduced the open-plus-sealed layout converges the table
+  (ADR-005, second layout). Check with
+  `SELECT count(*) FROM accounts WHERE NOT (data ? 'sealed' AND starts_with(data->>'sealed', 'v1:'))` — zero once it is done.
+- A row updated while the pass runs keeps the update: the pass writes only rows that still hold
+  what it read, and counts the others as `overtaken`.
+- A row the pass can open but not write back is logged as `rekey: account left in its old layout`
+  with its id and why — a key now reserved by the format (`enc`, `sealed`), or a second account
+  for a broker account another row already holds. Every other row still converges; the completion
+  line does not appear until those are fixed by hand.
 - Several instances: a Postgres advisory lock keeps the pass to one of them.
 - Interrupted or repeated runs are safe — re-sealing a row already current just gives it a fresh
   nonce.

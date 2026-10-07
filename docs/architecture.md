@@ -986,9 +986,11 @@ Cron / API Client → AutomationService/ExecuteRule
   control is presentation, not enforcement. Per-asset RBAC is `personal-rme`.
 
 **Data Protection:**
-- **Encryption at Rest**: `accounts.data` (provider API keys) is encrypted with AES-256-GCM +
+- **Encryption at Rest**: the credentials in `accounts.data` are encrypted with AES-256-GCM +
   per-record HKDF keys in the store layer (ADR-005); the master key
-  (`EYE_SECURITY_MASTERKEY`) never reaches the DB or logs.
+  (`EYE_SECURITY_MASTERKEY`) never reaches the DB or logs. An allowlist of identity keys
+  (provider, addresses, chain, broker account id) is stored in the open — a dump shows which
+  addresses and accounts an owner has, never what opens them (ADR-005, second layout).
 - **Write-only secrets**: the API never returns credential values — only a `••••`+last4 mask.
 - **Encryption in Transit**: TLS for all external connections (Traefik terminates public TLS).
 
@@ -1298,6 +1300,45 @@ somebody chose, since that would report one currency's number under another curr
 - **Rejected**: pgcrypto (key surfaces in `pg_stat_statements`/server logs, PG-coupled);
   per-field encryption (needs a secret-field classification, mixed-plaintext states);
   single static key without HKDF (swappable ciphertexts, shared nonce space)
+
+
+  **Second layout: identity in the open, secrets sealed** (added for `personal-gskb`).
+  The whole-map seal made `accounts.data` opaque to SQL, and that turned out to cost more than
+  raw-SQL convenience: no index could hold an invariant over what an account IS. Broker discovery
+  decides what to create by what it failed to find, so two overlapping syncs of one token each
+  created an account for the same broker account — the same positions twice in every total —
+  and the only guard was an in-memory snapshot.
+
+  Rows are now written as `{"provider": …, "broker_account_id": …, "sealed": "v1:<secrets>"}`:
+  an explicit **allowlist** of identity keys (`openDataKeys` in
+  `internal/store/postgres/portfolio.go`) sits in plain jsonb, everything else is sealed under
+  `sealed`. The `v1:` inside is the cipher envelope's version; the layout is told by the key.
+  `sealed` is written even when there is nothing to seal, so a row's layout is one predicate
+  (`data ? 'sealed'` holding an envelope — a legacy row whose owner once used the name is not
+  converged). The unique index `account_broker_identity` over
+  `(user_id, provider, broker_account_id)` then holds what the snapshot could not, for every
+  write path; the sync that loses the race syncs the winner's row.
+
+  - Allowlist, not the name-based `isSecretKey` the API masks with: for display a misclassified
+    key costs a visible value, for storage it costs a credential in every dump. An unknown key —
+    a new provider's `passphrase` — lands sealed. `base_url` is sealed too: an endpoint is not
+    identity, and a URL can carry userinfo.
+  - AAD stays the account ID only. Binding the open keys would make a hand edit of `base_url` in
+    SQL fail the whole row; someone who can write the table can create accounts anyway.
+  - `enc` and `sealed` are reserved: a user-supplied value under either would be taken for
+    ciphertext on the next read and fail the row.
+  - The rekey job converges the layout as well as the key: it runs whenever a row is not in the
+    second layout, not only when stale keys are configured, and its write is conditional on the
+    row still holding what it read — an account updated mid-pass (a token rotation reaching its
+    copies) keeps the update. A row it can open but not write back — a key now reserved, or a
+    duplicate broker account from before the index — is left in place and named by id at ERROR;
+    the rest of the table still converges, and the completion line is withheld.
+  - ➖ A database dump now shows every wallet address and broker account number an owner has.
+    The credentials stay sealed; the map of holdings does not.
+  - ➖ **No rollback** to a binary before this layout: it reads a second-layout row as legacy
+    plaintext and silently loses every secret in it. Restore from backup instead.
+  - ➖ Rows still sealed whole are outside the index until the pass reaches them. Not a gap:
+    they are visible to discovery through decryption; the race is between two new inserts.
 
 ### ADR-006: Composite asset identity (symbol, market, type)
 - **Status**: accepted
@@ -1706,7 +1747,7 @@ System Quality
 
 ---
 
-**Document Version**: 1.9
-**Last Updated**: 2026-10-04
+**Document Version**: 1.10
+**Last Updated**: 2026-10-07
 **Owner**: foxcool
 **Status**: Active

@@ -144,7 +144,8 @@ func run() error {
 
 	portfolioStore := postgres.NewPortfolioStore(pool, portfolioStoreOpts...)
 
-	// Converge rows sealed under a key being rotated out. No-op with one key.
+	// Converge rows sealed under a key being rotated out or in an old data
+	// layout. No-op when there is neither.
 	startRekey(context.Background(), pool, encryptor, log)
 
 	// Every adapter this build can construct lives in internal/provider, so the
