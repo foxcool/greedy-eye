@@ -118,6 +118,9 @@ const (
 	// PortfolioServiceResetAccountSweepScheduleProcedure is the fully-qualified name of the
 	// PortfolioService's ResetAccountSweepSchedule RPC.
 	PortfolioServiceResetAccountSweepScheduleProcedure = "/eye.v1.PortfolioService/ResetAccountSweepSchedule"
+	// PortfolioServiceGetAccountHealthProcedure is the fully-qualified name of the PortfolioService's
+	// GetAccountHealth RPC.
+	PortfolioServiceGetAccountHealthProcedure = "/eye.v1.PortfolioService/GetAccountHealth"
 )
 
 // PortfolioServiceClient is a client for the eye.v1.PortfolioService service.
@@ -199,6 +202,17 @@ type PortfolioServiceClient interface {
 	// one. This RPC is for the case where an operator wants the SWEEP to try
 	// again without syncing every account by hand.
 	ResetAccountSweepSchedule(context.Context, *connect.Request[v1.ResetAccountSweepScheduleRequest]) (*connect.Response[v1.ResetAccountSweepScheduleResponse], error)
+	// GetAccountHealth says, per account the caller owns, whether it is producing
+	// anything and if not, why — and the same for every price source the
+	// caller's prices depend on, including shared ones.
+	//
+	// Every way an account goes inert used to end in a log line: a credential the
+	// resolver cannot build, a duplicate that is never asked, a plan spent or a
+	// provider pausing after refusals, a chain that stopped answering, a sweep
+	// that stood the account down. From outside they all looked the same: a
+	// normal account and no data. Computed on read from the state the resolver,
+	// the rate limiter and the sweep already keep, so it cannot go stale.
+	GetAccountHealth(context.Context, *connect.Request[v1.GetAccountHealthRequest]) (*connect.Response[v1.GetAccountHealthResponse], error)
 }
 
 // NewPortfolioServiceClient constructs a client for the eye.v1.PortfolioService service. By
@@ -380,6 +394,12 @@ func NewPortfolioServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(portfolioServiceMethods.ByName("ResetAccountSweepSchedule")),
 			connect.WithClientOptions(opts...),
 		),
+		getAccountHealth: connect.NewClient[v1.GetAccountHealthRequest, v1.GetAccountHealthResponse](
+			httpClient,
+			baseURL+PortfolioServiceGetAccountHealthProcedure,
+			connect.WithSchema(portfolioServiceMethods.ByName("GetAccountHealth")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -413,6 +433,7 @@ type portfolioServiceClient struct {
 	syncAccount               *connect.Client[v1.SyncAccountRequest, v1.SyncAccountResponse]
 	getAccountSweepSchedule   *connect.Client[v1.GetAccountSweepScheduleRequest, v1.GetAccountSweepScheduleResponse]
 	resetAccountSweepSchedule *connect.Client[v1.ResetAccountSweepScheduleRequest, v1.ResetAccountSweepScheduleResponse]
+	getAccountHealth          *connect.Client[v1.GetAccountHealthRequest, v1.GetAccountHealthResponse]
 }
 
 // CreatePortfolio calls eye.v1.PortfolioService.CreatePortfolio.
@@ -555,6 +576,11 @@ func (c *portfolioServiceClient) ResetAccountSweepSchedule(ctx context.Context, 
 	return c.resetAccountSweepSchedule.CallUnary(ctx, req)
 }
 
+// GetAccountHealth calls eye.v1.PortfolioService.GetAccountHealth.
+func (c *portfolioServiceClient) GetAccountHealth(ctx context.Context, req *connect.Request[v1.GetAccountHealthRequest]) (*connect.Response[v1.GetAccountHealthResponse], error) {
+	return c.getAccountHealth.CallUnary(ctx, req)
+}
+
 // PortfolioServiceHandler is an implementation of the eye.v1.PortfolioService service.
 type PortfolioServiceHandler interface {
 	// --- Portfolio CRUD ---
@@ -634,6 +660,17 @@ type PortfolioServiceHandler interface {
 	// one. This RPC is for the case where an operator wants the SWEEP to try
 	// again without syncing every account by hand.
 	ResetAccountSweepSchedule(context.Context, *connect.Request[v1.ResetAccountSweepScheduleRequest]) (*connect.Response[v1.ResetAccountSweepScheduleResponse], error)
+	// GetAccountHealth says, per account the caller owns, whether it is producing
+	// anything and if not, why — and the same for every price source the
+	// caller's prices depend on, including shared ones.
+	//
+	// Every way an account goes inert used to end in a log line: a credential the
+	// resolver cannot build, a duplicate that is never asked, a plan spent or a
+	// provider pausing after refusals, a chain that stopped answering, a sweep
+	// that stood the account down. From outside they all looked the same: a
+	// normal account and no data. Computed on read from the state the resolver,
+	// the rate limiter and the sweep already keep, so it cannot go stale.
+	GetAccountHealth(context.Context, *connect.Request[v1.GetAccountHealthRequest]) (*connect.Response[v1.GetAccountHealthResponse], error)
 }
 
 // NewPortfolioServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -811,6 +848,12 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 		connect.WithSchema(portfolioServiceMethods.ByName("ResetAccountSweepSchedule")),
 		connect.WithHandlerOptions(opts...),
 	)
+	portfolioServiceGetAccountHealthHandler := connect.NewUnaryHandler(
+		PortfolioServiceGetAccountHealthProcedure,
+		svc.GetAccountHealth,
+		connect.WithSchema(portfolioServiceMethods.ByName("GetAccountHealth")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/eye.v1.PortfolioService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PortfolioServiceCreatePortfolioProcedure:
@@ -869,6 +912,8 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 			portfolioServiceGetAccountSweepScheduleHandler.ServeHTTP(w, r)
 		case PortfolioServiceResetAccountSweepScheduleProcedure:
 			portfolioServiceResetAccountSweepScheduleHandler.ServeHTTP(w, r)
+		case PortfolioServiceGetAccountHealthProcedure:
+			portfolioServiceGetAccountHealthHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -988,4 +1033,8 @@ func (UnimplementedPortfolioServiceHandler) GetAccountSweepSchedule(context.Cont
 
 func (UnimplementedPortfolioServiceHandler) ResetAccountSweepSchedule(context.Context, *connect.Request[v1.ResetAccountSweepScheduleRequest]) (*connect.Response[v1.ResetAccountSweepScheduleResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.ResetAccountSweepSchedule is not implemented"))
+}
+
+func (UnimplementedPortfolioServiceHandler) GetAccountHealth(context.Context, *connect.Request[v1.GetAccountHealthRequest]) (*connect.Response[v1.GetAccountHealthResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.GetAccountHealth is not implemented"))
 }

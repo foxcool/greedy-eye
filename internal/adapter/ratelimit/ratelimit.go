@@ -433,6 +433,14 @@ func (b *Budget) Unusable() (string, bool) {
 	return b.reg.Unusable(b.cred)
 }
 
+// UnusableUntil reports the same as Unusable with the deadline as a value.
+func (b *Budget) UnusableUntil() (string, time.Time, bool) {
+	if b == nil || b.reg == nil {
+		return "", time.Time{}, false
+	}
+	return b.reg.UnusableUntil(b.cred)
+}
+
 // Snapshot reports spend per credential since the period began. This is the
 // number an operator divides by the plan's allowance; there is no metrics
 // system in this process to publish it to.
@@ -783,15 +791,20 @@ func (b *bucket) unusableFor(class spend.Class, now time.Time) (string, time.Tim
 // spent and another fine, and scanning them all cannot tell which one the
 // caller actually holds — the caller can, because it holds it.
 func (r *Registry) Unusable(c Credential) (string, bool) {
-	if r == nil {
-		return "", false
-	}
-	now := r.now()
-	reason, until, unusable := r.bucket(c).unusableFor(spend.ClassBackground, now)
+	reason, until, unusable := r.UnusableUntil(c)
 	if !unusable {
 		return "", false
 	}
 	return fmt.Sprintf("%s; not before %s", reason, until.UTC().Format(time.RFC3339)), true
+}
+
+// UnusableUntil is Unusable with the deadline kept apart from the phrase, for a
+// reader that shows the two separately instead of printing one log line.
+func (r *Registry) UnusableUntil(c Credential) (string, time.Time, bool) {
+	if r == nil {
+		return "", time.Time{}, false
+	}
+	return r.bucket(c).unusableFor(spend.ClassBackground, r.now())
 }
 
 // frozenFor reports how long the caller must wait before the next request.

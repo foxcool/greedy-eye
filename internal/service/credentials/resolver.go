@@ -166,13 +166,9 @@ func NewResolver(cfg Config) *Resolver {
 // no other surface: a request made BY someone resolves that person's own
 // accounts and works, so a provider missing only from the scheduler's view is
 // invisible everywhere a human looks.
-type Skipped struct {
-	// Provider is the slug the account names, empty when the skip is about the
-	// instance rather than one account.
-	Provider  string
-	AccountID string
-	Reason    string
-}
+//
+// Provider is empty when the skip is about the instance rather than one account.
+type Skipped = entity.SkippedAccount
 
 // accountsFor returns candidate accounts for the capability in resolution
 // order: the user's own accounts first, then system-shared ones. It also
@@ -266,7 +262,7 @@ func (r *Resolver) soleOperatorAccounts(ctx context.Context, capability entity.A
 				slog.String("capability", string(capability)),
 				slog.Int("credential_holders", len(owners)))
 		}
-		return nil, []Skipped{{Reason: fmt.Sprintf(
+		return nil, []Skipped{{Kind: entity.SkipOperators, Reason: fmt.Sprintf(
 			"%d operators hold %s credentials and no system scope names one",
 			len(owners), capability)}}, nil
 	}
@@ -393,7 +389,10 @@ func (r *Resolver) BrokerAccountListerForAccount(a *entity.Account) (entity.Brok
 // providers it can reach, and the accounts it could have used and did not.
 type PriceInventory struct {
 	Providers map[string]marketdata.PriceProvider
-	Skipped   []Skipped
+	// Serving names the account behind each provider that came from one.
+	// Credential-free sources have no entry.
+	Serving map[string]string
+	Skipped []Skipped
 }
 
 // PriceProvidersFor resolves the effective price provider registry for the
@@ -417,11 +416,16 @@ func (r *Resolver) PriceProvidersFor(ctx context.Context, userID string) (map[st
 func (r *Resolver) PriceInventoryFor(ctx context.Context, userID string) (PriceInventory, error) {
 	providers := make(map[string]marketdata.PriceProvider, len(r.cfg.KeylessPriceProviders))
 	maps.Copy(providers, r.cfg.KeylessPriceProviders)
+	serving := make(map[string]*entity.Account)
 
 	candidates, skipped, err := r.accountsFor(ctx, userID, entity.CapabilityMarketData)
 	if err != nil {
 		return PriceInventory{}, err
 	}
+
+	// An account both owned and system scoped arrives twice. It is one
+	// account, and it keeps its first — highest-priority — position.
+	candidates = firstOccurrences(candidates)
 
 	// candidates are ordered user-first; iterate in reverse so system accounts
 	// apply first and the user's own credentials overwrite them.
@@ -436,6 +440,7 @@ func (r *Resolver) PriceInventoryFor(ctx context.Context, userID string) (PriceI
 			skipped = append(skipped, Skipped{
 				Provider:  slug,
 				AccountID: a.ID,
+				Kind:      entity.SkipNoAdapter,
 				Reason:    "no price adapter is registered for this provider",
 			})
 			continue
@@ -459,12 +464,81 @@ func (r *Resolver) PriceInventoryFor(ctx context.Context, userID string) (PriceI
 			skipped = append(skipped, Skipped{
 				Provider:  slug,
 				AccountID: a.ID,
+				Kind:      entity.SkipCannotBuild,
 				Reason:    "account unusable: " + err.Error(),
 			})
 			continue
 		}
+		// Iterating in reverse, a later assignment outranks the one it
+		// replaces. Between accounts of one level holding different keys that
+		// is a working credential nothing asks — docs/providers.md warns about
+		// a key added to the newer of two duplicates. Not shadowing: a user's
+		// own account replacing a shared one (the intended override; the
+		// shared one still serves everybody else), or copies of one token, as
+		// every account a broker token reaches is.
+		if prev, ok := serving[slug]; ok && ownedBy(prev, userID) == ownedBy(a, userID) &&
+			prev.Data["api_key"] != a.Data["api_key"] {
+			skipped = append(skipped, Skipped{
+				Provider:  slug,
+				AccountID: prev.ID,
+				Kind:      entity.SkipShadowed,
+				Reason:    "another account for this provider is used first: " + a.ID,
+			})
+		}
 		providers[slug] = client.(marketdata.PriceProvider)
+		serving[slug] = a
 	}
 
-	return PriceInventory{Providers: providers, Skipped: skipped}, nil
+	servingIDs := make(map[string]string, len(serving))
+	for slug, a := range serving {
+		servingIDs[slug] = a.ID
+	}
+
+	return PriceInventory{Providers: providers, Serving: servingIDs, Skipped: skipped}, nil
+}
+
+// ownedBy reports whether the account belongs to the user resolving it. With
+// nobody resolving, every candidate is on one level.
+func ownedBy(a *entity.Account, userID string) bool {
+	return userID != "" && a.UserID == userID
+}
+
+// firstOccurrences drops repeated accounts, keeping each at its first position.
+func firstOccurrences(accounts []*entity.Account) []*entity.Account {
+	seen := make(map[string]bool, len(accounts))
+	out := make([]*entity.Account, 0, len(accounts))
+	for _, a := range accounts {
+		if !seen[a.ID] {
+			seen[a.ID] = true
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// unusableUntil is implemented by price providers that can say, as values,
+// whether their credential may carry unattended work now and until when not.
+type unusableUntil interface {
+	UnusableUntil() (reason string, until time.Time, unusable bool)
+}
+
+// PriceSourceHealth reports, for the user's price registry, every source it
+// reached with whether it can be asked now, and every account it passed over.
+// It resolves exactly what PriceProvidersFor resolves, so the answer describes
+// the registry the user's work actually runs on.
+func (r *Resolver) PriceSourceHealth(ctx context.Context, userID string) (*entity.PriceSourceReport, error) {
+	inv, err := r.PriceInventoryFor(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	report := &entity.PriceSourceReport{Skipped: inv.Skipped}
+	for _, slug := range slices.Sorted(maps.Keys(inv.Providers)) {
+		state := entity.PriceSourceState{Provider: slug, AccountID: inv.Serving[slug]}
+		if hp, ok := inv.Providers[slug].(unusableUntil); ok {
+			state.Reason, state.Until, state.Unusable = hp.UnusableUntil()
+		}
+		report.Sources = append(report.Sources, state)
+	}
+	return report, nil
 }

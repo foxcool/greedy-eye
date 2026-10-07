@@ -369,6 +369,137 @@ func (ProviderKind) EnumDescriptor() ([]byte, []int) {
 	return file_v1_portfolio_proto_rawDescGZIP(), []int{5}
 }
 
+// HealthState is how much of its job an account or a source is doing. The
+// state of a whole is the worst state among its reasons, decided by the server
+// so every client agrees on it.
+type HealthState int32
+
+const (
+	HealthState_HEALTH_STATE_UNSPECIFIED HealthState = 0
+	// Nothing known is wrong.
+	HealthState_HEALTH_STATE_OK HealthState = 1
+	// Part of it works: a chain is failing, or the sweep has stood it down.
+	HealthState_HEALTH_STATE_DEGRADED HealthState = 2
+	// It produces nothing until something changes.
+	HealthState_HEALTH_STATE_UNUSABLE HealthState = 3
+	// This instance cannot tell. Not the same as OK and must not render as it.
+	HealthState_HEALTH_STATE_UNKNOWN HealthState = 4
+)
+
+// Enum value maps for HealthState.
+var (
+	HealthState_name = map[int32]string{
+		0: "HEALTH_STATE_UNSPECIFIED",
+		1: "HEALTH_STATE_OK",
+		2: "HEALTH_STATE_DEGRADED",
+		3: "HEALTH_STATE_UNUSABLE",
+		4: "HEALTH_STATE_UNKNOWN",
+	}
+	HealthState_value = map[string]int32{
+		"HEALTH_STATE_UNSPECIFIED": 0,
+		"HEALTH_STATE_OK":          1,
+		"HEALTH_STATE_DEGRADED":    2,
+		"HEALTH_STATE_UNUSABLE":    3,
+		"HEALTH_STATE_UNKNOWN":     4,
+	}
+)
+
+func (x HealthState) Enum() *HealthState {
+	p := new(HealthState)
+	*p = x
+	return p
+}
+
+func (x HealthState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (HealthState) Descriptor() protoreflect.EnumDescriptor {
+	return file_v1_portfolio_proto_enumTypes[6].Descriptor()
+}
+
+func (HealthState) Type() protoreflect.EnumType {
+	return &file_v1_portfolio_proto_enumTypes[6]
+}
+
+func (x HealthState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use HealthState.Descriptor instead.
+func (HealthState) EnumDescriptor() ([]byte, []int) {
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{6}
+}
+
+// HealthReasonKind is the shape of a problem, one repair each.
+type HealthReasonKind int32
+
+const (
+	HealthReasonKind_HEALTH_REASON_KIND_UNSPECIFIED HealthReasonKind = 0
+	// The account names a provider this build has no adapter for.
+	HealthReasonKind_HEALTH_REASON_KIND_NO_ADAPTER HealthReasonKind = 1
+	// A client cannot be built from the account's data.
+	HealthReasonKind_HEALTH_REASON_KIND_CANNOT_BUILD HealthReasonKind = 2
+	// Another account for the same provider is used first; this one is never asked.
+	HealthReasonKind_HEALTH_REASON_KIND_SHADOWED HealthReasonKind = 3
+	// The provider's plan is spent for unattended work, or it is pausing after
+	// refusals. until says when it may be asked again.
+	HealthReasonKind_HEALTH_REASON_KIND_PROVIDER_PAUSED HealthReasonKind = 4
+	// One chain of a wallet account fails whole, sync after sync.
+	HealthReasonKind_HEALTH_REASON_KIND_CHAIN_FAILING HealthReasonKind = 5
+	// The balance sweep holds the account back after syncs that left it no fresher.
+	HealthReasonKind_HEALTH_REASON_KIND_SWEEP_DEFERRED HealthReasonKind = 6
+)
+
+// Enum value maps for HealthReasonKind.
+var (
+	HealthReasonKind_name = map[int32]string{
+		0: "HEALTH_REASON_KIND_UNSPECIFIED",
+		1: "HEALTH_REASON_KIND_NO_ADAPTER",
+		2: "HEALTH_REASON_KIND_CANNOT_BUILD",
+		3: "HEALTH_REASON_KIND_SHADOWED",
+		4: "HEALTH_REASON_KIND_PROVIDER_PAUSED",
+		5: "HEALTH_REASON_KIND_CHAIN_FAILING",
+		6: "HEALTH_REASON_KIND_SWEEP_DEFERRED",
+	}
+	HealthReasonKind_value = map[string]int32{
+		"HEALTH_REASON_KIND_UNSPECIFIED":     0,
+		"HEALTH_REASON_KIND_NO_ADAPTER":      1,
+		"HEALTH_REASON_KIND_CANNOT_BUILD":    2,
+		"HEALTH_REASON_KIND_SHADOWED":        3,
+		"HEALTH_REASON_KIND_PROVIDER_PAUSED": 4,
+		"HEALTH_REASON_KIND_CHAIN_FAILING":   5,
+		"HEALTH_REASON_KIND_SWEEP_DEFERRED":  6,
+	}
+)
+
+func (x HealthReasonKind) Enum() *HealthReasonKind {
+	p := new(HealthReasonKind)
+	*p = x
+	return p
+}
+
+func (x HealthReasonKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (HealthReasonKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_v1_portfolio_proto_enumTypes[7].Descriptor()
+}
+
+func (HealthReasonKind) Type() protoreflect.EnumType {
+	return &file_v1_portfolio_proto_enumTypes[7]
+}
+
+func (x HealthReasonKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use HealthReasonKind.Descriptor instead.
+func (HealthReasonKind) EnumDescriptor() ([]byte, []int) {
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{7}
+}
+
 // Portfolio represents a collection of holdings managed by a user.
 type Portfolio struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -4073,6 +4204,350 @@ func (x *ResetAccountSweepScheduleResponse) GetAccountsFreed() uint32 {
 	return 0
 }
 
+// HealthReason is one thing wrong, as a phrase the server wrote and the fields
+// the phrase was built from.
+type HealthReason struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Kind  HealthReasonKind       `protobuf:"varint,1,opt,name=kind,proto3,enum=eye.v1.HealthReasonKind" json:"kind,omitempty"`
+	// Safe to show anyone who may see the account or source. Never carries
+	// upstream error text.
+	Message string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	// The chain that fails, for CHAIN_FAILING.
+	Chain *string `protobuf:"bytes,3,opt,name=chain,proto3,oneof" json:"chain,omitempty"`
+	// Consecutive failures: failed syncs of a chain, or syncs that left an
+	// account no fresher.
+	Failures uint32 `protobuf:"varint,4,opt,name=failures,proto3" json:"failures,omitempty"`
+	// When the run of failures began.
+	Since *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=since,proto3,oneof" json:"since,omitempty"`
+	// When the account or source will be tried again.
+	Until *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=until,proto3,oneof" json:"until,omitempty"`
+	// Upstream error text as received. Returned to admins only: it is somebody
+	// else's words, and may describe somebody else's credential.
+	Detail        *string `protobuf:"bytes,7,opt,name=detail,proto3,oneof" json:"detail,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HealthReason) Reset() {
+	*x = HealthReason{}
+	mi := &file_v1_portfolio_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HealthReason) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HealthReason) ProtoMessage() {}
+
+func (x *HealthReason) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_portfolio_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HealthReason.ProtoReflect.Descriptor instead.
+func (*HealthReason) Descriptor() ([]byte, []int) {
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{53}
+}
+
+func (x *HealthReason) GetKind() HealthReasonKind {
+	if x != nil {
+		return x.Kind
+	}
+	return HealthReasonKind_HEALTH_REASON_KIND_UNSPECIFIED
+}
+
+func (x *HealthReason) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *HealthReason) GetChain() string {
+	if x != nil && x.Chain != nil {
+		return *x.Chain
+	}
+	return ""
+}
+
+func (x *HealthReason) GetFailures() uint32 {
+	if x != nil {
+		return x.Failures
+	}
+	return 0
+}
+
+func (x *HealthReason) GetSince() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Since
+	}
+	return nil
+}
+
+func (x *HealthReason) GetUntil() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Until
+	}
+	return nil
+}
+
+func (x *HealthReason) GetDetail() string {
+	if x != nil && x.Detail != nil {
+		return *x.Detail
+	}
+	return ""
+}
+
+// AccountHealth is one of the caller's accounts.
+type AccountHealth struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	AccountName   string                 `protobuf:"bytes,2,opt,name=account_name,json=accountName,proto3" json:"account_name,omitempty"`
+	State         HealthState            `protobuf:"varint,3,opt,name=state,proto3,enum=eye.v1.HealthState" json:"state,omitempty"`
+	Reasons       []*HealthReason        `protobuf:"bytes,4,rep,name=reasons,proto3" json:"reasons,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AccountHealth) Reset() {
+	*x = AccountHealth{}
+	mi := &file_v1_portfolio_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountHealth) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountHealth) ProtoMessage() {}
+
+func (x *AccountHealth) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_portfolio_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountHealth.ProtoReflect.Descriptor instead.
+func (*AccountHealth) Descriptor() ([]byte, []int) {
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *AccountHealth) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *AccountHealth) GetAccountName() string {
+	if x != nil {
+		return x.AccountName
+	}
+	return ""
+}
+
+func (x *AccountHealth) GetState() HealthState {
+	if x != nil {
+		return x.State
+	}
+	return HealthState_HEALTH_STATE_UNSPECIFIED
+}
+
+func (x *AccountHealth) GetReasons() []*HealthReason {
+	if x != nil {
+		return x.Reasons
+	}
+	return nil
+}
+
+// SourceHealth is one price source the caller's prices depend on, named by
+// provider slug only: a shared source is served by an account the caller may
+// not own, and nothing here says which.
+type SourceHealth struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Provider      string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
+	State         HealthState            `protobuf:"varint,2,opt,name=state,proto3,enum=eye.v1.HealthState" json:"state,omitempty"`
+	Reasons       []*HealthReason        `protobuf:"bytes,3,rep,name=reasons,proto3" json:"reasons,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SourceHealth) Reset() {
+	*x = SourceHealth{}
+	mi := &file_v1_portfolio_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SourceHealth) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SourceHealth) ProtoMessage() {}
+
+func (x *SourceHealth) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_portfolio_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SourceHealth.ProtoReflect.Descriptor instead.
+func (*SourceHealth) Descriptor() ([]byte, []int) {
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *SourceHealth) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *SourceHealth) GetState() HealthState {
+	if x != nil {
+		return x.State
+	}
+	return HealthState_HEALTH_STATE_UNSPECIFIED
+}
+
+func (x *SourceHealth) GetReasons() []*HealthReason {
+	if x != nil {
+		return x.Reasons
+	}
+	return nil
+}
+
+type GetAccountHealthRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Limit the accounts to one. Sources are reported in full either way: they
+	// are what the account's prices depend on.
+	AccountId     *string `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3,oneof" json:"account_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAccountHealthRequest) Reset() {
+	*x = GetAccountHealthRequest{}
+	mi := &file_v1_portfolio_proto_msgTypes[56]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAccountHealthRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAccountHealthRequest) ProtoMessage() {}
+
+func (x *GetAccountHealthRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_portfolio_proto_msgTypes[56]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAccountHealthRequest.ProtoReflect.Descriptor instead.
+func (*GetAccountHealthRequest) Descriptor() ([]byte, []int) {
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{56}
+}
+
+func (x *GetAccountHealthRequest) GetAccountId() string {
+	if x != nil && x.AccountId != nil {
+		return *x.AccountId
+	}
+	return ""
+}
+
+type GetAccountHealthResponse struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Accounts []*AccountHealth       `protobuf:"bytes,1,rep,name=accounts,proto3" json:"accounts,omitempty"`
+	// Empty with sources_state UNKNOWN when this instance does not resolve
+	// price sources in-process.
+	Sources []*SourceHealth `protobuf:"bytes,2,rep,name=sources,proto3" json:"sources,omitempty"`
+	// The worst state among sources, or UNKNOWN when they could not be read.
+	SourcesState  HealthState `protobuf:"varint,3,opt,name=sources_state,json=sourcesState,proto3,enum=eye.v1.HealthState" json:"sources_state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAccountHealthResponse) Reset() {
+	*x = GetAccountHealthResponse{}
+	mi := &file_v1_portfolio_proto_msgTypes[57]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAccountHealthResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAccountHealthResponse) ProtoMessage() {}
+
+func (x *GetAccountHealthResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_portfolio_proto_msgTypes[57]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAccountHealthResponse.ProtoReflect.Descriptor instead.
+func (*GetAccountHealthResponse) Descriptor() ([]byte, []int) {
+	return file_v1_portfolio_proto_rawDescGZIP(), []int{57}
+}
+
+func (x *GetAccountHealthResponse) GetAccounts() []*AccountHealth {
+	if x != nil {
+		return x.Accounts
+	}
+	return nil
+}
+
+func (x *GetAccountHealthResponse) GetSources() []*SourceHealth {
+	if x != nil {
+		return x.Sources
+	}
+	return nil
+}
+
+func (x *GetAccountHealthResponse) GetSourcesState() HealthState {
+	if x != nil {
+		return x.SourcesState
+	}
+	return HealthState_HEALTH_STATE_UNSPECIFIED
+}
+
 var File_v1_portfolio_proto protoreflect.FileDescriptor
 
 const file_v1_portfolio_proto_rawDesc = "" +
@@ -4440,7 +4915,37 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\vaccount_ids\x18\x01 \x03(\tR\n" +
 	"accountIds\"J\n" +
 	"!ResetAccountSweepScheduleResponse\x12%\n" +
-	"\x0eaccounts_freed\x18\x01 \x01(\rR\raccountsFreed*\xc2\x01\n" +
+	"\x0eaccounts_freed\x18\x01 \x01(\rR\raccountsFreed\"\xc1\x02\n" +
+	"\fHealthReason\x12,\n" +
+	"\x04kind\x18\x01 \x01(\x0e2\x18.eye.v1.HealthReasonKindR\x04kind\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12\x19\n" +
+	"\x05chain\x18\x03 \x01(\tH\x00R\x05chain\x88\x01\x01\x12\x1a\n" +
+	"\bfailures\x18\x04 \x01(\rR\bfailures\x125\n" +
+	"\x05since\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampH\x01R\x05since\x88\x01\x01\x125\n" +
+	"\x05until\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampH\x02R\x05until\x88\x01\x01\x12\x1b\n" +
+	"\x06detail\x18\a \x01(\tH\x03R\x06detail\x88\x01\x01B\b\n" +
+	"\x06_chainB\b\n" +
+	"\x06_sinceB\b\n" +
+	"\x06_untilB\t\n" +
+	"\a_detail\"\xac\x01\n" +
+	"\rAccountHealth\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\x12!\n" +
+	"\faccount_name\x18\x02 \x01(\tR\vaccountName\x12)\n" +
+	"\x05state\x18\x03 \x01(\x0e2\x13.eye.v1.HealthStateR\x05state\x12.\n" +
+	"\areasons\x18\x04 \x03(\v2\x14.eye.v1.HealthReasonR\areasons\"\x85\x01\n" +
+	"\fSourceHealth\x12\x1a\n" +
+	"\bprovider\x18\x01 \x01(\tR\bprovider\x12)\n" +
+	"\x05state\x18\x02 \x01(\x0e2\x13.eye.v1.HealthStateR\x05state\x12.\n" +
+	"\areasons\x18\x03 \x03(\v2\x14.eye.v1.HealthReasonR\areasons\"L\n" +
+	"\x17GetAccountHealthRequest\x12\"\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tH\x00R\taccountId\x88\x01\x01B\r\n" +
+	"\v_account_id\"\xb7\x01\n" +
+	"\x18GetAccountHealthResponse\x121\n" +
+	"\baccounts\x18\x01 \x03(\v2\x15.eye.v1.AccountHealthR\baccounts\x12.\n" +
+	"\asources\x18\x02 \x03(\v2\x14.eye.v1.SourceHealthR\asources\x128\n" +
+	"\rsources_state\x18\x03 \x01(\x0e2\x13.eye.v1.HealthStateR\fsourcesState*\xc2\x01\n" +
 	"\vAccountType\x12\x1c\n" +
 	"\x18ACCOUNT_TYPE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13ACCOUNT_TYPE_WALLET\x10\x01\x12\x19\n" +
@@ -4478,7 +4983,21 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x19PROVIDER_KIND_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13PROVIDER_KIND_PRICE\x10\x01\x12\x18\n" +
 	"\x14PROVIDER_KIND_WALLET\x10\x02\x12\x1a\n" +
-	"\x16PROVIDER_KIND_EXCHANGE\x10\x032\x95\x1a\n" +
+	"\x16PROVIDER_KIND_EXCHANGE\x10\x03*\x90\x01\n" +
+	"\vHealthState\x12\x1c\n" +
+	"\x18HEALTH_STATE_UNSPECIFIED\x10\x00\x12\x13\n" +
+	"\x0fHEALTH_STATE_OK\x10\x01\x12\x19\n" +
+	"\x15HEALTH_STATE_DEGRADED\x10\x02\x12\x19\n" +
+	"\x15HEALTH_STATE_UNUSABLE\x10\x03\x12\x18\n" +
+	"\x14HEALTH_STATE_UNKNOWN\x10\x04*\x94\x02\n" +
+	"\x10HealthReasonKind\x12\"\n" +
+	"\x1eHEALTH_REASON_KIND_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dHEALTH_REASON_KIND_NO_ADAPTER\x10\x01\x12#\n" +
+	"\x1fHEALTH_REASON_KIND_CANNOT_BUILD\x10\x02\x12\x1f\n" +
+	"\x1bHEALTH_REASON_KIND_SHADOWED\x10\x03\x12&\n" +
+	"\"HEALTH_REASON_KIND_PROVIDER_PAUSED\x10\x04\x12$\n" +
+	" HEALTH_REASON_KIND_CHAIN_FAILING\x10\x05\x12%\n" +
+	"!HEALTH_REASON_KIND_SWEEP_DEFERRED\x10\x062\x90\x1b\n" +
 	"\x10PortfolioService\x12k\n" +
 	"\x0fCreatePortfolio\x12\x1e.eye.v1.CreatePortfolioRequest\x1a\x11.eye.v1.Portfolio\"%\x82\xd3\xe4\x93\x02\x1f:\tportfolio\"\x12/api/v1/portfolios\x12_\n" +
 	"\fGetPortfolio\x12\x1b.eye.v1.GetPortfolioRequest\x1a\x11.eye.v1.Portfolio\"\x1f\x82\xd3\xe4\x93\x02\x19\x12\x17/api/v1/portfolios/{id}\x12z\n" +
@@ -4509,7 +5028,8 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x10ListTransactions\x12\x1f.eye.v1.ListTransactionsRequest\x1a .eye.v1.ListTransactionsResponse\"\x1c\x82\xd3\xe4\x93\x02\x16\x12\x14/api/v1/transactions\x12r\n" +
 	"\vSyncAccount\x12\x1a.eye.v1.SyncAccountRequest\x1a\x1b.eye.v1.SyncAccountResponse\"*\x82\xd3\xe4\x93\x02$\"\"/api/v1/accounts/{account_id}/sync\x12\x96\x01\n" +
 	"\x17GetAccountSweepSchedule\x12&.eye.v1.GetAccountSweepScheduleRequest\x1a'.eye.v1.GetAccountSweepScheduleResponse\"*\x82\xd3\xe4\x93\x02$:\x01*\"\x1f/api/v1/accounts/sweep-schedule\x12\xa2\x01\n" +
-	"\x19ResetAccountSweepSchedule\x12(.eye.v1.ResetAccountSweepScheduleRequest\x1a).eye.v1.ResetAccountSweepScheduleResponse\"0\x82\xd3\xe4\x93\x02*:\x01*\"%/api/v1/accounts/sweep-schedule/resetB\x81\x01\n" +
+	"\x19ResetAccountSweepSchedule\x12(.eye.v1.ResetAccountSweepScheduleRequest\x1a).eye.v1.ResetAccountSweepScheduleResponse\"0\x82\xd3\xe4\x93\x02*:\x01*\"%/api/v1/accounts/sweep-schedule/reset\x12y\n" +
+	"\x10GetAccountHealth\x12\x1f.eye.v1.GetAccountHealthRequest\x1a .eye.v1.GetAccountHealthResponse\"\"\x82\xd3\xe4\x93\x02\x1c:\x01*\"\x17/api/v1/accounts/healthB\x81\x01\n" +
 	"\n" +
 	"com.eye.v1B\x0ePortfolioProtoP\x01Z*github.com/foxcool/greedy-eye/api/v1;apiv1\xa2\x02\x03EXX\xaa\x02\x06Eye.V1\xca\x02\x06Eye\\V1\xe2\x02\x12Eye\\V1\\GPBMetadata\xea\x02\aEye::V1b\x06proto3"
 
@@ -4525,8 +5045,8 @@ func file_v1_portfolio_proto_rawDescGZIP() []byte {
 	return file_v1_portfolio_proto_rawDescData
 }
 
-var file_v1_portfolio_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_v1_portfolio_proto_msgTypes = make([]protoimpl.MessageInfo, 57)
+var file_v1_portfolio_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
+var file_v1_portfolio_proto_msgTypes = make([]protoimpl.MessageInfo, 62)
 var file_v1_portfolio_proto_goTypes = []any{
 	(AccountType)(0),                          // 0: eye.v1.AccountType
 	(ProvenanceSource)(0),                     // 1: eye.v1.ProvenanceSource
@@ -4534,196 +5054,215 @@ var file_v1_portfolio_proto_goTypes = []any{
 	(TransactionStatus)(0),                    // 3: eye.v1.TransactionStatus
 	(ImportAction)(0),                         // 4: eye.v1.ImportAction
 	(ProviderKind)(0),                         // 5: eye.v1.ProviderKind
-	(*Portfolio)(nil),                         // 6: eye.v1.Portfolio
-	(*Holding)(nil),                           // 7: eye.v1.Holding
-	(*Account)(nil),                           // 8: eye.v1.Account
-	(*Transaction)(nil),                       // 9: eye.v1.Transaction
-	(*CreatePortfolioRequest)(nil),            // 10: eye.v1.CreatePortfolioRequest
-	(*GetPortfolioRequest)(nil),               // 11: eye.v1.GetPortfolioRequest
-	(*UpdatePortfolioRequest)(nil),            // 12: eye.v1.UpdatePortfolioRequest
-	(*DeletePortfolioRequest)(nil),            // 13: eye.v1.DeletePortfolioRequest
-	(*ListPortfoliosRequest)(nil),             // 14: eye.v1.ListPortfoliosRequest
-	(*ListPortfoliosResponse)(nil),            // 15: eye.v1.ListPortfoliosResponse
-	(*CalculatePortfolioValueRequest)(nil),    // 16: eye.v1.CalculatePortfolioValueRequest
-	(*PortfolioValueResponse)(nil),            // 17: eye.v1.PortfolioValueResponse
-	(*ListUnpricedHoldingsRequest)(nil),       // 18: eye.v1.ListUnpricedHoldingsRequest
-	(*ListUnpricedHoldingsResponse)(nil),      // 19: eye.v1.ListUnpricedHoldingsResponse
-	(*GetPortfolioPerformanceRequest)(nil),    // 20: eye.v1.GetPortfolioPerformanceRequest
-	(*PortfolioPerformanceResponse)(nil),      // 21: eye.v1.PortfolioPerformanceResponse
-	(*CreateHoldingRequest)(nil),              // 22: eye.v1.CreateHoldingRequest
-	(*GetHoldingRequest)(nil),                 // 23: eye.v1.GetHoldingRequest
-	(*UpdateHoldingRequest)(nil),              // 24: eye.v1.UpdateHoldingRequest
-	(*DeleteHoldingRequest)(nil),              // 25: eye.v1.DeleteHoldingRequest
-	(*ImportPositionItem)(nil),                // 26: eye.v1.ImportPositionItem
-	(*ImportPositionsRequest)(nil),            // 27: eye.v1.ImportPositionsRequest
-	(*ImportPositionResult)(nil),              // 28: eye.v1.ImportPositionResult
-	(*ImportPositionsResponse)(nil),           // 29: eye.v1.ImportPositionsResponse
-	(*ImportTransactionItem)(nil),             // 30: eye.v1.ImportTransactionItem
-	(*ImportTransactionsRequest)(nil),         // 31: eye.v1.ImportTransactionsRequest
-	(*ImportTransactionResult)(nil),           // 32: eye.v1.ImportTransactionResult
-	(*ImportTransactionsResponse)(nil),        // 33: eye.v1.ImportTransactionsResponse
-	(*ListHoldingsRequest)(nil),               // 34: eye.v1.ListHoldingsRequest
-	(*ListHoldingsResponse)(nil),              // 35: eye.v1.ListHoldingsResponse
-	(*CreateAccountRequest)(nil),              // 36: eye.v1.CreateAccountRequest
-	(*GetAccountRequest)(nil),                 // 37: eye.v1.GetAccountRequest
-	(*UpdateAccountRequest)(nil),              // 38: eye.v1.UpdateAccountRequest
-	(*DeleteAccountRequest)(nil),              // 39: eye.v1.DeleteAccountRequest
-	(*ListAccountsRequest)(nil),               // 40: eye.v1.ListAccountsRequest
-	(*ListAccountsResponse)(nil),              // 41: eye.v1.ListAccountsResponse
-	(*ListProvidersRequest)(nil),              // 42: eye.v1.ListProvidersRequest
-	(*ListProvidersResponse)(nil),             // 43: eye.v1.ListProvidersResponse
-	(*Provider)(nil),                          // 44: eye.v1.Provider
-	(*ProviderField)(nil),                     // 45: eye.v1.ProviderField
-	(*ProviderTier)(nil),                      // 46: eye.v1.ProviderTier
-	(*CreateTransactionRequest)(nil),          // 47: eye.v1.CreateTransactionRequest
-	(*GetTransactionRequest)(nil),             // 48: eye.v1.GetTransactionRequest
-	(*UpdateTransactionRequest)(nil),          // 49: eye.v1.UpdateTransactionRequest
-	(*ListTransactionsRequest)(nil),           // 50: eye.v1.ListTransactionsRequest
-	(*ListTransactionsResponse)(nil),          // 51: eye.v1.ListTransactionsResponse
-	(*SyncAccountRequest)(nil),                // 52: eye.v1.SyncAccountRequest
-	(*SyncAccountResponse)(nil),               // 53: eye.v1.SyncAccountResponse
-	(*GetAccountSweepScheduleRequest)(nil),    // 54: eye.v1.GetAccountSweepScheduleRequest
-	(*GetAccountSweepScheduleResponse)(nil),   // 55: eye.v1.GetAccountSweepScheduleResponse
-	(*AccountSweepEntry)(nil),                 // 56: eye.v1.AccountSweepEntry
-	(*ResetAccountSweepScheduleRequest)(nil),  // 57: eye.v1.ResetAccountSweepScheduleRequest
-	(*ResetAccountSweepScheduleResponse)(nil), // 58: eye.v1.ResetAccountSweepScheduleResponse
-	nil,                           // 59: eye.v1.Portfolio.DataEntry
-	nil,                           // 60: eye.v1.Account.DataEntry
-	nil,                           // 61: eye.v1.Transaction.DataEntry
-	nil,                           // 62: eye.v1.ImportTransactionItem.DataEntry
-	(*timestamppb.Timestamp)(nil), // 63: google.protobuf.Timestamp
-	(*fieldmaskpb.FieldMask)(nil), // 64: google.protobuf.FieldMask
-	(*ValuationCoverage)(nil),     // 65: eye.v1.ValuationCoverage
-	(UnpricedReason)(0),           // 66: eye.v1.UnpricedReason
-	(*UnpricedHolding)(nil),       // 67: eye.v1.UnpricedHolding
-	(AssetType)(0),                // 68: eye.v1.AssetType
-	(*anypb.Any)(nil),             // 69: google.protobuf.Any
-	(*emptypb.Empty)(nil),         // 70: google.protobuf.Empty
+	(HealthState)(0),                          // 6: eye.v1.HealthState
+	(HealthReasonKind)(0),                     // 7: eye.v1.HealthReasonKind
+	(*Portfolio)(nil),                         // 8: eye.v1.Portfolio
+	(*Holding)(nil),                           // 9: eye.v1.Holding
+	(*Account)(nil),                           // 10: eye.v1.Account
+	(*Transaction)(nil),                       // 11: eye.v1.Transaction
+	(*CreatePortfolioRequest)(nil),            // 12: eye.v1.CreatePortfolioRequest
+	(*GetPortfolioRequest)(nil),               // 13: eye.v1.GetPortfolioRequest
+	(*UpdatePortfolioRequest)(nil),            // 14: eye.v1.UpdatePortfolioRequest
+	(*DeletePortfolioRequest)(nil),            // 15: eye.v1.DeletePortfolioRequest
+	(*ListPortfoliosRequest)(nil),             // 16: eye.v1.ListPortfoliosRequest
+	(*ListPortfoliosResponse)(nil),            // 17: eye.v1.ListPortfoliosResponse
+	(*CalculatePortfolioValueRequest)(nil),    // 18: eye.v1.CalculatePortfolioValueRequest
+	(*PortfolioValueResponse)(nil),            // 19: eye.v1.PortfolioValueResponse
+	(*ListUnpricedHoldingsRequest)(nil),       // 20: eye.v1.ListUnpricedHoldingsRequest
+	(*ListUnpricedHoldingsResponse)(nil),      // 21: eye.v1.ListUnpricedHoldingsResponse
+	(*GetPortfolioPerformanceRequest)(nil),    // 22: eye.v1.GetPortfolioPerformanceRequest
+	(*PortfolioPerformanceResponse)(nil),      // 23: eye.v1.PortfolioPerformanceResponse
+	(*CreateHoldingRequest)(nil),              // 24: eye.v1.CreateHoldingRequest
+	(*GetHoldingRequest)(nil),                 // 25: eye.v1.GetHoldingRequest
+	(*UpdateHoldingRequest)(nil),              // 26: eye.v1.UpdateHoldingRequest
+	(*DeleteHoldingRequest)(nil),              // 27: eye.v1.DeleteHoldingRequest
+	(*ImportPositionItem)(nil),                // 28: eye.v1.ImportPositionItem
+	(*ImportPositionsRequest)(nil),            // 29: eye.v1.ImportPositionsRequest
+	(*ImportPositionResult)(nil),              // 30: eye.v1.ImportPositionResult
+	(*ImportPositionsResponse)(nil),           // 31: eye.v1.ImportPositionsResponse
+	(*ImportTransactionItem)(nil),             // 32: eye.v1.ImportTransactionItem
+	(*ImportTransactionsRequest)(nil),         // 33: eye.v1.ImportTransactionsRequest
+	(*ImportTransactionResult)(nil),           // 34: eye.v1.ImportTransactionResult
+	(*ImportTransactionsResponse)(nil),        // 35: eye.v1.ImportTransactionsResponse
+	(*ListHoldingsRequest)(nil),               // 36: eye.v1.ListHoldingsRequest
+	(*ListHoldingsResponse)(nil),              // 37: eye.v1.ListHoldingsResponse
+	(*CreateAccountRequest)(nil),              // 38: eye.v1.CreateAccountRequest
+	(*GetAccountRequest)(nil),                 // 39: eye.v1.GetAccountRequest
+	(*UpdateAccountRequest)(nil),              // 40: eye.v1.UpdateAccountRequest
+	(*DeleteAccountRequest)(nil),              // 41: eye.v1.DeleteAccountRequest
+	(*ListAccountsRequest)(nil),               // 42: eye.v1.ListAccountsRequest
+	(*ListAccountsResponse)(nil),              // 43: eye.v1.ListAccountsResponse
+	(*ListProvidersRequest)(nil),              // 44: eye.v1.ListProvidersRequest
+	(*ListProvidersResponse)(nil),             // 45: eye.v1.ListProvidersResponse
+	(*Provider)(nil),                          // 46: eye.v1.Provider
+	(*ProviderField)(nil),                     // 47: eye.v1.ProviderField
+	(*ProviderTier)(nil),                      // 48: eye.v1.ProviderTier
+	(*CreateTransactionRequest)(nil),          // 49: eye.v1.CreateTransactionRequest
+	(*GetTransactionRequest)(nil),             // 50: eye.v1.GetTransactionRequest
+	(*UpdateTransactionRequest)(nil),          // 51: eye.v1.UpdateTransactionRequest
+	(*ListTransactionsRequest)(nil),           // 52: eye.v1.ListTransactionsRequest
+	(*ListTransactionsResponse)(nil),          // 53: eye.v1.ListTransactionsResponse
+	(*SyncAccountRequest)(nil),                // 54: eye.v1.SyncAccountRequest
+	(*SyncAccountResponse)(nil),               // 55: eye.v1.SyncAccountResponse
+	(*GetAccountSweepScheduleRequest)(nil),    // 56: eye.v1.GetAccountSweepScheduleRequest
+	(*GetAccountSweepScheduleResponse)(nil),   // 57: eye.v1.GetAccountSweepScheduleResponse
+	(*AccountSweepEntry)(nil),                 // 58: eye.v1.AccountSweepEntry
+	(*ResetAccountSweepScheduleRequest)(nil),  // 59: eye.v1.ResetAccountSweepScheduleRequest
+	(*ResetAccountSweepScheduleResponse)(nil), // 60: eye.v1.ResetAccountSweepScheduleResponse
+	(*HealthReason)(nil),                      // 61: eye.v1.HealthReason
+	(*AccountHealth)(nil),                     // 62: eye.v1.AccountHealth
+	(*SourceHealth)(nil),                      // 63: eye.v1.SourceHealth
+	(*GetAccountHealthRequest)(nil),           // 64: eye.v1.GetAccountHealthRequest
+	(*GetAccountHealthResponse)(nil),          // 65: eye.v1.GetAccountHealthResponse
+	nil,                                       // 66: eye.v1.Portfolio.DataEntry
+	nil,                                       // 67: eye.v1.Account.DataEntry
+	nil,                                       // 68: eye.v1.Transaction.DataEntry
+	nil,                                       // 69: eye.v1.ImportTransactionItem.DataEntry
+	(*timestamppb.Timestamp)(nil),             // 70: google.protobuf.Timestamp
+	(*fieldmaskpb.FieldMask)(nil),             // 71: google.protobuf.FieldMask
+	(*ValuationCoverage)(nil),                 // 72: eye.v1.ValuationCoverage
+	(UnpricedReason)(0),                       // 73: eye.v1.UnpricedReason
+	(*UnpricedHolding)(nil),                   // 74: eye.v1.UnpricedHolding
+	(AssetType)(0),                            // 75: eye.v1.AssetType
+	(*anypb.Any)(nil),                         // 76: google.protobuf.Any
+	(*emptypb.Empty)(nil),                     // 77: google.protobuf.Empty
 }
 var file_v1_portfolio_proto_depIdxs = []int32{
-	59, // 0: eye.v1.Portfolio.data:type_name -> eye.v1.Portfolio.DataEntry
-	63, // 1: eye.v1.Portfolio.created_at:type_name -> google.protobuf.Timestamp
-	63, // 2: eye.v1.Portfolio.updated_at:type_name -> google.protobuf.Timestamp
-	63, // 3: eye.v1.Holding.created_at:type_name -> google.protobuf.Timestamp
-	63, // 4: eye.v1.Holding.updated_at:type_name -> google.protobuf.Timestamp
-	1,  // 5: eye.v1.Holding.source:type_name -> eye.v1.ProvenanceSource
-	0,  // 6: eye.v1.Account.type:type_name -> eye.v1.AccountType
-	60, // 7: eye.v1.Account.data:type_name -> eye.v1.Account.DataEntry
-	63, // 8: eye.v1.Account.created_at:type_name -> google.protobuf.Timestamp
-	63, // 9: eye.v1.Account.updated_at:type_name -> google.protobuf.Timestamp
-	63, // 10: eye.v1.Transaction.created_at:type_name -> google.protobuf.Timestamp
-	63, // 11: eye.v1.Transaction.updated_at:type_name -> google.protobuf.Timestamp
-	2,  // 12: eye.v1.Transaction.type:type_name -> eye.v1.TransactionType
-	3,  // 13: eye.v1.Transaction.status:type_name -> eye.v1.TransactionStatus
-	61, // 14: eye.v1.Transaction.data:type_name -> eye.v1.Transaction.DataEntry
-	1,  // 15: eye.v1.Transaction.source:type_name -> eye.v1.ProvenanceSource
-	6,  // 16: eye.v1.CreatePortfolioRequest.portfolio:type_name -> eye.v1.Portfolio
-	6,  // 17: eye.v1.UpdatePortfolioRequest.portfolio:type_name -> eye.v1.Portfolio
-	64, // 18: eye.v1.UpdatePortfolioRequest.update_mask:type_name -> google.protobuf.FieldMask
-	6,  // 19: eye.v1.ListPortfoliosResponse.portfolios:type_name -> eye.v1.Portfolio
-	63, // 20: eye.v1.CalculatePortfolioValueRequest.at_time:type_name -> google.protobuf.Timestamp
-	63, // 21: eye.v1.PortfolioValueResponse.calculation_time:type_name -> google.protobuf.Timestamp
-	65, // 22: eye.v1.PortfolioValueResponse.coverage:type_name -> eye.v1.ValuationCoverage
-	66, // 23: eye.v1.ListUnpricedHoldingsRequest.reason:type_name -> eye.v1.UnpricedReason
-	67, // 24: eye.v1.ListUnpricedHoldingsResponse.holdings:type_name -> eye.v1.UnpricedHolding
-	63, // 25: eye.v1.GetPortfolioPerformanceRequest.from:type_name -> google.protobuf.Timestamp
-	63, // 26: eye.v1.GetPortfolioPerformanceRequest.to:type_name -> google.protobuf.Timestamp
-	7,  // 27: eye.v1.CreateHoldingRequest.holding:type_name -> eye.v1.Holding
-	7,  // 28: eye.v1.UpdateHoldingRequest.holding:type_name -> eye.v1.Holding
-	64, // 29: eye.v1.UpdateHoldingRequest.update_mask:type_name -> google.protobuf.FieldMask
-	68, // 30: eye.v1.ImportPositionItem.asset_type:type_name -> eye.v1.AssetType
-	26, // 31: eye.v1.ImportPositionsRequest.positions:type_name -> eye.v1.ImportPositionItem
-	4,  // 32: eye.v1.ImportPositionResult.action:type_name -> eye.v1.ImportAction
-	28, // 33: eye.v1.ImportPositionsResponse.items:type_name -> eye.v1.ImportPositionResult
-	2,  // 34: eye.v1.ImportTransactionItem.type:type_name -> eye.v1.TransactionType
-	3,  // 35: eye.v1.ImportTransactionItem.status:type_name -> eye.v1.TransactionStatus
-	62, // 36: eye.v1.ImportTransactionItem.data:type_name -> eye.v1.ImportTransactionItem.DataEntry
-	30, // 37: eye.v1.ImportTransactionsRequest.transactions:type_name -> eye.v1.ImportTransactionItem
-	4,  // 38: eye.v1.ImportTransactionResult.action:type_name -> eye.v1.ImportAction
-	32, // 39: eye.v1.ImportTransactionsResponse.items:type_name -> eye.v1.ImportTransactionResult
-	7,  // 40: eye.v1.ListHoldingsResponse.holdings:type_name -> eye.v1.Holding
-	8,  // 41: eye.v1.CreateAccountRequest.account:type_name -> eye.v1.Account
-	8,  // 42: eye.v1.UpdateAccountRequest.account:type_name -> eye.v1.Account
-	64, // 43: eye.v1.UpdateAccountRequest.update_mask:type_name -> google.protobuf.FieldMask
-	0,  // 44: eye.v1.ListAccountsRequest.type:type_name -> eye.v1.AccountType
-	8,  // 45: eye.v1.ListAccountsResponse.accounts:type_name -> eye.v1.Account
-	44, // 46: eye.v1.ListProvidersResponse.providers:type_name -> eye.v1.Provider
-	5,  // 47: eye.v1.Provider.kinds:type_name -> eye.v1.ProviderKind
-	45, // 48: eye.v1.Provider.fields:type_name -> eye.v1.ProviderField
-	46, // 49: eye.v1.Provider.tiers:type_name -> eye.v1.ProviderTier
-	9,  // 50: eye.v1.CreateTransactionRequest.transaction:type_name -> eye.v1.Transaction
-	9,  // 51: eye.v1.UpdateTransactionRequest.transaction:type_name -> eye.v1.Transaction
-	64, // 52: eye.v1.UpdateTransactionRequest.update_mask:type_name -> google.protobuf.FieldMask
-	2,  // 53: eye.v1.ListTransactionsRequest.type:type_name -> eye.v1.TransactionType
-	3,  // 54: eye.v1.ListTransactionsRequest.status:type_name -> eye.v1.TransactionStatus
-	63, // 55: eye.v1.ListTransactionsRequest.from:type_name -> google.protobuf.Timestamp
-	63, // 56: eye.v1.ListTransactionsRequest.to:type_name -> google.protobuf.Timestamp
-	9,  // 57: eye.v1.ListTransactionsResponse.transactions:type_name -> eye.v1.Transaction
-	56, // 58: eye.v1.GetAccountSweepScheduleResponse.accounts:type_name -> eye.v1.AccountSweepEntry
-	63, // 59: eye.v1.AccountSweepEntry.last_synced_at:type_name -> google.protobuf.Timestamp
-	63, // 60: eye.v1.AccountSweepEntry.next_attempt_at:type_name -> google.protobuf.Timestamp
-	69, // 61: eye.v1.Portfolio.DataEntry.value:type_name -> google.protobuf.Any
-	10, // 62: eye.v1.PortfolioService.CreatePortfolio:input_type -> eye.v1.CreatePortfolioRequest
-	11, // 63: eye.v1.PortfolioService.GetPortfolio:input_type -> eye.v1.GetPortfolioRequest
-	12, // 64: eye.v1.PortfolioService.UpdatePortfolio:input_type -> eye.v1.UpdatePortfolioRequest
-	13, // 65: eye.v1.PortfolioService.DeletePortfolio:input_type -> eye.v1.DeletePortfolioRequest
-	14, // 66: eye.v1.PortfolioService.ListPortfolios:input_type -> eye.v1.ListPortfoliosRequest
-	16, // 67: eye.v1.PortfolioService.CalculatePortfolioValue:input_type -> eye.v1.CalculatePortfolioValueRequest
-	18, // 68: eye.v1.PortfolioService.ListUnpricedHoldings:input_type -> eye.v1.ListUnpricedHoldingsRequest
-	20, // 69: eye.v1.PortfolioService.GetPortfolioPerformance:input_type -> eye.v1.GetPortfolioPerformanceRequest
-	22, // 70: eye.v1.PortfolioService.CreateHolding:input_type -> eye.v1.CreateHoldingRequest
-	23, // 71: eye.v1.PortfolioService.GetHolding:input_type -> eye.v1.GetHoldingRequest
-	24, // 72: eye.v1.PortfolioService.UpdateHolding:input_type -> eye.v1.UpdateHoldingRequest
-	25, // 73: eye.v1.PortfolioService.DeleteHolding:input_type -> eye.v1.DeleteHoldingRequest
-	27, // 74: eye.v1.PortfolioService.ImportPositions:input_type -> eye.v1.ImportPositionsRequest
-	31, // 75: eye.v1.PortfolioService.ImportTransactions:input_type -> eye.v1.ImportTransactionsRequest
-	34, // 76: eye.v1.PortfolioService.ListHoldings:input_type -> eye.v1.ListHoldingsRequest
-	36, // 77: eye.v1.PortfolioService.CreateAccount:input_type -> eye.v1.CreateAccountRequest
-	37, // 78: eye.v1.PortfolioService.GetAccount:input_type -> eye.v1.GetAccountRequest
-	38, // 79: eye.v1.PortfolioService.UpdateAccount:input_type -> eye.v1.UpdateAccountRequest
-	39, // 80: eye.v1.PortfolioService.DeleteAccount:input_type -> eye.v1.DeleteAccountRequest
-	40, // 81: eye.v1.PortfolioService.ListAccounts:input_type -> eye.v1.ListAccountsRequest
-	42, // 82: eye.v1.PortfolioService.ListProviders:input_type -> eye.v1.ListProvidersRequest
-	47, // 83: eye.v1.PortfolioService.CreateTransaction:input_type -> eye.v1.CreateTransactionRequest
-	48, // 84: eye.v1.PortfolioService.GetTransaction:input_type -> eye.v1.GetTransactionRequest
-	49, // 85: eye.v1.PortfolioService.UpdateTransaction:input_type -> eye.v1.UpdateTransactionRequest
-	50, // 86: eye.v1.PortfolioService.ListTransactions:input_type -> eye.v1.ListTransactionsRequest
-	52, // 87: eye.v1.PortfolioService.SyncAccount:input_type -> eye.v1.SyncAccountRequest
-	54, // 88: eye.v1.PortfolioService.GetAccountSweepSchedule:input_type -> eye.v1.GetAccountSweepScheduleRequest
-	57, // 89: eye.v1.PortfolioService.ResetAccountSweepSchedule:input_type -> eye.v1.ResetAccountSweepScheduleRequest
-	6,  // 90: eye.v1.PortfolioService.CreatePortfolio:output_type -> eye.v1.Portfolio
-	6,  // 91: eye.v1.PortfolioService.GetPortfolio:output_type -> eye.v1.Portfolio
-	6,  // 92: eye.v1.PortfolioService.UpdatePortfolio:output_type -> eye.v1.Portfolio
-	70, // 93: eye.v1.PortfolioService.DeletePortfolio:output_type -> google.protobuf.Empty
-	15, // 94: eye.v1.PortfolioService.ListPortfolios:output_type -> eye.v1.ListPortfoliosResponse
-	17, // 95: eye.v1.PortfolioService.CalculatePortfolioValue:output_type -> eye.v1.PortfolioValueResponse
-	19, // 96: eye.v1.PortfolioService.ListUnpricedHoldings:output_type -> eye.v1.ListUnpricedHoldingsResponse
-	21, // 97: eye.v1.PortfolioService.GetPortfolioPerformance:output_type -> eye.v1.PortfolioPerformanceResponse
-	7,  // 98: eye.v1.PortfolioService.CreateHolding:output_type -> eye.v1.Holding
-	7,  // 99: eye.v1.PortfolioService.GetHolding:output_type -> eye.v1.Holding
-	7,  // 100: eye.v1.PortfolioService.UpdateHolding:output_type -> eye.v1.Holding
-	70, // 101: eye.v1.PortfolioService.DeleteHolding:output_type -> google.protobuf.Empty
-	29, // 102: eye.v1.PortfolioService.ImportPositions:output_type -> eye.v1.ImportPositionsResponse
-	33, // 103: eye.v1.PortfolioService.ImportTransactions:output_type -> eye.v1.ImportTransactionsResponse
-	35, // 104: eye.v1.PortfolioService.ListHoldings:output_type -> eye.v1.ListHoldingsResponse
-	8,  // 105: eye.v1.PortfolioService.CreateAccount:output_type -> eye.v1.Account
-	8,  // 106: eye.v1.PortfolioService.GetAccount:output_type -> eye.v1.Account
-	8,  // 107: eye.v1.PortfolioService.UpdateAccount:output_type -> eye.v1.Account
-	70, // 108: eye.v1.PortfolioService.DeleteAccount:output_type -> google.protobuf.Empty
-	41, // 109: eye.v1.PortfolioService.ListAccounts:output_type -> eye.v1.ListAccountsResponse
-	43, // 110: eye.v1.PortfolioService.ListProviders:output_type -> eye.v1.ListProvidersResponse
-	9,  // 111: eye.v1.PortfolioService.CreateTransaction:output_type -> eye.v1.Transaction
-	9,  // 112: eye.v1.PortfolioService.GetTransaction:output_type -> eye.v1.Transaction
-	9,  // 113: eye.v1.PortfolioService.UpdateTransaction:output_type -> eye.v1.Transaction
-	51, // 114: eye.v1.PortfolioService.ListTransactions:output_type -> eye.v1.ListTransactionsResponse
-	53, // 115: eye.v1.PortfolioService.SyncAccount:output_type -> eye.v1.SyncAccountResponse
-	55, // 116: eye.v1.PortfolioService.GetAccountSweepSchedule:output_type -> eye.v1.GetAccountSweepScheduleResponse
-	58, // 117: eye.v1.PortfolioService.ResetAccountSweepSchedule:output_type -> eye.v1.ResetAccountSweepScheduleResponse
-	90, // [90:118] is the sub-list for method output_type
-	62, // [62:90] is the sub-list for method input_type
-	62, // [62:62] is the sub-list for extension type_name
-	62, // [62:62] is the sub-list for extension extendee
-	0,  // [0:62] is the sub-list for field type_name
+	66,  // 0: eye.v1.Portfolio.data:type_name -> eye.v1.Portfolio.DataEntry
+	70,  // 1: eye.v1.Portfolio.created_at:type_name -> google.protobuf.Timestamp
+	70,  // 2: eye.v1.Portfolio.updated_at:type_name -> google.protobuf.Timestamp
+	70,  // 3: eye.v1.Holding.created_at:type_name -> google.protobuf.Timestamp
+	70,  // 4: eye.v1.Holding.updated_at:type_name -> google.protobuf.Timestamp
+	1,   // 5: eye.v1.Holding.source:type_name -> eye.v1.ProvenanceSource
+	0,   // 6: eye.v1.Account.type:type_name -> eye.v1.AccountType
+	67,  // 7: eye.v1.Account.data:type_name -> eye.v1.Account.DataEntry
+	70,  // 8: eye.v1.Account.created_at:type_name -> google.protobuf.Timestamp
+	70,  // 9: eye.v1.Account.updated_at:type_name -> google.protobuf.Timestamp
+	70,  // 10: eye.v1.Transaction.created_at:type_name -> google.protobuf.Timestamp
+	70,  // 11: eye.v1.Transaction.updated_at:type_name -> google.protobuf.Timestamp
+	2,   // 12: eye.v1.Transaction.type:type_name -> eye.v1.TransactionType
+	3,   // 13: eye.v1.Transaction.status:type_name -> eye.v1.TransactionStatus
+	68,  // 14: eye.v1.Transaction.data:type_name -> eye.v1.Transaction.DataEntry
+	1,   // 15: eye.v1.Transaction.source:type_name -> eye.v1.ProvenanceSource
+	8,   // 16: eye.v1.CreatePortfolioRequest.portfolio:type_name -> eye.v1.Portfolio
+	8,   // 17: eye.v1.UpdatePortfolioRequest.portfolio:type_name -> eye.v1.Portfolio
+	71,  // 18: eye.v1.UpdatePortfolioRequest.update_mask:type_name -> google.protobuf.FieldMask
+	8,   // 19: eye.v1.ListPortfoliosResponse.portfolios:type_name -> eye.v1.Portfolio
+	70,  // 20: eye.v1.CalculatePortfolioValueRequest.at_time:type_name -> google.protobuf.Timestamp
+	70,  // 21: eye.v1.PortfolioValueResponse.calculation_time:type_name -> google.protobuf.Timestamp
+	72,  // 22: eye.v1.PortfolioValueResponse.coverage:type_name -> eye.v1.ValuationCoverage
+	73,  // 23: eye.v1.ListUnpricedHoldingsRequest.reason:type_name -> eye.v1.UnpricedReason
+	74,  // 24: eye.v1.ListUnpricedHoldingsResponse.holdings:type_name -> eye.v1.UnpricedHolding
+	70,  // 25: eye.v1.GetPortfolioPerformanceRequest.from:type_name -> google.protobuf.Timestamp
+	70,  // 26: eye.v1.GetPortfolioPerformanceRequest.to:type_name -> google.protobuf.Timestamp
+	9,   // 27: eye.v1.CreateHoldingRequest.holding:type_name -> eye.v1.Holding
+	9,   // 28: eye.v1.UpdateHoldingRequest.holding:type_name -> eye.v1.Holding
+	71,  // 29: eye.v1.UpdateHoldingRequest.update_mask:type_name -> google.protobuf.FieldMask
+	75,  // 30: eye.v1.ImportPositionItem.asset_type:type_name -> eye.v1.AssetType
+	28,  // 31: eye.v1.ImportPositionsRequest.positions:type_name -> eye.v1.ImportPositionItem
+	4,   // 32: eye.v1.ImportPositionResult.action:type_name -> eye.v1.ImportAction
+	30,  // 33: eye.v1.ImportPositionsResponse.items:type_name -> eye.v1.ImportPositionResult
+	2,   // 34: eye.v1.ImportTransactionItem.type:type_name -> eye.v1.TransactionType
+	3,   // 35: eye.v1.ImportTransactionItem.status:type_name -> eye.v1.TransactionStatus
+	69,  // 36: eye.v1.ImportTransactionItem.data:type_name -> eye.v1.ImportTransactionItem.DataEntry
+	32,  // 37: eye.v1.ImportTransactionsRequest.transactions:type_name -> eye.v1.ImportTransactionItem
+	4,   // 38: eye.v1.ImportTransactionResult.action:type_name -> eye.v1.ImportAction
+	34,  // 39: eye.v1.ImportTransactionsResponse.items:type_name -> eye.v1.ImportTransactionResult
+	9,   // 40: eye.v1.ListHoldingsResponse.holdings:type_name -> eye.v1.Holding
+	10,  // 41: eye.v1.CreateAccountRequest.account:type_name -> eye.v1.Account
+	10,  // 42: eye.v1.UpdateAccountRequest.account:type_name -> eye.v1.Account
+	71,  // 43: eye.v1.UpdateAccountRequest.update_mask:type_name -> google.protobuf.FieldMask
+	0,   // 44: eye.v1.ListAccountsRequest.type:type_name -> eye.v1.AccountType
+	10,  // 45: eye.v1.ListAccountsResponse.accounts:type_name -> eye.v1.Account
+	46,  // 46: eye.v1.ListProvidersResponse.providers:type_name -> eye.v1.Provider
+	5,   // 47: eye.v1.Provider.kinds:type_name -> eye.v1.ProviderKind
+	47,  // 48: eye.v1.Provider.fields:type_name -> eye.v1.ProviderField
+	48,  // 49: eye.v1.Provider.tiers:type_name -> eye.v1.ProviderTier
+	11,  // 50: eye.v1.CreateTransactionRequest.transaction:type_name -> eye.v1.Transaction
+	11,  // 51: eye.v1.UpdateTransactionRequest.transaction:type_name -> eye.v1.Transaction
+	71,  // 52: eye.v1.UpdateTransactionRequest.update_mask:type_name -> google.protobuf.FieldMask
+	2,   // 53: eye.v1.ListTransactionsRequest.type:type_name -> eye.v1.TransactionType
+	3,   // 54: eye.v1.ListTransactionsRequest.status:type_name -> eye.v1.TransactionStatus
+	70,  // 55: eye.v1.ListTransactionsRequest.from:type_name -> google.protobuf.Timestamp
+	70,  // 56: eye.v1.ListTransactionsRequest.to:type_name -> google.protobuf.Timestamp
+	11,  // 57: eye.v1.ListTransactionsResponse.transactions:type_name -> eye.v1.Transaction
+	58,  // 58: eye.v1.GetAccountSweepScheduleResponse.accounts:type_name -> eye.v1.AccountSweepEntry
+	70,  // 59: eye.v1.AccountSweepEntry.last_synced_at:type_name -> google.protobuf.Timestamp
+	70,  // 60: eye.v1.AccountSweepEntry.next_attempt_at:type_name -> google.protobuf.Timestamp
+	7,   // 61: eye.v1.HealthReason.kind:type_name -> eye.v1.HealthReasonKind
+	70,  // 62: eye.v1.HealthReason.since:type_name -> google.protobuf.Timestamp
+	70,  // 63: eye.v1.HealthReason.until:type_name -> google.protobuf.Timestamp
+	6,   // 64: eye.v1.AccountHealth.state:type_name -> eye.v1.HealthState
+	61,  // 65: eye.v1.AccountHealth.reasons:type_name -> eye.v1.HealthReason
+	6,   // 66: eye.v1.SourceHealth.state:type_name -> eye.v1.HealthState
+	61,  // 67: eye.v1.SourceHealth.reasons:type_name -> eye.v1.HealthReason
+	62,  // 68: eye.v1.GetAccountHealthResponse.accounts:type_name -> eye.v1.AccountHealth
+	63,  // 69: eye.v1.GetAccountHealthResponse.sources:type_name -> eye.v1.SourceHealth
+	6,   // 70: eye.v1.GetAccountHealthResponse.sources_state:type_name -> eye.v1.HealthState
+	76,  // 71: eye.v1.Portfolio.DataEntry.value:type_name -> google.protobuf.Any
+	12,  // 72: eye.v1.PortfolioService.CreatePortfolio:input_type -> eye.v1.CreatePortfolioRequest
+	13,  // 73: eye.v1.PortfolioService.GetPortfolio:input_type -> eye.v1.GetPortfolioRequest
+	14,  // 74: eye.v1.PortfolioService.UpdatePortfolio:input_type -> eye.v1.UpdatePortfolioRequest
+	15,  // 75: eye.v1.PortfolioService.DeletePortfolio:input_type -> eye.v1.DeletePortfolioRequest
+	16,  // 76: eye.v1.PortfolioService.ListPortfolios:input_type -> eye.v1.ListPortfoliosRequest
+	18,  // 77: eye.v1.PortfolioService.CalculatePortfolioValue:input_type -> eye.v1.CalculatePortfolioValueRequest
+	20,  // 78: eye.v1.PortfolioService.ListUnpricedHoldings:input_type -> eye.v1.ListUnpricedHoldingsRequest
+	22,  // 79: eye.v1.PortfolioService.GetPortfolioPerformance:input_type -> eye.v1.GetPortfolioPerformanceRequest
+	24,  // 80: eye.v1.PortfolioService.CreateHolding:input_type -> eye.v1.CreateHoldingRequest
+	25,  // 81: eye.v1.PortfolioService.GetHolding:input_type -> eye.v1.GetHoldingRequest
+	26,  // 82: eye.v1.PortfolioService.UpdateHolding:input_type -> eye.v1.UpdateHoldingRequest
+	27,  // 83: eye.v1.PortfolioService.DeleteHolding:input_type -> eye.v1.DeleteHoldingRequest
+	29,  // 84: eye.v1.PortfolioService.ImportPositions:input_type -> eye.v1.ImportPositionsRequest
+	33,  // 85: eye.v1.PortfolioService.ImportTransactions:input_type -> eye.v1.ImportTransactionsRequest
+	36,  // 86: eye.v1.PortfolioService.ListHoldings:input_type -> eye.v1.ListHoldingsRequest
+	38,  // 87: eye.v1.PortfolioService.CreateAccount:input_type -> eye.v1.CreateAccountRequest
+	39,  // 88: eye.v1.PortfolioService.GetAccount:input_type -> eye.v1.GetAccountRequest
+	40,  // 89: eye.v1.PortfolioService.UpdateAccount:input_type -> eye.v1.UpdateAccountRequest
+	41,  // 90: eye.v1.PortfolioService.DeleteAccount:input_type -> eye.v1.DeleteAccountRequest
+	42,  // 91: eye.v1.PortfolioService.ListAccounts:input_type -> eye.v1.ListAccountsRequest
+	44,  // 92: eye.v1.PortfolioService.ListProviders:input_type -> eye.v1.ListProvidersRequest
+	49,  // 93: eye.v1.PortfolioService.CreateTransaction:input_type -> eye.v1.CreateTransactionRequest
+	50,  // 94: eye.v1.PortfolioService.GetTransaction:input_type -> eye.v1.GetTransactionRequest
+	51,  // 95: eye.v1.PortfolioService.UpdateTransaction:input_type -> eye.v1.UpdateTransactionRequest
+	52,  // 96: eye.v1.PortfolioService.ListTransactions:input_type -> eye.v1.ListTransactionsRequest
+	54,  // 97: eye.v1.PortfolioService.SyncAccount:input_type -> eye.v1.SyncAccountRequest
+	56,  // 98: eye.v1.PortfolioService.GetAccountSweepSchedule:input_type -> eye.v1.GetAccountSweepScheduleRequest
+	59,  // 99: eye.v1.PortfolioService.ResetAccountSweepSchedule:input_type -> eye.v1.ResetAccountSweepScheduleRequest
+	64,  // 100: eye.v1.PortfolioService.GetAccountHealth:input_type -> eye.v1.GetAccountHealthRequest
+	8,   // 101: eye.v1.PortfolioService.CreatePortfolio:output_type -> eye.v1.Portfolio
+	8,   // 102: eye.v1.PortfolioService.GetPortfolio:output_type -> eye.v1.Portfolio
+	8,   // 103: eye.v1.PortfolioService.UpdatePortfolio:output_type -> eye.v1.Portfolio
+	77,  // 104: eye.v1.PortfolioService.DeletePortfolio:output_type -> google.protobuf.Empty
+	17,  // 105: eye.v1.PortfolioService.ListPortfolios:output_type -> eye.v1.ListPortfoliosResponse
+	19,  // 106: eye.v1.PortfolioService.CalculatePortfolioValue:output_type -> eye.v1.PortfolioValueResponse
+	21,  // 107: eye.v1.PortfolioService.ListUnpricedHoldings:output_type -> eye.v1.ListUnpricedHoldingsResponse
+	23,  // 108: eye.v1.PortfolioService.GetPortfolioPerformance:output_type -> eye.v1.PortfolioPerformanceResponse
+	9,   // 109: eye.v1.PortfolioService.CreateHolding:output_type -> eye.v1.Holding
+	9,   // 110: eye.v1.PortfolioService.GetHolding:output_type -> eye.v1.Holding
+	9,   // 111: eye.v1.PortfolioService.UpdateHolding:output_type -> eye.v1.Holding
+	77,  // 112: eye.v1.PortfolioService.DeleteHolding:output_type -> google.protobuf.Empty
+	31,  // 113: eye.v1.PortfolioService.ImportPositions:output_type -> eye.v1.ImportPositionsResponse
+	35,  // 114: eye.v1.PortfolioService.ImportTransactions:output_type -> eye.v1.ImportTransactionsResponse
+	37,  // 115: eye.v1.PortfolioService.ListHoldings:output_type -> eye.v1.ListHoldingsResponse
+	10,  // 116: eye.v1.PortfolioService.CreateAccount:output_type -> eye.v1.Account
+	10,  // 117: eye.v1.PortfolioService.GetAccount:output_type -> eye.v1.Account
+	10,  // 118: eye.v1.PortfolioService.UpdateAccount:output_type -> eye.v1.Account
+	77,  // 119: eye.v1.PortfolioService.DeleteAccount:output_type -> google.protobuf.Empty
+	43,  // 120: eye.v1.PortfolioService.ListAccounts:output_type -> eye.v1.ListAccountsResponse
+	45,  // 121: eye.v1.PortfolioService.ListProviders:output_type -> eye.v1.ListProvidersResponse
+	11,  // 122: eye.v1.PortfolioService.CreateTransaction:output_type -> eye.v1.Transaction
+	11,  // 123: eye.v1.PortfolioService.GetTransaction:output_type -> eye.v1.Transaction
+	11,  // 124: eye.v1.PortfolioService.UpdateTransaction:output_type -> eye.v1.Transaction
+	53,  // 125: eye.v1.PortfolioService.ListTransactions:output_type -> eye.v1.ListTransactionsResponse
+	55,  // 126: eye.v1.PortfolioService.SyncAccount:output_type -> eye.v1.SyncAccountResponse
+	57,  // 127: eye.v1.PortfolioService.GetAccountSweepSchedule:output_type -> eye.v1.GetAccountSweepScheduleResponse
+	60,  // 128: eye.v1.PortfolioService.ResetAccountSweepSchedule:output_type -> eye.v1.ResetAccountSweepScheduleResponse
+	65,  // 129: eye.v1.PortfolioService.GetAccountHealth:output_type -> eye.v1.GetAccountHealthResponse
+	101, // [101:130] is the sub-list for method output_type
+	72,  // [72:101] is the sub-list for method input_type
+	72,  // [72:72] is the sub-list for extension type_name
+	72,  // [72:72] is the sub-list for extension extendee
+	0,   // [0:72] is the sub-list for field type_name
 }
 
 func init() { file_v1_portfolio_proto_init() }
@@ -4749,13 +5288,15 @@ func file_v1_portfolio_proto_init() {
 	file_v1_portfolio_proto_msgTypes[44].OneofWrappers = []any{}
 	file_v1_portfolio_proto_msgTypes[48].OneofWrappers = []any{}
 	file_v1_portfolio_proto_msgTypes[50].OneofWrappers = []any{}
+	file_v1_portfolio_proto_msgTypes[53].OneofWrappers = []any{}
+	file_v1_portfolio_proto_msgTypes[56].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_portfolio_proto_rawDesc), len(file_v1_portfolio_proto_rawDesc)),
-			NumEnums:      6,
-			NumMessages:   57,
+			NumEnums:      8,
+			NumMessages:   62,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -35,6 +35,8 @@ type PlanBudget interface {
 	// costs a request each time, and every refusal is filed against the ASSET,
 	// so its own back-off grows because of an allowance it never touched.
 	Unusable() (reason string, unusable bool)
+	// UnusableUntil is Unusable with the deadline kept as a value.
+	UnusableUntil() (reason string, until time.Time, unusable bool)
 }
 
 // noBudget stands in when none was wired: unmetered by volume, so callers that
@@ -44,6 +46,8 @@ type noBudget struct{}
 func (noBudget) Remaining() (int, time.Time, bool) { return 0, time.Time{}, false }
 
 func (noBudget) Unusable() (string, bool) { return "", false }
+
+func (noBudget) UnusableUntil() (string, time.Time, bool) { return "", time.Time{}, false }
 
 // TierPro names CoinGecko's paid plans. It matches the tier an account carries
 // in data["tier"], which is also what the rate budget resolves its limits from:

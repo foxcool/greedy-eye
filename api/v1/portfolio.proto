@@ -369,6 +369,23 @@ service PortfolioService {
       body: "*"
     };
   }
+
+  // GetAccountHealth says, per account the caller owns, whether it is producing
+  // anything and if not, why — and the same for every price source the
+  // caller's prices depend on, including shared ones.
+  //
+  // Every way an account goes inert used to end in a log line: a credential the
+  // resolver cannot build, a duplicate that is never asked, a plan spent or a
+  // provider pausing after refusals, a chain that stopped answering, a sweep
+  // that stood the account down. From outside they all looked the same: a
+  // normal account and no data. Computed on read from the state the resolver,
+  // the rate limiter and the sweep already keep, so it cannot go stale.
+  rpc GetAccountHealth(GetAccountHealthRequest) returns (GetAccountHealthResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/accounts/health"
+      body: "*"
+    };
+  }
 }
 
 // =============================================================================
@@ -865,4 +882,94 @@ message ResetAccountSweepScheduleResponse {
   // not an error, and the count is how the caller learns the schedule was not
   // what was wrong.
   uint32 accounts_freed = 1;
+}
+
+// =============================================================================
+// ACCOUNT HEALTH
+// =============================================================================
+
+// HealthState is how much of its job an account or a source is doing. The
+// state of a whole is the worst state among its reasons, decided by the server
+// so every client agrees on it.
+enum HealthState {
+  HEALTH_STATE_UNSPECIFIED = 0;
+  // Nothing known is wrong.
+  HEALTH_STATE_OK = 1;
+  // Part of it works: a chain is failing, or the sweep has stood it down.
+  HEALTH_STATE_DEGRADED = 2;
+  // It produces nothing until something changes.
+  HEALTH_STATE_UNUSABLE = 3;
+  // This instance cannot tell. Not the same as OK and must not render as it.
+  HEALTH_STATE_UNKNOWN = 4;
+}
+
+// HealthReasonKind is the shape of a problem, one repair each.
+enum HealthReasonKind {
+  HEALTH_REASON_KIND_UNSPECIFIED = 0;
+  // The account names a provider this build has no adapter for.
+  HEALTH_REASON_KIND_NO_ADAPTER = 1;
+  // A client cannot be built from the account's data.
+  HEALTH_REASON_KIND_CANNOT_BUILD = 2;
+  // Another account for the same provider is used first; this one is never asked.
+  HEALTH_REASON_KIND_SHADOWED = 3;
+  // The provider's plan is spent for unattended work, or it is pausing after
+  // refusals. until says when it may be asked again.
+  HEALTH_REASON_KIND_PROVIDER_PAUSED = 4;
+  // One chain of a wallet account fails whole, sync after sync.
+  HEALTH_REASON_KIND_CHAIN_FAILING = 5;
+  // The balance sweep holds the account back after syncs that left it no fresher.
+  HEALTH_REASON_KIND_SWEEP_DEFERRED = 6;
+}
+
+// HealthReason is one thing wrong, as a phrase the server wrote and the fields
+// the phrase was built from.
+message HealthReason {
+  HealthReasonKind kind = 1;
+  // Safe to show anyone who may see the account or source. Never carries
+  // upstream error text.
+  string message = 2;
+  // The chain that fails, for CHAIN_FAILING.
+  optional string chain = 3;
+  // Consecutive failures: failed syncs of a chain, or syncs that left an
+  // account no fresher.
+  uint32 failures = 4;
+  // When the run of failures began.
+  optional google.protobuf.Timestamp since = 5;
+  // When the account or source will be tried again.
+  optional google.protobuf.Timestamp until = 6;
+  // Upstream error text as received. Returned to admins only: it is somebody
+  // else's words, and may describe somebody else's credential.
+  optional string detail = 7;
+}
+
+// AccountHealth is one of the caller's accounts.
+message AccountHealth {
+  string account_id = 1;
+  string account_name = 2;
+  HealthState state = 3;
+  repeated HealthReason reasons = 4;
+}
+
+// SourceHealth is one price source the caller's prices depend on, named by
+// provider slug only: a shared source is served by an account the caller may
+// not own, and nothing here says which.
+message SourceHealth {
+  string provider = 1;
+  HealthState state = 2;
+  repeated HealthReason reasons = 3;
+}
+
+message GetAccountHealthRequest {
+  // Limit the accounts to one. Sources are reported in full either way: they
+  // are what the account's prices depend on.
+  optional string account_id = 1;
+}
+
+message GetAccountHealthResponse {
+  repeated AccountHealth accounts = 1;
+  // Empty with sources_state UNKNOWN when this instance does not resolve
+  // price sources in-process.
+  repeated SourceHealth sources = 2;
+  // The worst state among sources, or UNKNOWN when they could not be read.
+  HealthState sources_state = 3;
 }
