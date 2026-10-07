@@ -219,7 +219,10 @@ func run() error {
 				// The same registry that builds the clients describes them, so
 				// the account form offers the slugs, chains and plans this build
 				// actually uses rather than a copy of them (personal-7bn).
-				WithProviderCatalog(providers)
+				WithProviderCatalog(providers).
+				// Price sources are resolved and rate-limited in this process,
+				// so their health can be read here; see GetAccountHealth.
+				WithPriceSourceHealth(credResolver)
 			path, handler := apiv1connect.NewPortfolioServiceHandler(pHandler, interceptor)
 			mux.Handle(path, handler)
 			balanceSweeper = pHandler

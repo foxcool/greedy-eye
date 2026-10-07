@@ -558,3 +558,191 @@ func TestAccountBeatsAKeylessSyncer(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "acct-tonapi", s.(*fakeSyncer).name)
 }
+
+// pausedProvider is a price provider whose credential cannot carry unattended
+// work until a known time.
+type pausedProvider struct {
+	fakeProvider
+	until time.Time
+}
+
+func (p *pausedProvider) UnusableUntil() (string, time.Time, bool) {
+	return "paused after repeated refusals", p.until, true
+}
+
+// TestShadowedDuplicateIsNamed: of two accounts of one level for one
+// provider, the first in resolution order is used and the other is never
+// asked. That is a working credential producing nothing, and the inventory
+// says so. A user's own account overriding a shared one is not that — the
+// shared one serves everybody else — and the same account listed twice (owned
+// and system scoped) shadows nothing.
+func TestShadowedDuplicateIsNamed(t *testing.T) {
+	now := time.Now()
+	owned := func(id string) *entity.Account {
+		a := account(id, "coingecko", now)
+		a.UserID = "u1"
+		return a
+	}
+	older, newer := owned("older"), owned("newer")
+	foreign := account("shared", "coingecko", now)
+	foreign.UserID = "admin"
+	r := NewResolver(Config{
+		Source: &fakeSource{
+			user:   map[string][]*entity.Account{"u1": {older, newer}},
+			system: []*entity.Account{foreign},
+		},
+		PriceProviders: map[string]PriceProviderFactory{
+			"coingecko": func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return &fakeProvider{name: a.ID}, nil
+			},
+		},
+	})
+
+	inv, err := r.PriceInventoryFor(context.Background(), "u1")
+	require.NoError(t, err)
+	assert.Equal(t, "older", inv.Providers["coingecko"].(*fakeProvider).name)
+	assert.Equal(t, "older", inv.Serving["coingecko"])
+
+	shadowed := map[string]bool{}
+	for _, s := range inv.Skipped {
+		assert.Equal(t, entity.SkipShadowed, s.Kind)
+		shadowed[s.AccountID] = true
+	}
+	assert.Equal(t, map[string]bool{"newer": true}, shadowed)
+
+	// Two shared accounts for one provider: the second is dead for everyone.
+	other := account("shared-2", "coingecko", now)
+	other.UserID = "admin"
+	r = NewResolver(Config{
+		Source: &fakeSource{system: []*entity.Account{foreign, other}},
+		PriceProviders: map[string]PriceProviderFactory{
+			"coingecko": func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return &fakeProvider{name: a.ID}, nil
+			},
+		},
+	})
+	inv, err = r.PriceInventoryFor(context.Background(), "u1")
+	require.NoError(t, err)
+	require.Len(t, inv.Skipped, 1)
+	assert.Equal(t, "shared-2", inv.Skipped[0].AccountID)
+	assert.Equal(t, entity.SkipShadowed, inv.Skipped[0].Kind)
+}
+
+// TestPriceSourceHealthReportsThePauseAsValues: the deadline arrives as a
+// time, not inside a log phrase, and a credential-free source names no account.
+func TestPriceSourceHealthReportsThePauseAsValues(t *testing.T) {
+	now := time.Now()
+	until := now.Add(time.Hour)
+	r := NewResolver(Config{
+		Source: &fakeSource{system: []*entity.Account{account("cg", "coingecko", now)}},
+		PriceProviders: map[string]PriceProviderFactory{
+			"coingecko": func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return &pausedProvider{fakeProvider: fakeProvider{name: a.ID}, until: until}, nil
+			},
+		},
+		KeylessPriceProviders: map[string]marketdata.PriceProvider{"moex": &fakeProvider{name: "moex"}},
+	})
+
+	report, err := r.PriceSourceHealth(context.Background(), "u1")
+	require.NoError(t, err)
+	require.Len(t, report.Sources, 2)
+
+	cg, moex := report.Sources[0], report.Sources[1]
+	assert.Equal(t, "coingecko", cg.Provider)
+	assert.Equal(t, "cg", cg.AccountID)
+	assert.True(t, cg.Unusable)
+	assert.Equal(t, until, cg.Until)
+
+	assert.Equal(t, "moex", moex.Provider)
+	assert.Empty(t, moex.AccountID)
+	assert.False(t, moex.Unusable)
+}
+
+// TestInventoryCountsEachAccountOnceAndCopiesOfAKeyAsOne: an account both owned and system scoped is one
+// account, so it is passed over once; and accounts sharing one key — every
+// account a broker token reaches — are one credential, not duplicates.
+func TestInventoryCountsEachAccountOnceAndCopiesOfAKeyAsOne(t *testing.T) {
+	now := time.Now()
+	scoped := account("gate", "gateio", now)
+	scoped.SystemScopes = []entity.AccountCapability{entity.CapabilityMarketData}
+	copyA := account("tinvest-1", "tinvest", now)
+	copyB := account("tinvest-2", "tinvest", now)
+	copyB.Data["api_key"] = copyA.Data["api_key"]
+
+	r := NewResolver(Config{
+		Source: &fakeSource{
+			user:   map[string][]*entity.Account{"u1": {scoped, copyA, copyB}},
+			system: []*entity.Account{scoped},
+		},
+		PriceProviders: map[string]PriceProviderFactory{
+			"tinvest": func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return &fakeProvider{name: a.ID}, nil
+			},
+		},
+	})
+
+	inv, err := r.PriceInventoryFor(context.Background(), "u1")
+	require.NoError(t, err)
+	require.Len(t, inv.Skipped, 1)
+	assert.Equal(t, "gate", inv.Skipped[0].AccountID)
+	assert.Equal(t, entity.SkipNoAdapter, inv.Skipped[0].Kind)
+}
+
+// TestOwnedAndSharedAccountKeepsItsOwnPriority: an account the user owns that
+// is also shared arrives twice. Counting it once must not demote it to its
+// shared position, where a later own account would overwrite it and change the
+// client that prices for this user.
+func TestOwnedAndSharedAccountKeepsItsOwnPriority(t *testing.T) {
+	now := time.Now()
+	first := account("first", "coingecko", now)
+	first.UserID = "u1"
+	first.SystemScopes = []entity.AccountCapability{entity.CapabilityMarketData}
+	second := account("second", "coingecko", now)
+	second.UserID = "u1"
+	r := NewResolver(Config{
+		Source: &fakeSource{
+			user:   map[string][]*entity.Account{"u1": {first, second}},
+			system: []*entity.Account{first},
+		},
+		PriceProviders: map[string]PriceProviderFactory{
+			"coingecko": func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return &fakeProvider{name: a.ID}, nil
+			},
+		},
+	})
+
+	inv, err := r.PriceInventoryFor(context.Background(), "u1")
+	require.NoError(t, err)
+	assert.Equal(t, "first", inv.Providers["coingecko"].(*fakeProvider).name)
+	require.Len(t, inv.Skipped, 1)
+	assert.Equal(t, "second", inv.Skipped[0].AccountID)
+	assert.Equal(t, entity.SkipShadowed, inv.Skipped[0].Kind)
+}
+
+// TestOwnKeyOutranksAnOlderSharedOne: the user's own shared account must keep
+// beating another owner's shared account of the same provider, and that is the
+// intended override, not shadowing.
+func TestOwnKeyOutranksAnOlderSharedOne(t *testing.T) {
+	now := time.Now()
+	scopes := []entity.AccountCapability{entity.CapabilityMarketData}
+	theirs := account("a-theirs", "coingecko", now)
+	theirs.UserID, theirs.SystemScopes = "admin", scopes
+	mine := account("b-mine", "coingecko", now)
+	mine.UserID, mine.SystemScopes = "u1", scopes
+	r := NewResolver(Config{
+		Source: &fakeSource{
+			user:   map[string][]*entity.Account{"u1": {mine}},
+			system: []*entity.Account{theirs, mine},
+		},
+		PriceProviders: map[string]PriceProviderFactory{
+			"coingecko": func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return &fakeProvider{name: a.ID}, nil
+			},
+		},
+	})
+
+	inv, err := r.PriceInventoryFor(context.Background(), "u1")
+	require.NoError(t, err)
+	assert.Equal(t, "b-mine", inv.Providers["coingecko"].(*fakeProvider).name)
+	assert.Empty(t, inv.Skipped)
+}

@@ -181,6 +181,12 @@ func (p *Provider) AssetBudget(now time.Time, window time.Duration) (int, bool) 
 // an allowance they have nothing to do with.
 func (p *Provider) Unusable() (string, bool) { return p.client.budget.Unusable() }
 
+// UnusableUntil reports the same as Unusable with the deadline as a value, for
+// the account health surface.
+func (p *Provider) UnusableUntil() (string, time.Time, bool) {
+	return p.client.budget.UnusableUntil()
+}
+
 // BaseAssetSymbol returns the ticker of the quote currency used by CoinGecko ("USD").
 func (p *Provider) BaseAssetSymbol() string { return "USD" }
 

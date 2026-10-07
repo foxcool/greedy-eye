@@ -70,7 +70,10 @@ type Handler struct {
 	// reaches. Optional: without it a broker account must name its own.
 	brokerListerSource BrokerAccountListerSource
 	providers          ProviderCatalog // optional; describes the providers an account may name
-	log                *slog.Logger
+	// sourceHealth reports price source health; nil makes GetAccountHealth
+	// answer UNKNOWN for sources.
+	sourceHealth PriceSourceHealthSource
+	log          *slog.Logger
 }
 
 func NewHandler(store Store, log *slog.Logger) *Handler {
