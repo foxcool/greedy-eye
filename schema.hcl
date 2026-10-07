@@ -141,6 +141,25 @@ table "accounts" {
     columns = [column.system_scopes]
     type    = GIN
   }
+  # One account per broker account per owner (personal-gskb). Discovery decides
+  # what to create by what it failed to find, so two overlapping syncs of one
+  # token would otherwise each create the account: the same positions counted
+  # twice in every total. Readable only because data keeps identity keys in the
+  # open and seals just the secrets (ADR-005, second layout); rows still sealed
+  # whole fall outside the predicate until the rekey pass converges them.
+  index "account_broker_identity" {
+    unique = true
+    on {
+      column = column.user_id
+    }
+    on {
+      expr = "(data ->> 'provider'::text)"
+    }
+    on {
+      expr = "(data ->> 'broker_account_id'::text)"
+    }
+    where = "(((type)::text = 'broker'::text) AND (data ? 'broker_account_id'::text))"
+  }
 
   foreign_key "accounts_users_accounts" {
     columns     = [column.user_id]

@@ -17,13 +17,17 @@ import (
 
 const (
 	// versionPrefix tags the on-disk format for future rotation.
-	versionPrefix = "v1:"
+	versionPrefix = EnvelopePrefix
 	// keyInfoPrefix namespaces per-record derived keys.
 	keyInfoPrefix = "greedy-eye/accounts/"
 
 	masterKeySize = 32
 	nonceSize     = 12
 )
+
+// EnvelopePrefix starts every value Encrypt produces. Exported so a SQL
+// predicate can ask the same question IsEnvelope does without opening a row.
+const EnvelopePrefix = "v1:"
 
 // ErrInvalidCiphertext is returned when an encoded value cannot be decoded or
 // fails authentication (wrong key, wrong record, or tampered data).
@@ -115,6 +119,14 @@ func (e *Encryptor) Encrypt(recordID string, plaintext []byte) (string, error) {
 
 	sealed := aead.Seal(nonce, nonce, plaintext, nil)
 	return versionPrefix + base64.StdEncoding.EncodeToString(sealed), nil
+}
+
+// IsEnvelope reports whether a value has the shape Encrypt produces. It proves
+// nothing about whether the value opens — only that it claims to be ciphertext,
+// which is what a reader needs to tell a sealed field from a user's string that
+// happens to sit under the same key.
+func IsEnvelope(value string) bool {
+	return strings.HasPrefix(value, versionPrefix)
 }
 
 // Decrypt opens a value produced by Encrypt for the same record, trying the

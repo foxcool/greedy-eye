@@ -26,6 +26,9 @@ type PortfolioStore struct {
 	pool *pgxpool.Pool
 	// encryptor seals accounts.data at rest (ADR-005); nil = plaintext mode.
 	encryptor *storecrypto.Encryptor
+	// rewrapRead, when set, runs between the rewrap pass reading every row and
+	// writing them back — the window a concurrent update lands in. Tests only.
+	rewrapRead func()
 }
 
 // Compile-time interface implementation check.
@@ -316,31 +319,143 @@ func (s *PortfolioStore) ListPortfolios(ctx context.Context, opts portfolio.List
 
 const accountColumns = "id, user_id, name, description, type, data, capabilities, system_scopes, portfolio_id, created_at, updated_at"
 
-// encDataKey marks the encrypted form of accounts.data: {"enc": "v1:..."} (ADR-005).
+// encDataKey marks the first encrypted layout of accounts.data, the whole map
+// sealed as one blob: {"enc": "v1:..."} (ADR-005). Still read, no longer written.
 const encDataKey = "enc"
 
-// marshalAccountData serializes the data map, sealing it when encryption is enabled.
+// sealedDataKey holds the secrets of the second layout: the open keys sit
+// beside it in plain jsonb, {"provider": "tinvest", ..., "sealed": "v1:..."}.
+// The "v1:" inside is the cipher envelope's version, not the layout's — the
+// layout is told by which key carries the ciphertext.
+//
+// It is written even when there are no secrets, so the layout a row is in is
+// one SQL predicate away (`data ? 'sealed'`) rather than a decryption.
+const sealedDataKey = "sealed"
+
+// openDataKeys are the accounts.data keys stored in the open once a master key
+// is configured. Everything else is sealed.
+//
+// An allowlist, not the name-based isSecretKey the API masks with: for display a
+// misclassified key costs a visible value, for storage it costs a credential in
+// every database dump. A new provider's "passphrase" or "mnemonic" lands sealed
+// without anyone remembering to add it here.
+//
+// They are open so that SQL can see what an account IS — which provider, which
+// address, which broker account — and a unique index can hold what discovery
+// otherwise holds only in memory (personal-gskb). The price is that a dump shows
+// every address and account number an owner has (ADR-005, second layout).
+var openDataKeys = map[string]bool{
+	providerDataKey:             true,
+	"address":                   true,
+	"addresses":                 true,
+	"chain":                     true,
+	entity.BrokerAccountDataKey: true,
+	"root_ca":                   true,
+	"tier":                      true,
+	"period":                    true,
+	"pro":                       true,
+	"external_id":               true,
+}
+
+// uniqueViolation is the SQLSTATE of a unique index refusing a row.
+const uniqueViolation = "23505"
+
+// providerDataKey names the provider slug in accounts.data — one of the two
+// identity keys the broker index reads, so the SQL below and the allowlist
+// have to agree on it.
+const providerDataKey = "provider"
+
+// accountBrokerIdentityIndex is the unique index holding one account per
+// (owner, provider, broker account) — schema.hcl, personal-gskb.
+const accountBrokerIdentityIndex = "account_broker_identity"
+
+// brokerAccountTaken turns a violation of accountBrokerIdentityIndex into
+// store.ErrAlreadyExists naming the account that already holds the broker
+// account, so the caller can use it instead of guessing. Any other error comes
+// back nil.
+//
+// a is the row that was refused. The owner is read from the STORED row whenever
+// there is one: on an update the struct comes from the request, and a user_id
+// in it is whatever the caller typed — trusting it would let anyone ask whether
+// another person holds broker account X, and get that person's account id back.
+// Only a create, whose row does not exist yet, falls back to a.UserID, which the
+// handler sets from the caller's identity.
+func (s *PortfolioStore) brokerAccountTaken(ctx context.Context, err error, a *entity.Account) error {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != uniqueViolation || pgErr.ConstraintName != accountBrokerIdentityIndex {
+		return nil
+	}
+	provider, brokerID := a.Data[providerDataKey], a.Data[entity.BrokerAccountDataKey]
+	var holder string
+	if lookupErr := s.pool.QueryRow(ctx, `
+		SELECT h.id FROM accounts h
+		WHERE h.user_id = COALESCE((SELECT user_id FROM accounts WHERE id = $2::uuid), NULLIF($1, '')::uuid)
+		  AND h.id <> $2::uuid AND h.type = $3
+		  AND h.data ->> $6 = $4 AND h.data ->> $7 = $5`,
+		a.UserID, a.ID, accountTypeToString(entity.AccountTypeBroker), provider, brokerID,
+		providerDataKey, entity.BrokerAccountDataKey).Scan(&holder); lookupErr != nil {
+		// The violation is the fact; the name is a courtesy. Losing the
+		// courtesy must not turn a duplicate into an internal error.
+		return fmt.Errorf("%w: %s broker account %s already has an account", store.ErrAlreadyExists, provider, brokerID)
+	}
+	return fmt.Errorf("%w: %s broker account %s already belongs to account %s",
+		store.ErrAlreadyExists, provider, brokerID, holder)
+}
+
+// marshalAccountData serializes the data map: open keys as they are, the rest
+// sealed under sealedDataKey when encryption is enabled.
 func (s *PortfolioStore) marshalAccountData(accountID string, data map[string]string) ([]byte, error) {
-	plain, err := json.Marshal(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal data: %w", err)
+	// Refused in plaintext mode too: a row written now is read later by an
+	// instance that may have a key, and it would try to open whatever a user
+	// put under these names — failing the whole account row.
+	for _, reserved := range []string{encDataKey, sealedDataKey} {
+		if _, ok := data[reserved]; ok {
+			return nil, fmt.Errorf("%w: data key %q is reserved by the storage format", store.ErrInvalidArgument, reserved)
+		}
 	}
 	if s.encryptor == nil {
+		plain, err := json.Marshal(data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal data: %w", err)
+		}
 		return plain, nil
+	}
+
+	open := make(map[string]string, len(data)+1)
+	secrets := make(map[string]string, len(data))
+	for k, v := range data {
+		if openDataKeys[k] {
+			open[k] = v
+		} else {
+			secrets[k] = v
+		}
+	}
+	plain, err := json.Marshal(secrets)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal data: %w", err)
 	}
 	sealed, err := s.encryptor.Encrypt(accountID, plain)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt data: %w", err)
 	}
-	return json.Marshal(map[string]string{encDataKey: sealed})
+	open[sealedDataKey] = sealed
+	return json.Marshal(open)
 }
 
-// unmarshalAccountData reads a stored data value, transparently opening the
-// {"enc": ...} wrapper; legacy plaintext rows pass through unchanged.
+// unmarshalAccountData reads a stored data value in any of its three layouts:
+// open keys beside a sealed secrets map, the whole map sealed under "enc", or
+// legacy plaintext from before encryption.
 func (s *PortfolioStore) unmarshalAccountData(accountID string, raw []byte) (map[string]string, error) {
 	var m map[string]string
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal data: %w", err)
+	}
+	// The envelope check is what keeps this from claiming a legacy plaintext
+	// row whose owner once stored their own value under "sealed": read as
+	// ciphertext, that row would fail whole. As plaintext it stays readable,
+	// and the rewrap pass names it as stuck on the reserved key.
+	if sealed, ok := m[sealedDataKey]; ok && storecrypto.IsEnvelope(sealed) {
+		return s.openSealedData(accountID, m, sealed)
 	}
 	sealed, ok := m[encDataKey]
 	if !ok || len(m) != 1 {
@@ -360,6 +475,40 @@ func (s *PortfolioStore) unmarshalAccountData(accountID string, raw []byte) (map
 	return data, nil
 }
 
+// openSealedData merges the open keys of a second-layout row with its sealed
+// secrets.
+func (s *PortfolioStore) openSealedData(accountID string, stored map[string]string, sealed string) (map[string]string, error) {
+	if s.encryptor == nil {
+		return nil, fmt.Errorf("account %s data is encrypted but no master key is configured", accountID)
+	}
+	plain, err := s.encryptor.Decrypt(accountID, sealed)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt data for account %s: %w", accountID, err)
+	}
+	var secrets map[string]string
+	if err := json.Unmarshal(plain, &secrets); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal decrypted data: %w", err)
+	}
+
+	data := make(map[string]string, len(stored)-1+len(secrets))
+	for k, v := range stored {
+		if k != sealedDataKey {
+			data[k] = v
+		}
+	}
+	for k, v := range secrets {
+		// The writer puts a key on one side only, so a key on both was put
+		// there by hand. Neither copy can be preferred without guessing which
+		// one the account is meant to use — for base_url that is where the
+		// credential gets sent.
+		if _, dup := data[k]; dup {
+			return nil, fmt.Errorf("account %s data carries %q both open and sealed", accountID, k)
+		}
+		data[k] = v
+	}
+	return data, nil
+}
+
 // RewrapResult reports what a rewrap pass did.
 type RewrapResult struct {
 	// Scanned is every account row read.
@@ -372,6 +521,38 @@ type RewrapResult struct {
 	// the previous key was dropped. Emptiness of the plaintext says nothing
 	// about which key the ciphertext is under.
 	Rewritten int
+	// Overtaken is the rows someone else wrote between the pass reading them and
+	// writing them back. The pass leaves those alone: writing its copy would
+	// revert a change it never saw — a rotated broker token (personal-9m3i)
+	// silently swapped back for the old one. Whoever wrote them wrote with the
+	// current key and layout, so Rewritten + Overtaken == Scanned is success;
+	// anything short of it is in Stuck.
+	Overtaken int
+	// Stuck names the rows the pass could open but not write back, with why: a
+	// key the storage format now reserves, or a second account for a broker
+	// account another row already holds (a duplicate from before the unique
+	// index). One such row used to end the pass for the whole table, on every
+	// boot; now the others converge and these are left for a person, by id.
+	Stuck []string
+}
+
+// CountAccountsNotInCurrentLayout reports how many accounts.data rows are not
+// yet in the open-plus-sealed layout: rows sealed whole under "enc", and legacy
+// plaintext. Zero once the rewrap pass has converged the table.
+//
+// One SQL predicate, without opening a single row — the reason the sealed key
+// is written even when there is nothing to seal. It asks what the reader asks:
+// a "sealed" holding something other than an envelope is a legacy row whose
+// owner used the name, with its secrets still in the open, and must not count
+// as converged.
+func (s *PortfolioStore) CountAccountsNotInCurrentLayout(ctx context.Context) (int, error) {
+	var n int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM accounts WHERE NOT (data ? $1 AND starts_with(data ->> $1, $2))`,
+		sealedDataKey, storecrypto.EnvelopePrefix).Scan(&n); err != nil {
+		return 0, fmt.Errorf("failed to count accounts by data layout: %w", err)
+	}
+	return n, nil
 }
 
 // VerifyAccountDataReadable reads every accounts.data row and reports the first
@@ -421,6 +602,12 @@ func (s *PortfolioStore) VerifyAccountDataReadable(ctx context.Context) (int, er
 // Idempotent by construction: re-sealing a row already under the current key
 // just gives it a fresh nonce, so the pass can be repeated or interrupted.
 //
+// The same pass converges the LAYOUT: a row sealed whole under "enc" is written
+// back with its identity in the open (personal-gskb).
+//
+// Each write is conditional on the row still holding what the pass read, so an
+// account updated meanwhile keeps its update (see RewrapResult.Overtaken).
+//
 // Refuses to run in plaintext mode: without an encryptor there is nothing to
 // rewrap to, and silently doing nothing would look like success.
 func (s *PortfolioStore) RewrapAccountData(ctx context.Context) (RewrapResult, error) {
@@ -436,6 +623,7 @@ func (s *PortfolioStore) RewrapAccountData(ctx context.Context) (RewrapResult, e
 
 	type pending struct {
 		id   string
+		raw  []byte
 		data map[string]string
 	}
 	var todo []pending
@@ -458,7 +646,7 @@ func (s *PortfolioStore) RewrapAccountData(ctx context.Context) (RewrapResult, e
 			rows.Close()
 			return res, fmt.Errorf("account %s cannot be read with the configured keys: %w", id, err)
 		}
-		todo = append(todo, pending{id: id, data: data})
+		todo = append(todo, pending{id: id, raw: raw, data: data})
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -466,13 +654,30 @@ func (s *PortfolioStore) RewrapAccountData(ctx context.Context) (RewrapResult, e
 	}
 	rows.Close()
 
+	if s.rewrapRead != nil {
+		s.rewrapRead()
+	}
 	for _, p := range todo {
 		sealed, err := s.marshalAccountData(p.id, p.data)
+		if errors.Is(err, store.ErrInvalidArgument) {
+			res.Stuck = append(res.Stuck, fmt.Sprintf("%s: %v", p.id, err))
+			continue
+		}
 		if err != nil {
 			return res, fmt.Errorf("failed to seal account %s: %w", p.id, err)
 		}
-		if _, err := s.pool.Exec(ctx, `UPDATE accounts SET data = $2 WHERE id = $1`, p.id, sealed); err != nil {
+		tag, err := s.pool.Exec(ctx,
+			`UPDATE accounts SET data = $2 WHERE id = $1 AND data = $3::jsonb`, p.id, sealed, p.raw)
+		if taken := s.brokerAccountTaken(ctx, err, &entity.Account{ID: p.id, Data: p.data}); taken != nil {
+			res.Stuck = append(res.Stuck, fmt.Sprintf("%s: %v", p.id, taken))
+			continue
+		}
+		if err != nil {
 			return res, fmt.Errorf("failed to write account %s: %w", p.id, err)
+		}
+		if tag.RowsAffected() == 0 {
+			res.Overtaken++
+			continue
 		}
 		res.Rewritten++
 	}
@@ -586,6 +791,9 @@ func (s *PortfolioStore) CreateAccount(ctx context.Context, a *entity.Account) (
 		nullableString(a.PortfolioID),
 	).Scan(&a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
+		if taken := s.brokerAccountTaken(ctx, err, a); taken != nil {
+			return nil, taken
+		}
 		if isConstraintError(err) {
 			return nil, fmt.Errorf("%w: %v", store.ErrConstraint, err)
 		}
@@ -711,6 +919,9 @@ func (s *PortfolioStore) UpdateAccount(ctx context.Context, a *entity.Account, f
 
 	result, err := s.pool.Exec(ctx, query, args...)
 	if err != nil {
+		if taken := s.brokerAccountTaken(ctx, err, a); taken != nil {
+			return nil, taken
+		}
 		return nil, fmt.Errorf("failed to update account: %w", err)
 	}
 

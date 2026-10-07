@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -602,4 +603,75 @@ func TestUpdateAccount_FailedSaveNamesCopiesAlreadyRotated(t *testing.T) {
 	assert.Contains(t, err.Error(), "already carry the new secret")
 	assert.Contains(t, err.Error(), moved.ID)
 	s.AssertExpectations(t)
+}
+
+// TestSyncAccount_BrokerRaceLoserSyncsTheWinnersAccount is personal-gskb from
+// the side that loses. Two syncs of one token both read "no such account" and
+// both create; the unique index refuses the second. That sync must take the row
+// the first one made — a second success for the person who double-clicked, and
+// one account, not two, in every total.
+func TestSyncAccount_BrokerRaceLoserSyncsTheWinnersAccount(t *testing.T) {
+	parent := tokenAccount()
+	winner := tokenAccount()
+	winner.ID = "acct-winner"
+	winner.Name = "T-Invest · Брокерский счёт (2000000001)"
+	winner.Data = map[string]string{"provider": "tinvest", "api_key": "t", "broker_account_id": "2000000001"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(parent, nil)
+	// The snapshot is taken before the winner commits; the re-read after it.
+	s.On("ListAccounts", mock.Anything, mock.Anything).Return([]*entity.Account{parent}, "", nil).Once()
+	s.On("ListAccounts", mock.Anything, mock.Anything).Return([]*entity.Account{parent, winner}, "", nil)
+	s.On("CreateAccount", mock.Anything, mock.Anything).
+		Return(nil, fmt.Errorf("%w: tinvest broker account 2000000001 already belongs to account acct-winner", store.ErrAlreadyExists)).Once()
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: testHoldingID}, nil)
+
+	lister := &mockBrokerLister{refs: []entity.BrokerAccountRef{
+		{ID: "2000000001", Name: "Брокерский счёт", Syncable: true, ReadOnly: true},
+	}}
+	syncers := &syncerPerAccount{byBrokerID: map[string]entity.BrokerSyncer{
+		"2000000001": brokerSyncerReturning(positionOf("GAZP", "BBG004730RP0", "90000000000")),
+	}}
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).
+		WithBrokerSyncerSource(syncers).
+		WithBrokerAccountListerSource(&mockBrokerListerSource{lister: lister})
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: testAccountID}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.Errors, "losing the race is not something the caller has to read about")
+	assert.Equal(t, int32(0), resp.Msg.AccountsCreated, "the winner created it, not this sync")
+	assert.Equal(t, int32(1), resp.Msg.HoldingsUpserted, "the winner's account is synced")
+	s.AssertNumberOfCalls(t, "CreateAccount", 1)
+}
+
+// TestSyncAccount_BrokerRaceLoserFindingNothingSaysSo: the index said the
+// account exists and the re-read does not show it — deleted in between. The
+// loser names that instead of creating it a third time or syncing nothing
+// silently.
+func TestSyncAccount_BrokerRaceLoserFindingNothingSaysSo(t *testing.T) {
+	parent := tokenAccount()
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(parent, nil)
+	s.On("ListAccounts", mock.Anything, mock.Anything).Return([]*entity.Account{parent}, "", nil)
+	s.On("CreateAccount", mock.Anything, mock.Anything).
+		Return(nil, fmt.Errorf("%w: taken", store.ErrAlreadyExists)).Once()
+
+	lister := &mockBrokerLister{refs: []entity.BrokerAccountRef{
+		{ID: "2000000001", Name: "Брокерский счёт", Syncable: true, ReadOnly: true},
+	}}
+	h := newHandler(s).WithMarketDataClient(&mockMDClient{autoAsset: true}).
+		WithBrokerSyncerSource(&syncerPerAccount{}).
+		WithBrokerAccountListerSource(&mockBrokerListerSource{lister: lister})
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: testAccountID}))
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.Msg.Errors)
+	assert.Contains(t, resp.Msg.Errors[0], "created by a concurrent sync and could not be read back")
+	s.AssertNumberOfCalls(t, "CreateAccount", 1)
 }

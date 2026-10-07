@@ -58,8 +58,9 @@ func buildEncryptor(config *Config, log *slog.Logger) (*storecrypto.Encryptor, e
 	return encryptor, nil
 }
 
-// startRekey re-seals every accounts.data row under the current master key in the
-// background, when more than one key is configured.
+// startRekey re-seals every accounts.data row under the current master key and
+// in the current layout, in the background, when either is not yet true: more
+// than one key is configured, or some row is still sealed whole or plaintext.
 //
 // Rotating a master key is otherwise a data-loss event: the rows already written
 // stay sealed under the old key, and a decryption failure fails the WHOLE account
@@ -73,21 +74,33 @@ func buildEncryptor(config *Config, log *slog.Logger) (*storecrypto.Encryptor, e
 //     a row nobody reads is a row nobody rewrites.
 //   - It does not block startup. The service is fully functional mid-rotation;
 //     making boot wait on a full table rewrite buys nothing.
-//   - It does not run when a single key is configured. Nothing to converge, and
-//     rewriting every credential on every deploy is not free.
+//   - It does not run when there is nothing to converge — one key, and every
+//     row already in the open-plus-sealed layout. Rewriting every credential on
+//     every deploy is not free. The layout is a SQL predicate, so knowing that
+//     costs one count, not a decryption per row.
 //
 // A Postgres advisory lock keeps it to one instance: several replicas booting
 // together would otherwise all rewrite the same rows.
 func startRekey(ctx context.Context, pool *pgxpool.Pool, encryptor *storecrypto.Encryptor, log *slog.Logger) {
-	if encryptor == nil || encryptor.StaleKeys() == 0 {
+	if encryptor == nil {
 		return
 	}
-	log.Info("stale master keys configured: re-sealing accounts.data in the background",
-		"stale_keys", encryptor.StaleKeys())
 
 	go func() {
 		ctx, cancel := context.WithTimeout(ctx, rekeyTimeout)
 		defer cancel()
+
+		store := postgres.NewPortfolioStore(pool, postgres.WithEncryptor(encryptor))
+		behind, err := store.CountAccountsNotInCurrentLayout(ctx)
+		if err != nil {
+			reportRekeyFailure(log, "rekey: failed to count rows in an old accounts.data layout", err)
+			return
+		}
+		if encryptor.StaleKeys() == 0 && behind == 0 {
+			return
+		}
+		log.Info("re-sealing accounts.data in the background",
+			"stale_keys", encryptor.StaleKeys(), "rows_in_old_layout", behind)
 
 		var locked bool
 		if err := pool.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, rekeyLockID).Scan(&locked); err != nil {
@@ -105,15 +118,21 @@ func startRekey(ctx context.Context, pool *pgxpool.Pool, encryptor *storecrypto.
 			}
 		}()
 
-		store := postgres.NewPortfolioStore(pool, postgres.WithEncryptor(encryptor))
 		res, err := store.RewrapAccountData(ctx)
 		if err != nil {
 			// Counters first: how far a partial pass got is the difference
 			// between rerunning it and investigating one row.
 			log.Error("rekey: re-sealing stopped", slog.Any("error", err),
-				slog.Int("scanned", res.Scanned), slog.Int("rewritten", res.Rewritten))
+				slog.Int("scanned", res.Scanned), slog.Int("rewritten", res.Rewritten),
+				slog.Int("overtaken", res.Overtaken), slog.Int("stuck", len(res.Stuck)))
 			sentry.CaptureException(err)
 			return
+		}
+
+		// Each by id: a person has to look at these, and a count says where
+		// to start nothing.
+		for _, stuck := range res.Stuck {
+			log.Error("rekey: account left in its old layout", slog.String("reason", stuck))
 		}
 
 		// The counters cannot say whether the stale keys are still load bearing;
@@ -127,8 +146,23 @@ func startRekey(ctx context.Context, pool *pgxpool.Pool, encryptor *storecrypto.
 			return
 		}
 
-		log.Info("rekey: finished — every row is sealed under the current key, stale keys can be removed from SECURITY_MASTERKEY",
-			slog.Int("scanned", res.Scanned), slog.Int("rewritten", res.Rewritten), slog.Int("verified", checked))
+		// Same reasoning for the layout: the pass's counters say what it wrote,
+		// not what the table now holds.
+		if left, err := store.CountAccountsNotInCurrentLayout(ctx); err != nil || left > 0 {
+			if err == nil {
+				err = fmt.Errorf("%d accounts.data rows are still in an old layout after the pass", left)
+			}
+			reportRekeyFailure(log, "rekey: the layout did not converge; the unique index on broker accounts does not cover those rows", err)
+			return
+		}
+
+		msg := "rekey: finished — every row is sealed under the current key in the current layout"
+		if encryptor.StaleKeys() > 0 {
+			msg += "; stale keys can be removed from SECURITY_MASTERKEY"
+		}
+		log.Info(msg,
+			slog.Int("scanned", res.Scanned), slog.Int("rewritten", res.Rewritten),
+			slog.Int("overtaken", res.Overtaken), slog.Int("verified", checked))
 	}()
 }
 
