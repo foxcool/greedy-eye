@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
@@ -674,4 +675,40 @@ func TestSyncAccount_BrokerRaceLoserFindingNothingSaysSo(t *testing.T) {
 	require.NotEmpty(t, resp.Msg.Errors)
 	assert.Contains(t, resp.Msg.Errors[0], "created by a concurrent sync and could not be read back")
 	s.AssertNumberOfCalls(t, "CreateAccount", 1)
+}
+
+// TestSyncAccount_BrokerFanOutSkipsADisabledAccount: the token is the
+// parent's, the flag is the account's own. A sync of the parent must not
+// rewrite an account SyncAccount itself refuses.
+func TestSyncAccount_BrokerFanOutSkipsADisabledAccount(t *testing.T) {
+	parent := tokenAccount()
+	child := tokenAccount()
+	child.ID = "acct-child"
+	child.Name = "T-Invest · Брокерский счёт (2000000001)"
+	child.Data = map[string]string{"provider": "tinvest", "api_key": "t", "broker_account_id": "2000000001"}
+	since := time.Now()
+	child.DisabledAt = &since
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(parent, nil)
+	s.On("ListAccounts", mock.Anything, mock.Anything).Return([]*entity.Account{parent, child}, "", nil)
+
+	lister := &mockBrokerLister{refs: []entity.BrokerAccountRef{
+		{ID: "2000000001", Name: "Брокерский счёт", Syncable: true, ReadOnly: true},
+	}}
+	syncer := &mockBrokerSyncer{}
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil).Maybe()
+
+	h := newHandler(s).WithMarketDataClient(md).
+		WithBrokerSyncerSource(&mockBrokerSource{syncer: syncer}).
+		WithBrokerAccountListerSource(&mockBrokerListerSource{lister: lister})
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: testAccountID}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), resp.Msg.HoldingsUpserted)
+	syncer.AssertNotCalled(t, "SyncBroker", mock.Anything)
+	s.AssertNotCalled(t, "CreateHolding", mock.Anything, mock.Anything)
+	s.AssertNotCalled(t, "CreateAccount", mock.Anything, mock.Anything)
 }

@@ -746,3 +746,101 @@ func TestOwnKeyOutranksAnOlderSharedOne(t *testing.T) {
 	assert.Equal(t, "b-mine", inv.Providers["coingecko"].(*fakeProvider).name)
 	assert.Empty(t, inv.Skipped)
 }
+
+func disabledAccount(a *entity.Account) *entity.Account {
+	at := time.Now().Add(-time.Hour)
+	a.DisabledAt = &at
+	return a
+}
+
+// TestDisabledDuplicateHandsOverToTheOther: the 02.09 shape. A lapsed key
+// was the older of two accounts for one provider, so it kept being chosen;
+// disabling it must let the other serve, and the other is then not shadowed —
+// it is the one in use.
+func TestDisabledDuplicateHandsOverToTheOther(t *testing.T) {
+	now := time.Now()
+	owned := func(id string) *entity.Account {
+		a := account(id, "coingecko", now)
+		a.UserID = "u1"
+		return a
+	}
+	r := NewResolver(Config{
+		Source: &fakeSource{user: map[string][]*entity.Account{
+			"u1": {disabledAccount(owned("older")), owned("newer")},
+		}},
+		PriceProviders: map[string]PriceProviderFactory{
+			"coingecko": func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return &fakeProvider{name: a.ID}, nil
+			},
+		},
+	})
+
+	inv, err := r.PriceInventoryFor(context.Background(), "u1")
+	require.NoError(t, err)
+	assert.Equal(t, "newer", inv.Serving["coingecko"])
+	require.Len(t, inv.Skipped, 1, "no SHADOWED once the older is out of the running")
+	assert.Equal(t, entity.SkipDisabled, inv.Skipped[0].Kind)
+	assert.Equal(t, "older", inv.Skipped[0].AccountID)
+	assert.Equal(t, "coingecko", inv.Skipped[0].Provider)
+}
+
+// TestDisabledSystemAccountDoesNotClaimItsSlug: a disabled shared account
+// filtered only at the end would still cover its provider in the sole-operator
+// fallback, and the operator's working key for it would never be asked.
+func TestDisabledSystemAccountDoesNotClaimItsSlug(t *testing.T) {
+	now := time.Now()
+	r := NewResolver(Config{
+		Source: &fakeSource{
+			user:   map[string][]*entity.Account{"u1": {account("own", "coingecko", now)}},
+			system: []*entity.Account{disabledAccount(account("shared", "coingecko", now))},
+		},
+		PriceProviders: map[string]PriceProviderFactory{
+			"coingecko": func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return &fakeProvider{name: a.ID}, nil
+			},
+		},
+	})
+
+	providers, err := r.PriceProvidersFor(context.Background(), "")
+	require.NoError(t, err)
+	require.Contains(t, providers, "coingecko")
+	assert.Equal(t, "own", providers["coingecko"].(*fakeProvider).name)
+}
+
+// TestDisabledAccountIsNotASyncer: chain lookups go through the same funnel as
+// prices, so a disabled onchain account is never the one a wallet syncs with.
+func TestDisabledAccountIsNotASyncer(t *testing.T) {
+	now := time.Now()
+	builds := 0
+	r := NewResolver(Config{
+		Source: &fakeSource{user: map[string][]*entity.Account{
+			"u1": {disabledAccount(account("lapsed", "moralis", now)), account("live", "alchemy", now)},
+		}},
+		WalletSyncers: map[string]WalletProvider{
+			"moralis": {Factory: syncerFactory(&builds)},
+			"alchemy": {Factory: syncerFactory(&builds)},
+		},
+	})
+
+	syncer, err := r.WalletSyncerFor(context.Background(), "u1", "0xabc", nil)
+	require.NoError(t, err)
+	require.NotNil(t, syncer)
+	assert.Equal(t, "live", syncer.(*fakeSyncer).name)
+	assert.Equal(t, 1, builds, "the disabled account's client is never built")
+}
+
+// TestDisabledAccountWithoutAPriceAdapterIsNoSource: disabling an account
+// whose slug never priced anything must not invent a disabled price source.
+func TestDisabledAccountWithoutAPriceAdapterIsNoSource(t *testing.T) {
+	now := time.Now()
+	r := NewResolver(Config{
+		Source: &fakeSource{user: map[string][]*entity.Account{
+			"u1": {disabledAccount(account("scan", "subscan", now))},
+		}},
+		PriceProviders: map[string]PriceProviderFactory{},
+	})
+
+	inv, err := r.PriceInventoryFor(context.Background(), "u1")
+	require.NoError(t, err)
+	assert.Empty(t, inv.Skipped)
+}

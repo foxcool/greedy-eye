@@ -243,6 +243,61 @@ func TestListUserAccountsByCapability(t *testing.T) {
 	require.ErrorIs(t, err, store.ErrInvalidArgument)
 }
 
+// TestAccountDisabledFlag: the flag is written only through its field, keeps
+// the first stand-down when repeated, and comes back off. Capability lists
+// still return a disabled account — the resolver reports it as passed over —
+// but it does not make its owner a credential holder.
+func TestAccountDisabledFlag(t *testing.T) {
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	s := NewPortfolioStore(pool)
+	ctx := context.Background()
+
+	owner := createTestUser(t, users)
+	a, err := s.CreateAccount(ctx, &entity.Account{
+		UserID:       owner.ID,
+		Name:         "lapsed moralis",
+		Type:         entity.AccountTypeService,
+		Capabilities: []entity.AccountCapability{entity.CapabilityOnchainLookup},
+	})
+	require.NoError(t, err)
+	assert.False(t, a.Disabled(), "a new account is active")
+
+	owners, err := s.ListCapabilityOwners(ctx, entity.CapabilityOnchainLookup)
+	require.NoError(t, err)
+	require.Contains(t, owners, owner.ID)
+
+	marker := time.Now().Add(-48 * time.Hour)
+	got, err := s.UpdateAccount(ctx, &entity.Account{ID: a.ID, DisabledAt: &marker}, []string{"disabled"})
+	require.NoError(t, err)
+	require.True(t, got.Disabled())
+	first := *got.DisabledAt
+	assert.WithinDuration(t, time.Now(), first, time.Minute, "the server's clock, not the caller's")
+	assert.Equal(t, "lapsed moralis", got.Name, "only the flag is written")
+
+	again, err := s.UpdateAccount(ctx, &entity.Account{ID: a.ID, DisabledAt: &marker}, []string{"disabled"})
+	require.NoError(t, err)
+	assert.True(t, first.Equal(*again.DisabledAt), "disabling again keeps the first time")
+
+	renamed, err := s.UpdateAccount(ctx, &entity.Account{ID: a.ID, Name: "renamed"}, []string{"name"})
+	require.NoError(t, err)
+	assert.True(t, renamed.Disabled(), "a write that does not name the flag leaves it")
+
+	listed, err := s.ListUserAccountsByCapability(ctx, owner.ID, entity.CapabilityOnchainLookup)
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.True(t, listed[0].Disabled(), "listed with its flag, for the resolver to report")
+
+	owners, err = s.ListCapabilityOwners(ctx, entity.CapabilityOnchainLookup)
+	require.NoError(t, err)
+	assert.NotContains(t, owners, owner.ID, "a disabled key makes nobody an operator")
+
+	back, err := s.UpdateAccount(ctx, &entity.Account{ID: a.ID}, []string{"disabled"})
+	require.NoError(t, err)
+	assert.False(t, back.Disabled())
+	assert.Nil(t, back.DisabledAt)
+}
+
 func newTestEncryptor(t *testing.T) *storecrypto.Encryptor {
 	t.Helper()
 	e, err := storecrypto.NewEncryptor(bytes.Repeat([]byte{7}, 32))
@@ -1431,6 +1486,13 @@ func TestListStaleSyncTargets(t *testing.T) {
 	// complaining, which is the shape deferral does not catch.
 	brokerCredential := account("T-Invest", entity.AccountTypeBroker)
 
+	// Stale as anything here, and stood down by its owner (personal-2cw0).
+	disabled := account("disabled wallet", entity.AccountTypeWallet)
+	holdingAt(disabled.ID, now.Add(-300*time.Hour))
+	disabled.DisabledAt = &now
+	_, err = s.UpdateAccount(ctx, disabled, []string{"disabled"})
+	require.NoError(t, err)
+
 	got, err := s.ListStaleSyncTargets(ctx, now.Add(-12*time.Hour), now, 10)
 	require.NoError(t, err)
 
@@ -1442,6 +1504,7 @@ func TestListStaleSyncTargets(t *testing.T) {
 	assert.NotContains(t, ids, manual.ID, "a manual account has no provider to refresh it")
 	assert.NotContains(t, ids, brokerCredential.ID,
 		"a broker account with no positions is a credential, not a sweep target")
+	assert.NotContains(t, ids, disabled.ID, "a disabled account is not swept, however stale")
 	require.Contains(t, ids, neverSynced.ID)
 	require.Contains(t, ids, stalest.ID)
 	require.Contains(t, ids, stale.ID)

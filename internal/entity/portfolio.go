@@ -94,8 +94,20 @@ type Account struct {
 	Capabilities []AccountCapability // What the account credentials allow
 	SystemScopes []AccountCapability // Subset of Capabilities usable system-wide for any user; admin-managed
 	PortfolioID  string              // Optional; holdings synced from this account belong to this portfolio by default
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// DisabledAt is when the owner stood the account down; nil while active.
+	DisabledAt *time.Time
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+// Disabled reports whether the owner has stood the account down.
+//
+// It is not a capability (what the credential can do) and not a scope (who may
+// use it): it is the operator saying "not this one, for now" without deleting
+// the row, which is the only other way to stop a provider and takes the
+// write-only credential with it (personal-2cw0).
+func (a *Account) Disabled() bool {
+	return a.DisabledAt != nil
 }
 
 // ValidateCapabilities checks the capability invariants:

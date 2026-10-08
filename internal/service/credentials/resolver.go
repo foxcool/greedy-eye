@@ -173,31 +173,67 @@ type Skipped = entity.SkippedAccount
 // accountsFor returns candidate accounts for the capability in resolution
 // order: the user's own accounts first, then system-shared ones. It also
 // returns what it passed over, so a caller can say so out loud.
+//
+// A disabled account is never a candidate, and every list is filtered as it is
+// read rather than once at the end: a disabled system account left in the list
+// would still claim its slug in unclaimedProviders and keep the operator's own
+// working account for that provider out of unattended work.
 func (r *Resolver) accountsFor(ctx context.Context, userID string, capability entity.AccountCapability) ([]*entity.Account, []Skipped, error) {
-	var candidates []*entity.Account
+	var candidates, disabled []*entity.Account
 	if userID != "" {
 		own, err := r.cfg.Source.ListUserAccountsByCapability(ctx, userID, capability)
 		if err != nil {
 			return nil, nil, fmt.Errorf("list user accounts: %w", err)
 		}
-		candidates = append(candidates, own...)
+		own, off := splitDisabled(own)
+		candidates, disabled = append(candidates, own...), append(disabled, off...)
 	}
 	system, err := r.cfg.Source.ListSystemAccountsByCapability(ctx, capability)
 	if err != nil {
 		return nil, nil, fmt.Errorf("list system accounts: %w", err)
 	}
-	candidates = append(candidates, system...)
+	system, off := splitDisabled(system)
+	candidates, disabled = append(candidates, system...), append(disabled, off...)
 
 	if userID != "" {
-		return candidates, nil, nil
+		return candidates, disabledSkips(disabled), nil
 	}
 
 	owned, skipped, err := r.soleOperatorAccounts(ctx, capability)
 	if err != nil {
 		return nil, nil, err
 	}
+	owned, off = splitDisabled(owned)
+	disabled = append(disabled, off...)
 	candidates = append(candidates, unclaimedProviders(candidates, owned)...)
-	return candidates, skipped, nil
+	return candidates, append(skipped, disabledSkips(disabled)...), nil
+}
+
+// splitDisabled separates the accounts whose owner stood them down.
+func splitDisabled(accounts []*entity.Account) (active, disabled []*entity.Account) {
+	for _, a := range accounts {
+		if a.Disabled() {
+			disabled = append(disabled, a)
+		} else {
+			active = append(active, a)
+		}
+	}
+	return active, disabled
+}
+
+// disabledSkips names each disabled account once: one owned and system scoped
+// is read by two lists.
+func disabledSkips(accounts []*entity.Account) []Skipped {
+	var out []Skipped
+	for _, a := range firstOccurrences(accounts) {
+		out = append(out, Skipped{
+			Provider:  a.Data[DataProviderKey],
+			AccountID: a.ID,
+			Kind:      entity.SkipDisabled,
+			Reason:    "disabled by its owner",
+		})
+	}
+	return out
 }
 
 // unclaimedProviders returns the operator's accounts for the providers no
@@ -422,6 +458,12 @@ func (r *Resolver) PriceInventoryFor(ctx context.Context, userID string) (PriceI
 	if err != nil {
 		return PriceInventory{}, err
 	}
+	// A disabled account for a slug with no price adapter was never a price
+	// source; reporting it as a disabled one would invent a source.
+	skipped = slices.DeleteFunc(skipped, func(s Skipped) bool {
+		_, priced := r.cfg.PriceProviders[s.Provider]
+		return s.Kind == entity.SkipDisabled && !priced
+	})
 
 	// An account both owned and system scoped arrives twice. It is one
 	// account, and it keeps its first — highest-priority — position.

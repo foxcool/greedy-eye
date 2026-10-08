@@ -132,6 +132,13 @@ table "accounts" {
     type = uuid
     null = true
   }
+  # When the owner stood the account down (personal-2cw0); NULL = active. A
+  # disabled account keeps its credential and holdings but is used by nothing:
+  # not the resolver, not the sweep, not an explicit sync.
+  column "disabled_at" {
+    type = timestamptz
+    null = true
+  }
 
   primary_key {
     columns = [column.id]

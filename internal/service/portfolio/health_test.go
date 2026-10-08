@@ -278,3 +278,52 @@ func TestAccountHealthPriceProblemDoesNotKillASyncingAccount(t *testing.T) {
 	assert.NotContains(t, bySource(resp.Msg), "gateio")
 	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_OK, resp.Msg.SourcesState)
 }
+
+// TestAccountHealthDisabledIsTheOwnersChoiceNotAFault: a stood-down account
+// reports DISABLED and nothing else — a pending deferral or a failing chain
+// on it describes work its owner turned off — and a source no account serves
+// because one was disabled is DISABLED too, without colouring the report.
+func TestAccountHealthDisabledIsTheOwnersChoiceNotAFault(t *testing.T) {
+	since := time.Now().Add(-72 * time.Hour).UTC().Truncate(time.Second)
+	off := healthAccount("off", entity.AccountTypeWallet)
+	off.DisabledAt = &since
+
+	store := &mockStore{}
+	store.On("ListAccounts", mock.Anything, mock.Anything).Return([]*entity.Account{
+		healthAccount("ok", entity.AccountTypeExchange), off,
+	}, "", nil)
+	store.On("ListSyncDeferrals", mock.Anything, testUserID, "").Return([]*entity.SyncDeferral{
+		{AccountID: "off", Misses: 2, NextAttemptAt: time.Now().Add(time.Hour)},
+	}, nil)
+	src := &fakeSourceHealth{report: &entity.PriceSourceReport{
+		Sources: []entity.PriceSourceState{{Provider: "moex"}},
+		Skipped: []entity.SkippedAccount{
+			{Provider: "alchemy", AccountID: "off", Kind: entity.SkipDisabled, Reason: "disabled by its owner"},
+			{Provider: "alchemy", AccountID: "off-2", Kind: entity.SkipDisabled, Reason: "disabled by its owner"},
+			{Provider: "tinvest", AccountID: "t1", Kind: entity.SkipDisabled, Reason: "disabled by its owner"},
+			{Provider: "tinvest", AccountID: "t2", Kind: entity.SkipCannotBuild, Reason: "account unusable: root_ca is required"},
+		},
+	}}
+	h := newHandler(store).WithPriceSourceHealth(src)
+
+	resp, err := h.GetAccountHealth(ctxWithUser(testUserID), connect.NewRequest(&apiv1.GetAccountHealthRequest{}))
+	require.NoError(t, err)
+
+	got := byAccount(resp.Msg)["off"]
+	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_DISABLED, got.State)
+	require.Len(t, got.Reasons, 1, "no deferral or price reason on a disabled account")
+	assert.Equal(t, apiv1.HealthReasonKind_HEALTH_REASON_KIND_DISABLED, got.Reasons[0].Kind)
+	assert.Equal(t, since, got.Reasons[0].Since.AsTime())
+	store.AssertNotCalled(t, "ListChainFailures", mock.Anything, "off")
+
+	sources := bySource(resp.Msg)
+	require.NotNil(t, sources["alchemy"])
+	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_DISABLED, sources["alchemy"].State)
+	assert.Len(t, sources["alchemy"].Reasons, 1, "the disabled phrase is about the provider, said once")
+	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_UNUSABLE, sources["tinvest"].State,
+		"a broken account beside a disabled one still reads as broken")
+
+	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_OK,
+		worse(apiv1.HealthState_HEALTH_STATE_OK, apiv1.HealthState_HEALTH_STATE_DISABLED),
+		"a disabled source ranks below OK when states combine")
+}

@@ -116,6 +116,19 @@ message Account {
   // Subset of capabilities shared system-wide for any user. Admin-managed:
   // mutations require the admin role and an explicit update_mask entry.
   repeated string system_scopes = 11;
+  // The owner has stood the account down: it keeps its credential and its
+  // holdings, but nothing uses it — not price or chain lookups, not the balance
+  // sweep, not SyncAccount. Written through UpdateAccount with "disabled" in the
+  // mask; manual accounts refuse it, having nothing external to stop. Holdings
+  // stay in every total as their last snapshot and keep dating amounts_as_of.
+  // Ignored on create: an account is born active. The flag belongs to this
+  // account alone — broker accounts discovered from one token each carry their
+  // own, so disabling the one holding the token stops discovery, not the
+  // accounts it found.
+  bool disabled = 12;
+  // Output only. When the account was stood down; absent while it is active.
+  // Disabling an already disabled account keeps the first time.
+  optional google.protobuf.Timestamp disabled_at = 13;
 }
 
 // Transaction represents a financial event involving assets, accounts, and portfolios.
@@ -662,8 +675,9 @@ message UpdateAccountRequest {
   // Required. Names the fields to write; everything else is left alone. An
   // absent or empty mask is rejected — it used to mean "all fields", which made
   // a message carrying only an id an instruction to clear the row. Accepts
-  // name, description, type, data, capabilities, system_scopes, portfolio_id;
-  // system_scopes additionally requires the admin role.
+  // name, description, type, data, capabilities, system_scopes, portfolio_id,
+  // disabled; system_scopes additionally requires the admin role. Changing
+  // disabled also clears the balance sweep's deferral of the account.
   google.protobuf.FieldMask update_mask = 2;
 }
 
@@ -901,6 +915,9 @@ enum HealthState {
   HEALTH_STATE_UNUSABLE = 3;
   // This instance cannot tell. Not the same as OK and must not render as it.
   HEALTH_STATE_UNKNOWN = 4;
+  // Its owner stood it down on purpose. Not a fault: it ranks below OK when
+  // states are combined, and no other reason is computed for it.
+  HEALTH_STATE_DISABLED = 5;
 }
 
 // HealthReasonKind is the shape of a problem, one repair each.
@@ -919,6 +936,9 @@ enum HealthReasonKind {
   HEALTH_REASON_KIND_CHAIN_FAILING = 5;
   // The balance sweep holds the account back after syncs that left it no fresher.
   HEALTH_REASON_KIND_SWEEP_DEFERRED = 6;
+  // The owner disabled the account; since says when. On a source: no account
+  // serves it, and at least one that could is disabled.
+  HEALTH_REASON_KIND_DISABLED = 7;
 }
 
 // HealthReason is one thing wrong, as a phrase the server wrote and the fields

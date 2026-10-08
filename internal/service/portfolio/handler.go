@@ -1051,6 +1051,10 @@ func (h *Handler) CreateAccount(ctx context.Context, req *connect.Request[apiv1.
 
 	account := accountFromProto(req.Msg.Account)
 	account.UserID = user.ID
+	// An account is born active. Standing it down is a later act with its own
+	// checks (standDown); the INSERT does not write the flag, so accepting it
+	// here would answer with a state the row does not hold.
+	account.DisabledAt = nil
 	for k, v := range account.Data {
 		if strings.HasPrefix(v, maskPrefix) {
 			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("data key %q holds a masked value; send the real secret", k))
@@ -1110,6 +1114,11 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 	}
 
 	account := accountFromProto(req.Msg.Account)
+	if slices.Contains(fields, "disabled") || slices.Contains(fields, "type") {
+		if err := h.standDown(ctx, existing, account, fields); err != nil {
+			return nil, err
+		}
+	}
 	if slices.Contains(fields, "portfolio_id") && account.PortfolioID != "" && account.PortfolioID != existing.PortfolioID {
 		if _, err := h.ownedPortfolio(ctx, account.PortfolioID); err != nil {
 			return nil, err
@@ -1164,6 +1173,49 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 
 	return connect.NewResponse(accountToProto(updated)), nil
 }
+
+// standDown checks a write that touches the disabled flag or the type, and
+// clears the balance sweep's deferral of the account when the flag moves.
+//
+// A disabled manual account is refused however it would come about — by
+// disabling a manual account, or by turning a disabled one manual with the
+// flag left out of the mask: nothing external reads a manual account, so the
+// flag would change nothing while looking like an action. The deferral goes in both
+// directions. Re-enabling is what an owner does after changing something —
+// often the key itself — and an account held back for misses its old key
+// earned should be tried at once. Disabling drops a schedule for an account the
+// sweep will no longer take, which would otherwise sit in GetSweepSchedule as
+// "deferred" with nothing behind it.
+//
+// Cleared before the row is written: if the write then fails, the account has
+// lost a deferral it would rebuild on its next miss, not kept one that
+// contradicts its new state.
+func (h *Handler) standDown(ctx context.Context, existing, account *entity.Account, fields []string) error {
+	accountType, disabled := existing.Type, existing.Disabled()
+	if slices.Contains(fields, "type") {
+		accountType = account.Type
+	}
+	if slices.Contains(fields, "disabled") {
+		disabled = account.Disabled()
+	}
+	if accountType == entity.AccountTypeManual && disabled {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New(
+			"a manual account cannot be disabled: no provider reads it, so there is nothing to stand down"))
+	}
+	if disabled == existing.Disabled() {
+		return nil
+	}
+	// The owner's id, not the caller's: an admin may change somebody else's
+	// account, and the deferral is filed under the owner.
+	if _, err := h.store.ClearSyncDeferrals(ctx, existing.UserID, []string{existing.ID}); err != nil {
+		return toConnectError(err)
+	}
+	return nil
+}
+
+// errAccountDisabled marks a sync refused because the owner stood the account
+// down, so the sweep can tell a decision from a failure.
+var errAccountDisabled = errors.New("disabled by its owner")
 
 // operatorDataKeys are accounts.data keys only an admin may set or change.
 //
@@ -1446,6 +1498,11 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	account, err := h.ownedAccount(ctx, req.Msg.AccountId)
 	if err != nil {
 		return nil, err
+	}
+	if account.Disabled() {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"account %q is %w since %s; enable it to sync",
+			account.Name, errAccountDisabled, account.DisabledAt.UTC().Format(time.RFC3339)))
 	}
 
 	// From here on the sync runs on the server's clock, not the caller's. See
@@ -2577,6 +2634,11 @@ func accountFromProto(a *apiv1.Account) *entity.Account {
 	if a.Description != nil {
 		result.Description = *a.Description
 	}
+	if a.Disabled {
+		// A marker: the store stamps its own clock, never the caller's.
+		now := time.Now()
+		result.DisabledAt = &now
+	}
 	if a.PortfolioId != nil {
 		result.PortfolioID = *a.PortfolioId
 	}
@@ -2594,12 +2656,16 @@ func accountToProto(a *entity.Account) *apiv1.Account {
 		SystemScopes: capabilitiesToProto(a.SystemScopes),
 		CreatedAt:    timestamppb.New(a.CreatedAt),
 		UpdatedAt:    timestamppb.New(a.UpdatedAt),
+		Disabled:     a.Disabled(),
 	}
 	if a.Description != "" {
 		result.Description = &a.Description
 	}
 	if a.PortfolioID != "" {
 		result.PortfolioId = &a.PortfolioID
+	}
+	if a.DisabledAt != nil {
+		result.DisabledAt = timestamppb.New(*a.DisabledAt)
 	}
 	return result
 }

@@ -17,6 +17,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
+	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/provider"
 	"github.com/foxcool/greedy-eye/internal/scheduler"
@@ -419,6 +420,13 @@ func logProviderInventory(ctx context.Context, resolver *credentials.Resolver, l
 	}
 
 	for _, s := range inventory.Skipped {
+		if s.Kind == entity.SkipDisabled {
+			// The owner's decision, not a fault: named, not warned about.
+			log.Info("a disabled account carrying market data is not used",
+				slog.String("provider", s.Provider),
+				slog.String("account_id", s.AccountID))
+			continue
+		}
 		log.Warn("an account carrying market data is not used by unattended work",
 			slog.String("provider", s.Provider),
 			slog.String("account_id", s.AccountID),
