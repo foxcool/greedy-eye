@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"connectrpc.com/connect"
@@ -112,6 +113,21 @@ func (h *Handler) accountHealth(
 	admin bool,
 	now time.Time,
 ) (*apiv1.AccountHealth, error) {
+	if a.Disabled() {
+		// Diagnosing an account nobody is asking would report the absence of
+		// work its owner chose, as faults.
+		return &apiv1.AccountHealth{
+			AccountId:   a.ID,
+			AccountName: a.Name,
+			State:       apiv1.HealthState_HEALTH_STATE_DISABLED,
+			Reasons: []*apiv1.HealthReason{{
+				Kind:    apiv1.HealthReasonKind_HEALTH_REASON_KIND_DISABLED,
+				Message: "disabled by its owner: nothing syncs this account or takes it as a provider until it is enabled",
+				Since:   timestamppb.New(*a.DisabledAt),
+			}},
+		}, nil
+	}
+
 	var reasons []*apiv1.HealthReason
 	state := apiv1.HealthState_HEALTH_STATE_OK
 	if report != nil {
@@ -197,6 +213,10 @@ func skipReason(s entity.SkippedAccount, admin bool) *apiv1.HealthReason {
 	case entity.SkipNoAdapter:
 		r.Kind = apiv1.HealthReasonKind_HEALTH_REASON_KIND_NO_ADAPTER
 		r.Message = fmt.Sprintf("declares market data, but this build has no price adapter for %q; the capability prices nothing", s.Provider)
+	case entity.SkipDisabled:
+		r.Kind = apiv1.HealthReasonKind_HEALTH_REASON_KIND_DISABLED
+		r.Message = fmt.Sprintf("a %s account that could serve prices is disabled by its owner", s.Provider)
+		return r // nothing upstream to detail
 	case entity.SkipShadowed:
 		r.Kind = apiv1.HealthReasonKind_HEALTH_REASON_KIND_SHADOWED
 		r.Message = fmt.Sprintf("another %s account with a different key prices first; this key is never used for prices", s.Provider)
@@ -267,23 +287,33 @@ func sourceHealth(report *entity.PriceSourceReport, admin bool) []*apiv1.SourceH
 		out = append(out, sh)
 	}
 
-	// A price provider every account of which failed to build is a source the
-	// caller's prices lack entirely. A slug with no price adapter is not a
-	// price source at all, and a shadowed account means another one serves.
+	// A price provider every account of which failed to build, or was
+	// disabled, is a source the caller's prices lack entirely. A slug with no
+	// price adapter is not a price source at all, and a shadowed account means
+	// another one serves. Disabled and broken together read as broken: the
+	// owner's choice must not hide an account that would fail if enabled.
 	unreached := map[string]*apiv1.SourceHealth{}
 	for _, s := range report.Skipped {
-		if s.Provider == "" || reached[s.Provider] || s.Kind != entity.SkipCannotBuild {
+		if s.Provider == "" || reached[s.Provider] {
+			continue
+		}
+		if s.Kind != entity.SkipCannotBuild && s.Kind != entity.SkipDisabled {
 			continue
 		}
 		sh, ok := unreached[s.Provider]
 		if !ok {
-			sh = &apiv1.SourceHealth{Provider: s.Provider, State: apiv1.HealthState_HEALTH_STATE_UNUSABLE}
+			sh = &apiv1.SourceHealth{Provider: s.Provider, State: apiv1.HealthState_HEALTH_STATE_DISABLED}
 			unreached[s.Provider] = sh
 			out = append(out, sh)
 		}
-		sh.Reasons = append(sh.Reasons, skipReason(entity.SkippedAccount{
-			Provider: s.Provider, Kind: s.Kind, Reason: s.Reason,
-		}, admin))
+		r := skipReason(entity.SkippedAccount{Provider: s.Provider, Kind: s.Kind, Reason: s.Reason}, admin)
+		sh.State = worse(sh.State, stateOf(r))
+		// The disabled phrase is about the provider, not the account: once.
+		if r.Kind == apiv1.HealthReasonKind_HEALTH_REASON_KIND_DISABLED &&
+			slices.ContainsFunc(sh.Reasons, func(have *apiv1.HealthReason) bool { return have.Kind == r.Kind }) {
+			continue
+		}
+		sh.Reasons = append(sh.Reasons, r)
 	}
 	return out
 }
@@ -294,6 +324,8 @@ func stateOf(r *apiv1.HealthReason) apiv1.HealthState {
 	case apiv1.HealthReasonKind_HEALTH_REASON_KIND_CHAIN_FAILING,
 		apiv1.HealthReasonKind_HEALTH_REASON_KIND_SWEEP_DEFERRED:
 		return apiv1.HealthState_HEALTH_STATE_DEGRADED
+	case apiv1.HealthReasonKind_HEALTH_REASON_KIND_DISABLED:
+		return apiv1.HealthState_HEALTH_STATE_DISABLED
 	default:
 		return apiv1.HealthState_HEALTH_STATE_UNUSABLE
 	}
@@ -308,8 +340,10 @@ func worstState(reasons []*apiv1.HealthReason) apiv1.HealthState {
 }
 
 // severity orders states for worse; UNKNOWN outranks DEGRADED because "cannot
-// tell" must not read as "mostly fine".
+// tell" must not read as "mostly fine". DISABLED ranks below OK: a source its
+// owner turned off is not a fault, and must not colour the whole report.
 var severity = map[apiv1.HealthState]int{
+	apiv1.HealthState_HEALTH_STATE_DISABLED: 0,
 	apiv1.HealthState_HEALTH_STATE_OK:       1,
 	apiv1.HealthState_HEALTH_STATE_DEGRADED: 2,
 	apiv1.HealthState_HEALTH_STATE_UNKNOWN:  3,

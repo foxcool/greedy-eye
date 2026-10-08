@@ -277,6 +277,11 @@ func (h *Handler) sweepAccount(ctx context.Context, acct *entity.Account, report
 	owned := middleware.ContextWithUser(ctx, &entity.User{ID: acct.UserID})
 	syncStarted := time.Now()
 	resp, err := h.SyncAccount(owned, connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: acct.ID}))
+	if errors.Is(err, errAccountDisabled) {
+		// Disabled between selection and sync. Not a failure, and deferring it
+		// would file a schedule for an account the sweep no longer takes.
+		return
+	}
 	if err != nil {
 		report.Failed++
 		report.note(acct, sweepFailed, []string{err.Error()}, h.deferAccount(ctx, acct, now))

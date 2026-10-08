@@ -49,6 +49,8 @@ Two things regularly trip this up:
 - When two accounts share a provider slug, the resolver takes the **first by
   id**, and ids are UUIDv7 — so the oldest one wins. A key added to the newer
   duplicate is silently ignored while an empty older account shadows it.
+  `GetAccountHealth` names the shadowed one; disabling the older account
+  (`update_mask: ["disabled"]`) hands over to the newer without deleting a key.
 
 ## On-chain providers (`service` + `onchain_lookup`)
 
@@ -76,8 +78,10 @@ preference, so a provider whose plan has lapsed keeps being chosen and keeps
 failing.
 
 Switching therefore means retiring the old account, not just adding the new one:
-delete it, or take `onchain_lookup` off it. Leaving both is how "I configured
-the new provider" stops meaning "the new provider is used" (`personal-1y6i`).
+disable it — the key stays, and enabling it switches back — or delete it, or
+take `onchain_lookup` off it. Leaving both active is how "I configured the new
+provider" stops meaning "the new provider is used" (`personal-1y6i`,
+`personal-2cw0`).
 
 ### Accepted `data` fields
 

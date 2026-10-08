@@ -16,7 +16,7 @@ import (
 var (
 	portfolioUpdatable   = []string{"name", "description", "data"}
 	holdingUpdatable     = []string{"amount", "decimals", "portfolio_id", "excluded", "chain", "liquidity"}
-	accountUpdatable     = []string{"name", "description", "type", "data", "capabilities", "system_scopes", "portfolio_id"}
+	accountUpdatable     = []string{"name", "description", "type", "data", "capabilities", "system_scopes", "portfolio_id", "disabled"}
 	transactionUpdatable = []string{"status", "data"}
 )
 

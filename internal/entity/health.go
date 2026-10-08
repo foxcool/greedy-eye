@@ -16,6 +16,8 @@ const (
 	// SkipOperators: unattended work will not choose between several
 	// credential holders. Not about one account.
 	SkipOperators SkipKind = "operators"
+	// SkipDisabled: the account's owner stood it down.
+	SkipDisabled SkipKind = "disabled"
 )
 
 // SkippedAccount is one account the resolver could have used and did not.

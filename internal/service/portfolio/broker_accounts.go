@@ -81,6 +81,12 @@ func (h *Handler) syncBrokerAccounts(ctx context.Context, parent *entity.Account
 	}
 
 	for _, account := range accounts {
+		if account.Disabled() {
+			// Its owner stood this one down. The token that reaches it is the
+			// parent's, but the flag is the account's own: syncing it here
+			// would make SyncAccount's refusal a door with a way round.
+			continue
+		}
 		one, err := h.syncOneAccount(ctx, account)
 		if err != nil {
 			// Each account is its own call to the broker, so one failing says

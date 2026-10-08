@@ -317,7 +317,7 @@ func (s *PortfolioStore) ListPortfolios(ctx context.Context, opts portfolio.List
 
 // --- Account methods ---
 
-const accountColumns = "id, user_id, name, description, type, data, capabilities, system_scopes, portfolio_id, created_at, updated_at"
+const accountColumns = "id, user_id, name, description, type, data, capabilities, system_scopes, portfolio_id, created_at, updated_at, disabled_at"
 
 // encDataKey marks the first encrypted layout of accounts.data, the whole map
 // sealed as one blob: {"enc": "v1:..."} (ADR-005). Still read, no longer written.
@@ -705,6 +705,7 @@ func (s *PortfolioStore) scanAccount(row interface{ Scan(dest ...any) error }) (
 		&portfolioID,
 		&a.CreatedAt,
 		&a.UpdatedAt,
+		&a.DisabledAt,
 	)
 	if err != nil {
 		return nil, err
@@ -908,6 +909,15 @@ func (s *PortfolioStore) UpdateAccount(ctx context.Context, a *entity.Account, f
 			setClauses = append(setClauses, fmt.Sprintf("portfolio_id = $%d", argIdx))
 			args = append(args, nullableString(a.PortfolioID))
 			argIdx++
+		case "disabled":
+			// Only whether DisabledAt is set is read; the time is the server's.
+			// COALESCE keeps the first stand-down when one is repeated, so
+			// "disabled since" does not move every time somebody saves.
+			if a.Disabled() {
+				setClauses = append(setClauses, "disabled_at = COALESCE(disabled_at, NOW())")
+			} else {
+				setClauses = append(setClauses, "disabled_at = NULL")
+			}
 		}
 	}
 
@@ -1094,6 +1104,9 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 // this same change puts on broker accounts. `h.synced_at IS NOT NULL` is how
 // that reads in SQL, because accounts.data is sealed as a whole (ADR-005) and
 // no query can ask whether broker_account_id is set.
+//
+// A disabled account never, whatever its type: its owner stood it down, and
+// a sweep that went on syncing it would make the flag mean nothing.
 const sweepableAccounts = `
 		FROM accounts a
 		LEFT JOIN (
@@ -1103,6 +1116,7 @@ const sweepableAccounts = `
 		) h ON h.account_id = a.id
 		LEFT JOIN account_sync_attempts s ON s.account_id = a.id
 		WHERE (a.type IN ($1, $2) OR (a.type = $3 AND h.synced_at IS NOT NULL))
+		  AND a.disabled_at IS NULL
 		  AND (h.synced_at IS NULL OR h.synced_at < $4)
 		  AND (s.next_attempt_at IS NULL OR s.next_attempt_at <= $5)`
 
@@ -1490,7 +1504,9 @@ func (s *PortfolioStore) ListUserAccountsByCapability(ctx context.Context, userI
 // or several. Counting USERS would answer a different question: an instance
 // accumulates test accounts, invitees and smoke-test rows, none of which decide
 // whether a sweep may use somebody's key. Counting who actually holds a
-// credential does.
+// credential does — a usable one: a person whose only key is disabled holds
+// nothing unattended work could use, and counting them would make a single
+// operator look like two and stop the fallback.
 func (s *PortfolioStore) ListCapabilityOwners(ctx context.Context, capability entity.AccountCapability) ([]string, error) {
 	if capability == "" {
 		return nil, fmt.Errorf("%w: capability is required", store.ErrInvalidArgument)
@@ -1503,7 +1519,7 @@ func (s *PortfolioStore) ListCapabilityOwners(ctx context.Context, capability en
 	rows, err := s.pool.Query(ctx, `
 		SELECT DISTINCT user_id
 		FROM accounts
-		WHERE capabilities @> $1 AND user_id IS NOT NULL
+		WHERE capabilities @> $1 AND user_id IS NOT NULL AND disabled_at IS NULL
 		ORDER BY user_id`, capJSON)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list capability owners: %w", err)

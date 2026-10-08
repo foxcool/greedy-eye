@@ -705,6 +705,18 @@ undo the binding (`DeleteAssetExternalRef`).
   scoped accounts, while every manual fetch worked because it carried a user id. The startup line
   therefore names the accounts it **skipped** and why — a list of what worked cannot show an
   absence (`Resolver.Skipped`, `internal/service/credentials/resolver.go`).
+- **An account can be stood down without being deleted** (`disabled_at`, personal-2cw0). Until
+  then the only way to stop a provider was `DeleteAccount`, which takes the write-only credential
+  with it. A disabled account keeps its key and holdings, but nothing uses it: the resolver drops
+  it from every candidate list as it is read (so a disabled scoped account no longer claims its slug
+  against the operator fallback), the balance sweep's `sweepableAccounts` excludes it, and
+  `SyncAccount` refuses it. Its holdings stay in the total as their last snapshot and keep dating
+  `amounts_as_of` — the total may not claim a freshness it no longer has. `GetAccountHealth` reports
+  it `DISABLED`, ranked below OK so an owner's choice does not read as a fault. Manual accounts
+  refuse the flag: nothing external reads them. The flag is the account's own: broker accounts
+  discovered from one token carry it independently, so disabling the token-holding account stops
+  discovery and the fan-out skips disabled children, but enabled children keep syncing with their
+  copy of the token.
 - **Keyless readers are registered by default, not seeded.** Public feeds and explorers
   (`KeylessPriceProviders`, `KeylessWalletSyncers`) need no credential, so a fresh instance reads
   them without anyone creating a row — `accounts.user_id` is NOT NULL and a fresh instance has no
@@ -1747,7 +1759,7 @@ System Quality
 
 ---
 
-**Document Version**: 1.10
-**Last Updated**: 2026-10-07
+**Document Version**: 1.11
+**Last Updated**: 2026-10-08
 **Owner**: foxcool
 **Status**: Active
