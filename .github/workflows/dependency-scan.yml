@@ -1,0 +1,61 @@
+name: Dependency scan
+
+# govulncheck reads a remote vulnerability database, so its verdict depends on
+# the date as well as on the diff: the same go.sum can pass today and fail
+# tomorrow. Running it on every PR blamed whoever pushed next for news about
+# the world. So the scan runs nightly against main and reports to the
+# repository, and a PR runs it only when it changes go.mod or go.sum.
+#
+# A PR that starts calling a vulnerable symbol of an already-pinned module is
+# not caught at PR time; the nightly run reports it within a day.
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+  push:
+    branches: [ main, develop ]
+    paths: [ go.mod, go.sum ]
+  pull_request:
+    paths: [ go.mod, go.sum ]
+
+jobs:
+  govulncheck:
+    name: Scan dependencies for vulnerabilities
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Run govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-input: stable
+
+  report:
+    name: Open an issue for a red nightly scan
+    needs: govulncheck
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      # One open issue per outage: a scan that stays red adds a comment
+      # instead of a new issue every night.
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Nightly dependency scan is red"
+          num=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body "Still red: $RUN_URL"
+          else
+            gh issue create --title "$title" --body "govulncheck found a new vulnerability reachable from main: $RUN_URL
+
+          Bump the module on its own branch; unrelated PRs are not blocked by this."
+          fi
