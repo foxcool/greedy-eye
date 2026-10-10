@@ -253,6 +253,28 @@ func requireAdmin(ctx context.Context, action string) (*entity.User, error) {
 	return user, nil
 }
 
+// mayBindRef decides who may bind a ref, the one place this rule is argued.
+//
+// A ref is identity the catalogue keeps: the first binding of (source, ref)
+// owns it, and lookups resolve by it before the symbol. In a provider's
+// namespace (a venue pair, a broker FIGI) PriceBinding.Bound prices by it, so a
+// caller naming another instrument's id routes that instrument's price onto
+// this asset for every holder. In a chain namespace the resolver only decides
+// which market the asset lands on, not whether the ref may be taken, so a
+// caller can still squat a real contract before any holder's wallet sync binds
+// it. Either way the binding is made for everyone by someone who reported
+// nothing (personal-l4tc).
+//
+// So only the in-process sync, binding what a provider reported for a position
+// it holds, and an admin may name a ref; no RPC client has needed to.
+func mayBindRef(ctx context.Context) error {
+	if middleware.SyncAuthority(ctx) {
+		return nil
+	}
+	_, err := requireAdmin(ctx, "binding an external ref")
+	return err
+}
+
 // UpdateAsset updates an asset. Admin-only: the row is global.
 func (h *Handler) UpdateAsset(ctx context.Context, req *connect.Request[apiv1.UpdateAssetRequest]) (*connect.Response[apiv1.Asset], error) {
 	if _, err := requireAdmin(ctx, "updating a catalogue asset"); err != nil {
@@ -598,6 +620,11 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 	refSource := strings.TrimSpace(req.Msg.GetExternalRefSource())
 	ref := strings.TrimSpace(req.Msg.GetExternalRef())
 	hasRef := refSource != "" && ref != ""
+	if hasRef {
+		if err := mayBindRef(ctx); err != nil {
+			return nil, err
+		}
+	}
 
 	// Resolve by external ref first: a token's contract is its identity, so a
 	// bound contract wins over symbol matching and a scam clone of a real ticker

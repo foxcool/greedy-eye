@@ -223,8 +223,7 @@ type PriceBinding struct {
 	ContractMarkets bool
 	// RefSource, when set, admits an asset to pricing only once it carries a ref
 	// in this namespace. Unbound assets of an admitted market still reach
-	// discovery, which is where such a ref is meant to come from; a caller of
-	// FindOrCreateAsset can still supply one too (personal-l4tc).
+	// discovery, which is where such a ref comes from.
 	RefSource string
 }
 

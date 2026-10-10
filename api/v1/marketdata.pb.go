@@ -1515,7 +1515,9 @@ type FindOrCreateAssetRequest struct {
 	// contract is its identity, so a scam clone of a real ticker resolves to its
 	// own asset rather than merging into the real one. On a miss the mapping is
 	// bound to the resolved/created asset. Source namespaces the ref:
-	// "onchain:<chain>" for a contract/mint.
+	// "onchain:<chain>" for a contract/mint. Admin-only over RPC
+	// (PERMISSION_DENIED otherwise): a binding is identity for every holder, so
+	// only sync, binding what a provider reported, sets it in-process.
 	ExternalRefSource *string `protobuf:"bytes,6,opt,name=external_ref_source,json=externalRefSource,proto3,oneof" json:"external_ref_source,omitempty"`
 	ExternalRef       *string `protobuf:"bytes,7,opt,name=external_ref,json=externalRef,proto3,oneof" json:"external_ref,omitempty"`
 	// Provider identity signals for scam scoring at sync intake, where reported:

@@ -2349,7 +2349,9 @@ func (h *Handler) resolveSyncedAsset(ctx context.Context, b syncedBalance) (asse
 		msg.ExternalRef = &ref
 	}
 
-	resp, err := h.mdClient.FindOrCreateAsset(ctx, connect.NewRequest(msg))
+	// The ref is what the provider reported for this position, so the sync
+	// may bind it (middleware.WithSyncAuthority).
+	resp, err := h.mdClient.FindOrCreateAsset(middleware.WithSyncAuthority(ctx), connect.NewRequest(msg))
 	if err != nil {
 		return "", false, "", err
 	}

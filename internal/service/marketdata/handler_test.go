@@ -609,6 +609,12 @@ func TestUpdateAsset_IsAdminOnly(t *testing.T) {
 
 // --- Tests: CreatePrice ---
 
+// syncContext is how wallet and broker sync reach FindOrCreateAsset: in-process,
+// with the authority to bind the refs their providers reported.
+func syncContext() context.Context {
+	return middleware.WithSyncAuthority(context.Background())
+}
+
 func adminContext() context.Context {
 	return middleware.ContextWithUser(context.Background(), &entity.User{ID: "admin-1", Roles: []string{"admin"}})
 }
@@ -788,7 +794,7 @@ func TestFindOrCreateAsset_FindsExisting(t *testing.T) {
 	expectVerdict(s)
 	h := newHandler(s)
 
-	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	resp, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol: "btc", // normalized before lookup; type/market default to crypto
 	}))
 	require.NoError(t, err)
@@ -804,7 +810,7 @@ func TestFindOrCreateAsset_DryRunWouldCreate(t *testing.T) {
 		Return(nil, store.ErrNotFound)
 	h := newHandler(s)
 
-	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	resp, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol: "NEW",
 		DryRun: true,
 	}))
@@ -825,7 +831,7 @@ func TestFindOrCreateAsset_Creates(t *testing.T) {
 	h := newHandler(s)
 
 	name := "New Token"
-	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	resp, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol: "NEW",
 		Name:   &name,
 	}))
@@ -854,7 +860,7 @@ func TestFindOrCreateAsset_NulByteKeepsThePosition(t *testing.T) {
 	h := newHandler(s)
 
 	name := "Get\x00Paid"
-	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	resp, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol: "gtps\x00",
 		Name:   &name,
 	}))
@@ -876,7 +882,7 @@ func TestFindOrCreateAsset_LosesCreationRace(t *testing.T) {
 	expectVerdict(s)
 	h := newHandler(s)
 
-	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	resp, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol: "BTC",
 	}))
 	require.NoError(t, err)
@@ -896,7 +902,7 @@ func TestFindOrCreateAsset_ResolvesByExternalRef(t *testing.T) {
 	h := newHandler(s)
 
 	source, ref := "onchain:eth", "0xCAFE"
-	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	resp, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol:            "USDT",
 		ExternalRefSource: &source,
 		ExternalRef:       &ref,
@@ -930,7 +936,7 @@ func TestFindOrCreateAsset_TickerCollisionScoresImpersonation(t *testing.T) {
 	h := newHandler(s)
 
 	source, ref := "onchain:eth", "0x7f1ffe63"
-	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	resp, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol:            "USDT",
 		ExternalRefSource: &source,
 		ExternalRef:       &ref,
@@ -958,7 +964,7 @@ func TestFindOrCreateAsset_TickerIncumbentLookupFailureIsNotAVerdict(t *testing.
 	h := newHandler(s)
 
 	source, ref := "onchain:eth", "0xCAFE"
-	_, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	_, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol:            "USDT",
 		ExternalRefSource: &source,
 		ExternalRef:       &ref,
@@ -980,7 +986,7 @@ func TestFindOrCreateAsset_RefResolvesWithoutSymbol(t *testing.T) {
 	h := newHandler(s)
 
 	source, ref := "onchain:eth", "0xCAFE"
-	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	resp, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		ExternalRefSource: &source,
 		ExternalRef:       &ref,
 	}))
@@ -998,7 +1004,7 @@ func TestFindOrCreateAsset_UnknownRefStillNeedsSymbol(t *testing.T) {
 	h := newHandler(s)
 
 	source, ref := "onchain:eth", "0xNEW"
-	_, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	_, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		ExternalRefSource: &source,
 		ExternalRef:       &ref,
 	}))
@@ -1026,7 +1032,7 @@ func TestFindOrCreateAsset_BindsRefOnIdentityMatch(t *testing.T) {
 	h := newHandler(s).WithProvider("coingecko", resolver)
 
 	source, ref := "onchain:bsc", "0xBEEF"
-	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	resp, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol:            "USDC",
 		ExternalRefSource: &source,
 		ExternalRef:       &ref,
@@ -1057,7 +1063,7 @@ func TestFindOrCreateAsset_BindsRefOnCreate(t *testing.T) {
 		&fakeContractResolver{listed: map[string]listing{"solana/mintx": listedAs("WIF")}})
 
 	source, ref := "onchain:solana", "MintX"
-	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	resp, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol:            "WIF",
 		ExternalRefSource: &source,
 		ExternalRef:       &ref,
@@ -1092,7 +1098,7 @@ func TestFindOrCreateAsset_UnlistedContractDoesNotClaimTicker(t *testing.T) {
 	})
 
 	source, ref := "onchain:bsc", fake
-	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	resp, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol:            "USDT",
 		ExternalRefSource: &source,
 		ExternalRef:       &ref,
@@ -1120,7 +1126,7 @@ func TestFindOrCreateAsset_ContractListedUnderAnotherSymbol(t *testing.T) {
 		&fakeContractResolver{listed: map[string]listing{"eth/0xaaa": listedAs("USDC")}})
 
 	source, ref := "onchain:eth", "0xAAA"
-	_, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	_, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol:            "USDT",
 		ExternalRefSource: &source,
 		ExternalRef:       &ref,
@@ -1142,7 +1148,7 @@ func TestFindOrCreateAsset_IsolatesContractWithoutResolver(t *testing.T) {
 	h := newHandler(s)
 
 	source, ref := "onchain:bsc", "0xBEEF"
-	_, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	_, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol:            "USDC",
 		ExternalRefSource: &source,
 		ExternalRef:       &ref,
@@ -1161,7 +1167,7 @@ func TestFindOrCreateAsset_ContractCatalogUnavailable(t *testing.T) {
 		&fakeContractResolver{err: errors.New("coingecko unreachable")})
 
 	source, ref := "onchain:eth", "0xCAFE"
-	_, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	_, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol:            "USDT",
 		ExternalRefSource: &source,
 		ExternalRef:       &ref,
@@ -1207,7 +1213,7 @@ func TestFindOrCreateAsset_SecondCoinOnOneChainDoesNotJoin(t *testing.T) {
 	})
 
 	source, ref := "onchain:bsc", catInu
-	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	resp, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol:            "CAT",
 		ExternalRefSource: &source,
 		ExternalRef:       &ref,
@@ -1252,7 +1258,7 @@ func TestFindOrCreateAsset_BridgedDeploymentOnAnotherChainStillJoins(t *testing.
 	})
 
 	source, ref := "onchain:eth", onEth
-	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	resp, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol:            "USDT",
 		ExternalRefSource: &source,
 		ExternalRef:       &ref,
@@ -1290,7 +1296,7 @@ func TestFindOrCreateAsset_UnlistedSiblingIsNoObjection(t *testing.T) {
 	})
 
 	source, ref := "onchain:eth", pool
-	resp, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	resp, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol:            "UNI-V2",
 		ExternalRefSource: &source,
 		ExternalRef:       &ref,
@@ -1318,7 +1324,7 @@ func TestFindOrCreateAsset_HeldContractUnreachableFailsLoud(t *testing.T) {
 	})
 
 	source, ref := "onchain:bsc", "0xNEW"
-	_, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	_, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol:            "CAT",
 		ExternalRefSource: &source,
 		ExternalRef:       &ref,
@@ -1515,7 +1521,7 @@ func TestListAssets_DoesNotLoadRiskFlags(t *testing.T) {
 func TestFindOrCreateAsset_StockRequiresMarket(t *testing.T) {
 	h := newHandler(&mockStore{})
 
-	_, err := h.FindOrCreateAsset(context.Background(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+	_, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol: "AAPL",
 		Type:   apiv1.AssetType_ASSET_TYPE_STOCK,
 	}))
@@ -2647,4 +2653,44 @@ func TestGetPricingStatus_ReportsAmbiguousTickerWithoutAttempts(t *testing.T) {
 	assert.Equal(t, "twin", got[1].GetAssetId())
 	assert.True(t, got[1].GetAmbiguousTicker())
 	assert.Nil(t, got[1].GetFirstAskedAt(), "no attempt record is invented")
+}
+
+// A ref is identity for every holder, so only the sync binding what its
+// provider reported, or an admin, may name one (personal-l4tc).
+func TestFindOrCreateAsset_ProviderNamespaceRefNeedsAuthority(t *testing.T) {
+	user := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	request := func(source, ref string) *connect.Request[apiv1.FindOrCreateAssetRequest] {
+		return connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+			Symbol: "BTC", Type: apiv1.AssetType_ASSET_TYPE_CRYPTOCURRENCY,
+			ExternalRefSource: &source, ExternalRef: &ref,
+		})
+	}
+	resolving := func() *mockStore {
+		s := &mockStore{}
+		s.On("FindAssetIDByExternalRef", mock.Anything, mock.Anything, mock.Anything).Return("id-1", nil)
+		s.On("GetAsset", mock.Anything, "id-1").Return(testAsset("id-1"), nil)
+		expectVerdict(s)
+		return s
+	}
+
+	t.Run("an RPC caller is refused before the store is touched", func(t *testing.T) {
+		_, err := newHandler(&mockStore{}).FindOrCreateAsset(user, request("binance", "PEPEUSDT"))
+		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	})
+	t.Run("the sync binds what its provider reported", func(t *testing.T) {
+		_, err := newHandler(resolving()).FindOrCreateAsset(middleware.WithSyncAuthority(user), request("tinvest", "BBG000000001"))
+		require.NoError(t, err)
+	})
+	t.Run("an admin may bind by hand", func(t *testing.T) {
+		_, err := newHandler(resolving()).FindOrCreateAsset(adminContext(), request("binance", "BTCUSDT"))
+		require.NoError(t, err)
+	})
+	t.Run("a chain ref is refused too: the resolver picks a market, not who may squat", func(t *testing.T) {
+		_, err := newHandler(&mockStore{}).FindOrCreateAsset(user, request("onchain:eth", "0xCAFE"))
+		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	})
+	t.Run("the sync binds a contract its wallet reported", func(t *testing.T) {
+		_, err := newHandler(resolving()).FindOrCreateAsset(middleware.WithSyncAuthority(user), request("onchain:eth", "0xCAFE"))
+		require.NoError(t, err)
+	})
 }

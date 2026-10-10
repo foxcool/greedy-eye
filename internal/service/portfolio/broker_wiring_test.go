@@ -12,6 +12,7 @@ import (
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	tinvestadapter "github.com/foxcool/greedy-eye/internal/adapter/tinvest"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -100,6 +101,8 @@ func TestSyncAccount_BrokerEndToEndOverTheWire(t *testing.T) {
 	assert.Equal(t, int32(0), resp.Msg.PositionsSkipped)
 	require.Len(t, written, 10)
 
+	assert.Zero(t, md.unmarked, "a broker FIGI reaches MarketData with the sync's authority")
+
 	byType := map[apiv1.AssetType]int{}
 	for _, req := range md.assetRequests {
 		byType[req.Type]++
@@ -133,9 +136,15 @@ func TestSyncAccount_BrokerEndToEndOverTheWire(t *testing.T) {
 type recordingMD struct {
 	mockMDClient
 	assetRequests []*apiv1.FindOrCreateAssetRequest
+	// unmarked counts requests carrying a ref without the sync's authority,
+	// which MarketData refuses (personal-l4tc).
+	unmarked int
 }
 
 func (m *recordingMD) FindOrCreateAsset(ctx context.Context, req *connect.Request[apiv1.FindOrCreateAssetRequest]) (*connect.Response[apiv1.FindOrCreateAssetResponse], error) {
 	m.assetRequests = append(m.assetRequests, req.Msg)
+	if req.Msg.GetExternalRef() != "" && !middleware.SyncAuthority(ctx) {
+		m.unmarked++
+	}
 	return m.mockMDClient.FindOrCreateAsset(ctx, req)
 }
