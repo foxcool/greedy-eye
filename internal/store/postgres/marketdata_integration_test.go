@@ -1705,3 +1705,109 @@ func TestListAssets_QueryFindsWithoutTheCatalogue(t *testing.T) {
 	}
 	assert.Equal(t, []string{upper.ID}, find("ZqxMintAAAA1111"), "a case-sensitive ref matches its own case only")
 }
+
+// TestContestedAssets pins the contest to the catalogue: a twin is a claimant
+// whether or not it is in the list asked about, the incumbent (oldest ever
+// priced) keeps its price, and only a quarantine or its own contract market
+// takes a twin out of the contest (personal-avm.1).
+func TestContestedAssets(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+	quarantine := []string{"scam", "impersonation"}
+
+	mk := func(symbol, market string, typ entity.AssetType) *entity.Asset {
+		t.Helper()
+		a, err := s.CreateAsset(ctx, &entity.Asset{Symbol: symbol, Name: symbol, Market: market, Type: typ})
+		require.NoError(t, err)
+		return a
+	}
+	base := mk("CONTESTUSD", entity.MarketForex, entity.AssetTypeForex)
+	price := func(a *entity.Asset) {
+		t.Helper()
+		_, err := s.CreatePrice(ctx, &entity.StoredPrice{
+			SourceID: "test", AssetID: a.ID, BaseAssetID: base.ID, Interval: "latest",
+			Decimals: 2, Last: decimal.NewFromInt(100), Timestamp: time.Now(),
+		})
+		require.NoError(t, err)
+	}
+	contested := func(ids ...string) map[string]bool {
+		t.Helper()
+		got, err := s.ContestedAssets(ctx, ids, quarantine)
+		require.NoError(t, err)
+		return got
+	}
+
+	t.Run("the incumbent keeps its price, the newcomer is contested", func(t *testing.T) {
+		real := mk("CONTESTA", entity.MarketCrypto, entity.AssetTypeCryptocurrency)
+		price(real)
+		twin := mk("CONTESTA", entity.MarketCrypto, entity.AssetTypeForex)
+
+		assert.Equal(t, map[string]bool{twin.ID: true}, contested(real.ID, twin.ID))
+		assert.Equal(t, map[string]bool{twin.ID: true}, contested(twin.ID),
+			"the incumbent counts whether or not it is in the list asked about")
+	})
+
+	t.Run("two claimants never priced are both contested", func(t *testing.T) {
+		one := mk("CONTESTB", entity.MarketCrypto, entity.AssetTypeCryptocurrency)
+		two := mk("CONTESTB", entity.MarketCrypto, entity.AssetTypeForex)
+		assert.Equal(t, map[string]bool{one.ID: true, two.ID: true}, contested(one.ID, two.ID))
+	})
+
+	t.Run("of two priced claimants the older is the incumbent", func(t *testing.T) {
+		older := mk("CONTESTC", entity.MarketCrypto, entity.AssetTypeCryptocurrency)
+		younger := mk("CONTESTC", entity.MarketCrypto, entity.AssetTypeForex)
+		price(younger)
+		price(older)
+		assert.Equal(t, map[string]bool{younger.ID: true}, contested(older.ID, younger.ID))
+	})
+
+	t.Run("the same ticker on another market or a contract market is no claimant", func(t *testing.T) {
+		alone := mk("CONTESTD", entity.MarketCrypto, entity.AssetTypeCryptocurrency)
+		elsewhere := mk("CONTESTD", "moex", entity.AssetTypeStock)
+		onA := mk("CONTESTD", entity.ContractMarket("bsc", "0xd1"), entity.AssetTypeCryptocurrency)
+		onB := mk("CONTESTD", entity.ContractMarket("bsc", "0xd2"), entity.AssetTypeCryptocurrency)
+		assert.Empty(t, contested(alone.ID, elsewhere.ID, onA.ID, onB.ID))
+	})
+
+	t.Run("quarantine settles the contest, and a quarantined row is not itself contested", func(t *testing.T) {
+		one := mk("CONTESTE", entity.MarketCrypto, entity.AssetTypeCryptocurrency)
+		twin := mk("CONTESTE", entity.MarketCrypto, entity.AssetTypeForex)
+		_, err := s.SetAssetVerdict(ctx, twin.ID, "impersonation", nil, nil, "user")
+		require.NoError(t, err)
+		assert.Empty(t, contested(one.ID, twin.ID))
+	})
+
+	t.Run("the sweep does not select a contested asset", func(t *testing.T) {
+		// Never asked means no attempt row, and NULLS FIRST would put it at the
+		// head of every budgeted selection. The schedule describes the queue the
+		// selection reads, so it must not count them either.
+		gap := func() uint32 {
+			t.Helper()
+			read := func(exclude bool) uint32 {
+				got, err := s.SweepSchedule(ctx, marketdata.SweepScheduleOpts{
+					SourceIDs: []string{"contest-test"}, ExcludeVerdicts: quarantine, ExcludeContested: exclude,
+				})
+				require.NoError(t, err)
+				require.Len(t, got, 1)
+				return got[0].NeverAttempted
+			}
+			return read(false) - read(true)
+		}
+		before := gap()
+
+		one := mk("CONTESTF", entity.MarketCrypto, entity.AssetTypeCryptocurrency)
+		two := mk("CONTESTF", entity.MarketCrypto, entity.AssetTypeForex)
+		got, err := s.ListStalePricingTargets(ctx, marketdata.StalePricingOpts{
+			SourceID: "contest-test", ExcludeVerdicts: quarantine, ExcludeContested: true,
+			IDs: []string{one.ID, two.ID, base.ID},
+		})
+		require.NoError(t, err)
+		ids := make([]string, 0, len(got))
+		for _, a := range got {
+			ids = append(ids, a.ID)
+		}
+		assert.Equal(t, []string{base.ID}, ids)
+		assert.Equal(t, before+2, gap(), "both new claimants drop out of the never-attempted head")
+	})
+}

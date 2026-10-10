@@ -163,9 +163,11 @@ type MarketDataServiceClient interface {
 	// sources has produced. Batched because its caller is a valuation disclosing a
 	// set of unpriced positions, not a page rendering one asset.
 	//
-	// Assets never asked about are simply absent from the response: there is no
-	// record to report, and inventing an empty one would read as "asked, nothing
-	// came back", which is the opposite statement.
+	// Assets never asked about are absent from the response: there is no record
+	// to report, and inventing an empty one would read as "asked, nothing came
+	// back", which is the opposite statement. The one exception is an ambiguous
+	// ticker, reported with ambiguous_ticker set and no attempt fields, because
+	// it is never asked about by construction.
 	GetPricingStatus(context.Context, *connect.Request[v1.GetPricingStatusRequest]) (*connect.Response[v1.GetPricingStatusResponse], error)
 	// GetSweepSchedule reports when each price source is next due to be asked.
 	//
@@ -557,9 +559,11 @@ type MarketDataServiceHandler interface {
 	// sources has produced. Batched because its caller is a valuation disclosing a
 	// set of unpriced positions, not a page rendering one asset.
 	//
-	// Assets never asked about are simply absent from the response: there is no
-	// record to report, and inventing an empty one would read as "asked, nothing
-	// came back", which is the opposite statement.
+	// Assets never asked about are absent from the response: there is no record
+	// to report, and inventing an empty one would read as "asked, nothing came
+	// back", which is the opposite statement. The one exception is an ambiguous
+	// ticker, reported with ambiguous_ticker set and no attempt fields, because
+	// it is never asked about by construction.
 	GetPricingStatus(context.Context, *connect.Request[v1.GetPricingStatusRequest]) (*connect.Response[v1.GetPricingStatusResponse], error)
 	// GetSweepSchedule reports when each price source is next due to be asked.
 	//

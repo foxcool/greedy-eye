@@ -37,6 +37,9 @@ type PriceProvider interface {
 	// BaseAssetType is the asset type to use when the base asset must be created.
 	// Fiat quotes (USD) are forex; stablecoin quotes (USDT) are cryptocurrency.
 	BaseAssetType() entity.AssetType
+	// Binding declares which assets this provider may price. Required rather
+	// than optional, so an adapter that has not decided cannot be registered.
+	Binding() entity.PriceBinding
 }
 
 // RefDiscoverer is implemented by providers whose universe has identifiers of
@@ -348,8 +351,14 @@ func (h *Handler) ListAssets(ctx context.Context, req *connect.Request[apiv1.Lis
 	}), nil
 }
 
-// CreatePrice creates a new price record.
+// CreatePrice creates a new price record. Admin-only, like every price write:
+// a price row is global — it values every holder of the asset — and its
+// existence also decides which claimant of a contested ticker is the incumbent
+// (Store.ContestedAssets).
 func (h *Handler) CreatePrice(ctx context.Context, req *connect.Request[apiv1.CreatePriceRequest]) (*connect.Response[apiv1.Price], error) {
+	if _, err := requireAdmin(ctx, "writing a price"); err != nil {
+		return nil, err
+	}
 	if req.Msg.Price == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("price is required"))
 	}
@@ -366,8 +375,11 @@ func (h *Handler) CreatePrice(ctx context.Context, req *connect.Request[apiv1.Cr
 	return connect.NewResponse(priceToProto(created)), nil
 }
 
-// CreatePrices creates multiple price records in bulk.
+// CreatePrices creates multiple price records in bulk. Admin-only (see CreatePrice).
 func (h *Handler) CreatePrices(ctx context.Context, req *connect.Request[apiv1.CreatePricesRequest]) (*connect.Response[apiv1.CreatePricesResponse], error) {
+	if _, err := requireAdmin(ctx, "writing prices"); err != nil {
+		return nil, err
+	}
 	prices := make([]*entity.StoredPrice, 0, len(req.Msg.Prices))
 	for _, p := range req.Msg.Prices {
 		price, err := priceFromProto(p)
@@ -502,8 +514,11 @@ func (h *Handler) ListPricesByInterval(ctx context.Context, req *connect.Request
 	}))
 }
 
-// DeletePrice deletes a price record by ID.
+// DeletePrice deletes a price record by ID. Admin-only (see CreatePrice).
 func (h *Handler) DeletePrice(ctx context.Context, req *connect.Request[apiv1.DeletePriceRequest]) (*connect.Response[emptypb.Empty], error) {
+	if _, err := requireAdmin(ctx, "deleting a price"); err != nil {
+		return nil, err
+	}
 	if req.Msg.Id == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("price ID is required"))
 	}
@@ -515,8 +530,11 @@ func (h *Handler) DeletePrice(ctx context.Context, req *connect.Request[apiv1.De
 	return connect.NewResponse(&emptypb.Empty{}), nil
 }
 
-// DeletePrices deletes price records by criteria.
+// DeletePrices deletes price records by criteria. Admin-only (see CreatePrice).
 func (h *Handler) DeletePrices(ctx context.Context, req *connect.Request[apiv1.DeletePricesRequest]) (*connect.Response[emptypb.Empty], error) {
+	if _, err := requireAdmin(ctx, "deleting prices"); err != nil {
+		return nil, err
+	}
 	opts := DeletePricesOpts{}
 	if req.Msg.AssetId != nil {
 		opts.AssetID = *req.Msg.AssetId
@@ -1270,6 +1288,9 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	// ticker for different kinds of thing (a stablecoin USDT against a fiat USDT
 	// row) do not mean the same asset.
 	baseAssetCache := map[baseAssetKey]string{}
+	// Contest verdicts, shared by every provider in this run: the answer is a
+	// property of the catalogue, not of the source asking.
+	contested := map[string]bool{}
 
 	for name, provider := range providers {
 		if len(req.Msg.SourceIds) > 0 && !slices.Contains(req.Msg.SourceIds, name) {
@@ -1338,6 +1359,27 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			idleSources[name] = string(outcome)
 			continue
 		}
+
+		// The rule that a price lands only on a bound asset is enforced here,
+		// once, rather than trusted to each adapter (personal-avm.1). What the
+		// binding does not admit was never this provider's to ask about, so it
+		// leaves silently, the way an adapter used to skip it. A batch emptied
+		// by a contest does not: that is a decision taken about assets this
+		// provider does speak for, and a bare zero would hide it.
+		binding := provider.Binding()
+		var withheld int
+		assets, withheld, err = h.admitted(ctx, binding, assets, contested)
+		if err != nil {
+			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
+			continue
+		}
+		if len(assets) == 0 {
+			if withheld > 0 {
+				idleSources[name] = string(outcomeContested)
+			}
+			continue
+		}
+
 		// Resolve base asset UUID for this provider (create the asset if it doesn't
 		// exist yet). A row that quotableBase refuses fails the batch rather than
 		// being used: refusing costs this provider's prices, accepting costs the
@@ -1372,6 +1414,10 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 
 		h.attachExternalRefs(ctx, assets)
 		h.discoverRefs(ctx, name, provider, assets)
+		assets = slices.DeleteFunc(assets, func(a *entity.Asset) bool { return !binding.Bound(a) })
+		if len(assets) == 0 {
+			continue
+		}
 
 		results, err := provider.FetchPrices(ctx, assets)
 		if err != nil {
@@ -1447,6 +1493,63 @@ func uniqueIDs(ids []string) []string {
 	return out
 }
 
+// admitted keeps the assets a provider's binding speaks for and drops the
+// contested ones.
+//
+// A contested asset is withheld from every provider, bound or not: when a
+// newcomer claims a listing an incumbent already holds, or two claimants have
+// never been priced, nothing here can tell the real one from the impostor (see
+// Store.ContestedAssets for who counts as contested). A ref is never removed;
+// a quarantine of the impostor settles the contest.
+//
+// Contest is judged against the catalogue, never the batch: a twin outside
+// this sweep's selection is as much a claimant as one inside it, and judging by
+// the batch lets arrival order decide who owns a listing. The sweep's own
+// selection already excludes contested assets; this check covers the named
+// path, which reads exactly what it is given.
+//
+// A failed lookup withholds the whole batch. "Could not check" is not the claim
+// "nobody contests it", and the cost of the mistake runs one way.
+//
+// withheld counts the admitted assets dropped as contested.
+func (h *Handler) admitted(ctx context.Context, b entity.PriceBinding, assets []*entity.Asset, known map[string]bool) (_ []*entity.Asset, withheld int, _ error) {
+	out := make([]*entity.Asset, 0, len(assets))
+	var unknown []string
+	for _, a := range assets {
+		if !b.Admits(a) {
+			continue
+		}
+		out = append(out, a)
+		if _, ok := known[a.ID]; !ok {
+			unknown = append(unknown, a.ID)
+		}
+	}
+	if len(unknown) > 0 {
+		found, err := h.store.ContestedAssets(ctx, unknown, quarantineVerdicts)
+		if err != nil {
+			return nil, 0, fmt.Errorf("check contested tickers: %w", err)
+		}
+		for _, id := range unknown {
+			known[id] = found[id]
+		}
+		// Logged where first found, so a run names each contest once rather
+		// than once per provider.
+		if len(found) > 0 && h.log != nil {
+			var symbols []string
+			for _, a := range out {
+				if found[a.ID] {
+					symbols = append(symbols, a.Symbol)
+				}
+			}
+			h.log.Info("price fetch: contested tickers withheld from every source",
+				"count", len(found), "symbols", symbols)
+		}
+	}
+
+	kept := slices.DeleteFunc(out, func(a *entity.Asset) bool { return known[a.ID] })
+	return kept, len(out) - len(kept), nil
+}
+
 // refreshTargets picks what an unattended sweep asks one source for: assets
 // whose next attempt is due, oldest first, capped by the portion the source's
 // remaining plan allowance affords between now and the next sweep. A non-nil
@@ -1459,10 +1562,11 @@ func uniqueIDs(ids []string) []string {
 func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PriceProvider, ids []string) ([]*entity.Asset, selectionOutcome, error) {
 	now := time.Now()
 	base := StalePricingOpts{
-		SourceID:        sourceID,
-		Now:             now,
-		ExcludeVerdicts: quarantineVerdicts,
-		IDs:             ids,
+		SourceID:         sourceID,
+		Now:              now,
+		ExcludeVerdicts:  quarantineVerdicts,
+		IDs:              ids,
+		ExcludeContested: true,
 	}
 
 	var exempt []string
@@ -1528,6 +1632,11 @@ const (
 	outcomeAllDeferred selectionOutcome = "all_deferred"
 	outcomeBudgetZero  selectionOutcome = "budget_exhausted"
 	outcomeUnknown     selectionOutcome = "unknown"
+	// outcomeContested is a batch whose every admitted asset is contested
+	// (personal-avm.1). Only a named fetch can produce it: the sweep's own
+	// selection and schedule leave contested assets out, as they leave out
+	// quarantined ones.
+	outcomeContested selectionOutcome = "contested"
 )
 
 // soonestDue reports when this source's earliest deferred asset comes due, for
@@ -1535,9 +1644,10 @@ const (
 // unknown — a log line is not worth failing a sweep over.
 func (h *Handler) soonestDue(ctx context.Context, sourceID string) time.Time {
 	scheds, err := h.store.SweepSchedule(ctx, SweepScheduleOpts{
-		SourceIDs:       []string{sourceID},
-		Now:             time.Now(),
-		ExcludeVerdicts: quarantineVerdicts,
+		SourceIDs:        []string{sourceID},
+		Now:              time.Now(),
+		ExcludeVerdicts:  quarantineVerdicts,
+		ExcludeContested: true,
 	})
 	if err != nil || len(scheds) == 0 {
 		return time.Time{}
@@ -1551,9 +1661,10 @@ func (h *Handler) soonestDue(ctx context.Context, sourceID string) time.Time {
 // explain an empty sweep must not fail the sweep itself.
 func (h *Handler) explainEmptySelection(ctx context.Context, sourceID string, now time.Time) selectionOutcome {
 	scheds, err := h.store.SweepSchedule(ctx, SweepScheduleOpts{
-		SourceIDs:       []string{sourceID},
-		Now:             now,
-		ExcludeVerdicts: quarantineVerdicts,
+		SourceIDs:        []string{sourceID},
+		Now:              now,
+		ExcludeVerdicts:  quarantineVerdicts,
+		ExcludeContested: true,
 	})
 	if err != nil || len(scheds) == 0 {
 		return outcomeUnknown
@@ -1611,13 +1722,20 @@ func (h *Handler) GetPricingStatus(ctx context.Context, req *connect.Request[api
 	if err != nil {
 		return nil, toConnectError(err)
 	}
+	// The same predicate the sweep withholds by, so the disclosure names the
+	// rule that was actually applied rather than a second reading of it.
+	contested, err := h.store.ContestedAssets(ctx, ids, quarantineVerdicts)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
 
 	out := make([]*apiv1.AssetPricingStatus, 0, len(statuses))
 	for _, st := range statuses {
 		item := &apiv1.AssetPricingStatus{
-			AssetId:      st.AssetID,
-			EverPriced:   st.EverPriced,
-			SourcesAsked: st.SourcesAsked,
+			AssetId:         st.AssetID,
+			EverPriced:      st.EverPriced,
+			SourcesAsked:    st.SourcesAsked,
+			AmbiguousTicker: contested[st.AssetID],
 		}
 		if !st.FirstAskedAt.IsZero() {
 			item.FirstAskedAt = timestamppb.New(st.FirstAskedAt)
@@ -1625,7 +1743,17 @@ func (h *Handler) GetPricingStatus(ctx context.Context, req *connect.Request[api
 		if !st.LastAskedAt.IsZero() {
 			item.LastAskedAt = timestamppb.New(st.LastAskedAt)
 		}
+		delete(contested, st.AssetID)
 		out = append(out, item)
+	}
+	// A contested asset is never asked, so it usually has no attempt record to
+	// carry the flag. It is reported on its own; ranging over ids rather than
+	// the map keeps the response order stable.
+	for _, id := range ids {
+		if contested[id] {
+			out = append(out, &apiv1.AssetPricingStatus{AssetId: id, AmbiguousTicker: true})
+			delete(contested, id)
+		}
 	}
 	return connect.NewResponse(&apiv1.GetPricingStatusResponse{Statuses: out}), nil
 }
@@ -1662,9 +1790,10 @@ func (h *Handler) GetSweepSchedule(ctx context.Context, req *connect.Request[api
 	slices.Sort(sourceIDs)
 
 	schedules, err := h.store.SweepSchedule(ctx, SweepScheduleOpts{
-		SourceIDs:       sourceIDs,
-		Now:             time.Now(),
-		ExcludeVerdicts: quarantineVerdicts,
+		SourceIDs:        sourceIDs,
+		Now:              time.Now(),
+		ExcludeVerdicts:  quarantineVerdicts,
+		ExcludeContested: true,
 	})
 	if err != nil {
 		return nil, toConnectError(err)

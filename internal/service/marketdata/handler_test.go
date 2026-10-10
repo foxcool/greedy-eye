@@ -173,7 +173,22 @@ func expectRiskFlags(s *mockStore) {
 func expectExternalRefs(s *mockStore) {
 	s.On("ListAssetExternalRefs", mock.Anything, mock.Anything).
 		Return([]*entity.AssetExternalRef{}, nil).Maybe()
+	s.On("ContestedAssets", mock.Anything, mock.Anything, mock.Anything).
+		Return(map[string]bool{}, nil).Maybe()
 }
+
+func (m *mockStore) ContestedAssets(ctx context.Context, assetIDs []string, excludeVerdicts []string) (map[string]bool, error) {
+	args := m.Called(ctx, assetIDs, excludeVerdicts)
+	if v := args.Get(0); v != nil {
+		return v.(map[string]bool), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+// testBinding admits what testAsset builds (no market) alongside the real
+// crypto and contract markets, so a fake provider is handed what the
+// pre-binding tests always handed it.
+var testBinding = entity.PriceBinding{Markets: []string{"", entity.MarketCrypto}, ContractMarkets: true}
 
 func (m *mockStore) ListStalePricingTargets(ctx context.Context, opts StalePricingOpts) ([]*entity.Asset, error) {
 	args := m.Called(ctx, opts)
@@ -275,6 +290,7 @@ func (f *fakeContractResolver) FetchPrices(context.Context, []*entity.Asset) ([]
 }
 func (f *fakeContractResolver) BaseAssetSymbol() string         { return "USD" }
 func (f *fakeContractResolver) BaseAssetType() entity.AssetType { return entity.AssetTypeForex }
+func (f *fakeContractResolver) Binding() entity.PriceBinding    { return testBinding }
 func (f *fakeContractResolver) ResolveContract(_ context.Context, chain, address string) (string, string, bool, error) {
 	f.calls++
 	if f.err != nil {
@@ -297,6 +313,7 @@ func (f *failAfterFirstResolver) FetchPrices(context.Context, []*entity.Asset) (
 }
 func (f *failAfterFirstResolver) BaseAssetSymbol() string         { return "USD" }
 func (f *failAfterFirstResolver) BaseAssetType() entity.AssetType { return entity.AssetTypeForex }
+func (f *failAfterFirstResolver) Binding() entity.PriceBinding    { return testBinding }
 func (f *failAfterFirstResolver) ResolveContract(context.Context, string, string) (string, string, bool, error) {
 	f.calls++
 	if f.calls == 1 {
@@ -592,9 +609,13 @@ func TestUpdateAsset_IsAdminOnly(t *testing.T) {
 
 // --- Tests: CreatePrice ---
 
+func adminContext() context.Context {
+	return middleware.ContextWithUser(context.Background(), &entity.User{ID: "admin-1", Roles: []string{"admin"}})
+}
+
 func TestCreatePrice_MissingPrice(t *testing.T) {
 	h := newHandler(&mockStore{})
-	_, err := h.CreatePrice(context.Background(), connect.NewRequest(&apiv1.CreatePriceRequest{}))
+	_, err := h.CreatePrice(adminContext(), connect.NewRequest(&apiv1.CreatePriceRequest{}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 }
@@ -613,11 +634,46 @@ func TestCreatePrice_OK(t *testing.T) {
 	s.On("CreatePrice", mock.Anything, mock.Anything).Return(stored, nil)
 	h := newHandler(s)
 
-	resp, err := h.CreatePrice(context.Background(), connect.NewRequest(&apiv1.CreatePriceRequest{
+	resp, err := h.CreatePrice(adminContext(), connect.NewRequest(&apiv1.CreatePriceRequest{
 		Price: &apiv1.Price{AssetId: "a-1", BaseAssetId: "usdt"},
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, "p-1", resp.Msg.Id)
+}
+
+// A price row values every holder of the asset and decides which claimant of
+// a contested ticker is the incumbent, so no ordinary user may write or delete
+// one — and the store is never reached to find out.
+func TestPriceWrites_AreAdminOnly(t *testing.T) {
+	user := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	asset := "a-1"
+	h := newHandler(&mockStore{}) // no expectations: any store call panics
+
+	calls := map[string]func() error{
+		"CreatePrice": func() error {
+			_, err := h.CreatePrice(user, connect.NewRequest(&apiv1.CreatePriceRequest{
+				Price: &apiv1.Price{AssetId: asset, BaseAssetId: "usd"}}))
+			return err
+		},
+		"CreatePrices": func() error {
+			_, err := h.CreatePrices(user, connect.NewRequest(&apiv1.CreatePricesRequest{
+				Prices: []*apiv1.Price{{AssetId: asset, BaseAssetId: "usd"}}}))
+			return err
+		},
+		"DeletePrice": func() error {
+			_, err := h.DeletePrice(user, connect.NewRequest(&apiv1.DeletePriceRequest{Id: "p-1"}))
+			return err
+		},
+		"DeletePrices": func() error {
+			_, err := h.DeletePrices(user, connect.NewRequest(&apiv1.DeletePricesRequest{AssetId: &asset}))
+			return err
+		},
+	}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(call()))
+		})
+	}
 }
 
 // --- Tests: GetLatestPrice ---
@@ -1497,6 +1553,7 @@ func (f *fakePriceProvider) FetchPrices(_ context.Context, assets []*entity.Asse
 
 func (f *fakePriceProvider) BaseAssetSymbol() string         { return "USD" }
 func (f *fakePriceProvider) BaseAssetType() entity.AssetType { return entity.AssetTypeForex }
+func (f *fakePriceProvider) Binding() entity.PriceBinding    { return testBinding }
 func (f *fakePriceProvider) BudgetExemptSymbols() []string   { return f.exempt }
 
 func (f *fakePriceProvider) AssetBudget(_ time.Time, _ time.Duration) (int, bool) {
@@ -1535,6 +1592,7 @@ func (p *perRowBaseProvider) FetchPrices(_ context.Context, assets []*entity.Ass
 }
 func (p *perRowBaseProvider) BaseAssetSymbol() string         { return "USD" }
 func (p *perRowBaseProvider) BaseAssetType() entity.AssetType { return entity.AssetTypeForex }
+func (p *perRowBaseProvider) Binding() entity.PriceBinding    { return testBinding }
 
 // A row naming its own base is stored against that base. Falling back to the
 // provider default here would file a rouble price as dollars — a hundredfold
@@ -2406,4 +2464,187 @@ func TestQuotableBaseNamesTheOffendingRow(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "USD", "the ticker that was asked for")
 	assert.Contains(t, err.Error(), market, "and the row that answered")
+}
+
+// --- Tests: the binding gate (personal-avm.1) ---
+
+// bindingProvider discovers and prices whatever it is handed, and records both,
+// so a test can see exactly what the handler let through to each step.
+type bindingProvider struct {
+	binding    entity.PriceBinding
+	discovered [][]string
+	priced     [][]string
+}
+
+func (b *bindingProvider) DiscoverRefs(_ context.Context, assets []*entity.Asset) ([]entity.AssetExternalRef, error) {
+	b.discovered = append(b.discovered, assetIDs(assets))
+	return nil, nil
+}
+
+func (b *bindingProvider) FetchPrices(_ context.Context, assets []*entity.Asset) ([]entity.StoredPrice, error) {
+	b.priced = append(b.priced, assetIDs(assets))
+	out := make([]entity.StoredPrice, 0, len(assets))
+	for _, a := range assets {
+		out = append(out, entity.StoredPrice{AssetID: a.ID, Last: decimal.NewFromInt(1)})
+	}
+	return out, nil
+}
+func (b *bindingProvider) BaseAssetSymbol() string         { return "USD" }
+func (b *bindingProvider) BaseAssetType() entity.AssetType { return entity.AssetTypeForex }
+func (b *bindingProvider) Binding() entity.PriceBinding    { return b.binding }
+
+func assetIDs(assets []*entity.Asset) []string {
+	out := make([]string, 0, len(assets))
+	for _, a := range assets {
+		out = append(out, a.ID)
+	}
+	return out
+}
+
+func marketAsset(id, symbol, market string) *entity.Asset {
+	return &entity.Asset{ID: id, Symbol: symbol, Market: market, Type: entity.AssetTypeStock}
+}
+
+// fetchNamed runs a reconciliation fetch over the given assets against one
+// provider, with the store answering the contest question as told.
+func fetchNamed(t *testing.T, p PriceProvider, assets []*entity.Asset, contested map[string]bool) (*apiv1.FetchExternalPricesResponse, *mockStore) {
+	t.Helper()
+	s := &mockStore{}
+	expectBaseAsset(s)
+	s.On("ListAssetExternalRefs", mock.Anything, mock.Anything).
+		Return([]*entity.AssetExternalRef{}, nil).Maybe()
+	s.On("ContestedAssets", mock.Anything, mock.Anything, quarantineVerdicts).Return(contested, nil).Maybe()
+	s.On("ListAssets", mock.Anything, mock.Anything).Return(assets, "", nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil).Maybe()
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(len(assets), nil).Maybe()
+
+	resp, err := newHandler(s).WithProvider("venue", p).FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{AssetIds: assetIDs(assets)}))
+	require.NoError(t, err)
+	return resp.Msg, s
+}
+
+// An adapter is never handed an asset its binding does not speak for. Before
+// the gate, every provider received the whole selection and filtering was each
+// adapter's own discipline — the discipline Binance once did not have.
+func TestFetchExternalPrices_ProviderIsHandedOnlyWhatItsBindingAdmits(t *testing.T) {
+	p := &bindingProvider{binding: entity.PriceBinding{Markets: []string{"moex"}}}
+	fetchNamed(t, p, []*entity.Asset{
+		marketAsset("sber", "SBER", "moex"),
+		marketAsset("btc", "BTC", entity.MarketCrypto),
+		marketAsset("aapl", "AAPL", "spbex"),
+	}, nil)
+
+	require.Len(t, p.priced, 1)
+	assert.Equal(t, []string{"sber"}, p.priced[0])
+}
+
+// A ref binding admits a market to discovery but only bound assets to
+// pricing: the ticker proposes a listing, the ref is the listing.
+func TestFetchExternalPrices_RefBindingPricesOnlyBoundAssets(t *testing.T) {
+	p := &bindingProvider{binding: entity.PriceBinding{Markets: []string{entity.MarketCrypto}, RefSource: "venue"}}
+	bound := marketAsset("btc", "BTC", entity.MarketCrypto)
+	bound.ExternalRefs = []entity.AssetExternalRef{{AssetID: "btc", Source: "venue", Ref: "BTCUSDT"}}
+	unbound := marketAsset("eth", "ETH", entity.MarketCrypto)
+	foreign := marketAsset("tok", "TOK", entity.MarketCrypto)
+	foreign.ExternalRefs = []entity.AssetExternalRef{{AssetID: "tok", Source: "onchain:eth", Ref: "0xabc"}}
+
+	fetchNamed(t, p, []*entity.Asset{bound, unbound, foreign}, nil)
+
+	require.Len(t, p.discovered, 1)
+	assert.ElementsMatch(t, []string{"btc", "eth", "tok"}, p.discovered[0], "discovery sees the whole admitted market")
+	require.Len(t, p.priced, 1)
+	assert.Equal(t, []string{"btc"}, p.priced[0], "a ref in another namespace is not a binding here")
+}
+
+// A contested ticker reaches no provider, not even through a binding made
+// before the twin appeared, and the binding itself is left in place.
+func TestFetchExternalPrices_ContestedTickerReachesNoProvider(t *testing.T) {
+	p := &bindingProvider{binding: entity.PriceBinding{Markets: []string{entity.MarketCrypto}, RefSource: "venue"}}
+	bound := marketAsset("usdt", "USDT", entity.MarketCrypto)
+	bound.ExternalRefs = []entity.AssetExternalRef{{AssetID: "usdt", Source: "venue", Ref: "USDTUSDT"}}
+	btc := marketAsset("btc", "BTC", entity.MarketCrypto)
+	btc.ExternalRefs = []entity.AssetExternalRef{{AssetID: "btc", Source: "venue", Ref: "BTCUSDT"}}
+
+	_, s := fetchNamed(t, p, []*entity.Asset{bound, btc}, map[string]bool{"usdt": true})
+
+	require.Len(t, p.discovered, 1)
+	assert.Equal(t, []string{"btc"}, p.discovered[0])
+	require.Len(t, p.priced, 1)
+	assert.Equal(t, []string{"btc"}, p.priced[0])
+	s.AssertNotCalled(t, "DeleteAssetExternalRef", mock.Anything, mock.Anything)
+}
+
+// A batch emptied by a contest says so. A person asking for one contested
+// asset's price otherwise gets a bare zero, indistinguishable from "nothing
+// was due".
+func TestFetchExternalPrices_ContestedBatchIsNamedIdle(t *testing.T) {
+	p := &bindingProvider{binding: entity.PriceBinding{Markets: []string{entity.MarketCrypto}}}
+	resp, _ := fetchNamed(t, p, []*entity.Asset{marketAsset("usdt", "USDT", entity.MarketCrypto)},
+		map[string]bool{"usdt": true})
+
+	assert.Empty(t, p.priced)
+	assert.Equal(t, map[string]string{"venue": "contested"}, resp.GetIdleSources())
+}
+
+// The contest is a property of the catalogue, so one lookup serves every
+// provider in the run: a second provider is not a second question.
+func TestFetchExternalPrices_ContestAskedOncePerAsset(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	s.On("ListAssetExternalRefs", mock.Anything, mock.Anything).
+		Return([]*entity.AssetExternalRef{}, nil).Maybe()
+	s.On("ContestedAssets", mock.Anything, []string{"a"}, quarantineVerdicts).Return(map[string]bool{}, nil).Once()
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{marketAsset("a", "A", "moex")}, "", nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+
+	moex := entity.PriceBinding{Markets: []string{"moex"}}
+	h := newHandler(s).
+		WithProvider("one", &bindingProvider{binding: moex}).
+		WithProvider("two", &bindingProvider{binding: moex})
+	_, err := h.FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a"}}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+}
+
+// "Could not check" is not "nobody contests it": a failed lookup withholds the
+// batch and says so, rather than pricing assets it could not vouch for.
+func TestFetchExternalPrices_ContestLookupFailureWithholdsTheBatch(t *testing.T) {
+	p := &bindingProvider{binding: entity.PriceBinding{Markets: []string{"moex"}}}
+	s := &mockStore{}
+	s.On("ContestedAssets", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("db down"))
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{marketAsset("sber", "SBER", "moex")}, "", nil)
+
+	resp, err := newHandler(s).WithProvider("venue", p).FetchExternalPrices(context.Background(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{AssetIds: []string{"sber"}}))
+	require.NoError(t, err)
+	assert.Empty(t, p.priced)
+	require.Len(t, resp.Msg.Errors, 1)
+	assert.Contains(t, resp.Msg.Errors[0], "contested")
+}
+
+// A contested asset is never asked about, so it has no attempt record — and is
+// reported anyway, because the flag is a property of the catalogue.
+func TestGetPricingStatus_ReportsAmbiguousTickerWithoutAttempts(t *testing.T) {
+	asked := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	s := &mockStore{}
+	s.On("PricingStatus", mock.Anything, []string{"silent", "twin", "fresh"}).Return([]*entity.AssetPricingStatus{
+		{AssetID: "silent", FirstAskedAt: asked, LastAskedAt: asked, SourcesAsked: 2},
+	}, nil)
+	s.On("ContestedAssets", mock.Anything, []string{"silent", "twin", "fresh"}, quarantineVerdicts).
+		Return(map[string]bool{"twin": true}, nil)
+
+	resp, err := newHandler(s).GetPricingStatus(context.Background(), connect.NewRequest(
+		&apiv1.GetPricingStatusRequest{AssetIds: []string{"silent", "twin", "fresh"}}))
+	require.NoError(t, err)
+
+	got := resp.Msg.GetStatuses()
+	require.Len(t, got, 2, "an asset neither asked about nor contested stays absent")
+	assert.Equal(t, "silent", got[0].GetAssetId())
+	assert.False(t, got[0].GetAmbiguousTicker())
+	assert.Equal(t, "twin", got[1].GetAssetId())
+	assert.True(t, got[1].GetAmbiguousTicker())
+	assert.Nil(t, got[1].GetFirstAskedAt(), "no attempt record is invented")
 }

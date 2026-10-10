@@ -59,6 +59,11 @@ func (p *Provider) BaseAssetSymbol() string { return quoteSymbol }
 // BaseAssetType reports that the quote currency is fiat.
 func (p *Provider) BaseAssetType() entity.AssetType { return entity.AssetTypeForex }
 
+// Binding admits the Moscow market itself: there the market is the listing.
+func (p *Provider) Binding() entity.PriceBinding {
+	return entity.PriceBinding{Markets: []string{MarketName}}
+}
+
 // AssetBudget reports no per-asset allowance: one request covers a hundred
 // tickers of a market, and the API is free and keyless, so there is no plan to
 // divide. Returning ok=false leaves the sweep uncapped by volume, which is the

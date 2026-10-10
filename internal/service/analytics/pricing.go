@@ -146,53 +146,24 @@ func decI32(d uint32) int32 {
 	return int32(d)
 }
 
-// markNeverPriced upgrades NO_QUOTE to NEVER_PRICED for assets whose sources
-// have all been asked and none has ever answered, and dates the silence.
+// sharpenUnpriced replaces NO_QUOTE with the more specific reason the pricing
+// status supports, through the same quoting.SharpenNoQuote the portfolio total
+// uses: the heatmap embeds the same ValuationCoverage, and the two surfaces
+// disagreeing about why one holding has no price is the divergence that
+// message exists to prevent.
 //
-// The heatmap does this because it embeds the same ValuationCoverage as the
-// portfolio total: the two surfaces disagreeing about why one holding has no
-// price is the divergence that message exists to prevent.
-//
-// Best-effort, like its counterpart in portfolio: without the attempt log the
+// Best-effort, like its counterpart in portfolio: without the status the
 // reason stays what it already was.
-func (h *Handler) markNeverPriced(ctx context.Context, unpriced []*apiv1.UnpricedHolding) {
-	ids := make([]string, 0, len(unpriced))
-	seen := make(map[string]struct{}, len(unpriced))
-	for _, u := range unpriced {
-		if u.GetReason() != apiv1.UnpricedReason_UNPRICED_REASON_NO_QUOTE {
-			continue
-		}
-		if _, dup := seen[u.GetAssetId()]; dup {
-			continue
-		}
-		seen[u.GetAssetId()] = struct{}{}
-		ids = append(ids, u.GetAssetId())
-	}
+func (h *Handler) sharpenUnpriced(ctx context.Context, unpriced []*apiv1.UnpricedHolding) {
+	ids := quoting.NoQuoteAssetIDs(unpriced)
 	if len(ids) == 0 {
 		return
 	}
-
 	resp, err := h.mdClient.GetPricingStatus(ctx, connect.NewRequest(&apiv1.GetPricingStatusRequest{AssetIds: ids}))
 	if err != nil {
 		h.log.WarnContext(ctx, "heatmap: pricing status unavailable, reporting unpriced holdings without it",
 			"asset_count", len(ids), "error", err)
 		return
 	}
-
-	askedSince := make(map[string]*timestamppb.Timestamp, len(resp.Msg.GetStatuses()))
-	for _, st := range resp.Msg.GetStatuses() {
-		if st.GetEverPriced() || st.GetFirstAskedAt() == nil {
-			continue
-		}
-		askedSince[st.GetAssetId()] = st.GetFirstAskedAt()
-	}
-	for _, u := range unpriced {
-		if u.GetReason() != apiv1.UnpricedReason_UNPRICED_REASON_NO_QUOTE {
-			continue
-		}
-		if since, ok := askedSince[u.GetAssetId()]; ok {
-			u.Reason = apiv1.UnpricedReason_UNPRICED_REASON_NEVER_PRICED
-			u.AskedSince = since
-		}
-	}
+	quoting.SharpenNoQuote(unpriced, resp.Msg.GetStatuses())
 }

@@ -42,6 +42,13 @@ type Store interface {
 	// nothing recorded to report, and an empty status would read as "asked, and
 	// nothing came back", which is the opposite claim.
 	PricingStatus(ctx context.Context, assetIDs []string) ([]*entity.AssetPricingStatus, error)
+	// ContestedAssets returns which of the given assets share their ticker with
+	// another live asset on the same market, outside contract markets, and are
+	// not the incumbent (the oldest claimant ever priced). No source may price
+	// a contested asset (personal-avm.1). Assets carrying one of
+	// excludeVerdicts are neither contested nor claimants: quarantining the
+	// impostor is what settles a contest.
+	ContestedAssets(ctx context.Context, assetIDs []string, excludeVerdicts []string) (map[string]bool, error)
 	// SweepSchedule aggregates the attempt log into what the next sweep would
 	// find: how many assets are due, how many are held back by their own
 	// back-off, how far out the queue reaches. Counted from the same table the
@@ -137,6 +144,10 @@ type StalePricingOpts struct {
 	// names what it touched. Freshness still applies inside the list: a sync
 	// touching an asset is no reason to re-ask for a price the sweep just got.
 	IDs []string
+	// ExcludeContested drops contested assets (see Store.ContestedAssets). A
+	// contested asset is never asked, so it never gets an attempt row; left in
+	// the selection it would sort first on every sweep and spend the budget.
+	ExcludeContested bool
 }
 
 // SweepScheduleOpts selects which sources to report a queue for.
@@ -150,6 +161,9 @@ type SweepScheduleOpts struct {
 	// ExcludeVerdicts drops quarantined assets, matching what the sweep itself
 	// selects. Counting them would report work nobody intends to do.
 	ExcludeVerdicts []string
+	// ExcludeContested drops contested assets, for the same reason: the
+	// selection never picks them (StalePricingOpts.ExcludeContested).
+	ExcludeContested bool
 }
 
 // RecordAttemptsOpts records what one sweep asked a source for and what came back.

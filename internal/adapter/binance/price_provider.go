@@ -93,6 +93,12 @@ func (p *Provider) BaseAssetSymbol() string { return "USDT" }
 // BaseAssetType reports that Binance's quote currency (USDT) is a cryptocurrency stablecoin.
 func (p *Provider) BaseAssetType() entity.AssetType { return entity.AssetTypeCryptocurrency }
 
+// Binding admits the global crypto market and prices only an asset bound to a
+// listed pair: a ticker on that market is a claim, the pair is the listing.
+func (p *Provider) Binding() entity.PriceBinding {
+	return entity.PriceBinding{Markets: []string{entity.MarketCrypto}, RefSource: RefSource}
+}
+
 // speaksFor reports whether this provider prices the asset at all.
 //
 // Selection is by market, like every other price adapter: assets.market is the
@@ -211,12 +217,11 @@ func pairOf(a *entity.Asset) string {
 // handed the real coin's price (personal-psu.2), which is способ #1 reopened in
 // a second source.
 //
-// So candidacy is counted across the batch, and a contested pair binds nobody.
-// Both claimants stay unpriced and are disclosed by ValuationCoverage, which is
-// the honest outcome: the adapter cannot tell the counterfeit from the original,
-// and inventing a tie-break here would be a guess in the direction where
-// guessing is unsafe. A human resolves it by quarantining the impostor, and the
-// next sweep binds whoever is left alone.
+// A contested ticker never reaches this method: the handler withholds every
+// asset whose ticker another live asset on its market also claims, judged
+// against the whole catalogue rather than one sweep's batch (marketdata
+// Handler.admitted). An adapter counting claimants itself would see only the
+// batch, and let arrival order decide who owns the listing.
 //
 // A pair absent from the listing set binds nothing either, and the unreachable
 // case is kept distinct from the unlisted one: with no usable snapshot nothing
@@ -228,16 +233,6 @@ func (p *Provider) DiscoverRefs(ctx context.Context, assets []*entity.Asset) ([]
 		return nil, fmt.Errorf("binance: listing set unavailable, nothing bound")
 	}
 
-	// Count claimants per pair before binding any of them: a decision made
-	// while walking the list would bind whichever asset came first.
-	claims := make(map[string]int, len(assets))
-	for _, a := range assets {
-		if !p.speaksFor(a) || pairOf(a) != "" {
-			continue
-		}
-		claims[venueSymbol(a)]++
-	}
-
 	var out []entity.AssetExternalRef
 	for _, a := range assets {
 		if !p.speaksFor(a) || pairOf(a) != "" {
@@ -245,13 +240,6 @@ func (p *Provider) DiscoverRefs(ctx context.Context, assets []*entity.Asset) ([]
 		}
 		sym := venueSymbol(a)
 		if !tradable[sym] {
-			continue
-		}
-		if claims[sym] != 1 {
-			if p.log != nil {
-				p.log.Debug("binance pair is claimed by more than one asset, no binding made",
-					"symbol", a.Symbol, "pair", sym, "claimants", claims[sym])
-			}
 			continue
 		}
 		out = append(out, entity.AssetExternalRef{

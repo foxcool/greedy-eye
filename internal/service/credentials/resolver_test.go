@@ -59,6 +59,7 @@ func (f *fakeProvider) FetchPrices(_ context.Context, _ []*entity.Asset) ([]enti
 }
 func (f *fakeProvider) BaseAssetSymbol() string         { return "USD" }
 func (f *fakeProvider) BaseAssetType() entity.AssetType { return entity.AssetTypeForex }
+func (f *fakeProvider) Binding() entity.PriceBinding    { return entity.PriceBinding{} }
 
 func account(id, provider string, updatedAt time.Time) *entity.Account {
 	return &entity.Account{

@@ -105,6 +105,7 @@ func agreementFixture() (*fakeStore, *fakeMD) {
 			{ID: "h-mnep", AssetID: "mnep", AccountID: "a1", PortfolioID: "p1", Amount: dec("30000000"), Decimals: 2},
 			{ID: "h-ghost", AssetID: "ghost", AccountID: "a1", PortfolioID: "p1", Amount: dec("500"), Decimals: 2},
 			{ID: "h-orph", AssetID: "orph", AccountID: "a1", PortfolioID: "p1", Amount: dec("400"), Decimals: 2},
+			{ID: "h-twin", AssetID: "twin", AccountID: "a1", PortfolioID: "p1", Amount: dec("300"), Decimals: 2},
 			{ID: "h-scam", AssetID: "scam", AccountID: "a1", PortfolioID: "p1", Amount: dec("999"), Decimals: 2, Excluded: true},
 		},
 	}
@@ -115,6 +116,7 @@ func agreementFixture() (*fakeStore, *fakeMD) {
 			"mnep":  {Id: "mnep", Name: "Minereum", Symbol: strPtr("MNEP")},
 			"ghost": {Id: "ghost", Name: "Ghost", Symbol: strPtr("GHOST")},
 			"orph":  {Id: "orph", Name: "Orphaned Quote", Symbol: strPtr("ORPH")},
+			"twin":  {Id: "twin", Name: "Contested", Symbol: strPtr("TWIN")},
 			"scam":  {Id: "scam", Name: "Counterfeit", Symbol: strPtr("USDT")},
 			"USD":   {Id: "USD", Name: "US Dollar", Symbol: strPtr("USD")},
 		},
@@ -139,6 +141,11 @@ func agreementFixture() (*fakeStore, *fakeMD) {
 			// "ghost" deliberately absent from every key.
 		},
 		hist: map[string]*apiv1.Price{},
+		// Another live asset claims its ticker, so no source is asked; the
+		// sweep never reaches it and no price key exists.
+		pricing: map[string]*apiv1.AssetPricingStatus{
+			"twin": {AssetId: "twin", AmbiguousTicker: true},
+		},
 	}
 	return st, md
 }
@@ -184,13 +191,15 @@ func TestTotalAndHeatmapAgree(t *testing.T) {
 
 	// Anchors, so that a change making both surfaces equally wrong still fails.
 	assert.Equal(t, uint32(2), vc.PricedCount, "eth direct + sol crossed")
-	assert.Equal(t, uint32(3), vc.UnpricedCount, "mnep thin + ghost unquoted + orph unconvertible")
+	assert.Equal(t, uint32(4), vc.UnpricedCount, "mnep thin + ghost unquoted + orph unconvertible + twin contested")
 
 	// The reasons are compared as a multiset above; this names the one the
 	// split exists for, so a regression collapsing it back into NO_QUOTE fails
 	// here rather than silently agreeing on the wrong reason in both surfaces.
 	assert.Contains(t, unpricedReasons(vc), "orph:UNPRICED_REASON_NO_CROSS_RATE",
 		"an asset priced in an unconvertible base is not an asset nobody priced")
+	assert.Contains(t, unpricedReasons(vc), "twin:UNPRICED_REASON_AMBIGUOUS_TICKER",
+		"a contested ticker is named as such, not as a gap nobody looked at")
 	assert.Equal(t, uint32(1), valueResp.Msg.ExcludedCount, "the quarantined holding is disclosed")
 	assert.Equal(t, 5100.0, total.InexactFloat64(), "2 ETH at 2000, plus 10 SOL at 100 EUR crossed at 1.10")
 }
