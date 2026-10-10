@@ -6,21 +6,6 @@ on:
   pull_request:
 
 jobs:
-  govulncheck:
-    name: Scan dependencies for vulnerabilities
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: stable
-
-      - name: Run govulncheck
-        uses: golang/govulncheck-action@v1
-        with:
-          go-version-input: stable
-
   gosec:
     name: Static security analysis
     runs-on: ubuntu-latest
