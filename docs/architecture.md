@@ -1407,9 +1407,10 @@ somebody chose, since that would report one currency's number under another curr
   Because incumbency rests on price rows, writing or deleting a price over RPC is admin-only.
   Known limits: a twin minted between the contest check and discovery in one sweep can still be
   bound in that sweep; and since any user may mint a catalogue row, two twins of a ticker that
-  has never been priced keep it contested until an admin quarantines one; and a caller of
-  `FindOrCreateAsset` can still supply a ref in a provider's namespace, which `Bound` trusts as
-  if discovery had made it (`personal-l4tc`)
+  has never been priced keep it contested until an admin quarantines one. A ref is identity for
+  every holder and `Bound` prices by it, so `FindOrCreateAsset` binds one only for the in-process
+  sync or an admin (`personal-l4tc`; rationale at `marketdata.mayBindRef`). A split deployment
+  will need a service identity in place of the in-process mark
 
 ### ADR-007: The scam verdict belongs to the asset; exclusion is derived
 - **Status**: accepted
@@ -1779,7 +1780,7 @@ System Quality
 
 ---
 
-**Document Version**: 1.12
+**Document Version**: 1.13
 **Last Updated**: 2026-10-10
 **Owner**: foxcool
 **Status**: Active
