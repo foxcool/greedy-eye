@@ -1,6 +1,7 @@
 package entity
 
 import (
+	"slices"
 	"strings"
 	"time"
 )
@@ -201,6 +202,53 @@ func IsListedVenue(market string) bool {
 		return false
 	}
 	return !IsContractMarket(market)
+}
+
+// PriceBinding is what a price source declares it may price: a price lands on
+// an asset only through a binding the source can vouch for (personal-avm.1).
+//
+// Two kinds, because there are two kinds of listing. Where the market is a
+// venue or the forex market, (symbol, market, type) already names one
+// instrument, so the market is the binding and nothing needs storing. On the
+// global crypto market a ticker is a claim, not a listing: the venue's own id
+// is the listing, assigned by discovery, so RefSource names the
+// namespace an asset must be bound in before a price from this source may land.
+//
+// The handler enforces it, not the adapter: an adapter is never handed an asset
+// its binding does not admit.
+type PriceBinding struct {
+	// Markets admits assets whose market is one of these.
+	Markets []string
+	// ContractMarkets admits assets on one contract's own market (onchain:...).
+	ContractMarkets bool
+	// RefSource, when set, admits an asset to pricing only once it carries a ref
+	// in this namespace. Unbound assets of an admitted market still reach
+	// discovery, which is where such a ref is meant to come from; a caller of
+	// FindOrCreateAsset can still supply one too (personal-l4tc).
+	RefSource string
+}
+
+// Admits reports whether the asset's market is one this binding speaks for.
+func (b PriceBinding) Admits(a *Asset) bool {
+	if a == nil {
+		return false
+	}
+	if b.ContractMarkets && IsContractMarket(a.Market) {
+		return true
+	}
+	return slices.Contains(b.Markets, NormalizeMarket(a.Market))
+}
+
+// Bound reports whether the asset may be priced: admitted, and carrying a ref
+// in RefSource when the binding names one.
+func (b PriceBinding) Bound(a *Asset) bool {
+	if !b.Admits(a) {
+		return false
+	}
+	if b.RefSource == "" {
+		return true
+	}
+	return slices.ContainsFunc(a.ExternalRefs, func(r AssetExternalRef) bool { return r.Source == b.RefSource })
 }
 
 // AssetRiskFlag is a situational-risk flag on a real asset (scam-filtering

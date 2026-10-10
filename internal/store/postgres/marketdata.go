@@ -935,6 +935,11 @@ func (s *MarketDataStore) ListStalePricingTargets(ctx context.Context, opts mark
 		args = append(args, opts.IDs)
 		argIdx++
 	}
+	if opts.ExcludeContested {
+		whereClauses = append(whereClauses, "NOT "+contestedWhere(fmt.Sprintf("$%d", argIdx)))
+		args = append(args, nonNil(opts.ExcludeVerdicts))
+		argIdx++
+	}
 
 	limitClause := ""
 	if opts.Limit > 0 {
@@ -999,6 +1004,10 @@ func (s *MarketDataStore) SweepSchedule(ctx context.Context, opts marketdata.Swe
 		where = append(where, fmt.Sprintf("a.identity_verdict <> ALL($%d)", len(args)+1))
 		args = append(args, opts.ExcludeVerdicts)
 	}
+	if opts.ExcludeContested {
+		where = append(where, "NOT "+contestedWhere(fmt.Sprintf("$%d", len(args)+1)))
+		args = append(args, nonNil(opts.ExcludeVerdicts))
+	}
 
 	query := fmt.Sprintf(`
 		SELECT f.source_id,
@@ -1055,7 +1064,7 @@ func (s *MarketDataStore) SweepSchedule(ctx context.Context, opts marketdata.Swe
 	// has never been asked" is the most important thing this RPC can say, and
 	// omitting it would report silence as absence.
 	for _, sourceID := range opts.SourceIDs {
-		n, err := s.countNeverAttempted(ctx, sourceID, opts.ExcludeVerdicts)
+		n, err := s.countNeverAttempted(ctx, sourceID, opts.ExcludeVerdicts, opts.ExcludeContested)
 		if err != nil {
 			return nil, err
 		}
@@ -1073,12 +1082,16 @@ func (s *MarketDataStore) SweepSchedule(ctx context.Context, opts marketdata.Swe
 // countNeverAttempted counts assets this source has no attempt row for. They
 // sort ahead of everything else in the selection, so this is the head of the
 // queue rather than its tail.
-func (s *MarketDataStore) countNeverAttempted(ctx context.Context, sourceID string, excludeVerdicts []string) (uint32, error) {
+func (s *MarketDataStore) countNeverAttempted(ctx context.Context, sourceID string, excludeVerdicts []string, excludeContested bool) (uint32, error) {
 	args := []any{sourceID}
 	where := []string{"f.asset_id IS NULL"}
 	if len(excludeVerdicts) > 0 {
 		where = append(where, fmt.Sprintf("a.identity_verdict <> ALL($%d)", len(args)+1))
 		args = append(args, excludeVerdicts)
+	}
+	if excludeContested {
+		where = append(where, "NOT "+contestedWhere(fmt.Sprintf("$%d", len(args)+1)))
+		args = append(args, nonNil(excludeVerdicts))
 	}
 
 	query := fmt.Sprintf(`
@@ -1669,6 +1682,72 @@ func (s *MarketDataStore) PricingStatus(ctx context.Context, assetIDs []string) 
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to iterate pricing status: %w", err)
+	}
+	return out, nil
+}
+
+// contestedWhere is the contest predicate over the assets row aliased a, with
+// verdicts the placeholder of the quarantine verdicts (personal-avm.1). The one
+// definition behind both ContestedAssets and the sweep's selection, so what is
+// withheld and what is disclosed as withheld cannot drift apart.
+//
+// An asset is contested when another live asset claims its (symbol, market)
+// outside contract markets, unless it is the incumbent: the oldest claimant
+// that has ever been priced. The incumbent keeps its price because the
+// catalogue is shared and any user can mint a row, so a newcomer must not be
+// able to silence a price every other holder depends on; a twin cannot grow
+// into an incumbent either, since a contested asset is never asked. Symbols are
+// stored normalized, so equality is the case-insensitive comparison, and the
+// unique (symbol, market, type) index leaves type as all two claimants differ by.
+func contestedWhere(verdicts string) string {
+	claimant := func(alias string) string {
+		return fmt.Sprintf(`%[1]s.symbol = a.symbol AND %[1]s.market = a.market
+		    AND %[1]s.id <> a.id AND %[1]s.identity_verdict <> ALL(%[2]s)`, alias, verdicts)
+	}
+	return fmt.Sprintf(`(a.market NOT LIKE 'onchain:%%'
+		AND a.identity_verdict <> ALL(%[1]s)
+		AND EXISTS (SELECT 1 FROM assets b WHERE %[2]s)
+		AND NOT (
+		    EXISTS (SELECT 1 FROM prices p WHERE p.asset_id = a.id)
+		    AND NOT EXISTS (
+		        SELECT 1 FROM assets c WHERE %[3]s
+		          AND (c.created_at, c.id) < (a.created_at, a.id)
+		          AND EXISTS (SELECT 1 FROM prices pc WHERE pc.asset_id = c.id))))`,
+		verdicts, claimant("b"), claimant("c"))
+}
+
+// nonNil binds an absent verdict list as an empty array: a nil slice binds as
+// NULL, and x <> ALL(NULL) is NULL, which would count no claimant at all.
+func nonNil(verdicts []string) []string {
+	if verdicts == nil {
+		return []string{}
+	}
+	return verdicts
+}
+
+// ContestedAssets reports which of the given assets are contested; see
+// contestedWhere.
+func (s *MarketDataStore) ContestedAssets(ctx context.Context, assetIDs []string, excludeVerdicts []string) (map[string]bool, error) {
+	if len(assetIDs) == 0 {
+		return nil, nil
+	}
+	query := `SELECT a.id FROM assets a WHERE a.id = ANY($1::uuid[]) AND ` + contestedWhere("$2")
+	rows, err := s.pool.Query(ctx, query, assetIDs, nonNil(excludeVerdicts))
+	if err != nil {
+		return nil, fmt.Errorf("failed to find contested assets: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan contested asset: %w", err)
+		}
+		out[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate contested assets: %w", err)
 	}
 	return out, nil
 }

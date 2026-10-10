@@ -87,6 +87,16 @@ func (p *Provider) BaseAssetSymbol() string { return defaultQuoteSymbol }
 // BaseAssetType reports that the quote currency is fiat.
 func (p *Provider) BaseAssetType() entity.AssetType { return entity.AssetTypeForex }
 
+// Binding admits the venues the broker quotes and prices only an asset bound to
+// one of its instruments: a ticker repeats across venues, the FIGI does not.
+func (p *Provider) Binding() entity.PriceBinding {
+	markets := make([]string, 0, len(venues))
+	for m := range venues {
+		markets = append(markets, m)
+	}
+	return entity.PriceBinding{Markets: markets, RefSource: RefSource}
+}
+
 // AssetBudget reports no per-asset allowance. A broker token has rate limits
 // but no metered plan to divide, and one price call covers a hundred
 // instruments; a number invented here would look prudent and mean nothing.

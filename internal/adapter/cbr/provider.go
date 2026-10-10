@@ -62,6 +62,12 @@ func (p *Provider) BaseAssetSymbol() string { return quoteSymbol }
 // BaseAssetType reports that the quote currency is fiat.
 func (p *Provider) BaseAssetType() entity.AssetType { return entity.AssetTypeForex }
 
+// Binding admits the forex market: a currency's rate belongs to the currency,
+// never to a token named after it.
+func (p *Provider) Binding() entity.PriceBinding {
+	return entity.PriceBinding{Markets: []string{entity.MarketForex}}
+}
+
 // BudgetExemptSymbols reports the currencies one request covers. The whole
 // feed arrives in a single document, so asking for one currency and asking for
 // all of them cost the same.

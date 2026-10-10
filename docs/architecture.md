@@ -431,7 +431,7 @@ without linking them.
 
 - **Price Adapters**: CoinGecko (`internal/adapter/coingecko/` — live prices; tier-aware: the tier
   picks the host, the auth header and the plan allowance), Binance (`internal/adapter/binance/` —
-  `ticker/price`; the request is confined to pairs listed TRADING in a cached `exchangeInfo`
+  `/ticker/24hr`, for the price and the `quoteVolume` ADR-009 reads; the request is confined to pairs listed TRADING in a cached `exchangeInfo`
   snapshot, because Binance rejects a whole batch when one symbol is not tradable), and three sources for the
   markets crypto feeds do not carry:
 
@@ -1032,6 +1032,7 @@ corrections:
 | A quote that outlived its market | `ValuationCoverage.stale_count` and `prices_as_of` | Same block; the position stays **in** the total and is named, because removing it would move the number on every provider outage |
 | Every source asked, none ever answered | `UnpricedReason.NEVER_PRICED` + `asked_since`, read from `price_fetch_attempts` | Same block as a missing quote, separated from it: `NO_QUOTE` can still be our pipeline not having looked, this one has exhausted the sources it has |
 | Priced, but in a currency we cannot convert from | `UnpricedReason.NO_CROSS_RATE` in the same block (ADR-010) | Same place, separated from a missing quote because it asks for opposite work: one exchange rate, not coverage for the asset. Collapsing the two hid 74 holdings for months |
+| Two live assets claim one ticker on one market | `UnpricedReason.AMBIGUOUS_TICKER`, from the same predicate the sweep withholds by (ADR-006) | Same block, ranked above `NEVER_PRICED`: the silence is the symptom, the contest the cause, and quarantining the impostor is the fix |
 
 Rules that follow from this:
 
@@ -1390,6 +1391,25 @@ somebody chose, since that would report one currency's number under another curr
   the constants exist in `entity` and no code path produces them. The source that was expected to
   force the ladder has meanwhile landed without it (T-Invest, 2026-08-10), so the gap is now
   carried by a live provider rather than anticipated (`personal-avm`)
+- **Price binding** (`personal-avm.1`): a price lands only on an asset bound to an instrument the
+  source lists, and the handler enforces it rather than each adapter. `PriceProvider.Binding()`
+  is required, so an adapter that has not declared one does not compile. Two kinds: where the
+  market is the listing (`moex`, `forex`, CoinGecko's curated coin ids on `crypto`, contract
+  markets) the market admits the asset; where a ticker is only a claim (Binance and T-Invest),
+  the asset is priced only once discovery has bound it in the source's ref namespace. When two
+  live assets claim one ticker on one market, every claimant except the **incumbent** — the
+  oldest one ever priced — is **contested** and withheld from every source, bound or not. The
+  incumbent keeps its price because the catalogue is shared and any user can mint a row: a
+  newcomer must not be able to silence a price other holders depend on, and a contested asset is
+  never asked, so it cannot grow into an incumbent. The contest is judged against the catalogue,
+  not the sweep's batch, because a batch lets arrival order decide who owns a listing. A
+  contested claimant is disclosed as `AMBIGUOUS_TICKER`; quarantining the impostor settles it.
+  Because incumbency rests on price rows, writing or deleting a price over RPC is admin-only.
+  Known limits: a twin minted between the contest check and discovery in one sweep can still be
+  bound in that sweep; and since any user may mint a catalogue row, two twins of a ticker that
+  has never been priced keep it contested until an admin quarantines one; and a caller of
+  `FindOrCreateAsset` can still supply a ref in a provider's namespace, which `Bound` trusts as
+  if discovery had made it (`personal-l4tc`)
 
 ### ADR-007: The scam verdict belongs to the asset; exclusion is derived
 - **Status**: accepted
@@ -1759,7 +1779,7 @@ System Quality
 
 ---
 
-**Document Version**: 1.11
-**Last Updated**: 2026-10-08
+**Document Version**: 1.12
+**Last Updated**: 2026-10-10
 **Owner**: foxcool
 **Status**: Active

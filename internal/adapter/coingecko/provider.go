@@ -193,6 +193,12 @@ func (p *Provider) BaseAssetSymbol() string { return "USD" }
 // BaseAssetType reports that CoinGecko's quote currency (USD) is fiat (forex).
 func (p *Provider) BaseAssetType() entity.AssetType { return entity.AssetTypeForex }
 
+// Binding admits the global crypto market (the curated coin ids) and contract
+// markets (a token priced by its own contract address).
+func (p *Provider) Binding() entity.PriceBinding {
+	return entity.PriceBinding{Markets: []string{entity.MarketCrypto}, ContractMarkets: true}
+}
+
 // FetchPrices fetches prices from CoinGecko for the given assets.
 //
 // Strategy:

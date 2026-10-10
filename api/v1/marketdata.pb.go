@@ -117,6 +117,15 @@ const (
 	// conversion is missing, so the fix is one rate rather than coverage for the
 	// asset. See ADR-010 for what collapsing them cost.
 	UnpricedReason_UNPRICED_REASON_NO_CROSS_RATE UnpricedReason = 4
+	// Another live asset on the same market claims the same ticker, and this one
+	// is not the incumbent (the oldest claimant ever priced), so no source is
+	// asked to price it. A price here would be a guess between the real asset
+	// and an impostor, in the direction where guessing is unsafe.
+	//
+	// Ranked above NEVER_PRICED: that one is the symptom, this is the cause, and
+	// the fix is different — not more coverage, but quarantining the impostor,
+	// after which the next sweep asks again.
+	UnpricedReason_UNPRICED_REASON_AMBIGUOUS_TICKER UnpricedReason = 5
 )
 
 // Enum value maps for UnpricedReason.
@@ -127,13 +136,15 @@ var (
 		2: "UNPRICED_REASON_THIN_MARKET",
 		3: "UNPRICED_REASON_NEVER_PRICED",
 		4: "UNPRICED_REASON_NO_CROSS_RATE",
+		5: "UNPRICED_REASON_AMBIGUOUS_TICKER",
 	}
 	UnpricedReason_value = map[string]int32{
-		"UNPRICED_REASON_UNSPECIFIED":   0,
-		"UNPRICED_REASON_NO_QUOTE":      1,
-		"UNPRICED_REASON_THIN_MARKET":   2,
-		"UNPRICED_REASON_NEVER_PRICED":  3,
-		"UNPRICED_REASON_NO_CROSS_RATE": 4,
+		"UNPRICED_REASON_UNSPECIFIED":      0,
+		"UNPRICED_REASON_NO_QUOTE":         1,
+		"UNPRICED_REASON_THIN_MARKET":      2,
+		"UNPRICED_REASON_NEVER_PRICED":     3,
+		"UNPRICED_REASON_NO_CROSS_RATE":    4,
+		"UNPRICED_REASON_AMBIGUOUS_TICKER": 5,
 	}
 )
 
@@ -969,9 +980,14 @@ type AssetPricingStatus struct {
 	LastAskedAt  *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=last_asked_at,json=lastAskedAt,proto3" json:"last_asked_at,omitempty"`
 	// How many distinct sources have been asked. Four sources silent for a week
 	// is a different statement from one source silent for a week.
-	SourcesAsked  uint32 `protobuf:"varint,5,opt,name=sources_asked,json=sourcesAsked,proto3" json:"sources_asked,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	SourcesAsked uint32 `protobuf:"varint,5,opt,name=sources_asked,json=sourcesAsked,proto3" json:"sources_asked,omitempty"`
+	// True when another live asset on the same market claims this ticker, so no
+	// source is asked about it at all (see UNPRICED_REASON_AMBIGUOUS_TICKER). A
+	// property of the catalogue rather than of the attempt log: such an asset is
+	// reported even when it has never been asked about.
+	AmbiguousTicker bool `protobuf:"varint,6,opt,name=ambiguous_ticker,json=ambiguousTicker,proto3" json:"ambiguous_ticker,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AssetPricingStatus) Reset() {
@@ -1037,6 +1053,13 @@ func (x *AssetPricingStatus) GetSourcesAsked() uint32 {
 		return x.SourcesAsked
 	}
 	return 0
+}
+
+func (x *AssetPricingStatus) GetAmbiguousTicker() bool {
+	if x != nil {
+		return x.AmbiguousTicker
+	}
+	return false
 }
 
 type CreateAssetRequest struct {
@@ -2519,7 +2542,8 @@ type FetchExternalPricesResponse struct {
 	PricesStored  int32                  `protobuf:"varint,2,opt,name=prices_stored,json=pricesStored,proto3" json:"prices_stored,omitempty"`
 	Errors        []string               `protobuf:"bytes,3,rep,name=errors,proto3" json:"errors,omitempty"`
 	// Sources this run selected nothing from, and why: "nothing_due",
-	// "all_deferred", "budget_exhausted", "unknown".
+	// "all_deferred", "budget_exhausted", "contested" (every asset it could have
+	// priced carries a ticker another live asset also claims), "unknown".
 	//
 	// Without it, prices_fetched=0 is the only thing an unattended sweep can say,
 	// and it means both "everything is current" and "the whole catalogue is
@@ -2883,9 +2907,10 @@ func (x *ResetSweepScheduleResponse) GetAssetsFreed() map[string]uint32 {
 //
 // The counts partition the assets this source is allowed to be asked about:
 // due_now would be selected by the next run, deferred are held back by their
-// own back-off, never_attempted have no attempt row at all. Quarantined assets
-// are in none of them — the sweep never asks about those, so counting them here
-// would report work nobody intends to do.
+// own back-off, never_attempted have no attempt row at all. Quarantined and
+// contested assets (UNPRICED_REASON_AMBIGUOUS_TICKER) are in none of them — the
+// sweep never asks about those, so counting them here would report work nobody
+// intends to do.
 type SourceSchedule struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	SourceId       string                 `protobuf:"bytes,1,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
@@ -3094,14 +3119,15 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\x06symbol\x18\x03 \x01(\tR\x06symbol\x12.\n" +
 	"\x06reason\x18\x04 \x01(\x0e2\x16.eye.v1.UnpricedReasonR\x06reason\x12;\n" +
 	"\vasked_since\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"askedSince\"\xf7\x01\n" +
+	"askedSince\"\xa2\x02\n" +
 	"\x12AssetPricingStatus\x12\x19\n" +
 	"\basset_id\x18\x01 \x01(\tR\aassetId\x12\x1f\n" +
 	"\vever_priced\x18\x02 \x01(\bR\n" +
 	"everPriced\x12@\n" +
 	"\x0efirst_asked_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\ffirstAskedAt\x12>\n" +
 	"\rlast_asked_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\vlastAskedAt\x12#\n" +
-	"\rsources_asked\x18\x05 \x01(\rR\fsourcesAsked\"9\n" +
+	"\rsources_asked\x18\x05 \x01(\rR\fsourcesAsked\x12)\n" +
+	"\x10ambiguous_ticker\x18\x06 \x01(\bR\x0fambiguousTicker\"9\n" +
 	"\x12CreateAssetRequest\x12#\n" +
 	"\x05asset\x18\x01 \x01(\v2\r.eye.v1.AssetR\x05asset\"!\n" +
 	"\x0fGetAssetRequest\x12\x0e\n" +
@@ -3289,13 +3315,14 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\x0fASSET_TYPE_BOND\x10\x03\x12\x18\n" +
 	"\x14ASSET_TYPE_COMMODITY\x10\x04\x12\x14\n" +
 	"\x10ASSET_TYPE_FOREX\x10\x05\x12\x13\n" +
-	"\x0fASSET_TYPE_FUND\x10\x06*\xb5\x01\n" +
+	"\x0fASSET_TYPE_FUND\x10\x06*\xdb\x01\n" +
 	"\x0eUnpricedReason\x12\x1f\n" +
 	"\x1bUNPRICED_REASON_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18UNPRICED_REASON_NO_QUOTE\x10\x01\x12\x1f\n" +
 	"\x1bUNPRICED_REASON_THIN_MARKET\x10\x02\x12 \n" +
 	"\x1cUNPRICED_REASON_NEVER_PRICED\x10\x03\x12!\n" +
-	"\x1dUNPRICED_REASON_NO_CROSS_RATE\x10\x042\x8b\x15\n" +
+	"\x1dUNPRICED_REASON_NO_CROSS_RATE\x10\x04\x12$\n" +
+	" UNPRICED_REASON_AMBIGUOUS_TICKER\x10\x052\x8b\x15\n" +
 	"\x11MarketDataService\x12W\n" +
 	"\vCreateAsset\x12\x1a.eye.v1.CreateAssetRequest\x1a\r.eye.v1.Asset\"\x1d\x82\xd3\xe4\x93\x02\x17:\x05asset\"\x0e/api/v1/assets\x12O\n" +
 	"\bGetAsset\x12\x17.eye.v1.GetAssetRequest\x1a\r.eye.v1.Asset\"\x1b\x82\xd3\xe4\x93\x02\x15\x12\x13/api/v1/assets/{id}\x12b\n" +

@@ -255,7 +255,7 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 		nodes = append(groups, nodes...)
 	}
 
-	h.markNeverPriced(ctx, unpriced)
+	h.sharpenUnpriced(ctx, unpriced)
 	coverage.Unpriced = unpriced
 	if !oldestAmount.IsZero() {
 		coverage.AmountsAsOf = timestamppb.New(oldestAmount)

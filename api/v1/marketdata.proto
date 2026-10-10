@@ -231,6 +231,15 @@ enum UnpricedReason {
   // conversion is missing, so the fix is one rate rather than coverage for the
   // asset. See ADR-010 for what collapsing them cost.
   UNPRICED_REASON_NO_CROSS_RATE = 4;
+  // Another live asset on the same market claims the same ticker, and this one
+  // is not the incumbent (the oldest claimant ever priced), so no source is
+  // asked to price it. A price here would be a guess between the real asset
+  // and an impostor, in the direction where guessing is unsafe.
+  //
+  // Ranked above NEVER_PRICED: that one is the symptom, this is the cause, and
+  // the fix is different — not more coverage, but quarantining the impostor,
+  // after which the next sweep asks again.
+  UNPRICED_REASON_AMBIGUOUS_TICKER = 5;
 }
 
 // UnpricedHolding names one position that could not be valued. There is no
@@ -269,6 +278,11 @@ message AssetPricingStatus {
   // How many distinct sources have been asked. Four sources silent for a week
   // is a different statement from one source silent for a week.
   uint32 sources_asked = 5;
+  // True when another live asset on the same market claims this ticker, so no
+  // source is asked about it at all (see UNPRICED_REASON_AMBIGUOUS_TICKER). A
+  // property of the catalogue rather than of the attempt log: such an asset is
+  // reported even when it has never been asked about.
+  bool ambiguous_ticker = 6;
 }
 
 // =============================================================================
@@ -442,9 +456,11 @@ service MarketDataService {
   // sources has produced. Batched because its caller is a valuation disclosing a
   // set of unpriced positions, not a page rendering one asset.
   //
-  // Assets never asked about are simply absent from the response: there is no
-  // record to report, and inventing an empty one would read as "asked, nothing
-  // came back", which is the opposite statement.
+  // Assets never asked about are absent from the response: there is no record
+  // to report, and inventing an empty one would read as "asked, nothing came
+  // back", which is the opposite statement. The one exception is an ambiguous
+  // ticker, reported with ambiguous_ticker set and no attempt fields, because
+  // it is never asked about by construction.
   rpc GetPricingStatus(GetPricingStatusRequest) returns (GetPricingStatusResponse) {
     option (google.api.http) = {
       post: "/api/v1/prices/status"
@@ -706,7 +722,8 @@ message FetchExternalPricesResponse {
   int32 prices_stored = 2;
   repeated string errors = 3;
   // Sources this run selected nothing from, and why: "nothing_due",
-  // "all_deferred", "budget_exhausted", "unknown".
+  // "all_deferred", "budget_exhausted", "contested" (every asset it could have
+  // priced carries a ticker another live asset also claims), "unknown".
   //
   // Without it, prices_fetched=0 is the only thing an unattended sweep can say,
   // and it means both "everything is current" and "the whole catalogue is
@@ -763,9 +780,10 @@ message ResetSweepScheduleResponse {
 //
 // The counts partition the assets this source is allowed to be asked about:
 // due_now would be selected by the next run, deferred are held back by their
-// own back-off, never_attempted have no attempt row at all. Quarantined assets
-// are in none of them — the sweep never asks about those, so counting them here
-// would report work nobody intends to do.
+// own back-off, never_attempted have no attempt row at all. Quarantined and
+// contested assets (UNPRICED_REASON_AMBIGUOUS_TICKER) are in none of them — the
+// sweep never asks about those, so counting them here would report work nobody
+// intends to do.
 message SourceSchedule {
   string source_id = 1;
   uint32 due_now = 2;

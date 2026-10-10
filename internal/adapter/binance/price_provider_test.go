@@ -383,34 +383,9 @@ func TestFetchPrices_HaltedPairIsNotAsked(t *testing.T) {
 	assert.NotContains(t, asked[0], "HALTEDUSDT")
 }
 
-// The defect this binding closes: a token minted with a famous ticker, on the
-// global crypto market and not yet carrying a quarantine verdict, was handed the
-// real coin's price because identity was the ticker and nothing else. The window
-// is exactly the life of a fresh impostor, before the scam filter judges it.
-func TestDiscoverRefs_ContestedPairBindsNobody(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/v3/exchangeInfo", r.URL.Path)
-		writeExchangeInfo(w, "USDTUSDT", "BTCUSDT")
-	}))
-	defer srv.Close()
-
-	p := NewProvider(newTestClient(srv.URL))
-	refs, err := p.DiscoverRefs(context.Background(), []*entity.Asset{
-		{ID: "uuid-tether", Symbol: "USDT", Market: entity.MarketCrypto},
-		{ID: "uuid-impostor", Symbol: "USDT", Market: entity.MarketCrypto},
-		{ID: "uuid-btc", Symbol: "BTC", Market: entity.MarketCrypto},
-	})
-	require.NoError(t, err)
-
-	require.Len(t, refs, 1, "the contested pair binds nobody; the uncontested one binds")
-	assert.Equal(t, "uuid-btc", refs[0].AssetID)
-	assert.Equal(t, "BTCUSDT", refs[0].Ref)
-	assert.Equal(t, RefSource, refs[0].Source)
-}
-
-// A contest is resolved by removing a claimant, not by the adapter picking one.
-// Once the impostor is quarantined onto its own contract market, speaksFor drops
-// it and the original is alone again.
+// An impostor isolated on its own contract market is no claimant here: speaksFor
+// drops it and the original binds. A contest between two assets on the crypto
+// market itself is settled before this method (marketdata Handler.admitted).
 func TestDiscoverRefs_QuarantineResolvesTheContest(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeExchangeInfo(w, "USDTUSDT")
