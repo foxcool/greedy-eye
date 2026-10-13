@@ -292,6 +292,8 @@ message AssetPricingStatus {
 // MarketDataService manages assets and price data.
 service MarketDataService {
   // --- Asset CRUD ---
+  // CreateAsset adds a catalogue entry for every user. Admin-only: a row is a
+  // claimant to its ticker, and its tags are taken as given.
   rpc CreateAsset(CreateAssetRequest) returns (Asset) {
     option (google.api.http) = {
       post: "/api/v1/assets"
@@ -342,7 +344,9 @@ service MarketDataService {
   }
 
   // Find-first asset resolution by composite identity (symbol, market, type);
-  // creates the asset only when nothing matches and dry_run is false.
+  // creates the asset only when nothing matches and dry_run is false. Creating
+  // a row (and planning to, in a dry run) is for the in-process sync or an
+  // admin; anyone else gets PERMISSION_DENIED where the row would be created.
   rpc FindOrCreateAsset(FindOrCreateAssetRequest) returns (FindOrCreateAssetResponse) {
     option (google.api.http) = {
       post: "/api/v1/assets/find-or-create"

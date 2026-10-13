@@ -994,7 +994,10 @@ Cron / API Client → AutomationService/ExecuteRule
   admin role and an explicit update mask. Every write to the asset catalogue is admin-only too —
   `UpdateAsset`, `DeleteAsset`, `SetAssetVerdict`, `Add`/`DeleteAssetRiskFlag`,
   `DeleteAssetExternalRef` — because an asset is one row shared by every user who holds it, so an
-  edit by one is an edit for all. The check lives in the handler (`requireAdmin`); the FE hiding a
+  edit by one is an edit for all. Adding a row is gated the same way: `CreateAsset` is admin-only,
+  and `FindOrCreateAsset` creates (or, in a dry run, plans to create) only for the in-process sync
+  or an admin, so anyone else's manual import resolves existing rows only (`personal-a483`).
+  The check lives in the handler (`requireAdmin`); the FE hiding a
   control is presentation, not enforcement. Per-asset RBAC is `personal-rme`.
 
 **Data Protection:**
@@ -1399,16 +1402,18 @@ somebody chose, since that would report one currency's number under another curr
   the asset is priced only once discovery has bound it in the source's ref namespace. When two
   live assets claim one ticker on one market, every claimant except the **incumbent** — the
   oldest one ever priced — is **contested** and withheld from every source, bound or not. The
-  incumbent keeps its price because the catalogue is shared and any user can mint a row: a
+  incumbent keeps its price because the catalogue is shared: a
   newcomer must not be able to silence a price other holders depend on, and a contested asset is
   never asked, so it cannot grow into an incumbent. The contest is judged against the catalogue,
   not the sweep's batch, because a batch lets arrival order decide who owns a listing. A
   contested claimant is disclosed as `AMBIGUOUS_TICKER`; quarantining the impostor settles it.
   Because incumbency rests on price rows, writing or deleting a price over RPC is admin-only.
   Known limits: a twin minted between the contest check and discovery in one sweep can still be
-  bound in that sweep; and since any user may mint a catalogue row, two twins of a ticker that
-  has never been priced keep it contested until an admin quarantines one. A ref is identity for
-  every holder and `Bound` prices by it, so `FindOrCreateAsset` binds one only for the in-process
+  bound in that sweep. A row is a claimant, and a ticker nobody has priced has no incumbent, so a
+  row minted ahead of the real one would keep it contested; only the in-process sync or an admin
+  may add a row over RPC — the price fetch adds a source's base currency from the adapter's own
+  constant, never the caller's (`personal-a483`; rationale at `marketdata.mayCreateAsset`).
+  A ref is identity for every holder and `Bound` prices by it, so `FindOrCreateAsset` binds one only for the in-process
   sync or an admin (`personal-l4tc`; rationale at `marketdata.mayBindRef`). A split deployment
   will need a service identity in place of the in-process mark
 

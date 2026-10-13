@@ -192,8 +192,14 @@ func (h *Handler) WithRefreshWindow(window time.Duration) *Handler {
 	return copied
 }
 
-// CreateAsset creates a new asset.
+// CreateAsset creates a new asset. Admin-only, for two reasons: the row is a
+// claimant to its ticker in the shared catalogue (see mayCreateAsset), and its
+// tags are stored as the caller sent them, while a "contract:" tag decides
+// whether CoinGecko prices the asset by contract (coingecko/provider.go).
 func (h *Handler) CreateAsset(ctx context.Context, req *connect.Request[apiv1.CreateAssetRequest]) (*connect.Response[apiv1.Asset], error) {
+	if _, err := requireAdmin(ctx, "adding an asset to the catalogue"); err != nil {
+		return nil, err
+	}
 	if req.Msg.Asset == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("asset is required"))
 	}
@@ -268,10 +274,41 @@ func requireAdmin(ctx context.Context, action string) (*entity.User, error) {
 // So only the in-process sync, binding what a provider reported for a position
 // it holds, and an admin may name a ref; no RPC client has needed to.
 func mayBindRef(ctx context.Context) error {
+	return requireSyncOrAdmin(ctx, "binding an external ref")
+}
+
+// mayCreateAsset decides who may add a row to the catalogue, the one place
+// this rule is argued.
+//
+// A row is a claimant. Two live rows sharing (symbol, market) outside contract
+// markets contest the ticker, and the incumbent is the oldest one ever priced
+// (contestedWhere). A ticker nobody has priced yet has no incumbent, so a row
+// minted ahead of the real one keeps the real holder's position contested,
+// and unpriced, until an admin quarantines it — and the holder cannot do that
+// (SetAssetVerdict is admin-only). Refusing only a row that would join an
+// existing (symbol, market) is not enough: the squat comes FIRST, so it joins
+// nothing, and the real row arrives later through sync.
+//
+// So only the in-process sync, creating what a provider reported for a
+// position it holds, and an admin may create a row through this handler
+// (personal-a483). The one other writer is FetchExternalPrices creating a
+// price source's own base currency, whose symbol is the adapter's constant
+// and never the caller's. A user's manual import still resolves rows that
+// exist; a new one is an admin's call.
+// The refusal comes before a dry run answers, so the plan says what the
+// commit would do.
+func mayCreateAsset(ctx context.Context) error {
+	return requireSyncOrAdmin(ctx, "adding an asset to the catalogue")
+}
+
+// requireSyncOrAdmin passes the in-process sync (middleware.WithSyncAuthority)
+// and an admin. A split deployment will need a service identity in place of
+// the in-process mark.
+func requireSyncOrAdmin(ctx context.Context, action string) error {
 	if middleware.SyncAuthority(ctx) {
 		return nil
 	}
-	_, err := requireAdmin(ctx, "binding an external ref")
+	_, err := requireAdmin(ctx, action)
 	return err
 }
 
@@ -675,6 +712,10 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 	}
 	if !errors.Is(err, store.ErrNotFound) {
 		return nil, toConnectError(err)
+	}
+
+	if err := mayCreateAsset(ctx); err != nil {
+		return nil, err
 	}
 
 	if req.Msg.DryRun {

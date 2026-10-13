@@ -2881,6 +2881,69 @@ func TestImportTransactions_UnknownAssetFailsItem(t *testing.T) {
 	s.AssertNotCalled(t, "CreateTransaction")
 }
 
+// TestImportTransactions_CatalogueRefusalReadsAsNotFound: since personal-a483 a
+// non-admin's lookup of a missing asset is refused where a dry run would say
+// "would create". This import never creates, so the item reads as not found
+// rather than as a permission it never asked for.
+func TestImportTransactions_CatalogueRefusalReadsAsNotFound(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
+	s.On("ListTransactions", mock.Anything, mock.Anything).Return([]*entity.Transaction{}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("FindOrCreateAsset", mock.Anything, mock.Anything).
+		Return(nil, connect.NewError(connect.CodePermissionDenied, errors.New("adding an asset to the catalogue is admin-only")))
+
+	h := newHandler(s).WithMarketDataClient(md)
+
+	resp, err := h.ImportTransactions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportTransactionsRequest{
+		AccountId: testAccountID,
+		DryRun:    true,
+		Transactions: []*apiv1.ImportTransactionItem{
+			{Type: apiv1.TransactionType_TRANSACTION_TYPE_TRADE, Symbol: strPtr("GHOST")},
+		},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), resp.Msg.Failed)
+	require.NotNil(t, resp.Msg.Items[0].Error)
+	assert.Contains(t, *resp.Msg.Items[0].Error, "GHOST not found")
+	assert.NotContains(t, *resp.Msg.Items[0].Error, "admin-only")
+}
+
+// TestImportPositions_CatalogueRefusalFailsTheItemInThePlan: a non-admin's new
+// ticker fails its own item already in the dry run, names why, and leaves the
+// rest of the batch alone (personal-a483).
+func TestImportPositions_CatalogueRefusalFailsTheItemInThePlan(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("FindOrCreateAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.FindOrCreateAssetRequest]) bool {
+		return r.Msg.Symbol == "BTC"
+	})).Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: &apiv1.Asset{Id: testAssetID}}), nil)
+	md.On("FindOrCreateAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.FindOrCreateAssetRequest]) bool {
+		return r.Msg.Symbol == "NEWIPO"
+	})).Return(nil, connect.NewError(connect.CodePermissionDenied, errors.New("adding an asset to the catalogue is admin-only")))
+
+	h := newHandler(s).WithMarketDataClient(md)
+
+	resp, err := h.ImportPositions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportPositionsRequest{
+		AccountId: testAccountID,
+		DryRun:    true,
+		Positions: []*apiv1.ImportPositionItem{
+			{Symbol: "BTC", Amount: "1"},
+			{Symbol: "NEWIPO", Amount: "5"},
+		},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), resp.Msg.Created)
+	assert.Equal(t, int32(1), resp.Msg.Failed)
+	assert.Zero(t, resp.Msg.AssetsCreated)
+	require.NotNil(t, resp.Msg.Items[1].Error)
+	assert.Contains(t, *resp.Msg.Items[1].Error, "admin-only")
+}
+
 func strPtr(s string) *string { return &s }
 
 // --- Tests: full-snapshot reconcile ---

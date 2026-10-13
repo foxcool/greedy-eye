@@ -23,8 +23,15 @@ func TestAssetCRUD(t *testing.T) {
 
 	sym := "BTC"
 
+	// A row is a claimant to its ticker for every user, so only an admin adds
+	// one over RPC (personal-a483).
+	_, err := client.CreateAsset(ctx, connect.NewRequest(&v1.CreateAssetRequest{
+		Asset: &v1.Asset{Name: "Bitcoin", Symbol: &sym, Type: v1.AssetType_ASSET_TYPE_CRYPTOCURRENCY},
+	}))
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
 	// Create
-	createResp, err := client.CreateAsset(ctx, connect.NewRequest(&v1.CreateAssetRequest{
+	createResp, err := admin.CreateAsset(ctx, connect.NewRequest(&v1.CreateAssetRequest{
 		Asset: &v1.Asset{
 			Name:   "Bitcoin",
 			Symbol: &sym,
@@ -63,13 +70,13 @@ func TestAssetCRUD(t *testing.T) {
 
 	// List — create two more, then paginate
 	ethSym := "ETH"
-	_, err = client.CreateAsset(ctx, connect.NewRequest(&v1.CreateAssetRequest{
+	_, err = admin.CreateAsset(ctx, connect.NewRequest(&v1.CreateAssetRequest{
 		Asset: &v1.Asset{Name: "Ethereum", Symbol: &ethSym, Type: v1.AssetType_ASSET_TYPE_CRYPTOCURRENCY},
 	}))
 	require.NoError(t, err)
 
 	solSym := "SOL"
-	_, err = client.CreateAsset(ctx, connect.NewRequest(&v1.CreateAssetRequest{
+	_, err = admin.CreateAsset(ctx, connect.NewRequest(&v1.CreateAssetRequest{
 		Asset: &v1.Asset{Name: "Solana", Symbol: &solSym, Type: v1.AssetType_ASSET_TYPE_CRYPTOCURRENCY},
 	}))
 	require.NoError(t, err)
