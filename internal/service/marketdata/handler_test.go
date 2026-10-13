@@ -338,7 +338,7 @@ func testAsset(id string) *entity.Asset {
 
 func TestCreateAsset_MissingAsset(t *testing.T) {
 	h := newHandler(&mockStore{})
-	_, err := h.CreateAsset(context.Background(), connect.NewRequest(&apiv1.CreateAssetRequest{}))
+	_, err := h.CreateAsset(adminContext(), connect.NewRequest(&apiv1.CreateAssetRequest{}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 }
@@ -348,7 +348,7 @@ func TestCreateAsset_StoreError(t *testing.T) {
 	s.On("CreateAsset", mock.Anything, mock.Anything).Return(nil, errors.New("db error"))
 	h := newHandler(s)
 
-	_, err := h.CreateAsset(context.Background(), connect.NewRequest(&apiv1.CreateAssetRequest{
+	_, err := h.CreateAsset(adminContext(), connect.NewRequest(&apiv1.CreateAssetRequest{
 		Asset: &apiv1.Asset{Name: "Bitcoin"},
 	}))
 	require.Error(t, err)
@@ -360,7 +360,7 @@ func TestCreateAsset_OK(t *testing.T) {
 	s.On("CreateAsset", mock.Anything, mock.Anything).Return(testAsset("id-1"), nil)
 	h := newHandler(s)
 
-	resp, err := h.CreateAsset(context.Background(), connect.NewRequest(&apiv1.CreateAssetRequest{
+	resp, err := h.CreateAsset(adminContext(), connect.NewRequest(&apiv1.CreateAssetRequest{
 		Asset: &apiv1.Asset{Name: "Bitcoin"},
 	}))
 	require.NoError(t, err)
@@ -1527,6 +1527,106 @@ func TestFindOrCreateAsset_StockRequiresMarket(t *testing.T) {
 	}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
+// --- Tests: who may add a catalogue row (personal-a483) ---
+
+func TestCreateAsset_IsAdminOnly(t *testing.T) {
+	s := &mockStore{}
+	h := newHandler(s)
+	// A contract: tag admits the asset to the contract price path, so the
+	// caller's tags are as much a catalogue write as the row itself.
+	req := connect.NewRequest(&apiv1.CreateAssetRequest{
+		Asset: &apiv1.Asset{Name: "Tether", Tags: []string{"contract:0xdac17f958d2ee523a2206206994597c13d831ec7"}},
+	})
+
+	plain := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	_, err := h.CreateAsset(plain, req)
+	require.Error(t, err)
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+	_, err = h.CreateAsset(context.Background(), req)
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+
+	s.AssertNotCalled(t, "CreateAsset", mock.Anything, mock.Anything)
+}
+
+// TestFindOrCreateAsset_PreSquatIsRefused is the case personal-a483 was filed
+// for. A ticker nobody has priced has no incumbent, so a row minted ahead of
+// the real one would keep the real holder contested. The squat is refused —
+// in the plan as well as on commit — and the holder's sync then creates the
+// only claimant there is.
+func TestFindOrCreateAsset_PreSquatIsRefused(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetByIdentity", mock.Anything, "NEWIPO", "moex", entity.AssetTypeFund).
+		Return(nil, store.ErrNotFound)
+	s.On("FindAssetByIdentity", mock.Anything, "NEWIPO", "moex", entity.AssetTypeStock).
+		Return(nil, store.ErrNotFound)
+	s.On("CreateAsset", mock.Anything, mock.MatchedBy(func(a *entity.Asset) bool {
+		return a.Symbol == "NEWIPO" && a.Type == entity.AssetTypeStock
+	})).Return(&entity.Asset{ID: "id-real", Symbol: "NEWIPO", Market: "moex", Type: entity.AssetTypeStock}, nil)
+	expectVerdict(s)
+	h := newHandler(s)
+
+	moex := "moex"
+	squat := func(dryRun bool) *connect.Request[apiv1.FindOrCreateAssetRequest] {
+		return connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+			Symbol: "NEWIPO", Market: &moex, Type: apiv1.AssetType_ASSET_TYPE_FUND, DryRun: dryRun,
+		})
+	}
+	stranger := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-2"})
+
+	for _, dryRun := range []bool{true, false} {
+		_, err := h.FindOrCreateAsset(stranger, squat(dryRun))
+		require.Error(t, err, "dry_run=%v", dryRun)
+		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "dry_run=%v", dryRun)
+	}
+	s.AssertNotCalled(t, "CreateAsset", mock.Anything, mock.MatchedBy(func(a *entity.Asset) bool {
+		return a.Type == entity.AssetTypeFund
+	}))
+
+	resp, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol: "NEWIPO", Market: &moex, Type: apiv1.AssetType_ASSET_TYPE_STOCK,
+	}))
+	require.NoError(t, err)
+	assert.True(t, resp.Msg.Created)
+	assert.Equal(t, "id-real", resp.Msg.Asset.GetId())
+}
+
+// TestFindOrCreateAsset_NonAdminStillFindsExisting: the gate is on creating a
+// row, not on resolving one — a manual import names rows that exist.
+func TestFindOrCreateAsset_NonAdminStillFindsExisting(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetByIdentity", mock.Anything, "BTC", "crypto", entity.AssetTypeCryptocurrency).
+		Return(testAsset("id-1"), nil)
+	expectVerdict(s)
+	h := newHandler(s)
+
+	user := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	for _, dryRun := range []bool{true, false} {
+		resp, err := h.FindOrCreateAsset(user, connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+			Symbol: "BTC", DryRun: dryRun,
+		}))
+		require.NoError(t, err, "dry_run=%v", dryRun)
+		assert.False(t, resp.Msg.Created)
+		assert.Equal(t, "id-1", resp.Msg.Asset.GetId())
+	}
+	s.AssertNotCalled(t, "CreateAsset", mock.Anything, mock.Anything)
+}
+
+func TestFindOrCreateAsset_AdminCreates(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetByIdentity", mock.Anything, "NEW", "crypto", entity.AssetTypeCryptocurrency).
+		Return(nil, store.ErrNotFound)
+	s.On("CreateAsset", mock.Anything, mock.Anything).Return(testAsset("id-2"), nil)
+	expectVerdict(s)
+	h := newHandler(s)
+
+	resp, err := h.FindOrCreateAsset(adminContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{Symbol: "NEW"}))
+	require.NoError(t, err)
+	assert.True(t, resp.Msg.Created)
+	s.AssertExpectations(t)
 }
 
 // --- Tests: FetchExternalPrices selection ---

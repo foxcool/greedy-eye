@@ -261,7 +261,9 @@ func (h *Handler) importOnePosition(
 
 // resolveImportAsset turns a batch item into an asset id via explicit id or
 // find-or-create by composite identity. In a dry run nothing is created: a
-// missing asset comes back as ("", true, nil) — "would create".
+// missing asset comes back as ("", true, nil) — "would create" — for a caller
+// who may add a catalogue row; anyone else gets the PermissionDenied the
+// commit would get (personal-a483), so the plan fails that item too.
 func (h *Handler) resolveImportAsset(ctx context.Context, dryRun bool, item *apiv1.ImportPositionItem, seenAssets map[string]bool) (string, bool, error) {
 	if item.AssetId != nil && *item.AssetId != "" {
 		resp, err := h.mdClient.GetAsset(ctx, connect.NewRequest(&apiv1.GetAssetRequest{Id: *item.AssetId}))
@@ -471,13 +473,20 @@ func (h *Handler) resolveTransactionAsset(ctx context.Context, item *apiv1.Impor
 		Symbol: symbol,
 		DryRun: true, // lookup only
 	}))
-	if err != nil {
+	switch {
+	case connect.CodeOf(err) == connect.CodePermissionDenied:
+		// A caller who may not add a catalogue row is refused where a dry run
+		// would say "would create" (personal-a483). This lookup sends no ref,
+		// so mayBindRef cannot fire and the catalogue gate is the only
+		// PermissionDenied FindOrCreateAsset can return on it: the refusal
+		// means the asset is not there. A new check on this path must keep
+		// that true or come with its own code.
+	case err != nil:
 		return "", fmt.Errorf("resolve asset %s: %w", symbol, err)
+	case resp.Msg.Asset != nil:
+		return resp.Msg.Asset.Id, nil
 	}
-	if resp.Msg.Asset == nil {
-		return "", fmt.Errorf("asset %s not found; import positions first or create it explicitly", symbol)
-	}
-	return resp.Msg.Asset.Id, nil
+	return "", fmt.Errorf("asset %s not found; import positions first or create it explicitly", symbol)
 }
 
 // transactionHeuristicKey builds the fallback dedup key. Empty when the item

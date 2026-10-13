@@ -33,7 +33,7 @@ func TestFetchExternalPrices_Keyless(t *testing.T) {
 	client := newMDClient(smokeTestUserID)
 
 	sym := "EUR"
-	createResp, err := client.CreateAsset(ctx, connect.NewRequest(&v1.CreateAssetRequest{
+	createResp, err := newMDAdminClient(smokeTestUserID).CreateAsset(ctx, connect.NewRequest(&v1.CreateAssetRequest{
 		Asset: &v1.Asset{
 			Name:   "Euro",
 			Symbol: &sym,

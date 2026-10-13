@@ -108,6 +108,8 @@ const (
 // MarketDataServiceClient is a client for the eye.v1.MarketDataService service.
 type MarketDataServiceClient interface {
 	// --- Asset CRUD ---
+	// CreateAsset adds a catalogue entry for every user. Admin-only: a row is a
+	// claimant to its ticker, and its tags are taken as given.
 	CreateAsset(context.Context, *connect.Request[v1.CreateAssetRequest]) (*connect.Response[v1.Asset], error)
 	GetAsset(context.Context, *connect.Request[v1.GetAssetRequest]) (*connect.Response[v1.Asset], error)
 	// UpdateAsset rewrites a catalogue entry. Admin-only: an asset is one row
@@ -120,7 +122,9 @@ type MarketDataServiceClient interface {
 	EnrichAssetData(context.Context, *connect.Request[v1.EnrichAssetDataRequest]) (*connect.Response[v1.Asset], error)
 	FindSimilarAssets(context.Context, *connect.Request[v1.FindSimilarAssetsRequest]) (*connect.Response[v1.ListAssetsResponse], error)
 	// Find-first asset resolution by composite identity (symbol, market, type);
-	// creates the asset only when nothing matches and dry_run is false.
+	// creates the asset only when nothing matches and dry_run is false. Creating
+	// a row (and planning to, in a dry run) is for the in-process sync or an
+	// admin; anyone else gets PERMISSION_DENIED where the row would be created.
 	FindOrCreateAsset(context.Context, *connect.Request[v1.FindOrCreateAssetRequest]) (*connect.Response[v1.FindOrCreateAssetResponse], error)
 	// Set a human identity verdict on an asset (scam-filtering). A user verdict
 	// is terminal: the automated scorer never overwrites it. Admin-only until
@@ -504,6 +508,8 @@ func (c *marketDataServiceClient) ResetSweepSchedule(ctx context.Context, req *c
 // MarketDataServiceHandler is an implementation of the eye.v1.MarketDataService service.
 type MarketDataServiceHandler interface {
 	// --- Asset CRUD ---
+	// CreateAsset adds a catalogue entry for every user. Admin-only: a row is a
+	// claimant to its ticker, and its tags are taken as given.
 	CreateAsset(context.Context, *connect.Request[v1.CreateAssetRequest]) (*connect.Response[v1.Asset], error)
 	GetAsset(context.Context, *connect.Request[v1.GetAssetRequest]) (*connect.Response[v1.Asset], error)
 	// UpdateAsset rewrites a catalogue entry. Admin-only: an asset is one row
@@ -516,7 +522,9 @@ type MarketDataServiceHandler interface {
 	EnrichAssetData(context.Context, *connect.Request[v1.EnrichAssetDataRequest]) (*connect.Response[v1.Asset], error)
 	FindSimilarAssets(context.Context, *connect.Request[v1.FindSimilarAssetsRequest]) (*connect.Response[v1.ListAssetsResponse], error)
 	// Find-first asset resolution by composite identity (symbol, market, type);
-	// creates the asset only when nothing matches and dry_run is false.
+	// creates the asset only when nothing matches and dry_run is false. Creating
+	// a row (and planning to, in a dry run) is for the in-process sync or an
+	// admin; anyone else gets PERMISSION_DENIED where the row would be created.
 	FindOrCreateAsset(context.Context, *connect.Request[v1.FindOrCreateAssetRequest]) (*connect.Response[v1.FindOrCreateAssetResponse], error)
 	// Set a human identity verdict on an asset (scam-filtering). A user verdict
 	// is terminal: the automated scorer never overwrites it. Admin-only until

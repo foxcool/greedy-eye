@@ -1694,8 +1694,9 @@ func (s *MarketDataStore) PricingStatus(ctx context.Context, assetIDs []string) 
 // An asset is contested when another live asset claims its (symbol, market)
 // outside contract markets, unless it is the incumbent: the oldest claimant
 // that has ever been priced. The incumbent keeps its price because the
-// catalogue is shared and any user can mint a row, so a newcomer must not be
-// able to silence a price every other holder depends on; a twin cannot grow
+// catalogue is shared, so a newcomer must not be able to silence a price every
+// other holder depends on (who may add a row at all is marketdata's
+// mayCreateAsset, personal-a483); a twin cannot grow
 // into an incumbent either, since a contested asset is never asked. Symbols are
 // stored normalized, so equality is the case-insensitive comparison, and the
 // unique (symbol, market, type) index leaves type as all two claimants differ by.
