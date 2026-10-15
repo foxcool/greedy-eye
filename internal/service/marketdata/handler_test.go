@@ -1615,18 +1615,119 @@ func TestFindOrCreateAsset_NonAdminStillFindsExisting(t *testing.T) {
 	s.AssertNotCalled(t, "CreateAsset", mock.Anything, mock.Anything)
 }
 
+// TestFindOrCreateAsset_AdminCreates: the row is scored too — creating it is
+// intake, nobody holds it yet, so judging it now overrides no one (personal-ztoc).
 func TestFindOrCreateAsset_AdminCreates(t *testing.T) {
 	s := &mockStore{}
 	s.On("FindAssetByIdentity", mock.Anything, "NEW", "crypto", entity.AssetTypeCryptocurrency).
 		Return(nil, store.ErrNotFound)
 	s.On("CreateAsset", mock.Anything, mock.Anything).Return(testAsset("id-2"), nil)
-	expectVerdict(s)
+	s.On("FindTickerIncumbent", mock.Anything, mock.Anything).Return("", store.ErrNotFound).Maybe()
+	s.On("SetAssetVerdict", mock.Anything, "id-2", mock.Anything, mock.Anything, mock.Anything,
+		rescoreVerdictSource).Return(true, nil).Once()
 	h := newHandler(s)
 
 	resp, err := h.FindOrCreateAsset(adminContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{Symbol: "NEW"}))
 	require.NoError(t, err)
 	assert.True(t, resp.Msg.Created)
 	s.AssertExpectations(t)
+}
+
+// --- Tests: who may write a shared asset's verdict (personal-ztoc) ---
+
+// TestFindOrCreateAsset_ProviderFlagsAreSyncOnly: provider_spam plus an
+// unverified contract is most of the way to a scam verdict, and that verdict
+// excludes the asset for every holder. A caller who heard nothing from a
+// provider is refused before anything is looked up — in the plan as well.
+func TestFindOrCreateAsset_ProviderFlagsAreSyncOnly(t *testing.T) {
+	s := &mockStore{}
+	h := newHandler(s)
+
+	spam, verified := true, false
+	callers := map[string]context.Context{
+		"user":  middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"}),
+		"admin": adminContext(),
+		"anon":  context.Background(),
+	}
+	flags := map[string]func(dryRun bool) *apiv1.FindOrCreateAssetRequest{
+		"provider_spam": func(dryRun bool) *apiv1.FindOrCreateAssetRequest {
+			return &apiv1.FindOrCreateAssetRequest{Symbol: "BTC", ProviderSpam: &spam, DryRun: dryRun}
+		},
+		"contract_verified": func(dryRun bool) *apiv1.FindOrCreateAssetRequest {
+			return &apiv1.FindOrCreateAssetRequest{Symbol: "BTC", ContractVerified: &verified, DryRun: dryRun}
+		},
+	}
+	for who, ctx := range callers {
+		for flag, msg := range flags {
+			for _, dryRun := range []bool{true, false} {
+				_, err := h.FindOrCreateAsset(ctx, connect.NewRequest(msg(dryRun)))
+				require.Error(t, err, "%s %s dry_run=%v", who, flag, dryRun)
+				assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "%s %s dry_run=%v", who, flag, dryRun)
+			}
+		}
+	}
+	s.AssertNotCalled(t, "FindAssetByIdentity", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	s.AssertNotCalled(t, "SetAssetVerdict", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestFindOrCreateAsset_SyncScoresWithProviderFlags: the sync is who the flags
+// are for, and they still reach the score.
+func TestFindOrCreateAsset_SyncScoresWithProviderFlags(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetByIdentity", mock.Anything, "BTC", "crypto", entity.AssetTypeCryptocurrency).
+		Return(testAsset("id-1"), nil)
+	s.On("FindTickerIncumbent", mock.Anything, mock.Anything).Return("", store.ErrNotFound).Maybe()
+	s.On("SetAssetVerdict", mock.Anything, "id-1", mock.Anything, mock.Anything,
+		mock.MatchedBy(func(sig map[string]float64) bool {
+			_, spam := sig[scamfilter.SignalProviderSpam]
+			_, unverified := sig[scamfilter.SignalUnverified]
+			return spam && unverified
+		}), rescoreVerdictSource).Return(true, nil).Once()
+	h := newHandler(s)
+
+	spam, verified := true, false
+	_, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol: "BTC", ProviderSpam: &spam, ContractVerified: &verified,
+	}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+}
+
+// TestFindOrCreateAsset_OnlySyncRescoresAnExistingRow: a manual import, an MCP
+// lookup or an admin resolving a row that exists gets the verdict that stands
+// and writes none — re-scoring without the provider's flags would wipe what the
+// sync judged from them. The sync's own dry run writes nothing either.
+func TestFindOrCreateAsset_OnlySyncRescoresAnExistingRow(t *testing.T) {
+	stored := testAsset("id-1")
+	stored.IdentityVerdict = string(scamfilter.VerdictScam)
+
+	cases := []struct {
+		name   string
+		ctx    context.Context
+		dryRun bool
+	}{
+		{"user", middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"}), false},
+		{"user dry run", middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"}), true},
+		{"admin", adminContext(), false},
+		{"admin dry run", adminContext(), true},
+		{"sync dry run", syncContext(), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &mockStore{}
+			s.On("FindAssetByIdentity", mock.Anything, "BTC", "crypto", entity.AssetTypeCryptocurrency).
+				Return(stored, nil)
+			h := newHandler(s)
+
+			resp, err := h.FindOrCreateAsset(tc.ctx, connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+				Symbol: "BTC", DryRun: tc.dryRun,
+			}))
+			require.NoError(t, err)
+			assert.Equal(t, string(scamfilter.VerdictScam), resp.Msg.Asset.GetIdentityVerdict())
+			s.AssertNotCalled(t, "SetAssetVerdict", mock.Anything, mock.Anything, mock.Anything,
+				mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
 }
 
 // --- Tests: FetchExternalPrices selection ---

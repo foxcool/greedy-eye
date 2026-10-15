@@ -1524,6 +1524,8 @@ type FindOrCreateAssetRequest struct {
 	// provider_spam is a source's own spam flag (moralis possible_spam),
 	// contract_verified its contract-verification bit. Unset means "not reported"
 	// (native coins, non-EVM chains) and does not influence the score.
+	// Sync only: any other caller sending either is refused PermissionDenied,
+	// since the verdict they score is shared by every holder of the asset.
 	ProviderSpam     *bool `protobuf:"varint,8,opt,name=provider_spam,json=providerSpam,proto3,oneof" json:"provider_spam,omitempty"`
 	ContractVerified *bool `protobuf:"varint,9,opt,name=contract_verified,json=contractVerified,proto3,oneof" json:"contract_verified,omitempty"`
 	unknownFields    protoimpl.UnknownFields
