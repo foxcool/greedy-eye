@@ -997,6 +997,11 @@ Cron / API Client → AutomationService/ExecuteRule
   edit by one is an edit for all. Adding a row is gated the same way: `CreateAsset` is admin-only,
   and `FindOrCreateAsset` creates (or, in a dry run, plans to create) only for the in-process sync
   or an admin, so anyone else's manual import resolves existing rows only (`personal-a483`).
+  The heuristic verdict on an existing row is re-scored and persisted only by the in-process
+  sync (never in a dry run); everyone else, admins included, gets the stored verdict back, and
+  the provider flags that feed the score (`provider_spam`, `contract_verified`) are refused from
+  any caller but the sync — a caller who heard nothing from a provider would otherwise judge the
+  row for every holder (`personal-ztoc`; rationale at `marketdata.mayReportProviderFlags`).
   The check lives in the handler (`requireAdmin`); the FE hiding a
   control is presentation, not enforcement. Per-asset RBAC is `personal-rme`.
 

@@ -277,6 +277,23 @@ func mayBindRef(ctx context.Context) error {
 	return requireSyncOrAdmin(ctx, "binding an external ref")
 }
 
+// mayReportProviderFlags decides who may send provider_spam and
+// contract_verified. They score the verdict on a shared catalogue row, and a
+// scam verdict takes the asset out of every holder's total. They are what a
+// provider said about a balance it reported, so only the in-process sync has
+// heard them. An admin judges through SetAssetVerdict, which is terminal,
+// rather than through a heuristic fed claims of its own (personal-ztoc).
+func mayReportProviderFlags(ctx context.Context, req *apiv1.FindOrCreateAssetRequest) error {
+	if req.ProviderSpam == nil && req.ContractVerified == nil {
+		return nil
+	}
+	if middleware.SyncAuthority(ctx) {
+		return nil
+	}
+	return connect.NewError(connect.CodePermissionDenied,
+		errors.New("provider flags are reported by sync only"))
+}
+
 // mayCreateAsset decides who may add a row to the catalogue, the one place
 // this rule is argued.
 //
@@ -654,6 +671,10 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("market is required for this asset type"))
 	}
 
+	if err := mayReportProviderFlags(ctx, req.Msg); err != nil {
+		return nil, err
+	}
+
 	refSource := strings.TrimSpace(req.Msg.GetExternalRefSource())
 	ref := strings.TrimSpace(req.Msg.GetExternalRef())
 	hasRef := refSource != "" && ref != ""
@@ -762,11 +783,19 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 	return h.respondScored(ctx, created, req.Msg, true), nil
 }
 
-// respondScored scores the asset's identity, persists the verdict (never over a
-// user verdict) and returns the response with the effective verdict stamped on
-// the asset so the sync path can derive holdings.excluded from it.
+// respondScored returns the response with the effective verdict stamped on the
+// asset so the sync path can derive holdings.excluded from it.
+//
+// Only the sync, or the call that just created the row, re-scores and persists
+// the verdict (never over a user verdict); a dry run persists nothing. Anyone
+// else gets the verdict that stands: they reported no provider flags, so their
+// score would overwrite the sync's judgement drawn from the provider's flags
+// (personal-ztoc).
 func (h *Handler) respondScored(ctx context.Context, a *entity.Asset, req *apiv1.FindOrCreateAssetRequest, created bool) *connect.Response[apiv1.FindOrCreateAssetResponse] {
-	verdict := h.scoreAndPersistVerdict(ctx, a, req)
+	verdict := a.IdentityVerdict
+	if created || (middleware.SyncAuthority(ctx) && !req.DryRun) {
+		verdict = h.scoreAndPersistVerdict(ctx, a, req)
+	}
 	p := assetToProto(a)
 	if verdict != "" {
 		p.IdentityVerdict = &verdict
