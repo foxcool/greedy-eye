@@ -385,7 +385,8 @@ const (
 	// This instance cannot tell. Not the same as OK and must not render as it.
 	HealthState_HEALTH_STATE_UNKNOWN HealthState = 4
 	// Its owner stood it down on purpose. Not a fault: it ranks below OK when
-	// states are combined, and no other reason is computed for it.
+	// states are combined, and no other reason is computed for it. The one
+	// exception is sources_state, where a DISABLED source counts as DEGRADED.
 	HealthState_HEALTH_STATE_DISABLED HealthState = 5
 )
 
@@ -4530,6 +4531,8 @@ type GetAccountHealthResponse struct {
 	// price sources in-process.
 	Sources []*SourceHealth `protobuf:"bytes,2,rep,name=sources,proto3" json:"sources,omitempty"`
 	// The worst state among sources, or UNKNOWN when they could not be read.
+	// A DISABLED source counts as DEGRADED here: what only it priced is
+	// unpriced, whoever chose that.
 	SourcesState  HealthState `protobuf:"varint,3,opt,name=sources_state,json=sourcesState,proto3,enum=eye.v1.HealthState" json:"sources_state,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

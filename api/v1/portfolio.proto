@@ -916,7 +916,8 @@ enum HealthState {
   // This instance cannot tell. Not the same as OK and must not render as it.
   HEALTH_STATE_UNKNOWN = 4;
   // Its owner stood it down on purpose. Not a fault: it ranks below OK when
-  // states are combined, and no other reason is computed for it.
+  // states are combined, and no other reason is computed for it. The one
+  // exception is sources_state, where a DISABLED source counts as DEGRADED.
   HEALTH_STATE_DISABLED = 5;
 }
 
@@ -991,5 +992,7 @@ message GetAccountHealthResponse {
   // price sources in-process.
   repeated SourceHealth sources = 2;
   // The worst state among sources, or UNKNOWN when they could not be read.
+  // A DISABLED source counts as DEGRADED here: what only it priced is
+  // unpriced, whoever chose that.
   HealthState sources_state = 3;
 }

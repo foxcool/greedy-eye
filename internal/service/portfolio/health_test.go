@@ -279,10 +279,43 @@ func TestAccountHealthPriceProblemDoesNotKillASyncingAccount(t *testing.T) {
 	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_OK, resp.Msg.SourcesState)
 }
 
+// TestAccountHealthDisabledSourceIsAGapInTheAggregate: an account its owner
+// stood down is a choice and reads DISABLED, but the price source it was the
+// only server of is a gap — what only it priced goes unpriced — so
+// sources_state must not read OK over it.
+func TestAccountHealthDisabledSourceIsAGapInTheAggregate(t *testing.T) {
+	since := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
+	off := healthAccount("off", entity.AccountTypeBroker)
+	off.DisabledAt = &since
+
+	store := &mockStore{}
+	store.On("ListAccounts", mock.Anything, mock.Anything).Return([]*entity.Account{
+		healthAccount("ok", entity.AccountTypeExchange), off,
+	}, "", nil)
+	store.On("ListSyncDeferrals", mock.Anything, testUserID, "").Return(nil, nil)
+	src := &fakeSourceHealth{report: &entity.PriceSourceReport{
+		Sources: []entity.PriceSourceState{{Provider: "moex"}},
+		Skipped: []entity.SkippedAccount{
+			{Provider: "tinvest", AccountID: "off", Kind: entity.SkipDisabled, Reason: "disabled by its owner"},
+		},
+	}}
+
+	resp, err := newHandler(store).WithPriceSourceHealth(src).
+		GetAccountHealth(ctxWithUser(testUserID), connect.NewRequest(&apiv1.GetAccountHealthRequest{}))
+	require.NoError(t, err)
+
+	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_DISABLED, byAccount(resp.Msg)["off"].State)
+	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_OK, byAccount(resp.Msg)["ok"].State,
+		"a disabled neighbour does not colour another account")
+	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_DISABLED, bySource(resp.Msg)["tinvest"].State,
+		"the source itself still says why it is missing")
+	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_DEGRADED, resp.Msg.SourcesState)
+}
+
 // TestAccountHealthDisabledIsTheOwnersChoiceNotAFault: a stood-down account
 // reports DISABLED and nothing else — a pending deferral or a failing chain
 // on it describes work its owner turned off — and a source no account serves
-// because one was disabled is DISABLED too, without colouring the report.
+// because one was disabled is DISABLED too.
 func TestAccountHealthDisabledIsTheOwnersChoiceNotAFault(t *testing.T) {
 	since := time.Now().Add(-72 * time.Hour).UTC().Truncate(time.Second)
 	off := healthAccount("off", entity.AccountTypeWallet)
@@ -325,5 +358,5 @@ func TestAccountHealthDisabledIsTheOwnersChoiceNotAFault(t *testing.T) {
 
 	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_OK,
 		worse(apiv1.HealthState_HEALTH_STATE_OK, apiv1.HealthState_HEALTH_STATE_DISABLED),
-		"a disabled source ranks below OK when states combine")
+		"worse ranks DISABLED below OK; only the sources_state fold lifts it")
 }
