@@ -98,8 +98,9 @@ func (h *Handler) GetAccountHealth(
 		resp.SourcesState = apiv1.HealthState_HEALTH_STATE_OK
 		for _, s := range resp.Sources {
 			state := s.State
-			// A disabled account is its owner's choice; a source left with no
-			// enabled account is a gap in the caller's prices all the same.
+			// The one place DISABLED does not rank below OK: a source whose
+			// every account was disabled is nobody's fault, but what only it
+			// priced goes unpriced all the same.
 			if state == apiv1.HealthState_HEALTH_STATE_DISABLED {
 				state = apiv1.HealthState_HEALTH_STATE_DEGRADED
 			}
@@ -346,9 +347,8 @@ func worstState(reasons []*apiv1.HealthReason) apiv1.HealthState {
 }
 
 // severity orders states for worse; UNKNOWN outranks DEGRADED because "cannot
-// tell" must not read as "mostly fine". DISABLED ranks below OK: an account its
-// owner turned off is not a fault, and must not colour the state it is combined
-// into. sources_state is the exception and lifts a DISABLED source itself.
+// tell" must not read as "mostly fine". DISABLED ranks below OK: what its owner
+// turned off is not a fault, and must not colour the state it is combined into.
 var severity = map[apiv1.HealthState]int{
 	apiv1.HealthState_HEALTH_STATE_DISABLED: 0,
 	apiv1.HealthState_HEALTH_STATE_OK:       1,

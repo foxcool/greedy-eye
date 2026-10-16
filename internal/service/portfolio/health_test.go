@@ -358,5 +358,5 @@ func TestAccountHealthDisabledIsTheOwnersChoiceNotAFault(t *testing.T) {
 
 	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_OK,
 		worse(apiv1.HealthState_HEALTH_STATE_OK, apiv1.HealthState_HEALTH_STATE_DISABLED),
-		"a disabled source ranks below OK when states combine")
+		"worse ranks DISABLED below OK; only the sources_state fold lifts it")
 }
