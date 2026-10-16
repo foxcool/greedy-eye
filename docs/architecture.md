@@ -712,7 +712,9 @@ undo the binding (`DeleteAssetExternalRef`).
   against the operator fallback), the balance sweep's `sweepableAccounts` excludes it, and
   `SyncAccount` refuses it. Its holdings stay in the total as their last snapshot and keep dating
   `amounts_as_of` — the total may not claim a freshness it no longer has. `GetAccountHealth` reports
-  it `DISABLED`, ranked below OK so an owner's choice does not read as a fault. Manual accounts
+  it `DISABLED`, ranked below OK so an owner's choice does not read as a fault. The price source
+  it leaves with no enabled account is a different matter: what only it priced goes unpriced, so
+  `sources_state` counts a `DISABLED` source as `DEGRADED` (personal-ol7l). Manual accounts
   refuse the flag: nothing external reads them. The flag is the account's own: broker accounts
   discovered from one token carry it independently, so disabling the token-holding account stops
   discovery and the fan-out skips disabled children, but enabled children keep syncing with their
