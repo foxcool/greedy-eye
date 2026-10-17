@@ -24,7 +24,22 @@ func newTestSyncer(t *testing.T, handler http.HandlerFunc) *WalletSyncerAdapter 
 
 	client := NewClient(Config{APIKey: "test-key"})
 	client.baseURLOverride = srv.URL
+	// A sweep reaches the RPC-read chains too; they answer as an address the
+	// chain has never seen, so a test about Subscan sees only Subscan.
+	client.rpcURLOverride = newRPCStub(t, nil).URL
 	return NewWalletSyncer(client)
+}
+
+// subscanSweepChains counts the swept chains that Subscan, not a chain node,
+// is asked about.
+func subscanSweepChains() int {
+	n := 0
+	for _, chain := range sweepChains() {
+		if networks[chain].rpc == "" {
+			n++
+		}
+	}
+	return n
 }
 
 func respondJSON(body string) http.HandlerFunc {
@@ -35,13 +50,17 @@ func respondJSON(body string) http.HandlerFunc {
 }
 
 // TestSyncWallet_HydrationControllerAnchor is the regression anchor for the
-// whole adapter: the live Hydration controller, captured 2026-07-20, holding
+// Subscan parser: the live Hydration controller, captured 2026-07-20, holding
 // 34644.639967302550 HDX of which 34015.697423172136 is bonded. That figure
 // was verified against the manual baseline before any of this existed, so any
 // change that moves it has broken something.
 //
 // It also pins the balance model: bonded is a subset of balance, and USDT in
 // the builtin array is not the native token and must be ignored here.
+//
+// Hydration itself is no longer read through Subscan (rpc.go, personal-feb.16),
+// so the capture is served under another chain's name: the parser never looks
+// at the chain, and the figure is still the one verified by hand.
 func TestSyncWallet_HydrationControllerAnchor(t *testing.T) {
 	syncer := newTestSyncer(t, respondJSON(`{
 		"code": 0, "message": "Success",
@@ -61,7 +80,7 @@ func TestSyncWallet_HydrationControllerAnchor(t *testing.T) {
 		}
 	}`))
 
-	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", []string{"hydration"})
+	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", []string{"polkadot"})
 
 	// The builtin USDT entry in this fixture was abbreviated to three fields
 	// when it was pinned, and the one it lost is unique_id — which every
@@ -261,7 +280,6 @@ func TestSyncWallet_DecimalsComeFromResponse(t *testing.T) {
 		{"kusama", "KSM", 12},
 		{"assethub-polkadot", "DOT", 10},
 		{"assethub-kusama", "KSM", 12},
-		{"hydration", "HDX", 12},
 		{"astar", "ASTR", 18},
 		{"moonbeam", "GLMR", 18},
 	}
@@ -377,10 +395,10 @@ func TestSyncWallet_AutoDiscoverySweepsNetworks(t *testing.T) {
 		_, _ = w.Write([]byte(`{"code":0,"data":{"native":null}}`))
 	})
 
-	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", nil)
+	balances, err := syncer.SyncWallet(context.Background(), controllerAddress, nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, len(sweepChains()), probed, "every sweepable network must be probed")
+	assert.Equal(t, subscanSweepChains(), probed, "every network Subscan serves must be probed")
 	require.Len(t, balances, 1, "networks without a balance yield no position")
 }
 
@@ -400,9 +418,9 @@ func TestAutoDiscoverySkipsEVMChains(t *testing.T) {
 		_, _ = w.Write([]byte(`{"code":0,"data":{"native":null}}`))
 	})
 
-	_, err := syncer.SyncWallet(context.Background(), "5Dsvsa", nil)
+	_, err := syncer.SyncWallet(context.Background(), controllerAddress, nil)
 	require.NoError(t, err, "the sweep must not report an error for a plain empty account")
-	assert.Len(t, probed, len(sweepChains()))
+	assert.Len(t, probed, subscanSweepChains())
 }
 
 // TestHandlesAddress routes auto-discovery. The same key is a different string
@@ -486,7 +504,7 @@ func TestConfigTransportIsUsed(t *testing.T) {
 	client := NewClient(Config{APIKey: "test-key", Transport: tr})
 	client.baseURLOverride = srv.URL
 
-	_, err := NewWalletSyncer(client).SyncWallet(context.Background(), "5Dsvsa", []string{"hydration"})
+	_, err := NewWalletSyncer(client).SyncWallet(context.Background(), "5Dsvsa", []string{"polkadot"})
 	require.NoError(t, err)
 	assert.Positive(t, tr.calls, "Config.Transport must reach the HTTP client")
 }
@@ -625,7 +643,7 @@ func TestSyncWallet_OneIdentityIsOnePosition(t *testing.T) {
 		}
 	}`))
 
-	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", []string{"hydration"})
+	balances, err := syncer.SyncWallet(context.Background(), "5Dsvsa", []string{"polkadot"})
 	require.ErrorContains(t, err, "twice")
 	require.Len(t, balances, 2, "HDX and one USDT")
 	assert.Equal(t, "156501335", balances[1].Amount, "156.501335 USDT, counted once")
@@ -755,16 +773,16 @@ func TestSyncWallet_AnAbsentLockIsAZeroLock(t *testing.T) {
 }
 
 // TestSyncWallet_ADeadChainIsAChainError: the live case of personal-isy9 —
-// Subscan has had no host for Hydration since 27.08 and answers 404. That
-// refusal is the whole chain's, so it is carried as entity.ChainError and the
-// account's watchers can count it. So is a chain this build has no reader for.
+// Subscan stopped serving Hydration on 27.08 and answered 404. That refusal is
+// the whole chain's, so it is carried as entity.ChainError and the account's
+// watchers can count it. So is a chain this build has no reader for.
 func TestSyncWallet_ADeadChainIsAChainError(t *testing.T) {
 	dead := newTestSyncer(t, func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "404 page not found", http.StatusNotFound)
 	})
-	_, err := dead.SyncWallet(context.Background(), "addr", []string{"hydration"})
+	_, err := dead.SyncWallet(context.Background(), "addr", []string{"polkadot"})
 	require.Error(t, err)
-	require.Contains(t, entity.FailedChains(err), "hydration")
+	require.Contains(t, entity.FailedChains(err), "polkadot")
 
 	_, err = dead.SyncWallet(context.Background(), "addr", []string{"nosuchchain"})
 	assert.Contains(t, entity.FailedChains(err), "nosuchchain", "a chain with no reader here is unread whole")
