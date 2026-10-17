@@ -91,6 +91,9 @@ func (r *Registry) WalletSyncers() map[string]credentials.WalletProvider {
 					subscanadapter.NewClient(subscanadapter.Config{
 						APIKey:    a.Data["api_key"],
 						Transport: r.transport(subscanadapter.ProviderName, a),
+						// Chain nodes are keyless and none of Subscan's plan:
+						// metered on their own, at the fallback rate.
+						RPCTransport: r.limits.Transport(ratelimit.Credential{Provider: subscanadapter.RPCBudget}, nil),
 					}),
 				), nil
 			},

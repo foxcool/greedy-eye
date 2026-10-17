@@ -1,6 +1,10 @@
 // Package subscan adapts the Subscan multi-network API to entity.WalletSyncer,
 // covering the Substrate chains (Polkadot, Kusama, the Asset Hubs, Hydration,
 // Astar, Moonbeam) — the chain's own coin and the assets kept beside it.
+//
+// A chain Subscan stopped serving is read from its own node instead (rpc.go);
+// it stays in this adapter because routing gives an SS58 account exactly one
+// provider, and auto-discovery sweeps every chain from here.
 package subscan
 
 import (
@@ -25,6 +29,11 @@ type Config struct {
 	// provider rate budget (internal/adapter/ratelimit) is injected here:
 	// clients are built per account and must not each pace themselves.
 	Transport http.RoundTripper
+
+	// RPCTransport carries requests to a chain's own node (see network.rpc).
+	// It is separate because those requests belong to a different budget and
+	// must never carry the Subscan key.
+	RPCTransport http.RoundTripper
 }
 
 // Client talks to the per-network Subscan REST API.
@@ -32,8 +41,13 @@ type Client struct {
 	apiKey     string
 	httpClient *http.Client
 
+	// rpcHTTP talks to chain nodes; see Config.RPCTransport.
+	rpcHTTP *http.Client
+
 	// baseURLOverride replaces the per-network host when set (tests only).
 	baseURLOverride string
+	// rpcURLOverride replaces a chain's RPC endpoint when set (tests only).
+	rpcURLOverride string
 }
 
 // NewClient creates a Subscan client. A key is mandatory: as of 2026-08-02 an
@@ -43,6 +57,7 @@ func NewClient(cfg Config) *Client {
 	return &Client{
 		apiKey:     cfg.APIKey,
 		httpClient: &http.Client{Timeout: 30 * time.Second, Transport: cfg.Transport},
+		rpcHTTP:    &http.Client{Timeout: 30 * time.Second, Transport: cfg.RPCTransport},
 	}
 }
 

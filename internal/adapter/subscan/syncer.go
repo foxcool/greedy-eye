@@ -51,6 +51,16 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 			continue
 		}
 
+		if net.rpc != "" {
+			state, err := a.client.GetNativeState(ctx, chain, address)
+			if err != nil {
+				errs = append(errs, &entity.ChainError{Chain: chain, Err: err})
+				continue
+			}
+			balances = append(balances, stateBalances(chain, net, state)...)
+			continue
+		}
+
 		account, err := a.client.GetAccount(ctx, chain, address)
 		if err != nil {
 			errs = append(errs, &entity.ChainError{Chain: chain, Err: err})
@@ -143,6 +153,49 @@ func splitLiquidity(a Account, row func(decimal.Decimal, entity.Liquidity) entit
 	// spendable when the era ends, which is the unbonding state, not a lock.
 	if !a.Unbonding.IsZero() {
 		out = append(out, row(a.Unbonding, entity.LiquidityUnbonding))
+	}
+	return out
+}
+
+// stateBalances partitions a native balance read from chain state.
+//
+// Free and Reserved are disjoint and make up the holding. Frozen is a floor
+// over Free, so Free minus Frozen is what can provably leave the account, and
+// that much is stated as liquid. The frozen part is left unpartitioned rather
+// than called staked: chain state says how much is locked, not what for. On
+// Hydration the lock measured 2026-10-17 was "ghdxlock" (GIGAHDX), where
+// Subscan used to report the same hold as bonded.
+//
+// A reserve, or a floor above Free, is left whole for the reason splitLiquidity
+// gives: a guess in the wrong direction overstates spendable money.
+//
+// shortcut: lock ids (Balances.Locks) are not read, so a staking lock is not
+// told apart from any other; read them when the runway figure needs staked HDX.
+func stateBalances(chain string, net network, s NativeState) []entity.WalletBalance {
+	total := s.Free.Add(s.Reserved)
+	if total.IsZero() {
+		return nil
+	}
+	row := func(amount decimal.Decimal, liquidity entity.Liquidity) entity.WalletBalance {
+		return entity.WalletBalance{
+			Symbol:    s.Symbol,
+			Name:      net.name,
+			Amount:    amount.BigInt().String(),
+			Decimals:  int(s.Decimals),
+			Chain:     chain,
+			Liquidity: liquidity,
+		}
+	}
+	if !s.Reserved.IsZero() || s.Frozen.GreaterThan(s.Free) {
+		return []entity.WalletBalance{row(total, entity.LiquidityUnknown)}
+	}
+
+	var out []entity.WalletBalance
+	if spendable := s.Free.Sub(s.Frozen); !spendable.IsZero() {
+		out = append(out, row(spendable, entity.LiquidityLiquid))
+	}
+	if !s.Frozen.IsZero() {
+		out = append(out, row(s.Frozen, entity.LiquidityUnknown))
 	}
 	return out
 }

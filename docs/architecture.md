@@ -448,7 +448,7 @@ without linking them.
   |---|---|---|
   | `alchemy` | EVM, eleven chains incl. scroll, zksync and fantom | native + ERC-20 for up to five networks in ONE request, so ten chains cost two calls where Moralis needed twenty-two. Asking every supported chain **is** the discovery step. `withPrices` is false and must stay false |
   | `moralis` | EVM: eth, base, arbitrum, optimism, linea, polygon, bsc, avalanche | native + ERC-20; reports `possible_spam`/`verified` as signals, which no other EVM reader here does |
-  | `subscan` | Substrate: Polkadot, Kusama, Hydration, Astar, Moonbeam + Asset Hub | native position = `balance` (raw planck, precision from the response), split into liquid/staked/unbonding when the parts reconcile; the `builtin` and `assets` groups are read as positions of their own, keyed by the chain's `unique_id` |
+  | `subscan` | Substrate: Polkadot, Kusama, Hydration, Astar, Moonbeam + Asset Hub | native position = `balance` (raw planck, precision from the response), split into liquid/staked/unbonding when the parts reconcile; the `builtin` and `assets` groups are read as positions of their own, keyed by the chain's `unique_id`. Hydration's native balance comes from chain state on its own node (`System.Account`: free + reserved, free − frozen stated liquid, the frozen part unpartitioned), because Subscan stopped serving that chain; it stays under this provider since routing gives an SS58 account one provider |
   | `tonapi` | TON + jettons | |
   | `solana` | Solana via Helius | both token programs, DAS symbols, batched asset lookups |
   | `esplora` | Bitcoin | confirmed balances only |
