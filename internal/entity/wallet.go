@@ -48,6 +48,25 @@ type WalletSyncer interface {
 	SyncWallet(ctx context.Context, address string, chains []string) ([]WalletBalance, error)
 }
 
+// AnsweringWalletSyncer is a WalletSyncer whose discovery can also say which
+// chains it asked and heard a whole answer from — an empty answer included.
+//
+// Balances alone cannot carry that: an address holding nothing on a chain
+// yields no row, and to the caller a chain that answered "nothing here" then
+// looks exactly like a chain nobody asked. A run of failures could be ended
+// only by a balance, so a chain that recovered empty stayed failing forever
+// (personal-uvbn: Hydration on two prod accounts holding no HDX).
+//
+// Only a syncer whose sweep is a fixed list may implement it. One that
+// discovers chains through a call which can quietly fall back to fewer would
+// report a dead chain it never asked as answered.
+type AnsweringWalletSyncer interface {
+	WalletSyncer
+	// SyncWalletAnswered is SyncWallet plus the chains that answered whole.
+	// A chain in the returned error as a ChainError is never among them.
+	SyncWalletAnswered(ctx context.Context, address string, chains []string) ([]WalletBalance, []string, error)
+}
+
 // ExchangeBalance represents a single asset balance held on a centralized exchange.
 type ExchangeBalance struct {
 	Symbol   string // asset ticker as reported by the exchange (e.g. "BTC")

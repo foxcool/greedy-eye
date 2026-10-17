@@ -45,12 +45,21 @@ func NewWalletSyncer(c *Client) *WalletSyncerAdapter {
 // gathered so far are still returned, so one unreachable zone does not lose
 // the others.
 func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, chains []string) ([]entity.WalletBalance, error) {
+	balances, _, err := a.SyncWalletAnswered(ctx, address, chains)
+	return balances, err
+}
+
+// SyncWalletAnswered is SyncWallet plus the chains that answered whole, an
+// empty zone included: the sweep is a fixed list, so every zone in it is asked
+// (entity.AnsweringWalletSyncer).
+func (a *WalletSyncerAdapter) SyncWalletAnswered(ctx context.Context, address string, chains []string) ([]entity.WalletBalance, []string, error) {
 	if len(chains) == 0 {
 		chains = SupportedChains()
 	}
 
 	var (
 		balances []entity.WalletBalance
+		answered []string
 		errs     []error
 	)
 	for _, chain := range chains {
@@ -72,6 +81,7 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 			continue
 		}
 
+		answered = append(answered, chain)
 		if balance.Total().IsZero() {
 			continue // nothing held here; not an error
 		}
@@ -106,5 +116,5 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 		emit(balance.Unbonding, entity.LiquidityUnbonding)
 	}
 
-	return balances, errors.Join(errs...)
+	return balances, answered, errors.Join(errs...)
 }
