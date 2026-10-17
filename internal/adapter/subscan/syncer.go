@@ -36,12 +36,21 @@ func NewWalletSyncer(c *Client) *WalletSyncerAdapter {
 // gathered so far are still returned, so one unreachable network does not lose
 // the others.
 func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, chains []string) ([]entity.WalletBalance, error) {
+	balances, _, err := a.SyncWalletAnswered(ctx, address, chains)
+	return balances, err
+}
+
+// SyncWalletAnswered is SyncWallet plus the chains that answered whole. The
+// sweep is a fixed list, so every chain in it is asked; one that answered with
+// nothing held is still an answer (entity.AnsweringWalletSyncer).
+func (a *WalletSyncerAdapter) SyncWalletAnswered(ctx context.Context, address string, chains []string) ([]entity.WalletBalance, []string, error) {
 	if len(chains) == 0 {
 		chains = sweepChains()
 	}
 
 	var (
 		balances []entity.WalletBalance
+		answered []string
 		errs     []error
 	)
 	for _, chain := range chains {
@@ -58,6 +67,7 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 				continue
 			}
 			balances = append(balances, stateBalances(chain, net, state)...)
+			answered = append(answered, chain)
 			continue
 		}
 
@@ -97,9 +107,12 @@ func (a *WalletSyncerAdapter) SyncWallet(ctx context.Context, address string, ch
 		for _, t := range account.Tokens {
 			balances = append(balances, tokenBalance(chain, net, t))
 		}
+		// A refused token entry is named above but leaves the chain answered:
+		// everything else it said was read.
+		answered = append(answered, chain)
 	}
 
-	return balances, errors.Join(errs...)
+	return balances, answered, errors.Join(errs...)
 }
 
 // splitLiquidity partitions an account's balance into spendable and frozen

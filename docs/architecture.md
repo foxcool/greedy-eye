@@ -1209,9 +1209,12 @@ somebody chose, since that would report one currency's number under another curr
     A syncer that loses a whole chain returns `entity.ChainError`, and every wallet sync writes its
     verdict to `account_chain_failures`: a chain that failed extends its run (count, `failing_since`,
     last error), and a chain with positive evidence of answering — named in the account's chain list,
-    or returning a balance — has its run ended. A chain the sync did not ask about keeps its run:
-    auto-discovery can quietly fall back to one chain, and silence from a chain nobody asked is not
-    an answer. A partial or no-fresher note leads with "hydration has failed 384 syncs in a row
+    returning a balance, or reported as answered by a syncer whose sweep is a fixed list
+    (`entity.AnsweringWalletSyncer`: Subscan, Cosmos) — has its run ended. The third is the only
+    evidence an address holding nothing on the chain can give; without it, Hydration's 404 run stayed
+    on two prod accounts after the chain recovered empty. A chain the sync did not ask about keeps its
+    run: EVM auto-discovery can quietly fall back to one chain, so those syncers do not report, and
+    silence from a chain nobody asked is not an answer. A partial or no-fresher note leads with "hydration has failed 384 syncs in a row
     since …" for a run past its first failure that this very sync extended, at most two named and
     the rest counted, so a run that froze does not repeat forever and runs cannot crowd out the
     complaints.

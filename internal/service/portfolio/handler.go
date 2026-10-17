@@ -1720,9 +1720,23 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 		// Chains that failed whole on ANY address: two addresses on one
 		// chain are one place, and half of it unread is still unread.
 		failedChains = map[string]string{}
+		// Chains the syncer itself reports as answered, empty ones included.
+		// Only a syncer with a fixed sweep says this (AnsweringWalletSyncer).
+		reported []string
 	)
+	answering, _ := walletSyncer.(entity.AnsweringWalletSyncer)
 	for _, addr := range addresses {
-		got, err := walletSyncer.SyncWallet(ctx, addr, chains)
+		var (
+			got []entity.WalletBalance
+			err error
+		)
+		if answering != nil {
+			var answered []string
+			got, answered, err = answering.SyncWalletAnswered(ctx, addr, chains)
+			reported = append(reported, answered...)
+		} else {
+			got, err = walletSyncer.SyncWallet(ctx, addr, chains)
+		}
 		for chain, msg := range entity.FailedChains(err) {
 			if _, seen := failedChains[chain]; !seen {
 				failedChains[chain] = msg
@@ -1764,7 +1778,7 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 		}
 		result = append(result, sb)
 	}
-	return result, syncErrors, chainVerdict{failed: failedChains, answered: answeredChains(chains, balances, failedChains)}, nil
+	return result, syncErrors, chainVerdict{failed: failedChains, answered: answeredChains(chains, balances, failedChains, reported)}, nil
 }
 
 // syncExchangeBalances builds the exchange syncer from the account's own stored
@@ -2084,13 +2098,15 @@ type chainVerdict struct {
 }
 
 // answeredChains is the chains this sync has positive evidence for: the ones
-// the account names explicitly (they were asked, and did not fail) and the ones
-// that returned a balance. Not "every chain that did not fail": an account on
+// the account names explicitly (they were asked, and did not fail), the ones
+// that returned a balance, and the ones the syncer reports as answered — the
+// only evidence there is for a chain that answered empty on auto-discovery
+// (personal-uvbn). Not "every chain that did not fail": an account on
 // auto-discovery is asked about whatever the discovery answered with, and a
 // discovery call that hiccups falls back to one chain without an error — a
 // dead chain nobody asked would read as a chain that answered, and its run
 // would be erased by the very silence it exists to count.
-func answeredChains(configured []string, balances []entity.WalletBalance, failed map[string]string) []string {
+func answeredChains(configured []string, balances []entity.WalletBalance, failed map[string]string, reported []string) []string {
 	seen := map[string]bool{}
 	var out []string
 	add := func(chain string) {
@@ -2108,6 +2124,9 @@ func answeredChains(configured []string, balances []entity.WalletBalance, failed
 	}
 	for _, b := range balances {
 		add(b.Chain)
+	}
+	for _, c := range reported {
+		add(c)
 	}
 	return out
 }

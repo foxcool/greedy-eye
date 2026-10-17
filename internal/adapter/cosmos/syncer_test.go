@@ -256,3 +256,22 @@ func TestHandlesAddress(t *testing.T) {
 func TestSupportedChainsIsStable(t *testing.T) {
 	assert.Equal(t, []string{"akash", "cosmos", "osmosis"}, SupportedChains())
 }
+
+// TestSyncWalletAnswered_AnEmptyZoneAnswered: a zone holding nothing still
+// answered, and says so — the only evidence that ends a run of failures on an
+// address with nothing there (personal-uvbn). A zone that failed did not.
+func TestSyncWalletAnswered_AnEmptyZoneAnswered(t *testing.T) {
+	syncer := newTestSyncerFunc(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/akash") {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	balances, answered, err := syncer.SyncWalletAnswered(context.Background(), cosmosAddress, []string{"cosmos", "akash"})
+	assert.Empty(t, balances)
+	assert.Equal(t, []string{"cosmos"}, answered)
+	assert.Contains(t, entity.FailedChains(err), "akash")
+}

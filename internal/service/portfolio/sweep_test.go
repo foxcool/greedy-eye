@@ -1024,6 +1024,56 @@ func TestSyncAccount_ADiscoveredWalletOnlyClearsWhatAnswered(t *testing.T) {
 	s.AssertExpectations(t)
 }
 
+// answeringSyncer is a syncer with a fixed sweep: it reports the chains that
+// answered, empty ones included.
+type answeringSyncer struct {
+	balances []entity.WalletBalance
+	answered []string
+	err      error
+}
+
+func (a answeringSyncer) SyncWallet(context.Context, string, []string) ([]entity.WalletBalance, error) {
+	return a.balances, a.err
+}
+
+func (a answeringSyncer) SyncWalletAnswered(context.Context, string, []string) ([]entity.WalletBalance, []string, error) {
+	return a.balances, a.answered, a.err
+}
+
+// TestSyncAccount_AnEmptyAnswerEndsTheRun is personal-uvbn as seen on prod
+// 2026-10-17: Polkadot main holds no HDX, so Hydration came back answering
+// "nothing here" and produced no row — and its run of 404s, ended only by a
+// balance, stayed on the account for a chain that was working again. A syncer
+// that says which chains it asked is believed for those chains; a failed one
+// is never among them, whatever the syncer claims.
+func TestSyncAccount_AnEmptyAnswerEndsTheRun(t *testing.T) {
+	acct := sweepAccount("11111111-1111-1111-1111-111111111111", "user-a", "Polkadot main")
+	acct.Data = map[string]string{"address": "0xsub"} // no chain list: discovery
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, acct.ID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: "h1"}, nil)
+	s.On("RecordChainFailures", mock.Anything, acct.ID,
+		map[string]string{"astar": "subscan API status 429 for astar"},
+		[]string{"polkadot", "hydration"}, mock.Anything).Return(nil, nil).Once()
+
+	ws := answeringSyncer{
+		balances: []entity.WalletBalance{{Symbol: "DOT", Amount: "100", Decimals: 10, Chain: "polkadot"}},
+		answered: []string{"polkadot", "hydration", "astar"}, // astar listed by mistake: failure wins
+		err:      &entity.ChainError{Chain: "astar", Err: errors.New("subscan API status 429 for astar")},
+	}
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+	_, err := h.SyncAccount(middleware.ContextWithUser(context.Background(), &entity.User{ID: acct.UserID}),
+		connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: acct.ID}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+}
+
 // TestSweep_RunsDoNotCrowdOutTheComplaints: runs lead the note but are capped,
 // so a wallet with many chains on a run still shows what failed this hour.
 func TestSweep_RunsDoNotCrowdOutTheComplaints(t *testing.T) {

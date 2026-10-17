@@ -203,3 +203,23 @@ func d(t *testing.T, s string) decimal.Decimal {
 	require.NoError(t, err)
 	return v
 }
+
+// TestSyncWalletAnswered_AnEmptyChainAnswered: a chain that answered with
+// nothing held is reported as answered — the only evidence that ends a run of
+// failures on an address holding nothing there (personal-uvbn). A chain that
+// failed is not.
+func TestSyncWalletAnswered_AnEmptyChainAnswered(t *testing.T) {
+	client := NewClient(Config{APIKey: "test-key"})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "too many", http.StatusTooManyRequests)
+	}))
+	t.Cleanup(srv.Close)
+	client.baseURLOverride = srv.URL
+	client.rpcURLOverride = newRPCStub(t, nil).URL
+
+	balances, answered, err := NewWalletSyncer(client).SyncWalletAnswered(
+		context.Background(), controllerAddress, []string{"hydration", "polkadot"})
+	assert.Empty(t, balances)
+	assert.Equal(t, []string{"hydration"}, answered, "empty hydration answered; polkadot refused")
+	assert.Contains(t, entity.FailedChains(err), "polkadot")
+}
