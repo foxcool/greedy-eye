@@ -191,7 +191,10 @@ func run() error {
 		// The sweep interval is what a provider divides its remaining plan
 		// allowance by, so it comes from the cron spec rather than a second
 		// config key that could disagree with it.
-		WithRefreshWindow(sweepWindow(config.Scheduler.PriceFetchCron))
+		WithRefreshWindow(sweepWindow(config.Scheduler.PriceFetchCron)).
+		// Whether anyone ever bought an asset is portfolio data; identity
+		// scoring reads it in-process until the services split (personal-dwa).
+		WithHoldingProvenance(portfolioStore)
 	automationStore := postgres.NewAutomationStore(pool)
 	automationHandler := automation.NewHandler(automationStore, log)
 	// Built before the loop because two other services read from it: valuation

@@ -59,6 +59,7 @@ const (
 	SignalUnverified       = "unverified_contract"
 	SignalNoListing        = "no_listing"
 	SignalTickerCollision  = "ticker_collision"
+	SignalUnsolicited      = "unsolicited"
 )
 
 // Weights sets each signal's contribution to the score and the verdict cutoffs.
@@ -72,6 +73,7 @@ type Weights struct {
 	Unverified       float64
 	NoListing        float64
 	Overlong         float64
+	Unsolicited      float64
 	ScamThreshold    float64
 	SuspectThreshold float64
 }
@@ -87,12 +89,13 @@ func DefaultWeights() Weights {
 		Unverified:       0.2,
 		NoListing:        0.3,
 		Overlong:         0.2,
+		Unsolicited:      0.2,
 		ScamThreshold:    0.8,
 		SuspectThreshold: 0.4,
 	}
 }
 
-// Input is what the scorer sees about one asset. The three context signals are
+// Input is what the scorer sees about one asset. The pointer context signals are
 // pointers because "the provider did not report this" (non-EVM chains carry no
 // contract-verification bit, an asset may never have been price-resolved yet) is
 // distinct from a reported false: a nil never contributes to the score.
@@ -108,6 +111,13 @@ type Input struct {
 	// asset; a reported false (no listing after N fetches) is a weak scam
 	// signal, an unset does not judge a freshly-seen asset.
 	HasPriceListing *bool
+	// Unsolicited is an asset every position in which arrived only by sync: no
+	// transaction, never bought or entered by hand. Mass airdrops look like
+	// this; so do legitimate ones and gifts, so the weight is corroborating,
+	// not decisive — alone it stays under the suspect threshold, beside
+	// no_listing it crosses it, and it never tips a verdict into scam. Nil when
+	// nothing is held, as on a catalogue-only row: there is no position to judge.
+	Unsolicited *bool
 	// ClaimsHeldTicker is whether this asset's ticker is already held, on one of
 	// its own chains, by an older price-listed asset bound to a different
 	// contract. The catalogue answers it; the scorer only judges it. Text cannot
@@ -204,11 +214,26 @@ func Score(in Input, w Weights) Result {
 	if in.HasPriceListing != nil && !*in.HasPriceListing {
 		add(SignalNoListing, w.NoListing)
 	}
+	// What the other signals alone add up to, for the cap below.
+	others := score
+	if in.Unsolicited != nil && *in.Unsolicited {
+		add(SignalUnsolicited, w.Unsolicited)
+	}
 
 	if score > 1 {
 		score = 1
 	}
-	return Result{Score: score, Verdict: verdictFor(score, w), Signals: signals}
+	verdict := verdictFor(score, w)
+	// Unsolicited can queue an asset for review but never condemn it: stacked
+	// on provider_spam and unverified_contract it reaches the scam threshold
+	// over a priced asset, and a scam verdict takes it out of every holder's
+	// sum. A real airdrop arrives exactly this way, so the verdict stays where
+	// the other signals alone would have put it, or suspect.
+	if verdict == VerdictScam && in.Unsolicited != nil && *in.Unsolicited &&
+		verdictFor(others, w) != VerdictScam {
+		verdict = VerdictSuspect
+	}
+	return Result{Score: score, Verdict: verdict, Signals: signals}
 }
 
 // verdictFor maps a score to a verdict. Unknown is reserved for the never-scored

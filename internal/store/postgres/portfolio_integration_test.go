@@ -1818,3 +1818,58 @@ func TestChainFailuresRunUntilTheChainAnswers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
+
+// TestUnsolicitedAssets: an asset is unsolicited only while every live
+// position in it came from sync and nobody recorded a transaction on it.
+func TestUnsolicitedAssets(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewPortfolioStore(pool)
+	assets := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	user := createTestUser(t, NewUserStore(pool))
+	account, err := s.CreateAccount(ctx, &entity.Account{
+		UserID:       user.ID,
+		Name:         "wallet",
+		Type:         entity.AccountTypeManual,
+		Capabilities: []entity.AccountCapability{entity.CapabilityManualPositions},
+	})
+	require.NoError(t, err)
+
+	hold := func(assetID, amount string, source entity.ProvenanceSource) {
+		_, err := s.CreateHolding(ctx, &entity.Holding{
+			AssetID: assetID, AccountID: account.ID, Decimals: 8,
+			Amount: decimal.RequireFromString(amount), Source: source,
+		})
+		require.NoError(t, err)
+	}
+
+	airdrop := createTestAsset(t, assets, "Unsolicited Airdrop")
+	hold(airdrop.ID, "100", entity.SourceSync)
+
+	traded := createTestAsset(t, assets, "Unsolicited Traded")
+	hold(traded.ID, "100", entity.SourceSync)
+	_, err = s.CreateTransaction(ctx, &entity.Transaction{
+		Type: entity.TransactionTypeTrade, Status: entity.TransactionStatusCompleted,
+		AccountID: account.ID, AssetID: traded.ID, Data: map[string]string{}, Source: entity.SourceManual,
+	})
+	require.NoError(t, err)
+
+	entered := createTestAsset(t, assets, "Unsolicited Entered")
+	hold(entered.ID, "100", entity.SourceSync)
+	hold(entered.ID, "5", entity.SourceManual)
+
+	gone := createTestAsset(t, assets, "Unsolicited Gone")
+	hold(gone.ID, "0", entity.SourceSync)
+
+	unheld := createTestAsset(t, assets, "Unsolicited Unheld")
+
+	got, err := s.UnsolicitedAssets(ctx, []string{airdrop.ID, traded.ID, entered.ID, gone.ID, unheld.ID})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{
+		airdrop.ID: true,
+		traded.ID:  false,
+		entered.ID: false,
+		// No live position: nothing to judge, so absent rather than false.
+	}, got)
+}
