@@ -780,8 +780,14 @@ func TestStubs_ReturnUnimplemented(t *testing.T) {
 
 	_, err = h.FindSimilarAssets(ctx, connect.NewRequest(&apiv1.FindSimilarAssetsRequest{}))
 	assert.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
+}
 
-	_, err = h.FetchExternalPrices(syncContext(), connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+// An instance with no price provider says so rather than reporting a fetch
+// that priced nothing.
+func TestFetchExternalPrices_NoProvidersIsUnimplemented(t *testing.T) {
+	h := newHandler(&mockStore{})
+
+	_, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	assert.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
 }
 
@@ -2475,19 +2481,22 @@ func TestResetSweepSchedule_IsAdminOnly(t *testing.T) {
 // store is touched. A user's own prices come from syncing (personal-nywa).
 func TestFetchExternalPrices_IsSyncOrAdminOnly(t *testing.T) {
 	plain := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
-	for name, msg := range map[string]*apiv1.FetchExternalPricesRequest{
-		"sweep": {},
-		"named": {AssetIds: []string{"btc"}},
+	for _, tc := range []struct {
+		name string
+		msg  *apiv1.FetchExternalPricesRequest
+	}{
+		{"sweep", &apiv1.FetchExternalPricesRequest{}},
+		{"named", &apiv1.FetchExternalPricesRequest{AssetIds: []string{"btc"}}},
 	} {
-		t.Run(name, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			s := &mockStore{}
 			p := &fakePriceProvider{}
 			h := newHandler(s).WithProvider("a", p)
 
-			_, err := h.FetchExternalPrices(plain, connect.NewRequest(msg))
+			_, err := h.FetchExternalPrices(plain, connect.NewRequest(tc.msg))
 			assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 
-			_, err = h.FetchExternalPrices(context.Background(), connect.NewRequest(msg))
+			_, err = h.FetchExternalPrices(context.Background(), connect.NewRequest(tc.msg))
 			assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 
 			// mockStore has no expectations, so any store read would panic.
