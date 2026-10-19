@@ -144,14 +144,11 @@ type ContractResolver interface {
 	ResolveContract(ctx context.Context, chain, address string) (coinID, symbol string, listed bool, err error)
 }
 
-// HoldingProvenance answers what only the portfolio domain knows about an
-// asset: whether anyone ever bought it. The identity scorer needs it and
-// marketdata does not own holdings or transactions, so it reads them through
-// this seam rather than through its own store.
+// HoldingProvenance is the portfolio-side answer to "was this asset ever
+// bought", which marketdata cannot read from its own tables.
 type HoldingProvenance interface {
-	// UnsolicitedAssets reports, for each of the given assets that has a live
-	// position, whether every such position arrived by sync alone with no
-	// transaction recorded against the asset. Assets nobody holds are omitted.
+	// UnsolicitedAssets maps each held asset to whether all its live positions
+	// came from sync with no transaction on it. Unheld assets are omitted.
 	UnsolicitedAssets(ctx context.Context, assetIDs []string) (map[string]bool, error)
 }
 
@@ -845,10 +842,8 @@ func (h *Handler) respondScored(ctx context.Context, a *entity.Asset, req *apiv1
 // written, or the asset's existing (possibly user) verdict when the write was
 // skipped or failed — so the caller never acts on a verdict the store rejected.
 //
-// An asset seen before is scored with the same stored-state signals as the
-// nightly rescore, or every sync would undo what the rescore found (the
-// listing half of personal-0zdn). A just-created one is not: nothing has
-// priced it or bought it yet because nothing could have.
+// A known asset gets the same stored-state signals as the nightly rescore, so
+// the hourly sync does not undo it. A new one has none to read yet.
 func (h *Handler) scoreAndPersistVerdict(ctx context.Context, a *entity.Asset, req *apiv1.FindOrCreateAssetRequest, created bool) string {
 	in := scamfilter.Input{
 		Symbol:           a.Symbol,

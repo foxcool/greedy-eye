@@ -47,8 +47,7 @@ type FlaggedAsset struct {
 // The score uses text signals (symbol/name) plus a cheap listing check: an asset
 // no price provider can resolve is a weak scam signal, and the catalogue's
 // unpriced tokens are exactly the unlisted scams. Beside it, whether anyone
-// ever bought the asset: holdings are persisted by now, which they are not at
-// sync intake of a new asset. Provider signals (moralis
+// ever bought the asset. Provider signals (moralis
 // possible_spam, contract-verified) are not available here — they enter at sync
 // intake (A3); this pass judges what the stored catalogue alone reveals.
 func (h *Handler) RescoreAssets(ctx context.Context) (RescoreReport, error) {
@@ -137,10 +136,8 @@ func (h *Handler) hasPriceListing(ctx context.Context, assetID string) *bool {
 	return nil
 }
 
-// unsolicitedAssets asks the portfolio side which of these assets were never
-// bought. A failed lookup returns nil and logs: an unjudged signal costs one
-// pass of a weak corroboration, while a spurious answer would judge every asset
-// on the page.
+// unsolicitedAssets asks which of these assets were never bought. On error it
+// logs and returns nil, leaving the signal unjudged.
 func (h *Handler) unsolicitedAssets(ctx context.Context, ids []string) map[string]bool {
 	if h.provenance == nil || len(ids) == 0 {
 		return nil

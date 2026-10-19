@@ -111,12 +111,9 @@ type Input struct {
 	// asset; a reported false (no listing after N fetches) is a weak scam
 	// signal, an unset does not judge a freshly-seen asset.
 	HasPriceListing *bool
-	// Unsolicited is an asset every position in which arrived only by sync: no
-	// transaction, never bought or entered by hand. Mass airdrops look like
-	// this; so do legitimate ones and gifts, so the weight is corroborating,
-	// not decisive — alone it stays under the suspect threshold, beside
-	// no_listing it crosses it, and it never tips a verdict into scam. Nil when
-	// nothing is held, as on a catalogue-only row: there is no position to judge.
+	// Unsolicited: every position arrived by sync and nothing was ever bought.
+	// Corroborating only — it never tips a verdict into scam. Nil when nothing
+	// is held.
 	Unsolicited *bool
 	// ClaimsHeldTicker is whether this asset's ticker is already held, on one of
 	// its own chains, by an older price-listed asset bound to a different
@@ -154,15 +151,9 @@ func Score(in Input, w Weights) Result {
 	// weak signals should be needed to condemn them, and none should be able to
 	// reprieve them.
 	//
-	// They are silent on a listed venue, because there the premise is false. An
-	// exchange's catalogue spells its own instruments, and the position binds to
-	// the venue's identifier rather than to the spelling, so a Latin brand
-	// beside Russian words ("FinEx Акции российских компаний") or a Latin P
-	// inside a Cyrillic bond series ("БО-002P-04") is the catalogue being itself,
-	// not an attack. Firing there condemned four real MOEX positions out of the
-	// sum (personal-42s8). The rule was bought for crypto, where the name is
-	// attacker-controlled and mixed script has no innocent use (personal-go65),
-	// and it keeps every bit of that force there.
+	// Silent on a listed venue: an exchange spells its own instruments and binds
+	// them by its identifier, so mixed script there ("FinEx Акции ...",
+	// "БО-002P-04") is normal, not an attack.
 	if !in.VenueListed {
 		if hasInvisibleRune(in.Symbol) || hasInvisibleRune(in.Name) {
 			signals[SignalInvisibleUnicode] = 1
@@ -173,18 +164,10 @@ func Score(in Input, w Weights) Result {
 			return Result{Score: 1, Verdict: VerdictImpersonation, Signals: signals}
 		}
 	}
-	// A ticker already held on this chain by an older, listed asset with another
-	// contract. Hard for the same reason as mixed script: minting a second
-	// contract under a taken ticker on the same chain is not something a real
-	// project does by accident. It has to be hard rather than weighted, because
-	// the text of a good lookalike fires nothing — a plain ASCII "USDT" of normal
-	// length reaches 0.2, and even with no_listing it tops out at 0.5, under the
-	// 0.8 that would condemn it. No accumulation of weak signals can ever judge
-	// this shape (personal-go65).
-	//
-	// Unconditional, unlike the text signals above: it judges a structure the
-	// chain enforces, not a spelling anyone chose, so a listing elsewhere says
-	// nothing about it. A tokenized share is not excused from it by being listed.
+	// A ticker already held on this chain by an older listed asset with another
+	// contract. Hard, because a good lookalike's text fires nothing and weak
+	// signals top out below the scam threshold. Unconditional: it judges a
+	// structure the chain enforces, not a spelling, so venue listing is no excuse.
 	if in.ClaimsHeldTicker {
 		signals[SignalTickerCollision] = 1
 		return Result{Score: 1, Verdict: VerdictImpersonation, Signals: signals}
@@ -224,11 +207,8 @@ func Score(in Input, w Weights) Result {
 		score = 1
 	}
 	verdict := verdictFor(score, w)
-	// Unsolicited can queue an asset for review but never condemn it: stacked
-	// on provider_spam and unverified_contract it reaches the scam threshold
-	// over a priced asset, and a scam verdict takes it out of every holder's
-	// sum. A real airdrop arrives exactly this way, so the verdict stays where
-	// the other signals alone would have put it, or suspect.
+	// Unsolicited may queue an asset for review but never condemn it: real
+	// airdrops look the same, and scam drops the asset from every holder's sum.
 	if verdict == VerdictScam && in.Unsolicited != nil && *in.Unsolicited &&
 		verdictFor(others, w) != VerdictScam {
 		verdict = VerdictSuspect

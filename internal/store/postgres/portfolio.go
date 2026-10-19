@@ -2133,12 +2133,10 @@ func (s *PortfolioStore) UpdateTransaction(ctx context.Context, t *entity.Transa
 	return s.GetTransaction(ctx, t.ID)
 }
 
-// UnsolicitedAssets reports, for each given asset with a non-zero position,
-// whether every such position was created by sync and no transaction in any
-// account names the asset. Sync never writes transactions, so one existing at
-// all means somebody bought, sold or entered it. Asset-wide rather than per
-// account: a coin bought on an exchange and withdrawn to a wallet arrives there
-// by sync, and is still bought.
+// UnsolicitedAssets reports, per asset with a non-zero position, whether every
+// such position came from sync and no transaction names the asset. Sync never
+// writes transactions, so any one means a person recorded it. Asset-wide, since
+// a coin bought on an exchange arrives in a wallet by sync.
 //
 // shortcut: no index leads with holdings.asset_id or transactions.asset_transactions,
 // so each call scans both; add them when the tables grow (personal-6ae.4).
