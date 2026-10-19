@@ -321,12 +321,22 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 			SourceID: sourceID,
 			AssetID:  assetID,
 			// BaseAssetID is intentionally empty — resolved by FetchExternalPrices handler.
-			Interval:  interval,
-			Decimals:  priceDecimals,
-			Last:      last,
-			Volume:    reportedVolume(t.QuoteVolume),
-			Timestamp: now,
+			Interval:   interval,
+			Decimals:   priceDecimals,
+			Last:       last,
+			Volume:     reportedVolume(t.QuoteVolume),
+			Provenance: tradedIf(t.Count),
+			Timestamp:  now,
 		})
 	}
 	return result, nil
+}
+
+// tradedIf claims a traded print only when the window holds a trade; with none,
+// lastPrice is a stale number and the row makes no claim.
+func tradedIf(count int64) entity.PriceProvenance {
+	if count > 0 {
+		return entity.PriceProvenanceTraded
+	}
+	return entity.PriceProvenanceUnknown
 }

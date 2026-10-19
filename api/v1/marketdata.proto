@@ -731,7 +731,8 @@ message FetchExternalPricesResponse {
   repeated string errors = 3;
   // Sources this run selected nothing from, and why: "nothing_due",
   // "all_deferred", "budget_exhausted", "contested" (every asset it could have
-  // priced carries a ticker another live asset also claims), "unknown".
+  // priced carries a ticker another live asset also claims), "covered" (every
+  // due asset already has a fresh traded quote from another source), "unknown".
   //
   // Without it, prices_fetched=0 is the only thing an unattended sweep can say,
   // and it means both "everything is current" and "the whole catalogue is
@@ -745,6 +746,10 @@ message FetchExternalPricesResponse {
   // is left to the next unattended sweep. A request someone is waiting on is
   // priced in full and never reports here.
   map<string, int32> deferred_assets = 5;
+  // Due assets each plan-metered source skipped because another source holds a
+  // fresh traded quote with a real market behind it. Such assets are still
+  // asked of it once a day, so the sources stay comparable.
+  map<string, int32> covered_assets = 6;
 }
 
 message GetPricingStatusRequest {

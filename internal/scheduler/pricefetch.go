@@ -48,6 +48,9 @@ func (s *Scheduler) fetchPrices() {
 	if idle := resp.Msg.GetIdleSources(); len(idle) > 0 {
 		attrs = append(attrs, slog.Any("idle_sources", idle))
 	}
+	if covered := resp.Msg.GetCoveredAssets(); len(covered) > 0 {
+		attrs = append(attrs, slog.Any("covered_assets", covered))
+	}
 	attrs = append(attrs, s.usageDelta(before)...)
 	s.log.Info("scheduler: prices fetched", attrs...)
 }

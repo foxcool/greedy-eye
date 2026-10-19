@@ -1811,3 +1811,92 @@ func TestContestedAssets(t *testing.T) {
 		assert.Equal(t, before+2, gap(), "both new claimants drop out of the never-attempted head")
 	})
 }
+
+// TestStalePricingCovered: a covered asset this source asked about within the
+// recheck window is left out and counted; one it never asked, or asked before
+// the window, is still selected.
+func TestStalePricingCovered(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+	now := time.Now()
+
+	recent := createTestAsset(t, s, "CoverRecent")
+	old := createTestAsset(t, s, "CoverOld")
+	never := createTestAsset(t, s, "CoverNever")
+	plain := createTestAsset(t, s, "CoverPlain")
+
+	record := func(id string, at time.Time) {
+		require.NoError(t, s.RecordPriceAttempts(ctx, marketdata.RecordAttemptsOpts{
+			SourceID: "coingecko", At: at, Priced: []string{id}, TTL: time.Hour,
+		}))
+	}
+	record(recent.ID, now.Add(-2*time.Hour))
+	record(old.ID, now.Add(-30*time.Hour))
+	record(plain.ID, now.Add(-2*time.Hour))
+
+	opts := marketdata.StalePricingOpts{
+		SourceID:             "coingecko",
+		Now:                  now,
+		Covered:              []string{recent.ID, old.ID, never.ID},
+		CoveredRecheckBefore: now.Add(-24 * time.Hour),
+	}
+	got, err := s.ListStalePricingTargets(ctx, opts)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{old.ID, never.ID, plain.ID}, assetIDs(got))
+
+	n, err := s.CountCoveredTargets(ctx, opts)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	opts.Limit = 1
+	n, err = s.CountCoveredTargets(ctx, opts)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "the count ignores the budget")
+}
+
+// TestFreshTradedQuotes: only another source's recent traded rows with a
+// volume, newest per (asset, source).
+func TestFreshTradedQuotes(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+
+	asset := createTestAsset(t, s, "FreshTradedAsset")
+	unknown := createTestAsset(t, s, "FreshTradedUnknown")
+	stopped := createTestAsset(t, s, "FreshTradedStopped")
+	base := createTestAsset(t, s, "FreshTradedBase")
+
+	row := func(assetID, source string, at time.Time, prov entity.PriceProvenance, vol *int64) *entity.StoredPrice {
+		p := &entity.StoredPrice{
+			SourceID: source, AssetID: assetID, BaseAssetID: base.ID, Interval: "latest",
+			Decimals: 2, Last: decimal.NewFromInt(100), Timestamp: at, Provenance: prov,
+		}
+		if vol != nil {
+			p.Volume = decimal.NewNullDecimal(decimal.NewFromInt(*vol))
+		}
+		return p
+	}
+	v := func(n int64) *int64 { return &n }
+	_, err := s.CreatePrices(ctx, []*entity.StoredPrice{
+		row(asset.ID, "binance", now.Add(-90*time.Minute), entity.PriceProvenanceTraded, v(1)),
+		row(asset.ID, "binance", now.Add(-10*time.Minute), entity.PriceProvenanceTraded, v(2)),
+		row(asset.ID, "binance", now.Add(-5*time.Hour), entity.PriceProvenanceTraded, v(3)),
+		row(asset.ID, "coingecko", now.Add(-time.Minute), entity.PriceProvenanceTraded, v(4)),
+		row(asset.ID, "moex", now.Add(-time.Minute), entity.PriceProvenanceTraded, nil),
+		row(unknown.ID, "binance", now.Add(-time.Minute), entity.PriceProvenanceUnknown, v(5)),
+		// Traded earlier, no trade claimed since: the newer row decides.
+		row(stopped.ID, "binance", now.Add(-90*time.Minute), entity.PriceProvenanceTraded, v(6)),
+		row(stopped.ID, "binance", now.Add(-5*time.Minute), entity.PriceProvenanceUnknown, v(0)),
+	})
+	require.NoError(t, err)
+
+	got, err := s.FreshTradedQuotes(ctx, "coingecko", now.Add(-2*time.Hour))
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, asset.ID, got[0].AssetID)
+	assert.Equal(t, "binance", got[0].SourceID)
+	assert.Equal(t, base.ID, got[0].BaseAssetID)
+	assert.True(t, got[0].Volume.Decimal.Equal(decimal.NewFromInt(2)), "newest row wins")
+}

@@ -2547,7 +2547,8 @@ type FetchExternalPricesResponse struct {
 	Errors        []string               `protobuf:"bytes,3,rep,name=errors,proto3" json:"errors,omitempty"`
 	// Sources this run selected nothing from, and why: "nothing_due",
 	// "all_deferred", "budget_exhausted", "contested" (every asset it could have
-	// priced carries a ticker another live asset also claims), "unknown".
+	// priced carries a ticker another live asset also claims), "covered" (every
+	// due asset already has a fresh traded quote from another source), "unknown".
 	//
 	// Without it, prices_fetched=0 is the only thing an unattended sweep can say,
 	// and it means both "everything is current" and "the whole catalogue is
@@ -2561,8 +2562,12 @@ type FetchExternalPricesResponse struct {
 	// is left to the next unattended sweep. A request someone is waiting on is
 	// priced in full and never reports here.
 	DeferredAssets map[string]int32 `protobuf:"bytes,5,rep,name=deferred_assets,json=deferredAssets,proto3" json:"deferred_assets,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Due assets each plan-metered source skipped because another source holds a
+	// fresh traded quote with a real market behind it. Such assets are still
+	// asked of it once a day, so the sources stay comparable.
+	CoveredAssets map[string]int32 `protobuf:"bytes,6,rep,name=covered_assets,json=coveredAssets,proto3" json:"covered_assets,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FetchExternalPricesResponse) Reset() {
@@ -2626,6 +2631,13 @@ func (x *FetchExternalPricesResponse) GetIdleSources() map[string]string {
 func (x *FetchExternalPricesResponse) GetDeferredAssets() map[string]int32 {
 	if x != nil {
 		return x.DeferredAssets
+	}
+	return nil
+}
+
+func (x *FetchExternalPricesResponse) GetCoveredAssets() map[string]int32 {
+	if x != nil {
+		return x.CoveredAssets
 	}
 	return nil
 }
@@ -3266,17 +3278,21 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\x1aFetchExternalPricesRequest\x12\x1d\n" +
 	"\n" +
 	"source_ids\x18\x01 \x03(\tR\tsourceIds\x12\x1b\n" +
-	"\tasset_ids\x18\x02 \x03(\tR\bassetIds\"\xbf\x03\n" +
+	"\tasset_ids\x18\x02 \x03(\tR\bassetIds\"\xe0\x04\n" +
 	"\x1bFetchExternalPricesResponse\x12%\n" +
 	"\x0eprices_fetched\x18\x01 \x01(\x05R\rpricesFetched\x12#\n" +
 	"\rprices_stored\x18\x02 \x01(\x05R\fpricesStored\x12\x16\n" +
 	"\x06errors\x18\x03 \x03(\tR\x06errors\x12W\n" +
 	"\fidle_sources\x18\x04 \x03(\v24.eye.v1.FetchExternalPricesResponse.IdleSourcesEntryR\vidleSources\x12`\n" +
-	"\x0fdeferred_assets\x18\x05 \x03(\v27.eye.v1.FetchExternalPricesResponse.DeferredAssetsEntryR\x0edeferredAssets\x1a>\n" +
+	"\x0fdeferred_assets\x18\x05 \x03(\v27.eye.v1.FetchExternalPricesResponse.DeferredAssetsEntryR\x0edeferredAssets\x12]\n" +
+	"\x0ecovered_assets\x18\x06 \x03(\v26.eye.v1.FetchExternalPricesResponse.CoveredAssetsEntryR\rcoveredAssets\x1a>\n" +
 	"\x10IdleSourcesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aA\n" +
 	"\x13DeferredAssetsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\x1a@\n" +
+	"\x12CoveredAssetsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"6\n" +
 	"\x17GetPricingStatusRequest\x12\x1b\n" +
@@ -3368,7 +3384,7 @@ func file_v1_marketdata_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_marketdata_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_v1_marketdata_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
+var file_v1_marketdata_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
 var file_v1_marketdata_proto_goTypes = []any{
 	(AssetType)(0),                        // 0: eye.v1.AssetType
 	(UnpricedReason)(0),                   // 1: eye.v1.UnpricedReason
@@ -3414,104 +3430,106 @@ var file_v1_marketdata_proto_goTypes = []any{
 	nil,                                   // 41: eye.v1.Asset.IdentitySignalsEntry
 	nil,                                   // 42: eye.v1.FetchExternalPricesResponse.IdleSourcesEntry
 	nil,                                   // 43: eye.v1.FetchExternalPricesResponse.DeferredAssetsEntry
-	nil,                                   // 44: eye.v1.ResetSweepScheduleResponse.AssetsFreedEntry
-	(*timestamppb.Timestamp)(nil),         // 45: google.protobuf.Timestamp
-	(*fieldmaskpb.FieldMask)(nil),         // 46: google.protobuf.FieldMask
-	(*emptypb.Empty)(nil),                 // 47: google.protobuf.Empty
+	nil,                                   // 44: eye.v1.FetchExternalPricesResponse.CoveredAssetsEntry
+	nil,                                   // 45: eye.v1.ResetSweepScheduleResponse.AssetsFreedEntry
+	(*timestamppb.Timestamp)(nil),         // 46: google.protobuf.Timestamp
+	(*fieldmaskpb.FieldMask)(nil),         // 47: google.protobuf.FieldMask
+	(*emptypb.Empty)(nil),                 // 48: google.protobuf.Empty
 }
 var file_v1_marketdata_proto_depIdxs = []int32{
 	0,  // 0: eye.v1.Asset.type:type_name -> eye.v1.AssetType
-	45, // 1: eye.v1.Asset.created_at:type_name -> google.protobuf.Timestamp
-	45, // 2: eye.v1.Asset.updated_at:type_name -> google.protobuf.Timestamp
+	46, // 1: eye.v1.Asset.created_at:type_name -> google.protobuf.Timestamp
+	46, // 2: eye.v1.Asset.updated_at:type_name -> google.protobuf.Timestamp
 	41, // 3: eye.v1.Asset.identity_signals:type_name -> eye.v1.Asset.IdentitySignalsEntry
-	45, // 4: eye.v1.Asset.verdict_set_at:type_name -> google.protobuf.Timestamp
+	46, // 4: eye.v1.Asset.verdict_set_at:type_name -> google.protobuf.Timestamp
 	4,  // 5: eye.v1.Asset.external_refs:type_name -> eye.v1.AssetExternalRef
 	3,  // 6: eye.v1.Asset.risk_flags:type_name -> eye.v1.AssetRiskFlag
-	45, // 7: eye.v1.AssetRiskFlag.review_at:type_name -> google.protobuf.Timestamp
-	45, // 8: eye.v1.AssetRiskFlag.created_at:type_name -> google.protobuf.Timestamp
-	45, // 9: eye.v1.AssetExternalRef.created_at:type_name -> google.protobuf.Timestamp
-	45, // 10: eye.v1.Price.timestamp:type_name -> google.protobuf.Timestamp
+	46, // 7: eye.v1.AssetRiskFlag.review_at:type_name -> google.protobuf.Timestamp
+	46, // 8: eye.v1.AssetRiskFlag.created_at:type_name -> google.protobuf.Timestamp
+	46, // 9: eye.v1.AssetExternalRef.created_at:type_name -> google.protobuf.Timestamp
+	46, // 10: eye.v1.Price.timestamp:type_name -> google.protobuf.Timestamp
 	7,  // 11: eye.v1.ValuationCoverage.unpriced:type_name -> eye.v1.UnpricedHolding
-	45, // 12: eye.v1.ValuationCoverage.amounts_as_of:type_name -> google.protobuf.Timestamp
-	45, // 13: eye.v1.ValuationCoverage.prices_as_of:type_name -> google.protobuf.Timestamp
+	46, // 12: eye.v1.ValuationCoverage.amounts_as_of:type_name -> google.protobuf.Timestamp
+	46, // 13: eye.v1.ValuationCoverage.prices_as_of:type_name -> google.protobuf.Timestamp
 	1,  // 14: eye.v1.UnpricedHolding.reason:type_name -> eye.v1.UnpricedReason
-	45, // 15: eye.v1.UnpricedHolding.asked_since:type_name -> google.protobuf.Timestamp
-	45, // 16: eye.v1.AssetPricingStatus.first_asked_at:type_name -> google.protobuf.Timestamp
-	45, // 17: eye.v1.AssetPricingStatus.last_asked_at:type_name -> google.protobuf.Timestamp
+	46, // 15: eye.v1.UnpricedHolding.asked_since:type_name -> google.protobuf.Timestamp
+	46, // 16: eye.v1.AssetPricingStatus.first_asked_at:type_name -> google.protobuf.Timestamp
+	46, // 17: eye.v1.AssetPricingStatus.last_asked_at:type_name -> google.protobuf.Timestamp
 	2,  // 18: eye.v1.CreateAssetRequest.asset:type_name -> eye.v1.Asset
 	2,  // 19: eye.v1.UpdateAssetRequest.asset:type_name -> eye.v1.Asset
-	46, // 20: eye.v1.UpdateAssetRequest.update_mask:type_name -> google.protobuf.FieldMask
+	47, // 20: eye.v1.UpdateAssetRequest.update_mask:type_name -> google.protobuf.FieldMask
 	2,  // 21: eye.v1.ListAssetsResponse.assets:type_name -> eye.v1.Asset
 	0,  // 22: eye.v1.FindOrCreateAssetRequest.type:type_name -> eye.v1.AssetType
 	2,  // 23: eye.v1.FindOrCreateAssetResponse.asset:type_name -> eye.v1.Asset
-	45, // 24: eye.v1.AddAssetRiskFlagRequest.review_at:type_name -> google.protobuf.Timestamp
+	46, // 24: eye.v1.AddAssetRiskFlagRequest.review_at:type_name -> google.protobuf.Timestamp
 	5,  // 25: eye.v1.CreatePriceRequest.price:type_name -> eye.v1.Price
 	5,  // 26: eye.v1.CreatePricesRequest.prices:type_name -> eye.v1.Price
-	45, // 27: eye.v1.ListPriceHistoryRequest.from:type_name -> google.protobuf.Timestamp
-	45, // 28: eye.v1.ListPriceHistoryRequest.to:type_name -> google.protobuf.Timestamp
+	46, // 27: eye.v1.ListPriceHistoryRequest.from:type_name -> google.protobuf.Timestamp
+	46, // 28: eye.v1.ListPriceHistoryRequest.to:type_name -> google.protobuf.Timestamp
 	5,  // 29: eye.v1.ListPriceHistoryResponse.prices:type_name -> eye.v1.Price
-	45, // 30: eye.v1.ListPricesByIntervalRequest.from:type_name -> google.protobuf.Timestamp
-	45, // 31: eye.v1.ListPricesByIntervalRequest.to:type_name -> google.protobuf.Timestamp
-	45, // 32: eye.v1.DeletePricesRequest.from:type_name -> google.protobuf.Timestamp
-	45, // 33: eye.v1.DeletePricesRequest.to:type_name -> google.protobuf.Timestamp
+	46, // 30: eye.v1.ListPricesByIntervalRequest.from:type_name -> google.protobuf.Timestamp
+	46, // 31: eye.v1.ListPricesByIntervalRequest.to:type_name -> google.protobuf.Timestamp
+	46, // 32: eye.v1.DeletePricesRequest.from:type_name -> google.protobuf.Timestamp
+	46, // 33: eye.v1.DeletePricesRequest.to:type_name -> google.protobuf.Timestamp
 	42, // 34: eye.v1.FetchExternalPricesResponse.idle_sources:type_name -> eye.v1.FetchExternalPricesResponse.IdleSourcesEntry
 	43, // 35: eye.v1.FetchExternalPricesResponse.deferred_assets:type_name -> eye.v1.FetchExternalPricesResponse.DeferredAssetsEntry
-	8,  // 36: eye.v1.GetPricingStatusResponse.statuses:type_name -> eye.v1.AssetPricingStatus
-	40, // 37: eye.v1.GetSweepScheduleResponse.sources:type_name -> eye.v1.SourceSchedule
-	44, // 38: eye.v1.ResetSweepScheduleResponse.assets_freed:type_name -> eye.v1.ResetSweepScheduleResponse.AssetsFreedEntry
-	45, // 39: eye.v1.SourceSchedule.soonest_due:type_name -> google.protobuf.Timestamp
-	45, // 40: eye.v1.SourceSchedule.latest_deferred:type_name -> google.protobuf.Timestamp
-	9,  // 41: eye.v1.MarketDataService.CreateAsset:input_type -> eye.v1.CreateAssetRequest
-	10, // 42: eye.v1.MarketDataService.GetAsset:input_type -> eye.v1.GetAssetRequest
-	11, // 43: eye.v1.MarketDataService.UpdateAsset:input_type -> eye.v1.UpdateAssetRequest
-	12, // 44: eye.v1.MarketDataService.DeleteAsset:input_type -> eye.v1.DeleteAssetRequest
-	13, // 45: eye.v1.MarketDataService.ListAssets:input_type -> eye.v1.ListAssetsRequest
-	15, // 46: eye.v1.MarketDataService.EnrichAssetData:input_type -> eye.v1.EnrichAssetDataRequest
-	16, // 47: eye.v1.MarketDataService.FindSimilarAssets:input_type -> eye.v1.FindSimilarAssetsRequest
-	17, // 48: eye.v1.MarketDataService.FindOrCreateAsset:input_type -> eye.v1.FindOrCreateAssetRequest
-	20, // 49: eye.v1.MarketDataService.SetAssetVerdict:input_type -> eye.v1.SetAssetVerdictRequest
-	19, // 50: eye.v1.MarketDataService.DeleteAssetExternalRef:input_type -> eye.v1.DeleteAssetExternalRefRequest
-	21, // 51: eye.v1.MarketDataService.AddAssetRiskFlag:input_type -> eye.v1.AddAssetRiskFlagRequest
-	22, // 52: eye.v1.MarketDataService.DeleteAssetRiskFlag:input_type -> eye.v1.DeleteAssetRiskFlagRequest
-	23, // 53: eye.v1.MarketDataService.CreatePrice:input_type -> eye.v1.CreatePriceRequest
-	24, // 54: eye.v1.MarketDataService.CreatePrices:input_type -> eye.v1.CreatePricesRequest
-	26, // 55: eye.v1.MarketDataService.GetLatestPrice:input_type -> eye.v1.GetLatestPriceRequest
-	27, // 56: eye.v1.MarketDataService.ListPriceHistory:input_type -> eye.v1.ListPriceHistoryRequest
-	29, // 57: eye.v1.MarketDataService.ListPricesByInterval:input_type -> eye.v1.ListPricesByIntervalRequest
-	30, // 58: eye.v1.MarketDataService.DeletePrice:input_type -> eye.v1.DeletePriceRequest
-	31, // 59: eye.v1.MarketDataService.DeletePrices:input_type -> eye.v1.DeletePricesRequest
-	32, // 60: eye.v1.MarketDataService.FetchExternalPrices:input_type -> eye.v1.FetchExternalPricesRequest
-	34, // 61: eye.v1.MarketDataService.GetPricingStatus:input_type -> eye.v1.GetPricingStatusRequest
-	36, // 62: eye.v1.MarketDataService.GetSweepSchedule:input_type -> eye.v1.GetSweepScheduleRequest
-	38, // 63: eye.v1.MarketDataService.ResetSweepSchedule:input_type -> eye.v1.ResetSweepScheduleRequest
-	2,  // 64: eye.v1.MarketDataService.CreateAsset:output_type -> eye.v1.Asset
-	2,  // 65: eye.v1.MarketDataService.GetAsset:output_type -> eye.v1.Asset
-	2,  // 66: eye.v1.MarketDataService.UpdateAsset:output_type -> eye.v1.Asset
-	47, // 67: eye.v1.MarketDataService.DeleteAsset:output_type -> google.protobuf.Empty
-	14, // 68: eye.v1.MarketDataService.ListAssets:output_type -> eye.v1.ListAssetsResponse
-	2,  // 69: eye.v1.MarketDataService.EnrichAssetData:output_type -> eye.v1.Asset
-	14, // 70: eye.v1.MarketDataService.FindSimilarAssets:output_type -> eye.v1.ListAssetsResponse
-	18, // 71: eye.v1.MarketDataService.FindOrCreateAsset:output_type -> eye.v1.FindOrCreateAssetResponse
-	2,  // 72: eye.v1.MarketDataService.SetAssetVerdict:output_type -> eye.v1.Asset
-	47, // 73: eye.v1.MarketDataService.DeleteAssetExternalRef:output_type -> google.protobuf.Empty
-	3,  // 74: eye.v1.MarketDataService.AddAssetRiskFlag:output_type -> eye.v1.AssetRiskFlag
-	47, // 75: eye.v1.MarketDataService.DeleteAssetRiskFlag:output_type -> google.protobuf.Empty
-	5,  // 76: eye.v1.MarketDataService.CreatePrice:output_type -> eye.v1.Price
-	25, // 77: eye.v1.MarketDataService.CreatePrices:output_type -> eye.v1.CreatePricesResponse
-	5,  // 78: eye.v1.MarketDataService.GetLatestPrice:output_type -> eye.v1.Price
-	28, // 79: eye.v1.MarketDataService.ListPriceHistory:output_type -> eye.v1.ListPriceHistoryResponse
-	28, // 80: eye.v1.MarketDataService.ListPricesByInterval:output_type -> eye.v1.ListPriceHistoryResponse
-	47, // 81: eye.v1.MarketDataService.DeletePrice:output_type -> google.protobuf.Empty
-	47, // 82: eye.v1.MarketDataService.DeletePrices:output_type -> google.protobuf.Empty
-	33, // 83: eye.v1.MarketDataService.FetchExternalPrices:output_type -> eye.v1.FetchExternalPricesResponse
-	35, // 84: eye.v1.MarketDataService.GetPricingStatus:output_type -> eye.v1.GetPricingStatusResponse
-	37, // 85: eye.v1.MarketDataService.GetSweepSchedule:output_type -> eye.v1.GetSweepScheduleResponse
-	39, // 86: eye.v1.MarketDataService.ResetSweepSchedule:output_type -> eye.v1.ResetSweepScheduleResponse
-	64, // [64:87] is the sub-list for method output_type
-	41, // [41:64] is the sub-list for method input_type
-	41, // [41:41] is the sub-list for extension type_name
-	41, // [41:41] is the sub-list for extension extendee
-	0,  // [0:41] is the sub-list for field type_name
+	44, // 36: eye.v1.FetchExternalPricesResponse.covered_assets:type_name -> eye.v1.FetchExternalPricesResponse.CoveredAssetsEntry
+	8,  // 37: eye.v1.GetPricingStatusResponse.statuses:type_name -> eye.v1.AssetPricingStatus
+	40, // 38: eye.v1.GetSweepScheduleResponse.sources:type_name -> eye.v1.SourceSchedule
+	45, // 39: eye.v1.ResetSweepScheduleResponse.assets_freed:type_name -> eye.v1.ResetSweepScheduleResponse.AssetsFreedEntry
+	46, // 40: eye.v1.SourceSchedule.soonest_due:type_name -> google.protobuf.Timestamp
+	46, // 41: eye.v1.SourceSchedule.latest_deferred:type_name -> google.protobuf.Timestamp
+	9,  // 42: eye.v1.MarketDataService.CreateAsset:input_type -> eye.v1.CreateAssetRequest
+	10, // 43: eye.v1.MarketDataService.GetAsset:input_type -> eye.v1.GetAssetRequest
+	11, // 44: eye.v1.MarketDataService.UpdateAsset:input_type -> eye.v1.UpdateAssetRequest
+	12, // 45: eye.v1.MarketDataService.DeleteAsset:input_type -> eye.v1.DeleteAssetRequest
+	13, // 46: eye.v1.MarketDataService.ListAssets:input_type -> eye.v1.ListAssetsRequest
+	15, // 47: eye.v1.MarketDataService.EnrichAssetData:input_type -> eye.v1.EnrichAssetDataRequest
+	16, // 48: eye.v1.MarketDataService.FindSimilarAssets:input_type -> eye.v1.FindSimilarAssetsRequest
+	17, // 49: eye.v1.MarketDataService.FindOrCreateAsset:input_type -> eye.v1.FindOrCreateAssetRequest
+	20, // 50: eye.v1.MarketDataService.SetAssetVerdict:input_type -> eye.v1.SetAssetVerdictRequest
+	19, // 51: eye.v1.MarketDataService.DeleteAssetExternalRef:input_type -> eye.v1.DeleteAssetExternalRefRequest
+	21, // 52: eye.v1.MarketDataService.AddAssetRiskFlag:input_type -> eye.v1.AddAssetRiskFlagRequest
+	22, // 53: eye.v1.MarketDataService.DeleteAssetRiskFlag:input_type -> eye.v1.DeleteAssetRiskFlagRequest
+	23, // 54: eye.v1.MarketDataService.CreatePrice:input_type -> eye.v1.CreatePriceRequest
+	24, // 55: eye.v1.MarketDataService.CreatePrices:input_type -> eye.v1.CreatePricesRequest
+	26, // 56: eye.v1.MarketDataService.GetLatestPrice:input_type -> eye.v1.GetLatestPriceRequest
+	27, // 57: eye.v1.MarketDataService.ListPriceHistory:input_type -> eye.v1.ListPriceHistoryRequest
+	29, // 58: eye.v1.MarketDataService.ListPricesByInterval:input_type -> eye.v1.ListPricesByIntervalRequest
+	30, // 59: eye.v1.MarketDataService.DeletePrice:input_type -> eye.v1.DeletePriceRequest
+	31, // 60: eye.v1.MarketDataService.DeletePrices:input_type -> eye.v1.DeletePricesRequest
+	32, // 61: eye.v1.MarketDataService.FetchExternalPrices:input_type -> eye.v1.FetchExternalPricesRequest
+	34, // 62: eye.v1.MarketDataService.GetPricingStatus:input_type -> eye.v1.GetPricingStatusRequest
+	36, // 63: eye.v1.MarketDataService.GetSweepSchedule:input_type -> eye.v1.GetSweepScheduleRequest
+	38, // 64: eye.v1.MarketDataService.ResetSweepSchedule:input_type -> eye.v1.ResetSweepScheduleRequest
+	2,  // 65: eye.v1.MarketDataService.CreateAsset:output_type -> eye.v1.Asset
+	2,  // 66: eye.v1.MarketDataService.GetAsset:output_type -> eye.v1.Asset
+	2,  // 67: eye.v1.MarketDataService.UpdateAsset:output_type -> eye.v1.Asset
+	48, // 68: eye.v1.MarketDataService.DeleteAsset:output_type -> google.protobuf.Empty
+	14, // 69: eye.v1.MarketDataService.ListAssets:output_type -> eye.v1.ListAssetsResponse
+	2,  // 70: eye.v1.MarketDataService.EnrichAssetData:output_type -> eye.v1.Asset
+	14, // 71: eye.v1.MarketDataService.FindSimilarAssets:output_type -> eye.v1.ListAssetsResponse
+	18, // 72: eye.v1.MarketDataService.FindOrCreateAsset:output_type -> eye.v1.FindOrCreateAssetResponse
+	2,  // 73: eye.v1.MarketDataService.SetAssetVerdict:output_type -> eye.v1.Asset
+	48, // 74: eye.v1.MarketDataService.DeleteAssetExternalRef:output_type -> google.protobuf.Empty
+	3,  // 75: eye.v1.MarketDataService.AddAssetRiskFlag:output_type -> eye.v1.AssetRiskFlag
+	48, // 76: eye.v1.MarketDataService.DeleteAssetRiskFlag:output_type -> google.protobuf.Empty
+	5,  // 77: eye.v1.MarketDataService.CreatePrice:output_type -> eye.v1.Price
+	25, // 78: eye.v1.MarketDataService.CreatePrices:output_type -> eye.v1.CreatePricesResponse
+	5,  // 79: eye.v1.MarketDataService.GetLatestPrice:output_type -> eye.v1.Price
+	28, // 80: eye.v1.MarketDataService.ListPriceHistory:output_type -> eye.v1.ListPriceHistoryResponse
+	28, // 81: eye.v1.MarketDataService.ListPricesByInterval:output_type -> eye.v1.ListPriceHistoryResponse
+	48, // 82: eye.v1.MarketDataService.DeletePrice:output_type -> google.protobuf.Empty
+	48, // 83: eye.v1.MarketDataService.DeletePrices:output_type -> google.protobuf.Empty
+	33, // 84: eye.v1.MarketDataService.FetchExternalPrices:output_type -> eye.v1.FetchExternalPricesResponse
+	35, // 85: eye.v1.MarketDataService.GetPricingStatus:output_type -> eye.v1.GetPricingStatusResponse
+	37, // 86: eye.v1.MarketDataService.GetSweepSchedule:output_type -> eye.v1.GetSweepScheduleResponse
+	39, // 87: eye.v1.MarketDataService.ResetSweepSchedule:output_type -> eye.v1.ResetSweepScheduleResponse
+	65, // [65:88] is the sub-list for method output_type
+	42, // [42:65] is the sub-list for method input_type
+	42, // [42:42] is the sub-list for extension type_name
+	42, // [42:42] is the sub-list for extension extendee
+	0,  // [0:42] is the sub-list for field type_name
 }
 
 func init() { file_v1_marketdata_proto_init() }
@@ -3537,7 +3555,7 @@ func file_v1_marketdata_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_marketdata_proto_rawDesc), len(file_v1_marketdata_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   43,
+			NumMessages:   44,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

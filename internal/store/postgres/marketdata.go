@@ -903,48 +903,15 @@ func (s *MarketDataStore) ListAssets(ctx context.Context, opts marketdata.ListAs
 // everything else, so a freshly synced token is priced on the next sweep, and
 // the id tie-break keeps the rotation deterministic.
 func (s *MarketDataStore) ListStalePricingTargets(ctx context.Context, opts marketdata.StalePricingOpts) ([]*entity.Asset, error) {
-	if opts.SourceID == "" {
-		return nil, fmt.Errorf("%w: source_id is required", store.ErrInvalidArgument)
-	}
-	now := opts.Now
-	if now.IsZero() {
-		now = time.Now()
-	}
-
-	args := []any{opts.SourceID, now}
-	argIdx := 3
-	whereClauses := []string{"(f.next_attempt_at IS NULL OR f.next_attempt_at <= $2)"}
-
-	if len(opts.Symbols) > 0 {
-		whereClauses = append(whereClauses, fmt.Sprintf("a.symbol = ANY($%d)", argIdx))
-		args = append(args, opts.Symbols)
-		argIdx++
-	}
-	if len(opts.ExcludeSymbols) > 0 {
-		whereClauses = append(whereClauses, fmt.Sprintf("a.symbol <> ALL($%d)", argIdx))
-		args = append(args, opts.ExcludeSymbols)
-		argIdx++
-	}
-	if len(opts.ExcludeVerdicts) > 0 {
-		whereClauses = append(whereClauses, fmt.Sprintf("a.identity_verdict <> ALL($%d)", argIdx))
-		args = append(args, opts.ExcludeVerdicts)
-		argIdx++
-	}
-	if len(opts.IDs) > 0 {
-		whereClauses = append(whereClauses, fmt.Sprintf("a.id = ANY($%d::uuid[])", argIdx))
-		args = append(args, opts.IDs)
-		argIdx++
-	}
-	if opts.ExcludeContested {
-		whereClauses = append(whereClauses, "NOT "+contestedWhere(fmt.Sprintf("$%d", argIdx)))
-		args = append(args, nonNil(opts.ExcludeVerdicts))
-		argIdx++
+	where, args, err := stalePricingWhere(opts, false)
+	if err != nil {
+		return nil, err
 	}
 
 	limitClause := ""
 	if opts.Limit > 0 {
-		limitClause = fmt.Sprintf("LIMIT $%d", argIdx)
 		args = append(args, opts.Limit)
+		limitClause = fmt.Sprintf("LIMIT $%d", len(args))
 	}
 
 	query := fmt.Sprintf(`
@@ -954,8 +921,7 @@ func (s *MarketDataStore) ListStalePricingTargets(ctx context.Context, opts mark
 			ON f.asset_id = a.id AND f.source_id = $1
 		WHERE %s
 		ORDER BY f.next_attempt_at ASC NULLS FIRST, a.id
-		%s`,
-		strings.Join(whereClauses, " AND "), limitClause)
+		%s`, where, limitClause)
 
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -976,6 +942,113 @@ func (s *MarketDataStore) ListStalePricingTargets(ctx context.Context, opts mark
 	}
 
 	return assets, nil
+}
+
+// CountCoveredTargets counts what the Covered filter removes from the
+// selection: the same predicate, with the coverage condition inverted.
+func (s *MarketDataStore) CountCoveredTargets(ctx context.Context, opts marketdata.StalePricingOpts) (int, error) {
+	if len(opts.Covered) == 0 {
+		return 0, nil
+	}
+	where, args, err := stalePricingWhere(opts, true)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	err = s.pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM assets a
+		LEFT JOIN price_fetch_attempts f
+			ON f.asset_id = a.id AND f.source_id = $1
+		WHERE `+where, args...).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count covered pricing targets: %w", err)
+	}
+	return n, nil
+}
+
+// stalePricingWhere builds the selection predicate shared by the list and the
+// covered count; coveredOnly keeps exactly the rows Covered would drop.
+func stalePricingWhere(opts marketdata.StalePricingOpts, coveredOnly bool) (string, []any, error) {
+	if opts.SourceID == "" {
+		return "", nil, fmt.Errorf("%w: source_id is required", store.ErrInvalidArgument)
+	}
+	now := opts.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+
+	args := []any{opts.SourceID, now}
+	next := func(v any) string {
+		args = append(args, v)
+		return fmt.Sprintf("$%d", len(args))
+	}
+	where := []string{"(f.next_attempt_at IS NULL OR f.next_attempt_at <= $2)"}
+
+	if len(opts.Symbols) > 0 {
+		where = append(where, "a.symbol = ANY("+next(opts.Symbols)+")")
+	}
+	if len(opts.ExcludeSymbols) > 0 {
+		where = append(where, "a.symbol <> ALL("+next(opts.ExcludeSymbols)+")")
+	}
+	if len(opts.ExcludeVerdicts) > 0 {
+		where = append(where, "a.identity_verdict <> ALL("+next(opts.ExcludeVerdicts)+")")
+	}
+	if len(opts.IDs) > 0 {
+		where = append(where, "a.id = ANY("+next(opts.IDs)+"::uuid[])")
+	}
+	if opts.ExcludeContested {
+		where = append(where, "NOT "+contestedWhere(next(nonNil(opts.ExcludeVerdicts))))
+	}
+	if len(opts.Covered) > 0 {
+		// Never asked counts as asked long ago: the first time is not overlap.
+		covered := fmt.Sprintf("(a.id = ANY(%s::uuid[]) AND COALESCE(f.attempted_at >= %s, false))",
+			next(opts.Covered), next(opts.CoveredRecheckBefore))
+		if coveredOnly {
+			where = append(where, covered)
+		} else {
+			where = append(where, "NOT "+covered)
+		}
+	}
+
+	return strings.Join(where, " AND "), args, nil
+}
+
+// FreshTradedQuotes reads each (asset, source)'s newest quote since `since`,
+// from every source but one, and keeps it only if it is traded with a volume:
+// an older traded row must not cover for a newer one that claims no trade.
+//
+// shortcut: no index leads with prices.timestamp, so this scans the table once
+// per budgeted source per sweep; add one if prices grows past a few million rows (personal-psu.6).
+func (s *MarketDataStore) FreshTradedQuotes(ctx context.Context, excludeSource string, since time.Time) ([]*entity.StoredPrice, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT asset_id, source_id, base_asset_id, decimals, last, volume, timestamp
+		FROM (
+			SELECT DISTINCT ON (asset_id, source_id)
+			       asset_id, source_id, base_asset_id, decimals, last, volume, timestamp, provenance
+			FROM prices
+			WHERE source_id <> $1 AND timestamp >= $2
+			ORDER BY asset_id, source_id, timestamp DESC
+		) newest
+		WHERE provenance = $3 AND volume IS NOT NULL`,
+		excludeSource, since, string(entity.PriceProvenanceTraded))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read fresh traded quotes: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*entity.StoredPrice
+	for rows.Next() {
+		p := entity.StoredPrice{Provenance: entity.PriceProvenanceTraded}
+		if err := rows.Scan(&p.AssetID, &p.SourceID, &p.BaseAssetID, &p.Decimals, &p.Last, &p.Volume, &p.Timestamp); err != nil {
+			return nil, fmt.Errorf("failed to scan fresh traded quote: %w", err)
+		}
+		out = append(out, &p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate fresh traded quotes: %w", err)
+	}
+	return out, nil
 }
 
 // SweepSchedule aggregates the attempt log per source into the queue the next
