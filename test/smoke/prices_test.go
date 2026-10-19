@@ -43,7 +43,7 @@ func TestFetchExternalPrices_Keyless(t *testing.T) {
 	require.NoError(t, err)
 	eurID := createResp.Msg.GetId()
 
-	fetchResp, err := client.FetchExternalPrices(ctx, connect.NewRequest(&v1.FetchExternalPricesRequest{
+	fetchResp, err := newMDAdminClient(smokeTestUserID).FetchExternalPrices(ctx, connect.NewRequest(&v1.FetchExternalPricesRequest{
 		SourceIds: []string{cbradapter.ProviderName},
 		AssetIds:  []string{eurID},
 	}))

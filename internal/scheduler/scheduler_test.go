@@ -55,6 +55,7 @@ func (f *fakeExecutor) ExecuteRule(ctx context.Context, req *connect.Request[api
 type fakeFetcher struct {
 	mu    sync.Mutex
 	calls []*connect.Request[apiv1.FetchExternalPricesRequest]
+	ctxs  []context.Context
 	resp  *connect.Response[apiv1.FetchExternalPricesResponse]
 	err   error
 }
@@ -63,6 +64,7 @@ func (f *fakeFetcher) FetchExternalPrices(ctx context.Context, req *connect.Requ
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, req)
+	f.ctxs = append(f.ctxs, ctx)
 	return f.resp, f.err
 }
 
@@ -238,6 +240,9 @@ func TestFetchPrices_EmptyRequest(t *testing.T) {
 	require.Len(t, fetcher.calls, 1)
 	assert.Empty(t, fetcher.calls[0].Msg.GetAssetIds())
 	assert.Empty(t, fetcher.calls[0].Msg.GetSourceIds())
+	// The fetch is admin-only over RPC and the sweep has no user: without the
+	// in-process mark every hourly sweep would be refused (personal-nywa).
+	assert.True(t, middleware.SyncAuthority(fetcher.ctxs[0]))
 }
 
 func TestFetchPrices_ErrorHandled(t *testing.T) {
