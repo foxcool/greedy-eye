@@ -318,6 +318,22 @@ func mayCreateAsset(ctx context.Context) error {
 	return requireSyncOrAdmin(ctx, "adding an asset to the catalogue")
 }
 
+// mayFetchPrices decides who may start a price fetch, the one place this rule
+// is argued.
+//
+// A fetch spends a provider plan the whole instance shares: an unnamed request
+// sweeps the catalogue, and a named one skips the sweep's portion and the
+// provider's own refusal back-off, so a caller naming a thousand ids spends
+// what the planner sized for everyone. Which assets get priced, and when, is
+// the operator's call (personal-nywa).
+//
+// So only in-process callers — the price sweep and the pricing that follows a
+// sync — and an admin may ask. A user refreshes their own prices by syncing:
+// the sync prices exactly what it touched, and nothing they do not hold.
+func mayFetchPrices(ctx context.Context) error {
+	return requireSyncOrAdmin(ctx, "fetching external prices")
+}
+
 // requireSyncOrAdmin passes the in-process sync (middleware.WithSyncAuthority)
 // and an admin. A split deployment will need a service identity in place of
 // the in-process mark.
@@ -1341,6 +1357,10 @@ var quarantineVerdicts = []string{
 // narrowed to the named assets — and what it leaves is counted in
 // deferred_assets for the next sweep to pick up.
 func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[apiv1.FetchExternalPricesRequest]) (*connect.Response[apiv1.FetchExternalPricesResponse], error) {
+	if err := mayFetchPrices(ctx); err != nil {
+		return nil, err
+	}
+
 	providers, err := h.resolveProviders(ctx)
 	if err != nil {
 		return nil, err
@@ -1933,7 +1953,15 @@ func (h *Handler) GetSweepSchedule(ctx context.Context, req *connect.Request[api
 // a typo in a source name would otherwise report a confident zero, which reads
 // exactly like "the schedule was already clear" — the answer most likely to
 // send an operator looking for the problem somewhere else.
+//
+// Admin-only: the back-off is shared by every holder of every asset it covers,
+// and forgiving it re-spends the plan on what the sources kept refusing
+// (personal-nywa). Nothing in-process calls it.
 func (h *Handler) ResetSweepSchedule(ctx context.Context, req *connect.Request[apiv1.ResetSweepScheduleRequest]) (*connect.Response[apiv1.ResetSweepScheduleResponse], error) {
+	if _, err := requireAdmin(ctx, "resetting the sweep schedule"); err != nil {
+		return nil, err
+	}
+
 	want := req.Msg.GetSourceIds()
 	if len(want) == 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument,

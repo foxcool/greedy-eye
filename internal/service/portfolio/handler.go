@@ -1505,8 +1505,10 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	// hour of the cron sweep and buys nothing the sync changed. One call for
 	// the whole fan-out, not one per account: three accounts of the same broker
 	// hold the same paper, and asking twice about it spends the plan twice.
+	// The fetch is admin-only over RPC; a sync pricing what it touched carries
+	// the in-process mark, so a non-admin's sync still prices their holdings.
 	if len(out.syncedAssetIDs) > 0 {
-		if _, err := h.mdClient.FetchExternalPrices(ctx, connect.NewRequest(&apiv1.FetchExternalPricesRequest{
+		if _, err := h.mdClient.FetchExternalPrices(middleware.WithSyncAuthority(ctx), connect.NewRequest(&apiv1.FetchExternalPricesRequest{
 			AssetIds: out.syncedAssetIDs,
 		})); err != nil {
 			h.log.Warn("fetch prices after sync failed", "error", err)

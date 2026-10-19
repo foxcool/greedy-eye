@@ -8,6 +8,7 @@ import (
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -78,7 +79,9 @@ func TestSyncAccount_BrokerPositionsBecomeHoldings(t *testing.T) {
 	// USD000UTSTOM), so binding by it would tie dollars to a contract instead
 	// of to the currency the rest of the system already prices.
 	expectAsset(md, "USD", apiv1.AssetType_ASSET_TYPE_FOREX, "forex", "", "")
-	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+	// The fetch is admin-only over RPC; a non-admin's sync prices what it
+	// touched only because it carries the in-process mark (personal-nywa).
+	md.On("FetchExternalPrices", mock.MatchedBy(middleware.SyncAuthority), mock.Anything).
 		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
 
 	h := newHandler(s).WithMarketDataClient(md).WithBrokerSyncerSource(&mockBrokerSource{syncer: syncer})

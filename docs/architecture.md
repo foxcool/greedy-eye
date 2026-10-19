@@ -1004,6 +1004,10 @@ Cron / API Client → AutomationService/ExecuteRule
   the provider flags that feed the score (`provider_spam`, `contract_verified`) are refused from
   any caller but the sync — a caller who heard nothing from a provider would otherwise judge the
   row for every holder (`personal-ztoc`; rationale at `marketdata.mayReportProviderFlags`).
+  Spending the shared provider plan is gated the same way: `FetchExternalPrices` answers only the
+  in-process price sweep, a sync pricing what it touched, and an admin; `ResetSweepSchedule` only
+  an admin. A user's own prices come from syncing (`personal-nywa`; rationale at
+  `marketdata.mayFetchPrices`).
   The check lives in the handler (`requireAdmin`); the FE hiding a
   control is presentation, not enforcement. Per-asset RBAC is `personal-rme`.
 

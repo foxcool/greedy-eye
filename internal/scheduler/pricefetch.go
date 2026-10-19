@@ -8,6 +8,7 @@ import (
 	"connectrpc.com/connect"
 
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
+	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/spend"
 )
 
@@ -17,8 +18,9 @@ import (
 func (s *Scheduler) fetchPrices() {
 	// Background class: on a plan metered by volume, an unattended sweep yields
 	// its last fifth of the month's allowance to whoever presses Sync.
+	// Sync authority: the fetch is admin-only over RPC, and the sweep has no user.
 	ctx, cancel := context.WithTimeout(spend.WithCaller(
-		spend.WithClass(context.Background(), spend.ClassBackground), "job:price_sweep"), jobTimeout)
+		spend.WithClass(middleware.WithSyncAuthority(context.Background()), spend.ClassBackground), "job:price_sweep"), jobTimeout)
 	defer cancel()
 
 	start := time.Now()

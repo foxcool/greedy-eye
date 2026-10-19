@@ -781,7 +781,7 @@ func TestStubs_ReturnUnimplemented(t *testing.T) {
 	_, err = h.FindSimilarAssets(ctx, connect.NewRequest(&apiv1.FindSimilarAssetsRequest{}))
 	assert.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
 
-	_, err = h.FetchExternalPrices(ctx, connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	_, err = h.FetchExternalPrices(syncContext(), connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	assert.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
 }
 
@@ -1822,7 +1822,7 @@ func TestFetchExternalPrices_RowBaseOverridesProviderDefault(t *testing.T) {
 	p := &perRowBaseProvider{rowBase: map[string]string{"rub-quoted": "RUB"}}
 	h := newHandler(s).WithProvider("broker", p)
 
-	_, err := h.FetchExternalPrices(context.Background(), connect.NewRequest(
+	_, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
 		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"usd-quoted", "rub-quoted"}}))
 	require.NoError(t, err)
 
@@ -1879,7 +1879,7 @@ func TestFetchExternalPrices_PersistsDiscoveredRefs(t *testing.T) {
 	}}
 	h := newHandler(s).WithProvider("broker", p)
 
-	_, err := h.FetchExternalPrices(context.Background(), connect.NewRequest(
+	_, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
 		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"unbound-1"}}))
 	require.NoError(t, err)
 	s.AssertExpectations(t)
@@ -1905,7 +1905,7 @@ func TestFetchExternalPrices_DuplicateRefIsNotAnError(t *testing.T) {
 	}}
 	h := newHandler(s).WithProvider("broker", p)
 
-	resp, err := h.FetchExternalPrices(context.Background(), connect.NewRequest(
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
 		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"bound-1"}}))
 	require.NoError(t, err)
 	assert.Empty(t, resp.Msg.Errors)
@@ -1924,7 +1924,7 @@ func TestFetchExternalPrices_PlainProviderDiscoversNothing(t *testing.T) {
 
 	h := newHandler(s).WithProvider("fake", &fakePriceProvider{prices: map[string]bool{"plain-1": true}})
 
-	_, err := h.FetchExternalPrices(context.Background(), connect.NewRequest(
+	_, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
 		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"plain-1"}}))
 	require.NoError(t, err)
 	s.AssertNotCalled(t, "CreateAssetExternalRef", mock.Anything, mock.Anything)
@@ -1949,7 +1949,7 @@ func TestFetchExternalPrices_SweepSelectsDueAssets(t *testing.T) {
 	p := &fakePriceProvider{prices: map[string]bool{"due-1": true}}
 	h := newHandler(s).WithProvider("fake", p)
 
-	resp, err := h.FetchExternalPrices(context.Background(),
+	resp, err := h.FetchExternalPrices(syncContext(),
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), resp.Msg.PricesFetched)
@@ -1976,7 +1976,7 @@ func TestFetchExternalPrices_ExplicitIDsBypassSelection(t *testing.T) {
 	p := &fakePriceProvider{prices: map[string]bool{"named-1": true}}
 	h := newHandler(s).WithProvider("fake", p)
 
-	_, err := h.FetchExternalPrices(context.Background(),
+	_, err := h.FetchExternalPrices(syncContext(),
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{AssetIds: []string{"named-1"}}))
 	require.NoError(t, err)
 	s.AssertExpectations(t)
@@ -2010,7 +2010,7 @@ func TestFetchExternalPrices_BudgetCapsTheSweep(t *testing.T) {
 	}
 	h := newHandler(s).WithProvider("fake", p).WithRefreshWindow(time.Hour)
 
-	_, err := h.FetchExternalPrices(context.Background(),
+	_, err := h.FetchExternalPrices(syncContext(),
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	require.NoError(t, err)
 	s.AssertExpectations(t)
@@ -2046,7 +2046,7 @@ func TestFetchExternalPrices_ZeroBudgetStillPricesFreeTier(t *testing.T) {
 	}
 	h := newHandler(s).WithProvider("fake", p).WithRefreshWindow(time.Hour)
 
-	_, err := h.FetchExternalPrices(context.Background(),
+	_, err := h.FetchExternalPrices(syncContext(),
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	require.NoError(t, err)
 	s.AssertNumberOfCalls(t, "ListStalePricingTargets", 1)
@@ -2074,7 +2074,7 @@ func TestFetchExternalPrices_MissesAreRecorded(t *testing.T) {
 	p := &fakePriceProvider{prices: map[string]bool{"priced-1": true}}
 	h := newHandler(s).WithProvider("fake", p)
 
-	_, err := h.FetchExternalPrices(context.Background(),
+	_, err := h.FetchExternalPrices(syncContext(),
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	require.NoError(t, err)
 	s.AssertExpectations(t)
@@ -2094,7 +2094,7 @@ func TestFetchExternalPrices_QuarantinedExcluded(t *testing.T) {
 
 	h := newHandler(s).WithProvider("fake", &fakePriceProvider{})
 
-	_, err := h.FetchExternalPrices(context.Background(),
+	_, err := h.FetchExternalPrices(syncContext(),
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	require.NoError(t, err)
 	s.AssertExpectations(t)
@@ -2194,7 +2194,7 @@ func TestFetchExternalPrices_SkipsUnusableProvider(t *testing.T) {
 		WithProvider("coingecko", spent).
 		WithProvider("binance", working)
 
-	_, err := h.FetchExternalPrices(context.Background(), connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	_, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	require.NoError(t, err)
 
 	assert.Empty(t, spent.asked, "the unusable provider is never asked")
@@ -2217,7 +2217,7 @@ func TestFetchExternalPrices_ReconciliationIgnoresHealth(t *testing.T) {
 	p := &stuckProvider{reason: "share spent"}
 	h := newHandler(s).WithProvider("coingecko", p)
 
-	_, err := h.FetchExternalPrices(context.Background(), connect.NewRequest(
+	_, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
 		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a1"}}))
 	require.NoError(t, err)
 	assert.NotEmpty(t, p.asked, "an explicitly named asset is still asked for")
@@ -2226,7 +2226,7 @@ func TestFetchExternalPrices_ReconciliationIgnoresHealth(t *testing.T) {
 // --- Tests: background work that names its assets is still background (personal-ozdu) ---
 
 func backgroundCtx() context.Context {
-	return spend.WithClass(context.Background(), spend.ClassBackground)
+	return spend.WithClass(syncContext(), spend.ClassBackground)
 }
 
 // The balance sweep names what each sync touched, and naming used to make the
@@ -2314,7 +2314,7 @@ func TestFetchExternalPrices_BudgetExhaustedIsNamed(t *testing.T) {
 	h := newHandler(s).WithProvider("metered", &fakePriceProvider{budget: 0, hasBudget: true})
 	h.refreshWindow = time.Hour
 
-	resp, err := h.FetchExternalPrices(context.Background(),
+	resp, err := h.FetchExternalPrices(syncContext(),
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	require.NoError(t, err)
 	assert.Equal(t, "budget_exhausted", resp.Msg.GetIdleSources()["metered"])
@@ -2337,7 +2337,7 @@ func TestFetchExternalPrices_AllDeferredIsNamed(t *testing.T) {
 
 	h := newHandler(s).WithProvider("fake", &fakePriceProvider{})
 
-	resp, err := h.FetchExternalPrices(context.Background(),
+	resp, err := h.FetchExternalPrices(syncContext(),
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	require.NoError(t, err)
 	assert.Equal(t, "all_deferred", resp.Msg.GetIdleSources()["fake"])
@@ -2355,7 +2355,7 @@ func TestFetchExternalPrices_NothingDueIsNamed(t *testing.T) {
 
 	h := newHandler(s).WithProvider("fake", &fakePriceProvider{})
 
-	resp, err := h.FetchExternalPrices(context.Background(),
+	resp, err := h.FetchExternalPrices(syncContext(),
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	require.NoError(t, err)
 	assert.Equal(t, "nothing_due", resp.Msg.GetIdleSources()["fake"])
@@ -2375,7 +2375,7 @@ func TestFetchExternalPrices_WorkingSweepReportsNoIdleSource(t *testing.T) {
 
 	h := newHandler(s).WithProvider("fake", &fakePriceProvider{prices: map[string]bool{"asset-1": true}})
 
-	resp, err := h.FetchExternalPrices(context.Background(),
+	resp, err := h.FetchExternalPrices(syncContext(),
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	require.NoError(t, err)
 	assert.Empty(t, resp.Msg.GetIdleSources())
@@ -2417,7 +2417,7 @@ func TestResetSweepSchedule_ForgivesNamedSourcesOnly(t *testing.T) {
 		WithProvider("a", &fakePriceProvider{}).
 		WithProvider("b", &fakePriceProvider{})
 
-	resp, err := h.ResetSweepSchedule(context.Background(),
+	resp, err := h.ResetSweepSchedule(adminContext(),
 		connect.NewRequest(&apiv1.ResetSweepScheduleRequest{SourceIds: []string{"a"}}))
 	require.NoError(t, err)
 	assert.Equal(t, map[string]uint32{"a": 204}, resp.Msg.GetAssetsFreed())
@@ -2431,7 +2431,7 @@ func TestResetSweepSchedule_RequiresNamedSources(t *testing.T) {
 	s := &mockStore{}
 	h := newHandler(s).WithProvider("a", &fakePriceProvider{})
 
-	_, err := h.ResetSweepSchedule(context.Background(),
+	_, err := h.ResetSweepSchedule(adminContext(),
 		connect.NewRequest(&apiv1.ResetSweepScheduleRequest{}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
@@ -2445,11 +2445,55 @@ func TestResetSweepSchedule_UnknownSourceIsNotAQuietZero(t *testing.T) {
 	s := &mockStore{}
 	h := newHandler(s).WithProvider("a", &fakePriceProvider{})
 
-	_, err := h.ResetSweepSchedule(context.Background(),
+	_, err := h.ResetSweepSchedule(adminContext(),
 		connect.NewRequest(&apiv1.ResetSweepScheduleRequest{SourceIds: []string{"moex"}}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 	s.AssertNotCalled(t, "ResetPriceAttempts", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// Forgiving back-off re-spends a plan every holder shares, so it is an
+// operator's call: a signed-in user is refused, and so is the in-process mark,
+// which nothing that resets the schedule carries (personal-nywa).
+func TestResetSweepSchedule_IsAdminOnly(t *testing.T) {
+	s := &mockStore{}
+	h := newHandler(s).WithProvider("a", &fakePriceProvider{})
+	req := connect.NewRequest(&apiv1.ResetSweepScheduleRequest{SourceIds: []string{"a"}})
+
+	plain := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	_, err := h.ResetSweepSchedule(plain, req)
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+	_, err = h.ResetSweepSchedule(syncContext(), req)
+	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+
+	s.AssertNotCalled(t, "ResetPriceAttempts", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// A fetch spends the shared provider plan whether it sweeps the catalogue or
+// names assets, so a signed-in user is refused both before any provider or
+// store is touched. A user's own prices come from syncing (personal-nywa).
+func TestFetchExternalPrices_IsSyncOrAdminOnly(t *testing.T) {
+	plain := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	for name, msg := range map[string]*apiv1.FetchExternalPricesRequest{
+		"sweep": {},
+		"named": {AssetIds: []string{"btc"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := &mockStore{}
+			p := &fakePriceProvider{}
+			h := newHandler(s).WithProvider("a", p)
+
+			_, err := h.FetchExternalPrices(plain, connect.NewRequest(msg))
+			assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+			_, err = h.FetchExternalPrices(context.Background(), connect.NewRequest(msg))
+			assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+
+			// mockStore has no expectations, so any store read would panic.
+			assert.Empty(t, p.asked)
+		})
+	}
 }
 
 // soonest_due is absent rather than zero when nothing is deferred: a zero
@@ -2529,7 +2573,7 @@ func TestFetchExternalPrices_UnaskedAssetsAreNotRecordedAsMisses(t *testing.T) {
 	}
 	h := newHandler(s).WithProvider("fake", provider)
 
-	_, err := h.FetchExternalPrices(context.Background(),
+	_, err := h.FetchExternalPrices(syncContext(),
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	require.NoError(t, err)
 
@@ -2563,7 +2607,7 @@ func TestFetchExternalPrices_GenuineMissIsStillRecorded(t *testing.T) {
 	}
 	h := newHandler(s).WithProvider("fake", provider)
 
-	_, err := h.FetchExternalPrices(context.Background(),
+	_, err := h.FetchExternalPrices(syncContext(),
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	require.NoError(t, err)
 
@@ -2589,7 +2633,7 @@ func TestFetchExternalPrices_TransportFailureRecordsNoMisses(t *testing.T) {
 	provider := &fakePriceProvider{fetchError: errors.New("unexpected status 400 from Binance")}
 	h := newHandler(s).WithProvider("fake", provider)
 
-	resp, err := h.FetchExternalPrices(context.Background(),
+	resp, err := h.FetchExternalPrices(syncContext(),
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	require.NoError(t, err)
 	assert.NotEmpty(t, resp.Msg.GetErrors(), "the failure is still reported")
@@ -2725,7 +2769,7 @@ func fetchNamed(t *testing.T, p PriceProvider, assets []*entity.Asset, contested
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil).Maybe()
 	s.On("CreatePrices", mock.Anything, mock.Anything).Return(len(assets), nil).Maybe()
 
-	resp, err := newHandler(s).WithProvider("venue", p).FetchExternalPrices(context.Background(),
+	resp, err := newHandler(s).WithProvider("venue", p).FetchExternalPrices(syncContext(),
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{AssetIds: assetIDs(assets)}))
 	require.NoError(t, err)
 	return resp.Msg, s
@@ -2810,7 +2854,7 @@ func TestFetchExternalPrices_ContestAskedOncePerAsset(t *testing.T) {
 	h := newHandler(s).
 		WithProvider("one", &bindingProvider{binding: moex}).
 		WithProvider("two", &bindingProvider{binding: moex})
-	_, err := h.FetchExternalPrices(context.Background(),
+	_, err := h.FetchExternalPrices(syncContext(),
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a"}}))
 	require.NoError(t, err)
 	s.AssertExpectations(t)
@@ -2824,7 +2868,7 @@ func TestFetchExternalPrices_ContestLookupFailureWithholdsTheBatch(t *testing.T)
 	s.On("ContestedAssets", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("db down"))
 	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{marketAsset("sber", "SBER", "moex")}, "", nil)
 
-	resp, err := newHandler(s).WithProvider("venue", p).FetchExternalPrices(context.Background(),
+	resp, err := newHandler(s).WithProvider("venue", p).FetchExternalPrices(syncContext(),
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{AssetIds: []string{"sber"}}))
 	require.NoError(t, err)
 	assert.Empty(t, p.priced)
