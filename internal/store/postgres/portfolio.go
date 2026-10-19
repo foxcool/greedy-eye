@@ -2133,6 +2133,44 @@ func (s *PortfolioStore) UpdateTransaction(ctx context.Context, t *entity.Transa
 	return s.GetTransaction(ctx, t.ID)
 }
 
+// UnsolicitedAssets reports, per asset with a non-zero position, whether every
+// such position came from sync and no transaction names the asset. Sync never
+// writes transactions, so any one means a person recorded it. Asset-wide, since
+// a coin bought on an exchange arrives in a wallet by sync.
+//
+// shortcut: no index leads with holdings.asset_id or transactions.asset_transactions,
+// so each call scans both; add them when the tables grow (personal-6ae.4).
+func (s *PortfolioStore) UnsolicitedAssets(ctx context.Context, assetIDs []string) (map[string]bool, error) {
+	if len(assetIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT h.asset_id,
+		       bool_and(h.source = $2) AND NOT EXISTS (
+		           SELECT 1 FROM transactions t WHERE t.asset_transactions = h.asset_id)
+		FROM holdings h
+		WHERE h.asset_id = ANY($1::uuid[]) AND h.amount <> 0
+		GROUP BY h.asset_id`, assetIDs, string(entity.SourceSync))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read holding provenance: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[string]bool{}
+	for rows.Next() {
+		var id string
+		var unsolicited bool
+		if err := rows.Scan(&id, &unsolicited); err != nil {
+			return nil, fmt.Errorf("failed to scan holding provenance: %w", err)
+		}
+		out[id] = unsolicited
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate holding provenance: %w", err)
+	}
+	return out, nil
+}
+
 func (s *PortfolioStore) ListTransactions(ctx context.Context, opts portfolio.ListTransactionsOpts) ([]*entity.Transaction, string, error) {
 	limit := opts.PageSize
 	if limit <= 0 {

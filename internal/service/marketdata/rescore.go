@@ -46,7 +46,8 @@ type FlaggedAsset struct {
 //
 // The score uses text signals (symbol/name) plus a cheap listing check: an asset
 // no price provider can resolve is a weak scam signal, and the catalogue's
-// unpriced tokens are exactly the unlisted scams. Provider signals (moralis
+// unpriced tokens are exactly the unlisted scams. Beside it, whether anyone
+// ever bought the asset. Provider signals (moralis
 // possible_spam, contract-verified) are not available here — they enter at sync
 // intake (A3); this pass judges what the stored catalogue alone reveals.
 func (h *Handler) RescoreAssets(ctx context.Context) (RescoreReport, error) {
@@ -63,6 +64,7 @@ func (h *Handler) RescoreAssets(ctx context.Context) (RescoreReport, error) {
 			return report, fmt.Errorf("list assets for rescore: %w", err)
 		}
 
+		unsolicited := h.unsolicitedAssets(ctx, assetIDs(assets))
 		for _, a := range assets {
 			// A user verdict is terminal — do not even rescore it.
 			if isUserVerdict(a.VerdictSource) {
@@ -73,6 +75,7 @@ func (h *Handler) RescoreAssets(ctx context.Context) (RescoreReport, error) {
 				Symbol:          a.Symbol,
 				Name:            a.Name,
 				HasPriceListing: h.hasPriceListing(ctx, a.ID),
+				Unsolicited:     unsolicitedOf(unsolicited, a.ID),
 				// The catalogue changes under an asset: a ticker unclaimed when
 				// the asset was first seen may be held by the time the real one
 				// is listed, so the collision is re-asked here rather than
@@ -131,6 +134,40 @@ func (h *Handler) hasPriceListing(ctx context.Context, assetID string) *bool {
 		return &no
 	}
 	return nil
+}
+
+// unsolicitedAssets asks which of these assets were never bought. On error it
+// logs and returns nil, leaving the signal unjudged.
+func (h *Handler) unsolicitedAssets(ctx context.Context, ids []string) map[string]bool {
+	if h.provenance == nil || len(ids) == 0 {
+		return nil
+	}
+	m, err := h.provenance.UnsolicitedAssets(ctx, ids)
+	if err != nil {
+		if h.log != nil {
+			h.log.Warn("holding provenance lookup failed", "assets", len(ids), "error", err)
+		}
+		return nil
+	}
+	return m
+}
+
+func assetIDs(assets []*entity.Asset) []string {
+	out := make([]string, 0, len(assets))
+	for _, a := range assets {
+		out = append(out, a.ID)
+	}
+	return out
+}
+
+// unsolicitedOf turns the lookup into the scorer's tri-state: an asset absent
+// from it is held by nobody (or was not asked about) and is not judged.
+func unsolicitedOf(m map[string]bool, assetID string) *bool {
+	v, ok := m[assetID]
+	if !ok {
+		return nil
+	}
+	return &v
 }
 
 // logRescoreReport emits the pass summary and the flagged assets. The flagged

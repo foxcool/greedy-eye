@@ -258,3 +258,48 @@ func TestScore_VenueListedKeepsWeightedSignals(t *testing.T) {
 		assert.NotContains(t, got.Signals, SignalInvisibleUnicode)
 	})
 }
+
+// TestScore_UnsolicitedCorroboratesOnly: an asset that only ever arrived by sync
+// is not condemned on that alone — airdrops and gifts can be real — but beside
+// no listing it crosses into suspect, a review state, never scam. MNEP
+// ("Minereum Polygon") is the case: clean text, unlisted, never bought.
+func TestScore_UnsolicitedCorroboratesOnly(t *testing.T) {
+	w := DefaultWeights()
+
+	alone := Score(Input{Symbol: "MNEP", Name: "Minereum Polygon", Unsolicited: ptr(true)}, w)
+	assert.Equal(t, VerdictLegit, alone.Verdict)
+	assert.Contains(t, alone.Signals, SignalUnsolicited)
+
+	unlisted := Score(Input{
+		Symbol: "MNEP", Name: "Minereum Polygon",
+		Unsolicited: ptr(true), HasPriceListing: ptr(false),
+	}, w)
+	assert.Equal(t, VerdictSuspect, unlisted.Verdict)
+	assert.InDelta(t, w.Unsolicited+w.NoListing, unlisted.Score, 1e-9)
+
+	bought := Score(Input{
+		Symbol: "MNEP", Name: "Minereum Polygon",
+		Unsolicited: ptr(false), HasPriceListing: ptr(false),
+	}, w)
+	assert.Equal(t, VerdictLegit, bought.Verdict)
+	assert.NotContains(t, bought.Signals, SignalUnsolicited)
+}
+
+// TestScore_UnsolicitedNeverCondemns: a priced airdrop a provider flags as spam
+// with an unverified contract sums to the scam threshold only because of
+// unsolicited; it must stop at suspect, since scam would drop real value from
+// every holder's total. Signals that condemn on their own still do.
+func TestScore_UnsolicitedNeverCondemns(t *testing.T) {
+	w := DefaultWeights()
+	flagged := Input{
+		Symbol: "GIFT", Name: "Gift Token",
+		ProviderSpam: ptr(true), ContractVerified: ptr(false),
+		HasPriceListing: ptr(true), Unsolicited: ptr(true),
+	}
+	got := Score(flagged, w)
+	assert.GreaterOrEqual(t, got.Score, w.ScamThreshold, "the sum is honest; only the verdict is capped")
+	assert.Equal(t, VerdictSuspect, got.Verdict)
+
+	flagged.HasPriceListing = ptr(false)
+	assert.Equal(t, VerdictScam, Score(flagged, w).Verdict, "scam without unsolicited stays scam")
+}

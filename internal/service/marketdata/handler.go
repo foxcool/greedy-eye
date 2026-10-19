@@ -144,12 +144,21 @@ type ContractResolver interface {
 	ResolveContract(ctx context.Context, chain, address string) (coinID, symbol string, listed bool, err error)
 }
 
+// HoldingProvenance is the portfolio-side answer to "was this asset ever
+// bought", which marketdata cannot read from its own tables.
+type HoldingProvenance interface {
+	// UnsolicitedAssets maps each held asset to whether all its live positions
+	// came from sync with no transaction on it. Unheld assets are omitted.
+	UnsolicitedAssets(ctx context.Context, assetIDs []string) (map[string]bool, error)
+}
+
 // Handler implements apiv1connect.MarketDataServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedMarketDataServiceHandler
 	store          Store
 	providers      map[string]PriceProvider // keyed by source name e.g. "coingecko"
 	providerSource ProviderSource           // optional; takes precedence over providers
+	provenance     HoldingProvenance        // optional; without it the unsolicited signal never fires
 	// refreshWindow is how long until the next unattended sweep. Zero disables
 	// budgeting, which keeps tests and minimal configs on the old behaviour.
 	refreshWindow time.Duration
@@ -189,6 +198,14 @@ func (h *Handler) WithProviderSource(src ProviderSource) *Handler {
 func (h *Handler) WithRefreshWindow(window time.Duration) *Handler {
 	copied := h.clone()
 	copied.refreshWindow = window
+	return copied
+}
+
+// WithHoldingProvenance lets identity scoring see whether an asset was ever
+// bought; without it the unsolicited signal stays unjudged.
+func (h *Handler) WithHoldingProvenance(p HoldingProvenance) *Handler {
+	copied := h.clone()
+	copied.provenance = p
 	return copied
 }
 
@@ -810,7 +827,7 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 func (h *Handler) respondScored(ctx context.Context, a *entity.Asset, req *apiv1.FindOrCreateAssetRequest, created bool) *connect.Response[apiv1.FindOrCreateAssetResponse] {
 	verdict := a.IdentityVerdict
 	if created || (middleware.SyncAuthority(ctx) && !req.DryRun) {
-		verdict = h.scoreAndPersistVerdict(ctx, a, req)
+		verdict = h.scoreAndPersistVerdict(ctx, a, req, created)
 	}
 	p := assetToProto(a)
 	if verdict != "" {
@@ -824,7 +841,10 @@ func (h *Handler) respondScored(ctx context.Context, a *entity.Asset, req *apiv1
 // user verdict. It returns the effective verdict: the freshly scored one when
 // written, or the asset's existing (possibly user) verdict when the write was
 // skipped or failed — so the caller never acts on a verdict the store rejected.
-func (h *Handler) scoreAndPersistVerdict(ctx context.Context, a *entity.Asset, req *apiv1.FindOrCreateAssetRequest) string {
+//
+// A known asset gets the same stored-state signals as the nightly rescore, so
+// the hourly sync does not undo it. A new one has none to read yet.
+func (h *Handler) scoreAndPersistVerdict(ctx context.Context, a *entity.Asset, req *apiv1.FindOrCreateAssetRequest, created bool) string {
 	in := scamfilter.Input{
 		Symbol:           a.Symbol,
 		Name:             a.Name,
@@ -832,6 +852,10 @@ func (h *Handler) scoreAndPersistVerdict(ctx context.Context, a *entity.Asset, r
 		ContractVerified: req.ContractVerified,
 		ClaimsHeldTicker: h.claimsHeldTicker(ctx, a.ID),
 		VenueListed:      entity.IsListedVenue(a.Market),
+	}
+	if !created {
+		in.HasPriceListing = h.hasPriceListing(ctx, a.ID)
+		in.Unsolicited = unsolicitedOf(h.unsolicitedAssets(ctx, []string{a.ID}), a.ID)
 	}
 	res := scamfilter.Score(in, scamfilter.DefaultWeights())
 	score := res.Score

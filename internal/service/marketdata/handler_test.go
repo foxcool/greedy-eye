@@ -98,6 +98,14 @@ func expectVerdict(s *mockStore) {
 	// unclaimed ticker is the uninteresting default for these tests.
 	s.On("FindTickerIncumbent", mock.Anything, mock.Anything).
 		Return("", store.ErrNotFound).Maybe()
+	// Re-scoring a known asset asks whether anything ever priced it; a listed
+	// asset is the uninteresting default.
+	expectListed(s)
+}
+
+func expectListed(s *mockStore) {
+	s.On("GetLatestPrice", mock.Anything, mock.Anything, "", "").
+		Return(&entity.StoredPrice{}, nil).Maybe()
 }
 
 func (m *mockStore) FindTickerIncumbent(ctx context.Context, assetID string) (string, error) {
@@ -939,6 +947,7 @@ func TestFindOrCreateAsset_TickerCollisionScoresImpersonation(t *testing.T) {
 			gotSignals = args.Get(4).(map[string]float64)
 		}).
 		Return(true, nil)
+	expectListed(s)
 	h := newHandler(s)
 
 	source, ref := "onchain:eth", "0x7f1ffe63"
@@ -967,6 +976,7 @@ func TestFindOrCreateAsset_TickerIncumbentLookupFailureIsNotAVerdict(t *testing.
 	s.On("SetAssetVerdict", mock.Anything, "id-9", mock.Anything, mock.Anything, mock.Anything, rescoreVerdictSource).
 		Run(func(args mock.Arguments) { gotVerdict = args.String(2) }).
 		Return(true, nil)
+	expectListed(s)
 	h := newHandler(s)
 
 	source, ref := "onchain:eth", "0xCAFE"
@@ -1689,6 +1699,7 @@ func TestFindOrCreateAsset_SyncScoresWithProviderFlags(t *testing.T) {
 			_, unverified := sig[scamfilter.SignalUnverified]
 			return spam && unverified
 		}), rescoreVerdictSource).Return(true, nil).Once()
+	expectListed(s)
 	h := newHandler(s)
 
 	spam, verified := true, false
@@ -2752,14 +2763,6 @@ func (b *bindingProvider) FetchPrices(_ context.Context, assets []*entity.Asset)
 func (b *bindingProvider) BaseAssetSymbol() string         { return "USD" }
 func (b *bindingProvider) BaseAssetType() entity.AssetType { return entity.AssetTypeForex }
 func (b *bindingProvider) Binding() entity.PriceBinding    { return b.binding }
-
-func assetIDs(assets []*entity.Asset) []string {
-	out := make([]string, 0, len(assets))
-	for _, a := range assets {
-		out = append(out, a.ID)
-	}
-	return out
-}
 
 func marketAsset(id, symbol, market string) *entity.Asset {
 	return &entity.Asset{ID: id, Symbol: symbol, Market: market, Type: entity.AssetTypeStock}

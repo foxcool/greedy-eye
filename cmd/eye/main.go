@@ -35,18 +35,9 @@ import (
 
 const ServiceName = "EYE"
 
-// version is the build this binary was cut from, stamped at link time by
-// GoReleaser (see .goreleaser.yaml). It defaults to "dev" so an unstamped
-// binary says what it is instead of claiming a release it is not: a wrong
-// version is worse than an absent one, because it is believed.
-//
-// This exists because the Release Policy asks for the deployed claim to be
-// verified against production, and five deploys running could not be, for want
-// of any way to ask a live instance what it was. Behaviour was the only
-// evidence available, so "the pin says 0.8.1" and "the process serving traffic
-// is 0.8.1" stayed the same sentence — while prod went ten days without
-// refreshing a crypto price and the balance sweep kept it looking alive
-// (personal-yqwj, discovered from personal-cvdk).
+// version is stamped at link time by GoReleaser (see .goreleaser.yaml), so a
+// live instance can say which build it runs. Unstamped binaries report "dev"
+// rather than a release they are not.
 var version = "dev"
 
 func main() {
@@ -149,10 +140,8 @@ func run() error {
 	// layout. No-op when there is neither.
 	startRekey(context.Background(), pool, encryptor, log)
 
-	// Every adapter this build can construct lives in internal/provider, so the
-	// service that composes them does not also have to know them: nothing here
-	// imports an adapter package any more, and the same registry answers "which
-	// providers exist" to the account form (personal-s05.1).
+	// One registry builds every adapter, so nothing here imports an adapter
+	// package, and the account form lists exactly what this build can construct.
 	providers := provider.New(rateLimits)
 
 	credResolver := credentials.NewResolver(credentials.Config{
@@ -191,7 +180,9 @@ func run() error {
 		// The sweep interval is what a provider divides its remaining plan
 		// allowance by, so it comes from the cron spec rather than a second
 		// config key that could disagree with it.
-		WithRefreshWindow(sweepWindow(config.Scheduler.PriceFetchCron))
+		WithRefreshWindow(sweepWindow(config.Scheduler.PriceFetchCron)).
+		// Identity scoring reads holding provenance from the portfolio store.
+		WithHoldingProvenance(portfolioStore)
 	automationStore := postgres.NewAutomationStore(pool)
 	automationHandler := automation.NewHandler(automationStore, log)
 	// Built before the loop because two other services read from it: valuation
@@ -217,9 +208,8 @@ func run() error {
 				WithExchangeSyncerSource(credResolver).
 				WithBrokerSyncerSource(credResolver).
 				WithBrokerAccountListerSource(credResolver).
-				// The same registry that builds the clients describes them, so
-				// the account form offers the slugs, chains and plans this build
-				// actually uses rather than a copy of them (personal-7bn).
+				// The registry that builds the clients also describes them to
+				// the account form, so the two cannot drift.
 				WithProviderCatalog(providers).
 				// Price sources are resolved and rate-limited in this process,
 				// so their health can be read here; see GetAccountHealth.
@@ -377,18 +367,10 @@ func rpcCaller(procedure string) string {
 	return "rpc:" + procedure[strings.LastIndex(procedure, "/")+1:]
 }
 
-// healthPayload is the body of GET /eye/health. It carries the build so that
-// "which version is serving this traffic" has an answer that does not depend on
-// inferring it from behaviour — the question five deploys running could not
-// settle, because the only evidence available was whether the numbers moved,
-// and a live process with a stale image moves some of them (personal-yqwj).
-//
-// status and service keep their names and values: something may already be
-// matching on them, and this is a health check.
-//
-// Encoded rather than concatenated, because ver arrives from a link-time flag:
-// a stray quote would otherwise serve a 200 with a broken body, which is worse
-// than an honest error at startup.
+// healthPayload is the body of GET /eye/health, carrying the build version so a
+// deploy can be verified directly. status and service keep their existing
+// values for whatever already matches on them. JSON-encoded because ver comes
+// from a link-time flag and may contain a quote.
 func healthPayload(ver string) ([]byte, error) {
 	return json.Marshal(map[string]string{
 		"status":  "ok",
@@ -397,21 +379,10 @@ func healthPayload(ver string) ([]byte, error) {
 	})
 }
 
-// logProviderInventory names the price sources unattended work can reach right
-// now, once, at startup.
-//
-// Credentials no longer come from configuration, so a missing one stops being a
-// boot-time error and becomes silence hours later inside a sweep. One line here
-// is the difference between "this instance prices nothing until you add a key"
-// and an operator wondering why the numbers stopped moving.
-//
-// Resolved with no user in context — deliberately the scheduler's own view,
-// because that is the one that has been wrong before.
-//
-// It names what it passed over as well as what it reached. The version that
-// reported only the reachable providers printed a correct, complete and
-// reassuring line on an instance whose one live crypto source sat unused for six
-// days (personal-cvdk): a list of what worked cannot show an absence.
+// logProviderInventory logs, once at startup, which price sources unattended
+// work can reach and which it skipped. Credentials live in the database, so a
+// missing key would otherwise surface only as a silent sweep hours later.
+// Resolved with no user in context: the scheduler's own view.
 func logProviderInventory(ctx context.Context, resolver *credentials.Resolver, log *slog.Logger) {
 	inventory, err := resolver.PriceInventoryFor(ctx, "")
 	if err != nil {
