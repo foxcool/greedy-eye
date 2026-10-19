@@ -100,6 +100,19 @@ func expectVerdict(s *mockStore) {
 		Return("", store.ErrNotFound).Maybe()
 }
 
+func (m *mockStore) CountCoveredTargets(ctx context.Context, opts StalePricingOpts) (int, error) {
+	args := m.Called(ctx, opts)
+	return args.Int(0), args.Error(1)
+}
+
+func (m *mockStore) FreshTradedQuotes(ctx context.Context, excludeSource string, since time.Time) ([]*entity.StoredPrice, error) {
+	args := m.Called(ctx, excludeSource, since)
+	if v := args.Get(0); v != nil {
+		return v.([]*entity.StoredPrice), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockStore) FindTickerIncumbent(ctx context.Context, assetID string) (string, error) {
 	args := m.Called(ctx, assetID)
 	return args.String(0), args.Error(1)
@@ -1997,6 +2010,7 @@ func TestFetchExternalPrices_BudgetCapsTheSweep(t *testing.T) {
 	paid := testAsset("paid-1")
 
 	s := &mockStore{}
+	s.On("FreshTradedQuotes", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 	expectBaseAsset(s)
 	expectExternalRefs(s)
 	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {
@@ -2247,6 +2261,7 @@ func TestFetchExternalPrices_BackgroundNamedIsPlanned(t *testing.T) {
 	named := []string{"new-1", "fresh-1", "tail-1"}
 
 	s := &mockStore{}
+	s.On("FreshTradedQuotes", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 	expectBaseAsset(s)
 	expectExternalRefs(s)
 	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {

@@ -655,3 +655,31 @@ func TestTickerBatchStaysUnderTheWeightStep(t *testing.T) {
 	assert.LessOrEqual(t, tickerBatchSize, 20,
 		"above 20 symbols one request costs 20x the weight for the same answer")
 }
+
+// TestFetchPrices_ProvenanceFollowsTradeCount: lastPrice is a trade's print only
+// when the 24h window holds a trade.
+func TestFetchPrices_ProvenanceFollowsTradeCount(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v3/exchangeInfo" {
+			writeExchangeInfo(w, "BTCUSDT", "ETHUSDT")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"symbol":"BTCUSDT","lastPrice":"67000.00000000","quoteVolume":"1500000000.00","count":1200000},
+			{"symbol":"ETHUSDT","lastPrice":"3500.00000000","quoteVolume":"0.00","count":0}
+		]`))
+	}))
+	defer srv.Close()
+
+	prices, err := NewProvider(newTestClient(srv.URL)).FetchPrices(context.Background(), testAssets())
+	require.NoError(t, err)
+	got := map[string]entity.PriceProvenance{}
+	for _, sp := range prices {
+		got[sp.AssetID] = sp.Provenance
+	}
+	assert.Equal(t, map[string]entity.PriceProvenance{
+		"uuid-btc": entity.PriceProvenanceTraded,
+		"uuid-eth": entity.PriceProvenanceUnknown,
+	}, got)
+}

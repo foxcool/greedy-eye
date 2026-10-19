@@ -17,7 +17,10 @@ import (
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/marketdepth"
 	"github.com/foxcool/greedy-eye/internal/middleware"
+	"github.com/foxcool/greedy-eye/internal/pricefresh"
+	"github.com/foxcool/greedy-eye/internal/quoting"
 	"github.com/foxcool/greedy-eye/internal/scamfilter"
 	"github.com/foxcool/greedy-eye/internal/spend"
 	"github.com/foxcool/greedy-eye/internal/store"
@@ -1294,6 +1297,15 @@ const (
 	// days, while the permanently unlistable tail costs one request a week
 	// instead of one per sweep.
 	missBackoffCap = 7 * 24 * time.Hour
+	// coverFreshness is how old another source's quote may be and still let a
+	// plan-metered source skip the asset. Two sweeps, because sources run in no
+	// fixed order and the other one may not have run yet this hour.
+	coverFreshness = 2 * priceTTL
+	// coverRecheck is how often a covered asset is still asked of the metered
+	// source, so the two sources stay comparable. An hour short of a day:
+	// attempts are stamped after the fetch, so with hourly sweeps a 24h cutoff
+	// would land on the 25th.
+	coverRecheck = 23 * time.Hour
 )
 
 // baseAssetKey identifies a quote currency the way the catalogue does: a ticker
@@ -1349,13 +1361,9 @@ var quarantineVerdicts = []string{
 // request is an unattended sweep and takes only what is due, oldest first,
 // within what the plan can afford until the next sweep.
 //
-// Background work that names assets is neither. A balance sweep pricing what
-// each sync touched used to take the reconciliation path, and on prod in
-// October 2026 it spent 77% of the CoinGecko plan, outside the share the
-// planner sizes and out of the remainder the planned sweep is sized from
-// (personal-ozdu). Such a call is selected the way the sweep selects —
-// narrowed to the named assets — and what it leaves is counted in
-// deferred_assets for the next sweep to pick up.
+// Background work that names assets is neither: it is selected like the sweep,
+// narrowed to those assets, so it cannot spend outside the planned share. What
+// it leaves is counted in deferred_assets for the next sweep.
 func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[apiv1.FetchExternalPricesRequest]) (*connect.Response[apiv1.FetchExternalPricesResponse], error) {
 	if err := mayFetchPrices(ctx); err != nil {
 		return nil, err
@@ -1399,6 +1407,8 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	idleSources := map[string]string{}
 	// Named assets background work left to the sweep, per source.
 	deferredAssets := map[string]int32{}
+	// Due assets a metered source skipped because another source covers them.
+	coveredAssets := map[string]int32{}
 
 	// Cache base asset UUIDs to avoid repeated lookups across providers. Keyed by
 	// symbol AND type: identity is composite, and two providers naming the same
@@ -1438,12 +1448,18 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		// a minute ago is still stale for CoinGecko.
 		assets := named
 		outcome := outcomeSelected
+		var coveredCount int
 		if assets == nil {
 			var err error
-			assets, outcome, err = h.refreshTargets(ctx, name, provider, backgroundIDs)
+			assets, outcome, coveredCount, err = h.refreshTargets(ctx, name, provider, backgroundIDs)
 			if err != nil {
 				fetchErrs = append(fetchErrs, fmt.Sprintf("%s: select targets: %v", name, err))
 				continue
+			}
+			if coveredCount > 0 {
+				coveredAssets[name] = int32(coveredCount) // #nosec G115 -- bounded by catalogue size
+				h.log.Info("price sweep: assets left to another source",
+					"provider", name, "covered", coveredCount)
 			}
 		}
 		if backgroundIDs != nil {
@@ -1451,7 +1467,9 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			// the source, so it is counted here and kept out of idle_sources:
 			// nothing due among them is the normal case, the hourly sweep
 			// having priced them half an hour earlier.
-			if left := len(backgroundIDs) - len(assets); left > 0 {
+			// Covered assets are not waiting for the sweep; they are reported
+			// in covered_assets instead.
+			if left := len(backgroundIDs) - len(assets) - coveredCount; left > 0 {
 				deferredAssets[name] = int32(left) // #nosec G115 -- bounded by request size
 				h.log.Info("price fetch: named assets left to the sweep",
 					"provider", name, "named", len(backgroundIDs), "asked", len(assets), "deferred", left)
@@ -1461,10 +1479,8 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			}
 		}
 		if len(assets) == 0 {
-			// Named with its reason, the way a skipped provider already is. A
-			// sweep that selected nobody used to be indistinguishable from one
-			// with nothing to select, and that silence is what let prod age a
-			// week while every surface reported health.
+			// Named with its reason, so "nothing due" and "everything
+			// postponed" do not read the same.
 			deferredUntil := ""
 			if outcome == outcomeAllDeferred {
 				if until := h.soonestDue(ctx, name); !until.IsZero() {
@@ -1477,12 +1493,10 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			continue
 		}
 
-		// The rule that a price lands only on a bound asset is enforced here,
-		// once, rather than trusted to each adapter (personal-avm.1). What the
-		// binding does not admit was never this provider's to ask about, so it
-		// leaves silently, the way an adapter used to skip it. A batch emptied
-		// by a contest does not: that is a decision taken about assets this
-		// provider does speak for, and a bare zero would hide it.
+		// A price lands only on a bound asset, enforced once here rather than
+		// per adapter. Unbound assets leave silently; a batch emptied by a
+		// contest is reported, since that is a decision about assets this
+		// provider does speak for.
 		binding := provider.Binding()
 		var withheld int
 		assets, withheld, err = h.admitted(ctx, binding, assets, contested)
@@ -1517,12 +1531,9 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			return baseAsset.ID, nil
 		}
 
-		// Resolved BEFORE the provider is asked for anything. The base is a
-		// constant of the provider, so a failure here is a failure of the whole
-		// batch either way — and doing it afterwards means paying for the
-		// request, spending the quota and recording the attempts, only to throw
-		// every price away at the last step. That is precisely what Binance did
-		// on dev, hourly, from 2026-06-02 until this was moved.
+		// Resolved before the provider is asked: a bad base fails the whole
+		// batch anyway, and resolving it afterwards would spend quota on prices
+		// that get thrown away.
 		defaultBaseID, err := resolveBase(provider.BaseAssetSymbol())
 		if err != nil {
 			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
@@ -1539,12 +1550,9 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		results, err := provider.FetchPrices(ctx, assets)
 		if err != nil {
 			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
-			// A transport-level failure is evidence about the SOURCE, not about
-			// any asset in the batch: Binance answers 400 for the whole request
-			// when one symbol is not a tradable pair, and crediting every asset
-			// in it with a miss doubles the back-off of assets the provider
-			// would happily have priced. Their schedule must not move because
-			// they shared a request with a jetton (personal-7994).
+			// A failed request is about the source, not the assets: Binance
+			// rejects a whole request over one untradable symbol, and recording
+			// misses would grow the back-off of every asset in the batch.
 			continue
 		}
 
@@ -1593,6 +1601,7 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		Errors:         fetchErrs,
 		IdleSources:    idleSources,
 		DeferredAssets: deferredAssets,
+		CoveredAssets:  coveredAssets,
 	}), nil
 }
 
@@ -1676,7 +1685,7 @@ func (h *Handler) admitted(ctx context.Context, b entity.PriceBinding, assets []
 // one /coins/markets call covers them however many there are, and they carry
 // most of the portfolio's value, so budgeting them would cost freshness and
 // save nothing.
-func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PriceProvider, ids []string) ([]*entity.Asset, selectionOutcome, error) {
+func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PriceProvider, ids []string) ([]*entity.Asset, selectionOutcome, int, error) {
 	now := time.Now()
 	base := StalePricingOpts{
 		SourceID:         sourceID,
@@ -1697,7 +1706,7 @@ func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PricePr
 		free.Symbols = exempt
 		got, err := h.store.ListStalePricingTargets(ctx, free)
 		if err != nil {
-			return nil, "", err
+			return nil, "", 0, err
 		}
 		targets = append(targets, got...)
 	}
@@ -1713,22 +1722,30 @@ func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PricePr
 				// CBR answers zero permanently, because its whole feed is the
 				// one exempt document. Whether a provider can be asked at all
 				// is HealthReportingProvider's question, asked before this.
-				return targets, outcomeBudgetZero, nil
+				return targets, outcomeBudgetZero, 0, nil
 			}
 			budgeted.Limit = n
+			// Only a plan-metered source yields: its allowance is the scarce
+			// one, and the free sources are what take load off it.
+			budgeted.Covered = h.coveredElsewhere(ctx, sourceID, now)
+			budgeted.CoveredRecheckBefore = now.Add(-coverRecheck)
 		}
 	}
 	got, err := h.store.ListStalePricingTargets(ctx, budgeted)
 	if err != nil {
-		return nil, "", err
+		return nil, "", 0, err
 	}
 	targets = append(targets, got...)
+	coveredCount := h.countCovered(ctx, budgeted)
 	if len(targets) > 0 {
-		return targets, outcomeSelected, nil
+		return targets, outcomeSelected, coveredCount, nil
+	}
+	if coveredCount > 0 {
+		return targets, outcomeCovered, coveredCount, nil
 	}
 	if ids != nil {
 		// The schedule explains a source's silence, not a short list's.
-		return targets, outcomeNothingDue, nil
+		return targets, outcomeNothingDue, 0, nil
 	}
 
 	// Nothing came back, and the empty slice cannot say which silence this is:
@@ -1736,7 +1753,71 @@ func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PricePr
 	// slice as one that is entirely up to date. Asking the schedule is the only
 	// way to tell, and it is only asked on the empty path — a sweep that found
 	// work pays nothing for this.
-	return targets, h.explainEmptySelection(ctx, sourceID, now), nil
+	return targets, h.explainEmptySelection(ctx, sourceID, now), 0, nil
+}
+
+// countCovered reports how many due assets opts.Covered kept out. A failed
+// count is logged and read as zero: it feeds a report, not the selection.
+func (h *Handler) countCovered(ctx context.Context, opts StalePricingOpts) int {
+	if len(opts.Covered) == 0 {
+		return 0
+	}
+	n, err := h.store.CountCoveredTargets(ctx, opts)
+	if err != nil {
+		h.log.Warn("count covered pricing targets failed", "provider", opts.SourceID, "error", err)
+		return 0
+	}
+	return n
+}
+
+// coveredElsewhere lists assets with a fresh traded quote from another source
+// that clears the market-depth gate (ADR-009). A quote with no reported volume
+// does not count: here it would be the only evidence of a market. On error it
+// logs and returns nil, so the source asks as before.
+func (h *Handler) coveredElsewhere(ctx context.Context, sourceID string, now time.Time) []string {
+	quotes, err := h.store.FreshTradedQuotes(ctx, sourceID, now.Add(-coverFreshness))
+	if err != nil {
+		h.log.Warn("read fresh traded quotes failed", "provider", sourceID, "error", err)
+		return nil
+	}
+	if len(quotes) == 0 {
+		return nil
+	}
+	// The depth gate's threshold is denominated in the default display currency.
+	quoteID, err := h.resolveAssetID(ctx, pricefresh.DefaultDisplayCurrency)
+	if err != nil {
+		h.log.Warn("resolve depth-gate currency failed", "provider", sourceID, "error", err)
+		return nil
+	}
+
+	type rate struct {
+		value decimal.Decimal
+		ok    bool
+	}
+	rates := map[string]rate{quoteID: {decimal.NewFromInt(1), true}}
+	seen := map[string]bool{}
+	var covered []string
+	for _, q := range quotes {
+		if seen[q.AssetID] {
+			continue
+		}
+		r, cached := rates[q.BaseAssetID]
+		if !cached {
+			v, ok, rateErr := quoting.CrossRate(ctx, h, h.log, q.BaseAssetID, quoteID)
+			if rateErr != nil {
+				h.log.Warn("depth-gate cross rate failed", "provider", sourceID,
+					"base_asset_id", q.BaseAssetID, "error", rateErr)
+			}
+			r = rate{v, ok && rateErr == nil}
+			rates[q.BaseAssetID] = r
+		}
+		if !r.ok || marketdepth.Thin(priceToProto(q), r.value) {
+			continue
+		}
+		seen[q.AssetID] = true
+		covered = append(covered, q.AssetID)
+	}
+	return covered
 }
 
 // selectionOutcome says why a sweep selected what it did, so the log can tell
@@ -1754,6 +1835,9 @@ const (
 	// selection and schedule leave contested assets out, as they leave out
 	// quarantined ones.
 	outcomeContested selectionOutcome = "contested"
+	// outcomeCovered: every due asset was left to another source's fresh
+	// traded quote.
+	outcomeCovered selectionOutcome = "covered"
 )
 
 // soonestDue reports when this source's earliest deferred asset comes due, for

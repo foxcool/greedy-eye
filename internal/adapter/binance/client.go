@@ -40,6 +40,9 @@ type TickerPrice struct {
 	// QuoteVolume is absent from a response that predates this struct's use of
 	// /ticker/24hr; an empty string is "not reported", not "zero".
 	QuoteVolume string `json:"quoteVolume"`
+	// Count is the number of trades in the 24h window. A positive count means
+	// lastPrice is the print of an actual trade.
+	Count int64 `json:"count"`
 }
 
 // highPrice and lowPrice are deliberately NOT read from this response. They are

@@ -26,6 +26,13 @@ type Store interface {
 	// in the database or backed off after repeated misses — re-requesting it
 	// would spend provider quota to learn nothing.
 	ListStalePricingTargets(ctx context.Context, opts StalePricingOpts) ([]*entity.Asset, error)
+	// CountCoveredTargets counts the assets opts.Covered keeps out of the
+	// selection the same opts would otherwise return, ignoring Limit.
+	CountCoveredTargets(ctx context.Context, opts StalePricingOpts) (int, error)
+	// FreshTradedQuotes returns, per (asset, source) other than excludeSource,
+	// the newest price observed at or after since, if it is traded and carries
+	// a volume.
+	FreshTradedQuotes(ctx context.Context, excludeSource string, since time.Time) ([]*entity.StoredPrice, error)
 	// RecordPriceAttempts records one sweep's outcome per asset. A miss pushes
 	// the next attempt out exponentially, so assets the provider does not list
 	// drain out of the rotation instead of blocking its head.
@@ -148,6 +155,11 @@ type StalePricingOpts struct {
 	// contested asset is never asked, so it never gets an attempt row; left in
 	// the selection it would sort first on every sweep and spend the budget.
 	ExcludeContested bool
+	// Covered names assets another source already prices well. They are left
+	// out unless this source last asked about them before CoveredRecheckBefore,
+	// which keeps a slow overlap between sources.
+	Covered              []string
+	CoveredRecheckBefore time.Time
 }
 
 // SweepScheduleOpts selects which sources to report a queue for.
