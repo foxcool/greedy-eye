@@ -83,7 +83,7 @@ func TestFetchExternalPrices_MeteredSourceYieldsToDeepTradedQuotes(t *testing.T)
 
 	assert.ElementsMatch(t, []string{coverDeep, coverUSDTDeep}, opts.Covered,
 		"thin and unconvertible quotes do not cover")
-	assert.WithinDuration(t, time.Now().Add(-coverRecheck), opts.CoveredRecheckBefore, time.Minute)
+	assert.WithinDuration(t, time.Now().Add(dueSlack-coverRecheck), opts.CoveredRecheckBefore, time.Second)
 	assert.Equal(t, map[string]int32{"fake": 5}, resp.Msg.CoveredAssets)
 }
 

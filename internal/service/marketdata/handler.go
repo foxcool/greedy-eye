@@ -1326,10 +1326,13 @@ const (
 	// fixed order and the other one may not have run yet this hour.
 	coverFreshness = 2 * priceTTL
 	// coverRecheck is how often a covered asset is still asked of the metered
-	// source, so the two sources stay comparable. An hour short of a day:
-	// attempts are stamped after the fetch, so with hourly sweeps a 24h cutoff
-	// would land on the 25th.
-	coverRecheck = 23 * time.Hour
+	// source, so the two sources stay comparable.
+	coverRecheck = 24 * time.Hour
+	// dueSlack is how early a deadline still counts as due. Attempts are
+	// stamped with the sweep's start, so the next hourly sweep meets them
+	// exactly on the deadline, and a start a few milliseconds earlier than the
+	// last one would otherwise skip a whole hour.
+	dueSlack = time.Minute
 )
 
 // baseAssetKey identifies a quote currency the way the catalogue does: a ticker
@@ -1392,6 +1395,10 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	if err := mayFetchPrices(ctx); err != nil {
 		return nil, err
 	}
+	// One clock for the whole run: every source is selected and stamped at the
+	// sweep's start, not at the end of its own fetch, so the next hourly sweep
+	// finds the TTL elapsed whichever position the source ran in.
+	sweepAt := time.Now()
 
 	providers, err := h.resolveProviders(ctx)
 	if err != nil {
@@ -1475,7 +1482,7 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		var coveredCount int
 		if assets == nil {
 			var err error
-			assets, outcome, coveredCount, err = h.refreshTargets(ctx, name, provider, backgroundIDs)
+			assets, outcome, coveredCount, err = h.refreshTargets(ctx, sweepAt, name, provider, backgroundIDs)
 			if err != nil {
 				fetchErrs = append(fetchErrs, fmt.Sprintf("%s: select targets: %v", name, err))
 				continue
@@ -1585,7 +1592,7 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		// source's silence filed against an asset it does not cover. Asked AFTER
 		// the fetch on purpose: a provider that consults a cached listing set
 		// has it warm by now, so the first sweep filters as well as the tenth.
-		h.recordAttempts(ctx, name, askedOf(provider, assets), results)
+		h.recordAttempts(ctx, sweepAt, name, askedOf(provider, assets), results)
 
 		totalFetched += len(results)
 		for i := range results {
@@ -1709,11 +1716,11 @@ func (h *Handler) admitted(ctx context.Context, b entity.PriceBinding, assets []
 // one /coins/markets call covers them however many there are, and they carry
 // most of the portfolio's value, so budgeting them would cost freshness and
 // save nothing.
-func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PriceProvider, ids []string) ([]*entity.Asset, selectionOutcome, int, error) {
-	now := time.Now()
+func (h *Handler) refreshTargets(ctx context.Context, now time.Time, sourceID string, p PriceProvider, ids []string) ([]*entity.Asset, selectionOutcome, int, error) {
+	due := now.Add(dueSlack)
 	base := StalePricingOpts{
 		SourceID:         sourceID,
-		Now:              now,
+		Now:              due,
 		ExcludeVerdicts:  quarantineVerdicts,
 		IDs:              ids,
 		ExcludeContested: true,
@@ -1752,7 +1759,7 @@ func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PricePr
 			// Only a plan-metered source yields: its allowance is the scarce
 			// one, and the free sources are what take load off it.
 			budgeted.Covered = h.coveredElsewhere(ctx, sourceID, now)
-			budgeted.CoveredRecheckBefore = now.Add(-coverRecheck)
+			budgeted.CoveredRecheckBefore = due.Add(-coverRecheck)
 		}
 	}
 	got, err := h.store.ListStalePricingTargets(ctx, budgeted)
@@ -1777,7 +1784,7 @@ func (h *Handler) refreshTargets(ctx context.Context, sourceID string, p PricePr
 	// slice as one that is entirely up to date. Asking the schedule is the only
 	// way to tell, and it is only asked on the empty path — a sweep that found
 	// work pays nothing for this.
-	return targets, h.explainEmptySelection(ctx, sourceID, now), 0, nil
+	return targets, h.explainEmptySelection(ctx, sourceID, due), 0, nil
 }
 
 // countCovered reports how many due assets opts.Covered kept out. A failed
@@ -2132,7 +2139,7 @@ func (h *Handler) resolveProviders(ctx context.Context) (map[string]PriceProvide
 // next sweep can skip what is still fresh and back off from what the provider
 // does not price. Best-effort: failing to record costs the next sweep a
 // repeated request, which is not worth failing the whole fetch over.
-func (h *Handler) recordAttempts(ctx context.Context, sourceID string, asked []*entity.Asset, got []entity.StoredPrice) {
+func (h *Handler) recordAttempts(ctx context.Context, at time.Time, sourceID string, asked []*entity.Asset, got []entity.StoredPrice) {
 	priced := make(map[string]bool, len(got))
 	for i := range got {
 		priced[got[i].AssetID] = true
@@ -2140,7 +2147,7 @@ func (h *Handler) recordAttempts(ctx context.Context, sourceID string, asked []*
 
 	opts := RecordAttemptsOpts{
 		SourceID:   sourceID,
-		At:         time.Now(),
+		At:         at,
 		TTL:        priceTTL,
 		MaxBackoff: missBackoffCap,
 	}
