@@ -2617,6 +2617,54 @@ func TestFetchExternalPrices_UnaskedAssetsAreNotRecordedAsMisses(t *testing.T) {
 		"an asset this provider never requested must not carry its silence")
 }
 
+// An attempt stamped after the fetch came due seconds after the next hourly
+// sweep had started, so an hourly source priced every other hour (dev: 168 rows
+// at 12:00, none at 13:00). The stamp is the sweep's start, and the next sweep
+// selects with dueSlack, so one starting a little early still finds it due.
+func TestFetchExternalPrices_AttemptStampedAtSweepStart(t *testing.T) {
+	s := &mockStore{}
+	expectExternalRefs(s)
+	expectBaseAsset(s)
+
+	var selected StalePricingOpts
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { selected = args.Get(1).(StalePricingOpts) }).
+		Return([]*entity.Asset{testAsset("asset-1")}, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	var recorded RecordAttemptsOpts
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { recorded = args.Get(1).(RecordAttemptsOpts) }).
+		Return(nil)
+
+	p := &stampingProvider{fakePriceProvider: fakePriceProvider{prices: map[string]bool{"asset-1": true}}}
+	h := newHandler(s).WithProvider("fake", p)
+
+	_, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+
+	require.False(t, recorded.At.IsZero())
+	assert.True(t, recorded.At.Before(p.fetchedAt), "stamped before the fetch, not after it")
+	assert.Equal(t, dueSlack, selected.Now.Sub(recorded.At), "selection and stamp share one clock")
+
+	nextDeadline := recorded.At.Add(recorded.TTL)
+	earlyNextSweep := recorded.At.Add(priceTTL - time.Second)
+	assert.False(t, nextDeadline.After(earlyNextSweep.Add(dueSlack)),
+		"a sweep starting a second early an hour later still finds the asset due")
+}
+
+// stampingProvider records when it was asked, after a pause long enough to
+// tell a post-fetch stamp from a pre-fetch one.
+type stampingProvider struct {
+	fakePriceProvider
+	fetchedAt time.Time
+}
+
+func (p *stampingProvider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]entity.StoredPrice, error) {
+	time.Sleep(time.Millisecond)
+	p.fetchedAt = time.Now()
+	return p.fakePriceProvider.FetchPrices(ctx, assets)
+}
+
 // A provider that speaks for everything it is handed keeps the old behaviour:
 // a genuine miss is still a miss, and it is what drains an unlistable asset out
 // of the rotation.
