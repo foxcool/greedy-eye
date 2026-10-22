@@ -156,6 +156,15 @@ func (h *Handler) accountHealth(
 	if deferral != nil {
 		sync = append(sync, deferralReason(deferral, now))
 	}
+	if a.Type != entity.AccountTypeManual {
+		rows, err := h.allHoldings(ctx, ListHoldingsOpts{AccountID: a.ID})
+		if err != nil {
+			return nil, err
+		}
+		if r := unconfirmedReason(rows); r != nil {
+			sync = append(sync, r)
+		}
+	}
 
 	return &apiv1.AccountHealth{
 		AccountId:   a.ID,
@@ -264,6 +273,55 @@ func chainReason(f *entity.ChainFailure, admin bool) *apiv1.HealthReason {
 	return r
 }
 
+// unconfirmedReason names the positions the latest snapshot of an account did
+// not speak for and did not remove: a sync withholds removal for what it could
+// not read, and a row it withholds keeps its last amount with nothing but its
+// age to show for it. An account that silently never sheds a sold position is
+// the defect this makes visible.
+//
+// shortcut: "latest" is the newest row stamp, not the last sync, so a sync that
+// wrote nothing hides it; store the attempt time when that case shows (personal-asem).
+func unconfirmedReason(rows []*entity.Holding) *apiv1.HealthReason {
+	var latest time.Time
+	for _, r := range rows {
+		if r.SyncedAt != nil && r.SyncedAt.After(latest) {
+			latest = *r.SyncedAt
+		}
+	}
+	if latest.IsZero() {
+		return nil
+	}
+	var (
+		count  int
+		oldest time.Time
+	)
+	for _, r := range rows {
+		if !r.Swept() || r.Amount.IsZero() || r.Excluded {
+			continue
+		}
+		confirmed := r.UpdatedAt
+		if r.SyncedAt != nil {
+			confirmed = *r.SyncedAt
+		}
+		if !confirmed.Before(latest) {
+			continue
+		}
+		count++
+		if oldest.IsZero() || confirmed.Before(oldest) {
+			oldest = confirmed
+		}
+	}
+	if count == 0 {
+		return nil
+	}
+	return &apiv1.HealthReason{
+		Kind:     apiv1.HealthReasonKind_HEALTH_REASON_KIND_UNCONFIRMED_POSITIONS,
+		Message:  fmt.Sprintf("%d position(s) were not confirmed by the latest sync and keep their last amount", count),
+		Failures: intToU32(count),
+		Since:    timestamppb.New(oldest),
+	}
+}
+
 func deferralReason(d *entity.SyncDeferral, now time.Time) *apiv1.HealthReason {
 	r := &apiv1.HealthReason{
 		Kind:     apiv1.HealthReasonKind_HEALTH_REASON_KIND_SWEEP_DEFERRED,
@@ -329,7 +387,8 @@ func sourceHealth(report *entity.PriceSourceReport, admin bool) []*apiv1.SourceH
 func stateOf(r *apiv1.HealthReason) apiv1.HealthState {
 	switch r.Kind {
 	case apiv1.HealthReasonKind_HEALTH_REASON_KIND_CHAIN_FAILING,
-		apiv1.HealthReasonKind_HEALTH_REASON_KIND_SWEEP_DEFERRED:
+		apiv1.HealthReasonKind_HEALTH_REASON_KIND_SWEEP_DEFERRED,
+		apiv1.HealthReasonKind_HEALTH_REASON_KIND_UNCONFIRMED_POSITIONS:
 		return apiv1.HealthState_HEALTH_STATE_DEGRADED
 	case apiv1.HealthReasonKind_HEALTH_REASON_KIND_DISABLED:
 		return apiv1.HealthState_HEALTH_STATE_DISABLED

@@ -853,12 +853,20 @@ newly rejected by a spam filter — kept its last amount forever and read as a l
 holding that had merely stopped moving. Rows absent from a snapshot are therefore
 zeroed in the same transaction: the row keeps its id, provenance and history,
 drops out of every sum, and a later sync that sees the position again refreshes
-it in place. Three guards decide whether removal runs at all, because a wallet
-that answered nothing looks exactly like a wallet that holds nothing: every
-address and chain must have answered without error, every returned balance must
-have resolved to an asset, and the snapshot must not be empty while the account
-still carries synced rows. When a guard blocks removal the reason goes into
-`errors` — a skipped removal that says nothing is the failure this replaces.
+it in place. Removal is withheld for whatever the fetch left unread, because a
+wallet that answered nothing looks exactly like a wallet that holds nothing. A
+wallet's failures are scoped: a chain that failed whole (`ChainError`) withholds
+the rows on that chain, and a single position the reader refused on a chain that
+answered (`EntryError`: no decimals, an unparsable balance) withholds the asset
+bound to that contract on that chain. A row with no chain is withheld by either.
+Everything else withholds the whole account: an error that names no chain or
+position, a refusal whose contract cannot be looked up, a returned balance that
+did not resolve to an asset, a broker skip, and an empty snapshot while the
+account still carries synced rows. Before scoping, one undecodable airdrop on
+`darkfox.eth` kept a sold WBTC in the total for weeks. When removal is withheld
+the reason goes into `errors`, and `GetAccountHealth` reports
+`UNCONFIRMED_POSITIONS` for rows the latest snapshot neither wrote nor zeroed —
+a skipped removal that says nothing is the failure this replaces.
 Only rows a sync answers for are eligible — created by one (`source = sync`) or
 written by one since (`synced_at` set, as on an imported row a sync adopted). An
 imported or manual position no sync has written is the user's claim about the

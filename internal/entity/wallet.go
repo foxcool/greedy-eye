@@ -242,36 +242,91 @@ func (e *ChainError) Unwrap() error { return e.Err }
 // about and has no reader for: nothing was read, so the chain is unread whole.
 var ErrNoChainReader = errors.New("no reader for this chain here")
 
-// FailedChains walks an error — including every branch of an errors.Join — and
-// returns each chain that failed whole, with the first message it failed with.
-// Nil when nothing in the tree is a ChainError.
-func FailedChains(err error) map[string]string {
-	var out map[string]string
+// EntryError is one position a chain answered with and the reader refused: a
+// token with no decimals, a balance that does not parse. The chain is alive,
+// so this is not a ChainError; what is unread is this one contract, and naming
+// it lets a sync withhold removal for that position alone rather than for the
+// whole account.
+type EntryError struct {
+	Chain string
+	Ref   string // the contract on Chain
+	Err   error
+}
+
+func (e *EntryError) Error() string {
+	return "chain " + e.Chain + ", token " + e.Ref + ": " + e.Err.Error()
+}
+func (e *EntryError) Unwrap() error { return e.Err }
+
+// SyncFailures is a wallet read's error sorted by how much of the snapshot
+// each part leaves unread.
+type SyncFailures struct {
+	// Chains failed whole, each with the first message it failed with.
+	Chains map[string]string
+	// Entries are single positions refused on chains that answered.
+	Entries []*EntryError
+	// Unscoped is set by anything that names neither a chain nor a contract.
+	// Nothing can be said about what it left unread.
+	Unscoped bool
+}
+
+// ScopeFailures walks an error, including every branch of an errors.Join.
+func ScopeFailures(err error) SyncFailures {
+	var out SyncFailures
 	var walk func(error)
 	walk = func(e error) {
 		if e == nil {
 			return
 		}
-		if ce, ok := e.(*ChainError); ok {
-			if out == nil {
-				out = map[string]string{}
+		switch t := e.(type) {
+		case *ChainError:
+			if t.Chain == "" {
+				out.Unscoped = true
+				return
 			}
-			if _, seen := out[ce.Chain]; !seen {
-				out[ce.Chain] = ce.Err.Error()
+			if out.Chains == nil {
+				out.Chains = map[string]string{}
+			}
+			if _, seen := out.Chains[t.Chain]; !seen {
+				out.Chains[t.Chain] = t.Err.Error()
 			}
 			return
+		case *EntryError:
+			if t.Chain == "" || t.Ref == "" {
+				out.Unscoped = true
+				return
+			}
+			out.Entries = append(out.Entries, t)
+			return
 		}
+		// An error that leads to no chain or position — a plain leaf, or a
+		// wrapper around nothing — still left something unread.
 		switch u := e.(type) {
 		case interface{ Unwrap() []error }:
-			for _, inner := range u.Unwrap() {
-				walk(inner)
+			inner := u.Unwrap()
+			if len(inner) == 0 {
+				out.Unscoped = true
+			}
+			for _, i := range inner {
+				walk(i)
 			}
 		case interface{ Unwrap() error }:
+			if u.Unwrap() == nil {
+				out.Unscoped = true
+			}
 			walk(u.Unwrap())
+		default:
+			out.Unscoped = true
 		}
 	}
 	walk(err)
 	return out
+}
+
+// FailedChains returns each chain in err that failed whole, with the first
+// message it failed with. Nil when nothing in the tree is a ChainError.
+func FailedChains(err error) map[string]string {
+	return ScopeFailures(err).Chains
 }
 
 // ChainFailure is a chain of one wallet account that has failed whole on

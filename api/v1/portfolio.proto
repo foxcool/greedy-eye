@@ -940,6 +940,10 @@ enum HealthReasonKind {
   // The owner disabled the account; since says when. On a source: no account
   // serves it, and at least one that could is disabled.
   HEALTH_REASON_KIND_DISABLED = 7;
+  // Positions the latest sync did not confirm keep their last amount: the sync
+  // withheld their removal because something it could not read may be them.
+  // failures counts them; since is the oldest confirmation among them.
+  HEALTH_REASON_KIND_UNCONFIRMED_POSITIONS = 8;
 }
 
 // HealthReason is one thing wrong, as a phrase the server wrote and the fields
