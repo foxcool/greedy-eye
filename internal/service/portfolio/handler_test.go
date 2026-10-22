@@ -3855,11 +3855,8 @@ func (m *mockMDClient) GetPricingStatus(ctx context.Context, req *connect.Reques
 // chain) as the chain's own coin is the SAME wei seen twice, and adding it
 // doubles the position.
 //
-// The live case is Optimism's ETH predeploy 0xdead...0000, whose balanceOf
-// mirrors the native balance and whose symbol is "ETH" — so ref discovery bound
-// it to Ethereum, and from 2026-07-26 the total carried 0.3286 ETH where the
-// chain held 0.1643. $390 of a $6915 portfolio, found only by putting a second
-// provider over the same address.
+// Optimism's 0xdead...0000 was the live case; it is now dropped by address, so
+// the mirror here is one nobody has listed and only the asset match catches it.
 //
 // A native coin has no contract by definition, so the coin wins and the mirror
 // is dropped. It is NOT counted as a sync error: the position is not missing
@@ -3887,7 +3884,7 @@ func TestSyncAccount_MirrorContractDoesNotAddToTheNativeCoin(t *testing.T) {
 	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"optimism"}).Return([]entity.WalletBalance{
 		{Symbol: "ETH", Name: "Ethereum", Amount: "164306601783350849", Decimals: 18, Chain: "optimism"},
 		{Symbol: "ETH", Name: "Ether", Amount: "999000000000000000", Decimals: 18,
-			ContractAddress: "0xdeaddeaddeaddeaddeaddeaddeaddeaddead0000", Chain: "optimism"},
+			ContractAddress: "0x00000000000000000000000000000000000e7e00", Chain: "optimism"},
 	}, nil)
 
 	md := &mockMDClient{}
@@ -3911,6 +3908,58 @@ func TestSyncAccount_MirrorContractDoesNotAddToTheNativeCoin(t *testing.T) {
 	assert.Equal(t, "164306601783350849", written.String(),
 		"the coin stands: neither summed with the mirror nor replaced by it")
 	s.AssertExpectations(t)
+}
+
+// TestSyncAccount_KnownMirrorIsDroppedWhateverItResolvesTo: the catalogue may
+// give the predeploy its own asset (dev did), and then the asset match above
+// never fires and the wallet holds its ETH twice. The address decides instead,
+// before any resolution, so no asset is looked up or minted for the mirror.
+func TestSyncAccount_KnownMirrorIsDroppedWhateverItResolvesTo(t *testing.T) {
+	acct := testAccount(testAccountID)
+	acct.Type = entity.AccountTypeWallet
+	acct.Data = map[string]string{"address": "0xabc", "chain": "optimism"}
+
+	var written []decimal.Decimal
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		written = append(written, h.Amount)
+		return true
+	})).Return(&entity.Holding{ID: "h-eth"}, nil)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"optimism"}).Return([]entity.WalletBalance{
+		{Symbol: "ETH", Name: "Ethereum", Amount: "18470000000000000", Decimals: 18, Chain: "optimism"},
+		// Checksummed, as a reader may report it.
+		{Symbol: "ETH", Name: "Ether", Amount: "18470000000000000", Decimals: 18,
+			ContractAddress: "0xDeadDeAddeAddEAddeadDEaDDEAdDeaDDeAD0000", Chain: "optimism"},
+	}, nil)
+
+	md := &mockMDClient{}
+	md.On("FindOrCreateAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.FindOrCreateAssetRequest]) bool {
+		return r.Msg.ExternalRef == nil
+	})).Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{
+		Asset: &apiv1.Asset{Id: "asset-eth"}, Created: false,
+	}), nil)
+	md.On("FindOrCreateAsset", mock.Anything, mock.Anything).Return(
+		connect.NewResponse(&apiv1.FindOrCreateAssetResponse{
+			Asset: &apiv1.Asset{Id: "asset-mirror"}, Created: false,
+		}), nil)
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{
+		AccountId: testAccountID,
+	}))
+	require.NoError(t, err)
+
+	assert.Empty(t, resp.Msg.Errors)
+	require.Len(t, written, 1, "the coin once, not the coin and its mirror")
+	assert.Equal(t, "18470000000000000", written[0].String())
+	md.AssertNumberOfCalls(t, "FindOrCreateAsset", 1)
 }
 
 // TestSyncAccount_TwoContractsOnOneAssetStillAccumulate guards the other

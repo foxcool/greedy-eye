@@ -1424,10 +1424,8 @@ type accumulated struct {
 	//
 	// Optimism is the live case: 0xdead...0000 is a predeploy whose balanceOf
 	// mirrors the native balance, its symbol is "ETH", so ref discovery bound
-	// it to Ethereum and every sync added the mirror to the coin. Production
-	// carried 0.3286 ETH where the chain holds 0.1643 — $390 of a $6915 total,
-	// from 2026-07-26 until it was found by putting two providers over one
-	// address.
+	// it to Ethereum and every sync added the mirror to the coin. That one is
+	// now dropped by address (isNativeMirror) before it reaches here.
 	//
 	// A native coin has no contract by definition, so a contract balance
 	// landing on the same (asset, chain) is never an additional position: it is
@@ -1865,6 +1863,9 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 
 	result := make([]syncedBalance, 0, len(balances))
 	for _, b := range balances {
+		if isNativeMirror(b.Chain, b.ContractAddress) {
+			continue
+		}
 		sb := syncedBalance{
 			symbol: b.Symbol,
 			name:   b.Name,
@@ -1893,6 +1894,21 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 		refused:  refused,
 		unscoped: unscoped,
 	}, nil
+}
+
+// nativeMirrors are OP Stack's LegacyERC20ETH predeploy: its balanceOf returns
+// the account's native ETH balance, so a reader listing it reports the coin a
+// second time. Known by address, because the catalogue may bind it to ETH or
+// mint it its own asset, and only the first case is caught by the drop in
+// upsertSyncedBalances.
+var nativeMirrors = map[string]string{
+	"optimism": "0xdeaddeaddeaddeaddeaddeaddeaddeaddead0000",
+	"base":     "0xdeaddeaddeaddeaddeaddeaddeaddeaddead0000",
+}
+
+func isNativeMirror(chain, contract string) bool {
+	mirror, ok := nativeMirrors[chain]
+	return ok && strings.EqualFold(contract, mirror)
 }
 
 // syncExchangeBalances builds the exchange syncer from the account's own stored
@@ -2102,8 +2118,8 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 	// dropped, and the coin stands. Not counted as a sync error on purpose: the
 	// position is not missing from the snapshot — its value is already in it,
 	// once — so this must not withhold the removal of positions that really are
-	// gone. It IS logged, with the contract, because the durable fix is to undo
-	// the binding that put a mirror on the coin's identity.
+	// gone. Known mirrors never get here (isNativeMirror); this catches the
+	// ones nobody has listed yet, and the log names the contract to list.
 	for _, key := range order {
 		entry := byPosition[key]
 		if !entry.hasNative || len(entry.mirrored) == 0 {
