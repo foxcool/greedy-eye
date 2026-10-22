@@ -1439,6 +1439,103 @@ type accumulated struct {
 	mirrored []string
 }
 
+// removalScope is what a sync's failures left unread. all withholds every
+// removal; chains and refused withhold their own part.
+type removalScope struct {
+	all     bool
+	chains  map[string]string
+	refused []*entity.EntryError
+}
+
+type assetChain struct{ assetID, chain string }
+
+// unrecordedChain returns a failed chain no row carries under that exact name.
+func unrecordedChain(failed map[string]string, rows []*entity.Holding) (string, bool) {
+	onRows := make(map[string]bool, len(rows))
+	for _, hld := range rows {
+		onRows[hld.Chain] = true
+	}
+	for chain := range failed {
+		if !onRows[chain] {
+			return chain, true
+		}
+	}
+	return "", false
+}
+
+// withholds says whether a row is one this snapshot cannot speak for. A row
+// written before positions carried a chain could be on any of them, so any
+// scoped failure withholds it.
+func (p writePlan) withholds(hld *entity.Holding) bool {
+	if hld.Chain == "" {
+		return p.partial
+	}
+	if _, failed := p.failedChains[hld.Chain]; failed {
+		return true
+	}
+	return p.withheld[assetChain{hld.AssetID, hld.Chain}]
+}
+
+// withheldPositions finds the assets refused entries stand for: the one bound
+// to each contract on its chain. A contract no asset is bound to marks no row
+// with a chain; rows without one are withheld anyway (writePlan.partial). A
+// lookup that fails cannot say, and the caller withholds everything.
+func (h *Handler) withheldPositions(ctx context.Context, refused []*entity.EntryError) (map[assetChain]bool, error) {
+	out := make(map[assetChain]bool, len(refused))
+	for _, e := range refused {
+		candidates, err := h.assetsMatching(ctx, e.Ref)
+		if err != nil {
+			return nil, fmt.Errorf("look up %s on %s: %w", e.Ref, e.Chain, err)
+		}
+		// The query also matches names and symbols, which an airdrop sets, and
+		// carries no refs; GetAsset says which candidate is bound on this chain.
+		for _, a := range candidates {
+			full, err := h.mdClient.GetAsset(ctx, connect.NewRequest(&apiv1.GetAssetRequest{Id: a.GetId()}))
+			if err != nil {
+				return nil, fmt.Errorf("look up %s on %s: %w", e.Ref, e.Chain, err)
+			}
+			for _, r := range full.Msg.GetExternalRefs() {
+				if r.GetSource() == entity.OnchainSource(e.Chain) && strings.EqualFold(r.GetRef(), e.Ref) {
+					out[assetChain{a.GetId(), e.Chain}] = true
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+// refLookupPages and refLookupPageSize bound the candidates read for one
+// refused contract. Past them the list is incomplete, the contract cannot be
+// placed, and the caller withholds everything.
+const (
+	refLookupPages    = 10
+	refLookupPageSize = 100
+)
+
+// assetsMatching reads every page of a catalogue search for ref.
+func (h *Handler) assetsMatching(ctx context.Context, ref string) ([]*apiv1.Asset, error) {
+	var (
+		out   []*apiv1.Asset
+		token string
+		size  = int32(refLookupPageSize)
+	)
+	for range refLookupPages {
+		req := &apiv1.ListAssetsRequest{Query: &ref, PageSize: &size}
+		if token != "" {
+			req.PageToken = &token
+		}
+		resp, err := h.mdClient.ListAssets(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, resp.Msg.GetAssets()...)
+		if token = resp.Msg.GetNextPageToken(); token == "" {
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("more than %d pages of candidates", refLookupPages)
+}
+
 // syncTimeout bounds one SyncAccount call server-side.
 //
 // A sync is a long operation by nature — it fans out to a provider per chain,
@@ -1606,11 +1703,12 @@ func (h *Handler) syncOneAccount(ctx context.Context, account *entity.Account) (
 		return syncOutcome{}, err
 	}
 
-	// Whether the fetch stage came back whole decides if this snapshot may
-	// remove positions: a chain that failed reports no balances, which is
-	// indistinguishable from a chain whose balances are gone.
+	// What the fetch left unread may not be removed: a failed chain looks
+	// exactly like an emptied one. A wallet's failures are scoped to their
+	// chain or position, because one undecodable airdrop otherwise froze every
+	// sold position of the account. Anything unplaceable withholds it all.
 	//
-	// A skipped position counts the same way, and deliberately so. It is a
+	// A broker's skipped position withholds the whole account, deliberately. It is a
 	// position the source DID report and this system could not name, so the
 	// snapshot does not speak for it — and a holding written for it by an
 	// earlier sync (paper the catalogue has since dropped is the live case)
@@ -1619,7 +1717,11 @@ func (h *Handler) syncOneAccount(ctx context.Context, account *entity.Account) (
 	// an account holding one unnameable position never sheds a sold one until
 	// it is repaired; the count in the response is what makes that visible
 	// rather than silent.
-	result, err := h.upsertSyncedBalances(ctx, account, balances, len(syncErrors) == 0 && skips.Total() == 0)
+	scope := removalScope{all: len(syncErrors) > 0 || skips.Total() > 0}
+	if account.Type == entity.AccountTypeWallet {
+		scope = removalScope{all: verdict.unscoped, chains: verdict.failed, refused: verdict.refused}
+	}
+	result, err := h.upsertSyncedBalances(ctx, account, balances, scope)
 	if err != nil {
 		return syncOutcome{}, err
 	}
@@ -1725,6 +1827,8 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 		// Chains the syncer itself reports as answered, empty ones included.
 		// Only a syncer with a fixed sweep says this (AnsweringWalletSyncer).
 		reported []string
+		refused  []*entity.EntryError
+		unscoped bool
 	)
 	answering, _ := walletSyncer.(entity.AnsweringWalletSyncer)
 	for _, addr := range addresses {
@@ -1739,11 +1843,14 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 		} else {
 			got, err = walletSyncer.SyncWallet(ctx, addr, chains)
 		}
-		for chain, msg := range entity.FailedChains(err) {
+		failures := entity.ScopeFailures(err)
+		for chain, msg := range failures.Chains {
 			if _, seen := failedChains[chain]; !seen {
 				failedChains[chain] = msg
 			}
 		}
+		refused = append(refused, failures.Entries...)
+		unscoped = unscoped || failures.Unscoped
 		if err != nil {
 			// Name the address: with several in play, an unqualified provider
 			// error says nothing about which part of the wallet went missing.
@@ -1780,7 +1887,12 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 		}
 		result = append(result, sb)
 	}
-	return result, syncErrors, chainVerdict{failed: failedChains, answered: answeredChains(chains, balances, failedChains, reported)}, nil
+	return result, syncErrors, chainVerdict{
+		failed:   failedChains,
+		answered: answeredChains(chains, balances, failedChains, reported),
+		refused:  refused,
+		unscoped: unscoped,
+	}, nil
 }
 
 // syncExchangeBalances builds the exchange syncer from the account's own stored
@@ -1902,10 +2014,9 @@ func (h *Handler) syncBrokerBalances(ctx context.Context, account *entity.Accoun
 // re-pricing the whole catalogue on every sync spends it on data the sync did
 // not touch.
 //
-// complete says the fetch stage returned the whole account: every address and
-// every chain answered. Only a complete snapshot may zero the positions it no
-// longer contains — see writeSyncedHoldings.
-func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Account, balances []syncedBalance, complete bool) (syncResult, error) {
+// scope says what the fetch stage left unread. Only what it does not cover
+// may be zeroed for being absent — see writeSyncedHoldings.
+func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Account, balances []syncedBalance, scope removalScope) (syncResult, error) {
 	var (
 		assetsUpserted int32
 		syncErrors     []string
@@ -2009,8 +2120,17 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 	}
 
 	// A balance that failed to parse or to resolve is a position this snapshot
-	// cannot speak for, so the snapshot is no longer whole.
-	complete = complete && len(syncErrors) == 0
+	// cannot speak for, and nothing here says which row it would have been.
+	complete := !scope.all && len(syncErrors) == 0
+
+	var withheld map[assetChain]bool
+	if complete && len(scope.refused) > 0 {
+		var werr error
+		if withheld, werr = h.withheldPositions(ctx, scope.refused); werr != nil {
+			complete = false
+			syncErrors = append(syncErrors, fmt.Sprintf("refused positions not located, removal withheld: %v", werr))
+		}
+	}
 
 	// Build existing holdings map for this account
 	// Every existing row, not one page: a holding missed here is not adopted but
@@ -2020,6 +2140,18 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 	if err != nil {
 		return syncResult{}, toConnectError(err)
 	}
+	// A failed chain is scoped only under the exact name the account's rows
+	// carry. Any other spelling — empty, an unmapped alias, a case variant
+	// typed into the config — would protect nothing and zero the rows it
+	// meant. A correctly spelled chain that never held anything here looks the
+	// same and withholds everything too, which is the old behaviour.
+	if complete {
+		if chain, ok := unrecordedChain(scope.chains, existingHoldings); ok {
+			complete = false
+			syncErrors = append(syncErrors, fmt.Sprintf("chain %q failed and no position here is recorded under that name, so its rows cannot be told apart: removal withheld", chain))
+		}
+	}
+
 	holdingByPosition := make(map[positionKey]*entity.Holding, len(existingHoldings))
 	// Rows written before positions carried a chain or a liquidity state: one
 	// summed row per asset, both fields empty. The first position of that asset
@@ -2066,6 +2198,9 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 		legacyByAsset:      legacyByAsset,
 		existing:           existingHoldings,
 		zeroVanished:       complete,
+		failedChains:       scope.chains,
+		withheld:           withheld,
+		partial:            len(scope.chains) > 0 || len(scope.refused) > 0,
 		accountID:          account.ID,
 		defaultPortfolioID: account.PortfolioID,
 	}
@@ -2097,6 +2232,10 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 type chainVerdict struct {
 	failed   map[string]string
 	answered []string
+	// refused are single positions the reader could not read on chains that
+	// answered; unscoped is an error that names neither chain nor position.
+	refused  []*entity.EntryError
+	unscoped bool
 }
 
 // answeredChains is the chains this sync has positive evidence for: the ones
@@ -2168,9 +2307,16 @@ type writePlan struct {
 	// rows this snapshot does NOT contain are as much a part of it as the ones
 	// it does.
 	existing []*entity.Holding
-	// zeroVanished says the snapshot is trustworthy enough to remove with: a
-	// complete fetch, no unresolved balance, not empty. See writeSyncedHoldings.
-	zeroVanished       bool
+	// zeroVanished says the snapshot is trustworthy enough to remove with: no
+	// unplaceable failure, no unresolved balance, not empty. See writeSyncedHoldings.
+	zeroVanished bool
+	// failedChains and withheld are what it still may not remove: every row on
+	// a chain that failed, and the positions a refused entry stands for.
+	failedChains map[string]string
+	withheld     map[assetChain]bool
+	// partial says some failure was scoped. A row with no chain cannot be
+	// matched to a failed chain or a refused contract, so it is withheld then.
+	partial            bool
 	accountID          string
 	defaultPortfolioID string
 }
@@ -2314,6 +2460,9 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 				continue
 			}
 			if !hld.Swept() || hld.Amount.IsZero() {
+				continue
+			}
+			if plan.withholds(hld) {
 				continue
 			}
 			hld.Amount = decimal.Zero

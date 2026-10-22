@@ -204,13 +204,13 @@ func (a *WalletSyncerAdapter) convert(tokens []Token) ([]entity.WalletBalance, [
 			continue
 		}
 		if t.Err != "" {
-			errs = append(errs, fmt.Errorf("chain %s, token %s: %s", chain, tokenLabel(t), t.Err))
+			errs = append(errs, refused(chain, t, t.Err))
 			continue
 		}
 
 		amount, ok := hexToDecimal(t.TokenBalance)
 		if !ok {
-			errs = append(errs, fmt.Errorf("chain %s, token %s: balance %q is not a hex quantity", chain, tokenLabel(t), t.TokenBalance))
+			errs = append(errs, refused(chain, t, fmt.Sprintf("balance %q is not a hex quantity", t.TokenBalance)))
 			continue
 		}
 		if amount == "0" {
@@ -231,7 +231,7 @@ func (a *WalletSyncerAdapter) convert(tokens []Token) ([]entity.WalletBalance, [
 		}
 
 		if t.Decimals == nil {
-			errs = append(errs, fmt.Errorf("chain %s, token %s: no decimals reported, so the amount has no scale", chain, tokenLabel(t)))
+			errs = append(errs, refused(chain, t, "no decimals reported, so the amount has no scale"))
 			continue
 		}
 
@@ -257,6 +257,16 @@ func (a *WalletSyncerAdapter) convert(tokens []Token) ([]entity.WalletBalance, [
 			slug, unknownNetworks[slug]))
 	}
 	return result, errs
+}
+
+// refused names one token a chain answered with that this reader could not
+// read. Behind a contract it is an EntryError, which withholds removal for that
+// position alone; the native coin has no contract to scope it to.
+func refused(chain string, t Token, reason string) error {
+	if t.TokenAddress == "" {
+		return fmt.Errorf("chain %s, token %s: %s", chain, tokenLabel(t), reason)
+	}
+	return &entity.EntryError{Chain: chain, Ref: t.TokenAddress, Err: errors.New(reason)}
 }
 
 // tokenLabel names a row for an error message, preferring the contract address

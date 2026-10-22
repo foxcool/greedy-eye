@@ -128,6 +128,14 @@ func TestSyncWallet_RefusesUnscalableAmounts(t *testing.T) {
 	assert.Contains(t, msg, "not a hex quantity")
 	assert.NotContains(t, msg, "0xc0de000000000000000000000000000000000000",
 		"a zero balance is a fact the source stated, not a failure to report")
+
+	failures := entity.ScopeFailures(err)
+	assert.False(t, failures.Unscoped, "each refusal names its position, so removal is withheld for it alone")
+	require.Len(t, failures.Entries, 3)
+	for _, e := range failures.Entries {
+		assert.Equal(t, "eth", e.Chain)
+	}
+	assert.Empty(t, failures.Chains, "a refused token is not a failed chain")
 }
 
 // TestSyncWallet_NetworkFailureDoesNotDiscardTheRest: a chain that fails is a

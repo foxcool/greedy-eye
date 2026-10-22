@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -52,7 +53,7 @@ func healthFixture(t *testing.T) (*mockStore, *fakeSourceHealth, time.Time) {
 	until := time.Now().Add(6 * time.Hour).UTC().Truncate(time.Second)
 	since := time.Now().Add(-40 * 24 * time.Hour).UTC().Truncate(time.Second)
 
-	store := &mockStore{}
+	store := newHealthStore()
 	store.On("ListAccounts", mock.Anything, mock.MatchedBy(func(o ListAccountsOpts) bool {
 		return o.UserID == testUserID
 	})).Return([]*entity.Account{
@@ -189,7 +190,7 @@ func TestAccountHealthNamesSharedSourcesBySlugOnly(t *testing.T) {
 // credential sees the pause on the account itself, with the deadline.
 func TestAccountHealthPausedSourceMarksTheAccountServingIt(t *testing.T) {
 	until := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
-	store := &mockStore{}
+	store := newHealthStore()
 	store.On("ListAccounts", mock.Anything, mock.Anything).Return([]*entity.Account{
 		healthAccount("cg", entity.AccountTypeService),
 	}, "", nil)
@@ -226,7 +227,7 @@ func TestAccountHealthWithoutSourceHealthSaysUnknown(t *testing.T) {
 // TestAccountHealthOfAnotherUsersAccountIsNotFound: a named account goes
 // through the same ownership check as GetAccount.
 func TestAccountHealthOfAnotherUsersAccountIsNotFound(t *testing.T) {
-	store := &mockStore{}
+	store := newHealthStore()
 	store.On("GetAccount", mock.Anything, "theirs").Return(&entity.Account{ID: "theirs", UserID: testUserID2}, nil)
 
 	_, err := newHandler(store).GetAccountHealth(ctxWithUser(testUserID),
@@ -238,7 +239,7 @@ func TestAccountHealthOfAnotherUsersAccountIsNotFound(t *testing.T) {
 // TestAccountHealthOfANamedAccountReadsItsOwner: an admin naming somebody
 // else's account gets that owner's deferrals and price registry, not their own.
 func TestAccountHealthOfANamedAccountReadsItsOwner(t *testing.T) {
-	store := &mockStore{}
+	store := newHealthStore()
 	store.On("GetAccount", mock.Anything, "theirs").Return(&entity.Account{ID: "theirs", UserID: testUserID2, Type: entity.AccountTypeExchange}, nil)
 	store.On("ListSyncDeferrals", mock.Anything, testUserID2, "theirs").Return(nil, nil)
 	src := &fakeSourceHealth{report: &entity.PriceSourceReport{}}
@@ -256,7 +257,7 @@ func TestAccountHealthOfANamedAccountReadsItsOwner(t *testing.T) {
 // syncs balances. It is DEGRADED, and the provider is not a missing price
 // source — it never was one.
 func TestAccountHealthPriceProblemDoesNotKillASyncingAccount(t *testing.T) {
-	store := &mockStore{}
+	store := newHealthStore()
 	gate := healthAccount("gate", entity.AccountTypeExchange)
 	gate.Capabilities = []entity.AccountCapability{entity.CapabilityPortfolioSync, entity.CapabilityMarketData}
 	store.On("ListAccounts", mock.Anything, mock.Anything).Return([]*entity.Account{gate}, "", nil)
@@ -288,7 +289,7 @@ func TestAccountHealthDisabledSourceIsAGapInTheAggregate(t *testing.T) {
 	off := healthAccount("off", entity.AccountTypeBroker)
 	off.DisabledAt = &since
 
-	store := &mockStore{}
+	store := newHealthStore()
 	store.On("ListAccounts", mock.Anything, mock.Anything).Return([]*entity.Account{
 		healthAccount("ok", entity.AccountTypeExchange), off,
 	}, "", nil)
@@ -321,7 +322,7 @@ func TestAccountHealthDisabledIsTheOwnersChoiceNotAFault(t *testing.T) {
 	off := healthAccount("off", entity.AccountTypeWallet)
 	off.DisabledAt = &since
 
-	store := &mockStore{}
+	store := newHealthStore()
 	store.On("ListAccounts", mock.Anything, mock.Anything).Return([]*entity.Account{
 		healthAccount("ok", entity.AccountTypeExchange), off,
 	}, "", nil)
@@ -359,4 +360,43 @@ func TestAccountHealthDisabledIsTheOwnersChoiceNotAFault(t *testing.T) {
 	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_OK,
 		worse(apiv1.HealthState_HEALTH_STATE_OK, apiv1.HealthState_HEALTH_STATE_DISABLED),
 		"worse ranks DISABLED below OK; only the sources_state fold lifts it")
+}
+
+// TestUnconfirmedReason: a row the latest snapshot did not write and did not
+// zero keeps its last amount silently. darkfox.eth carried a sold WBTC that
+// way for weeks; the account looked healthy throughout.
+func TestUnconfirmedReason(t *testing.T) {
+	at := func(d int) *time.Time { v := time.Date(2026, 10, d, 6, 30, 0, 0, time.UTC); return &v }
+	row := func(id string, synced *time.Time, amount string) *entity.Holding {
+		return &entity.Holding{ID: id, Amount: decimal.RequireFromString(amount), Source: entity.SourceSync, SyncedAt: synced}
+	}
+	excluded := row("scam", at(1), "6106")
+	excluded.Excluded = true
+	manual := &entity.Holding{ID: "manual", Amount: decimal.RequireFromString("5"), Source: entity.SourceManual, UpdatedAt: *at(1)}
+
+	r := unconfirmedReason([]*entity.Holding{
+		row("dai", at(22), "200"),
+		row("wbtc", at(4), "1145109"),
+		row("ftw", at(1), "1000"),
+		row("gone", at(2), "0"),
+		excluded,
+		manual,
+	})
+	require.NotNil(t, r)
+	assert.Equal(t, apiv1.HealthReasonKind_HEALTH_REASON_KIND_UNCONFIRMED_POSITIONS, r.Kind)
+	assert.Equal(t, uint32(2), r.Failures, "wbtc and ftw; zeroed, quarantined and manual rows are not this")
+	assert.Equal(t, *at(1), r.Since.AsTime())
+	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_DEGRADED, stateOf(r))
+
+	assert.Nil(t, unconfirmedReason([]*entity.Holding{row("dai", at(22), "200"), row("eth", at(22), "1")}),
+		"every row from the latest snapshot")
+	assert.Nil(t, unconfirmedReason([]*entity.Holding{manual}), "never synced, nothing to compare against")
+}
+
+// newHealthStore is a store whose accounts hold no positions, so the
+// unconfirmed-positions reason stays out of tests about other reasons.
+func newHealthStore() *mockStore {
+	store := &mockStore{}
+	store.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding(nil), "", nil).Maybe()
+	return store
 }

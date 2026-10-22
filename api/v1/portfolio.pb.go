@@ -458,6 +458,10 @@ const (
 	// The owner disabled the account; since says when. On a source: no account
 	// serves it, and at least one that could is disabled.
 	HealthReasonKind_HEALTH_REASON_KIND_DISABLED HealthReasonKind = 7
+	// Positions the latest sync did not confirm keep their last amount: the sync
+	// withheld their removal because something it could not read may be them.
+	// failures counts them; since is the oldest confirmation among them.
+	HealthReasonKind_HEALTH_REASON_KIND_UNCONFIRMED_POSITIONS HealthReasonKind = 8
 )
 
 // Enum value maps for HealthReasonKind.
@@ -471,16 +475,18 @@ var (
 		5: "HEALTH_REASON_KIND_CHAIN_FAILING",
 		6: "HEALTH_REASON_KIND_SWEEP_DEFERRED",
 		7: "HEALTH_REASON_KIND_DISABLED",
+		8: "HEALTH_REASON_KIND_UNCONFIRMED_POSITIONS",
 	}
 	HealthReasonKind_value = map[string]int32{
-		"HEALTH_REASON_KIND_UNSPECIFIED":     0,
-		"HEALTH_REASON_KIND_NO_ADAPTER":      1,
-		"HEALTH_REASON_KIND_CANNOT_BUILD":    2,
-		"HEALTH_REASON_KIND_SHADOWED":        3,
-		"HEALTH_REASON_KIND_PROVIDER_PAUSED": 4,
-		"HEALTH_REASON_KIND_CHAIN_FAILING":   5,
-		"HEALTH_REASON_KIND_SWEEP_DEFERRED":  6,
-		"HEALTH_REASON_KIND_DISABLED":        7,
+		"HEALTH_REASON_KIND_UNSPECIFIED":           0,
+		"HEALTH_REASON_KIND_NO_ADAPTER":            1,
+		"HEALTH_REASON_KIND_CANNOT_BUILD":          2,
+		"HEALTH_REASON_KIND_SHADOWED":              3,
+		"HEALTH_REASON_KIND_PROVIDER_PAUSED":       4,
+		"HEALTH_REASON_KIND_CHAIN_FAILING":         5,
+		"HEALTH_REASON_KIND_SWEEP_DEFERRED":        6,
+		"HEALTH_REASON_KIND_DISABLED":              7,
+		"HEALTH_REASON_KIND_UNCONFIRMED_POSITIONS": 8,
 	}
 )
 
@@ -5035,7 +5041,7 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x15HEALTH_STATE_DEGRADED\x10\x02\x12\x19\n" +
 	"\x15HEALTH_STATE_UNUSABLE\x10\x03\x12\x18\n" +
 	"\x14HEALTH_STATE_UNKNOWN\x10\x04\x12\x19\n" +
-	"\x15HEALTH_STATE_DISABLED\x10\x05*\xb5\x02\n" +
+	"\x15HEALTH_STATE_DISABLED\x10\x05*\xe3\x02\n" +
 	"\x10HealthReasonKind\x12\"\n" +
 	"\x1eHEALTH_REASON_KIND_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dHEALTH_REASON_KIND_NO_ADAPTER\x10\x01\x12#\n" +
@@ -5044,7 +5050,8 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\"HEALTH_REASON_KIND_PROVIDER_PAUSED\x10\x04\x12$\n" +
 	" HEALTH_REASON_KIND_CHAIN_FAILING\x10\x05\x12%\n" +
 	"!HEALTH_REASON_KIND_SWEEP_DEFERRED\x10\x06\x12\x1f\n" +
-	"\x1bHEALTH_REASON_KIND_DISABLED\x10\a2\x90\x1b\n" +
+	"\x1bHEALTH_REASON_KIND_DISABLED\x10\a\x12,\n" +
+	"(HEALTH_REASON_KIND_UNCONFIRMED_POSITIONS\x10\b2\x90\x1b\n" +
 	"\x10PortfolioService\x12k\n" +
 	"\x0fCreatePortfolio\x12\x1e.eye.v1.CreatePortfolioRequest\x1a\x11.eye.v1.Portfolio\"%\x82\xd3\xe4\x93\x02\x1f:\tportfolio\"\x12/api/v1/portfolios\x12_\n" +
 	"\fGetPortfolio\x12\x1b.eye.v1.GetPortfolioRequest\x1a\x11.eye.v1.Portfolio\"\x1f\x82\xd3\xe4\x93\x02\x19\x12\x17/api/v1/portfolios/{id}\x12z\n" +
