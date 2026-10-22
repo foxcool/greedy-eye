@@ -32,6 +32,10 @@ type network struct {
 	// can be made to call.
 	rpc string
 
+	// tokens marks a chain whose non-native balances sit in an orml Tokens
+	// pallet with an asset registry beside it, read over rpc.
+	tokens bool
+
 	// evmAddresses marks a chain that identifies accounts by EVM H160 rather
 	// than SS58. Such a chain cannot be reached by sweeping an SS58 address and
 	// has to be named explicitly.
@@ -66,12 +70,12 @@ var networks = map[string]network{
 	"assethub-kusama":   {host: "assethub-kusama", symbol: "KSM", name: "Kusama Asset Hub", decimals: 12},
 	// Hydration has no Subscan API host since 2026-08-27 (measured again
 	// 2026-10-17 under both names, hydration and hydradx: 404, while polkadot
-	// answers), so it is read from the chain itself (personal-feb.16).
+	// answers), so it is read from the chain itself, native HDX and the Tokens
+	// pallet both.
 	//
-	// shortcut: native HDX only; the Tokens pallet (USDT and the rest) is not
-	// read on this path, and one node is a single point of failure. Upgrade
-	// when personal-feb.17 lands.
-	"hydration": {rpc: "https://rpc.hydradx.cloud", symbol: "HDX", name: "Hydration", decimals: 12},
+	// shortcut: one node is a single point of failure; add a fallback node
+	// when it is seen failing (personal-ai9x).
+	"hydration": {rpc: "https://rpc.hydradx.cloud", tokens: true, symbol: "HDX", name: "Hydration", decimals: 12},
 	"astar":     {host: "astar", symbol: "ASTR", name: "Astar", decimals: 18},
 	"moonbeam":  {host: "moonbeam", symbol: "GLMR", name: "Moonbeam", decimals: 18, evmAddresses: true},
 }

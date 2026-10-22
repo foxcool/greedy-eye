@@ -2,10 +2,14 @@ package subscan
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -22,6 +26,21 @@ const (
 	controllerAddress = "5DsvsaNbaA4JPXPRJHA2wWDMv4oJaWKQDbrUKEeELRfrto7Q"
 	controllerKey     = "0x26aa394eea5630e07c48ae0c9558cef7b99d880ec681799c0cf30e8886371da91bc44224a96360994bb83778329cb805504094ffb9a9a925e3fb732a675f2906e26c0bb22cc2b47b6e8b6906447d0c7d"
 	controllerAccount = "0x34000000010000000300000001000000fc62541ad5919900000000000000000000000000000000000000000000000000103b30813c5697000000000000000000574dc6b69b8e08000000000000000080"
+)
+
+// What the same node answered on 2026-10-17 for the controller's Tokens
+// entries and the registry: asset 10 holds 156.50 USDT, asset 670 (stHDX)
+// holds nothing.
+const (
+	controllerUSDTKey  = "0x99971b5749ac43e0235e41b0d37869188ee7418a6531173d60d1f6a82d8f4d511bc44224a96360994bb83778329cb805504094ffb9a9a925e3fb732a675f2906e26c0bb22cc2b47b6e8b6906447d0c7da6b274250e6753f00a000000"
+	controllerUSDT     = "0x570554090000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+	controllerStHDXKey = "0x99971b5749ac43e0235e41b0d37869188ee7418a6531173d60d1f6a82d8f4d511bc44224a96360994bb83778329cb805504094ffb9a9a925e3fb732a675f2906e26c0bb22cc2b47b6e8b6906447d0c7d164e2d6bb3a9ee299e020000"
+	controllerStHDX    = "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+	registryUSDTKey = "0x6e9a9b71050cd23f2d7d1b72e8c1a625682a59d51ab9e48a8c8cc418ff9708d21523c4974e05c5b917b6037dec663b5d0a000000"
+	registryHDX     = "0124487964726174696f6e000010a5d4e80000000000000000000000010c484458010c0001"
+	registryUSDT    = "01185465746865720010270000000000000000000000000000011055534454010601005039278c040000000000000000000001"
+	registryStHDX   = "01147374484458000000000000000000000000000000000001147374484458010c0001"
 )
 
 // rpcStub answers the two methods the RPC path calls. storage maps a storage
@@ -46,21 +65,39 @@ func newRPCStubWith(t *testing.T, stub *rpcStub) *httptest.Server {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		stub.requests = append(stub.requests, r)
 		var req struct {
-			Method string   `json:"method"`
-			Params []string `json:"params"`
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
+		}
+		str := func(i int) string {
+			var v string
+			_ = json.Unmarshal(req.Params[i], &v)
+			return v
 		}
 		result := "null"
 		switch req.Method {
 		case "system_properties":
 			result = stub.properties
 		case "state_getStorage":
-			if v, ok := stub.storage[req.Params[0]]; ok {
+			if v, ok := stub.storage[str(0)]; ok {
 				result = `"` + v + `"`
 			}
+		case "state_getKeysPaged":
+			var count int
+			_ = json.Unmarshal(req.Params[1], &count)
+			keys := []string{}
+			for k := range stub.storage {
+				if strings.HasPrefix(k, str(0)) && k > str(2) {
+					keys = append(keys, k)
+				}
+			}
+			slices.Sort(keys)
+			keys = keys[:min(count, len(keys))]
+			b, _ := json.Marshal(keys)
+			result = string(b)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":` + result + `}`))
@@ -170,7 +207,7 @@ func TestRPCRequestsCarryNoSubscanKey(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Zero(t, subscanTr.calls, "Subscan's budget pays nothing for a chain node")
-	assert.Equal(t, 2, rpcTr.calls)
+	assert.Equal(t, 3, rpcTr.calls, "properties, native account, token keys")
 	for _, r := range stub.requests {
 		assert.Empty(t, r.Header.Get("X-API-Key"))
 		assert.NotEmpty(t, r.Header.Get("User-Agent"), "the public node answers 403 without one")
@@ -222,4 +259,158 @@ func TestSyncWalletAnswered_AnEmptyChainAnswered(t *testing.T) {
 	assert.Empty(t, balances)
 	assert.Equal(t, []string{"hydration"}, answered, "empty hydration answered; polkadot refused")
 	assert.Contains(t, entity.FailedChains(err), "polkadot")
+}
+
+// TestSyncWallet_HydrationTokens is the live case of personal-feb.17: 156.50
+// USDT in the Tokens pallet beside native HDX, never recorded because Subscan
+// stopped serving Hydration before token reading shipped. stHDX at zero is a
+// spent entry, not a position.
+func TestSyncWallet_HydrationTokens(t *testing.T) {
+	syncer := newRPCSyncer(t, &rpcStub{storage: map[string]string{
+		controllerKey:      controllerAccount,
+		controllerUSDTKey:  controllerUSDT,
+		controllerStHDXKey: controllerStHDX,
+		registryUSDTKey:    "0x" + registryUSDT,
+	}})
+
+	balances, err := syncer.SyncWallet(context.Background(), controllerAddress, []string{"hydration"})
+	require.NoError(t, err)
+	require.Len(t, balances, 3, "two HDX rows and USDT")
+
+	usdt := balances[2]
+	assert.Equal(t, "USDT", usdt.Symbol)
+	assert.Equal(t, "USDT on Hydration", usdt.Name)
+	assert.Equal(t, "156501335", usdt.Amount)
+	assert.Equal(t, 6, usdt.Decimals)
+	assert.Equal(t, "asset_registry/10", usdt.ContractAddress, "the registry id is the identity, not the ticker")
+	assert.Equal(t, "hydration", usdt.Chain)
+	assert.Equal(t, entity.LiquidityLiquid, usdt.Liquidity)
+}
+
+// TestSyncWallet_HydrationTokenWithoutRegistryEntry: a held token the registry
+// cannot describe is named, and the rest of the chain still answers.
+func TestSyncWallet_HydrationTokenWithoutRegistryEntry(t *testing.T) {
+	balances, answered, err := newRPCSyncer(t, &rpcStub{storage: map[string]string{
+		controllerKey:     controllerAccount,
+		controllerUSDTKey: controllerUSDT,
+	}}).SyncWalletAnswered(context.Background(), controllerAddress, []string{"hydration"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "token 10 is not in the asset registry")
+	assert.Empty(t, entity.FailedChains(err))
+	assert.Equal(t, []string{"hydration"}, answered)
+	assert.Len(t, balances, 2, "native HDX still read")
+}
+
+// TestSyncWallet_HydrationTokenReadFailsTheChain: a token entry that cannot be
+// read fails the whole chain. Answering without it would let reconciliation
+// zero the position as spent.
+func TestSyncWallet_HydrationTokenReadFailsTheChain(t *testing.T) {
+	balances, answered, err := newRPCSyncer(t, &rpcStub{storage: map[string]string{
+		controllerKey:     controllerAccount,
+		controllerUSDTKey: controllerUSDT[:34],
+	}}).SyncWalletAnswered(context.Background(), controllerAddress, []string{"hydration"})
+
+	require.Error(t, err)
+	assert.Contains(t, entity.FailedChains(err), "hydration")
+	assert.Empty(t, answered)
+	assert.Empty(t, balances)
+}
+
+// TestGetTokenStates_PagesThroughKeys: an address with more entries than one
+// page holds is read to the end, not cut at the page size.
+func TestGetTokenStates_PagesThroughKeys(t *testing.T) {
+	pub, err := ss58PublicKey(controllerAddress)
+	require.NoError(t, err)
+	prefix := "0x" + tokensAccountsPrefix + blake2128Concat(pub)
+
+	storage := map[string]string{}
+	for id := range uint32(keysPageSize + 50) {
+		// The twox64 half of the key does not matter to the reader; a fixed
+		// hash keeps the stub's ordering the id's.
+		key := prefix + "000000000000" + hex.EncodeToString(binary.BigEndian.AppendUint16(nil, uint16(id))) + hex.EncodeToString(binary.LittleEndian.AppendUint32(nil, id))
+		storage[key] = controllerStHDX
+	}
+	client := NewClient(Config{APIKey: "test-key"})
+	stub := &rpcStub{storage: storage}
+	client.rpcURLOverride = newRPCStubWith(t, stub).URL
+
+	tokens, skipped, err := client.GetTokenStates(context.Background(), "hydration", controllerAddress)
+	require.NoError(t, err)
+	assert.Empty(t, tokens, "all held at zero")
+	assert.Empty(t, skipped)
+	assert.Len(t, stub.requests, 2+keysPageSize+50, "two key pages, then one read per key")
+}
+
+func TestDecodeAssetDetails(t *testing.T) {
+	for name, tc := range map[string]struct {
+		hex      string
+		symbol   string
+		decimals int32
+	}{
+		"HDX, no rate limit":    {registryHDX, "HDX", 12},
+		"USDT, with rate limit": {registryUSDT, "USDT", 6},
+		"stHDX, zero deposit":   {registryStHDX, "stHDX", 12},
+	} {
+		t.Run(name, func(t *testing.T) {
+			b, err := hex.DecodeString(tc.hex)
+			require.NoError(t, err)
+			symbol, decimals, err := decodeAssetDetails(b)
+			require.NoError(t, err)
+			assert.Equal(t, tc.symbol, symbol)
+			assert.Equal(t, tc.decimals, decimals)
+		})
+	}
+
+	// USDT with decimals cut to None: a refusal, never whole units.
+	noDecimals, err := hex.DecodeString(strings.Replace(registryUSDT, "010601", "0001", 1))
+	require.NoError(t, err)
+	_, _, err = decodeAssetDetails(noDecimals)
+	assert.ErrorContains(t, err, "no decimals")
+
+	// A trailing byte the layout does not have: the fields before it are not
+	// trusted either.
+	longer, err := hex.DecodeString(registryUSDT + "00")
+	require.NoError(t, err)
+	_, _, err = decodeAssetDetails(longer)
+	assert.ErrorContains(t, err, "unexpected layout")
+
+	_, _, err = decodeAssetDetails([]byte{1, 0x18, 'T'})
+	assert.ErrorContains(t, err, "truncated")
+}
+
+// TestGetTokenStates_RefusesAMisbehavingPager: a node that ignores the cursor
+// and answers the same full page forever is an error, not a three-minute spin
+// to the sync deadline. A key outside the account's prefix is refused too.
+func TestGetTokenStates_RefusesAMisbehavingPager(t *testing.T) {
+	pub, err := ss58PublicKey(controllerAddress)
+	require.NoError(t, err)
+	prefix := "0x" + tokensAccountsPrefix + blake2128Concat(pub)
+
+	for name, page := range map[string]func() []string{
+		"repeats a page": func() []string {
+			keys := make([]string, keysPageSize)
+			for i := range keys {
+				keys[i] = prefix + fmt.Sprintf("%024x", i)
+			}
+			return keys
+		},
+		"strays outside": func() []string { return []string{controllerKey} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls++
+				b, _ := json.Marshal(page())
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":` + string(b) + `}`))
+			}))
+			t.Cleanup(srv.Close)
+			client := NewClient(Config{APIKey: "test-key"})
+			client.rpcURLOverride = srv.URL
+
+			_, _, err := client.GetTokenStates(context.Background(), "hydration", controllerAddress)
+			require.ErrorContains(t, err, "out of order or outside the account")
+			assert.LessOrEqual(t, calls, 2, "stops at the first page that does not advance")
+		})
+	}
 }

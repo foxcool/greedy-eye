@@ -3,6 +3,7 @@ package subscan
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -24,6 +25,29 @@ const RPCBudget = "substrate-rpc"
 // constant of the FRAME layout, not of any one chain, so it is written out
 // rather than hashed at runtime (which would mean a dependency for xxhash).
 const systemAccountPrefix = "26aa394eea5630e07c48ae0c9558cef7b99d880ec681799c0cf30e8886371da9"
+
+// tokensAccountsPrefix is twox128("Tokens") ++ twox128("Accounts"): the orml
+// tokens double map (account Blake2_128Concat, asset id Twox64Concat) where
+// Hydration keeps every non-native balance.
+//
+// #nosec G101 -- a public storage-key hash, the same on every node
+const tokensAccountsPrefix = "99971b5749ac43e0235e41b0d37869188ee7418a6531173d60d1f6a82d8f4d51" // gitleaks:allow
+
+// assetRegistryPrefix is twox128("AssetRegistry") ++ twox128("Assets"), keyed
+// by asset id under Blake2_128Concat.
+const assetRegistryPrefix = "6e9a9b71050cd23f2d7d1b72e8c1a625682a59d51ab9e48a8c8cc418ff9708d2"
+
+// tokenAccountLen is the SCALE size of orml AccountData: free, reserved and
+// frozen as u128, with the same meaning as the native coin's.
+const tokenAccountLen = 3 * 16
+
+// keysPageSize is how many storage keys one state_getKeysPaged call asks for.
+const keysPageSize = 100
+
+// maxKeyPages caps the pages read for one account. Hydration registers a few
+// hundred assets in total, so an account that fills fifty pages is a node
+// misbehaving, not a wallet.
+const maxKeyPages = 50
 
 // accountInfoLen is the SCALE size of AccountInfo<u32, AccountData<u128>>:
 // nonce, consumers, providers and sufficients as u32, then free, reserved,
@@ -107,6 +131,226 @@ func (c *Client) GetNativeState(ctx context.Context, chain, address string) (Nat
 	state.Reserved = u128(b[32:48])
 	state.Frozen = u128(b[48:64])
 	return state, nil
+}
+
+// TokenState is one non-native asset an address holds, read from the Tokens
+// pallet, with symbol and precision from the chain's asset registry.
+type TokenState struct {
+	AssetID  uint32
+	Symbol   string
+	Decimals int32
+	Free     decimal.Decimal
+	Reserved decimal.Decimal
+	Frozen   decimal.Decimal
+}
+
+// GetTokenStates reads every non-native balance an address holds on a chain
+// with an orml Tokens pallet (Hydration).
+//
+// Zero balances are dropped: an asset once held and spent keeps its storage
+// entry. An asset the registry cannot describe is not dropped silently either:
+// it comes back in skipped, beside the positions that did read, the same way
+// the Subscan path names a refused token entry.
+//
+// Liquidity tokens of the EVM money market (GIGAHDX and the other aTokens)
+// live in EVM storage, not here, so they are not read and cannot double the
+// native HDX they are backed by.
+func (c *Client) GetTokenStates(ctx context.Context, chain, address string) ([]TokenState, []string, error) {
+	net, ok := networks[chain]
+	if !ok || net.rpc == "" {
+		return nil, nil, fmt.Errorf("no RPC endpoint for chain %q", chain)
+	}
+	pub, err := ss58PublicKey(address)
+	if err != nil {
+		return nil, nil, fmt.Errorf("address for %s: %w", chain, err)
+	}
+
+	prefix := "0x" + tokensAccountsPrefix + blake2128Concat(pub)
+	var keys []string
+	start := prefix
+	for pages := 0; ; pages++ {
+		if pages == maxKeyPages {
+			return nil, nil, fmt.Errorf("%s: more than %d token entries for one account", chain, maxKeyPages*keysPageSize)
+		}
+		var page []string
+		if err := c.rpcCall(ctx, chain, net.rpc, "state_getKeysPaged", []any{prefix, keysPageSize, start}, &page); err != nil {
+			return nil, nil, err
+		}
+		// Keys come back sorted and after start. A node that repeats a page
+		// or strays outside the prefix would otherwise loop until the sync
+		// deadline, or read other accounts' balances as this one's.
+		for _, k := range page {
+			if !strings.HasPrefix(k, prefix) || k <= start {
+				return nil, nil, fmt.Errorf("%s: state_getKeysPaged returned key %s out of order or outside the account", chain, k)
+			}
+			start = k
+		}
+		keys = append(keys, page...)
+		if len(page) < keysPageSize {
+			break
+		}
+	}
+
+	var (
+		out     []TokenState
+		skipped []string
+	)
+	for _, key := range keys {
+		id, err := tokenKeyAssetID(prefix, key)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s: %w", chain, err)
+		}
+
+		var raw *string
+		if err := c.rpcCall(ctx, chain, net.rpc, "state_getStorage", []any{key}, &raw); err != nil {
+			return nil, nil, err
+		}
+		if raw == nil {
+			continue // removed between the two reads
+		}
+		b, err := hex.DecodeString(strings.TrimPrefix(*raw, "0x"))
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s: token %d storage is not hex: %w", chain, id, err)
+		}
+		if len(b) != tokenAccountLen {
+			return nil, nil, fmt.Errorf("%s: token %d storage is %d bytes, want %d", chain, id, len(b), tokenAccountLen)
+		}
+		state := TokenState{AssetID: id, Free: u128(b[0:16]), Reserved: u128(b[16:32]), Frozen: u128(b[32:48])}
+		if state.Free.Add(state.Reserved).IsZero() {
+			continue
+		}
+
+		var details *string
+		regKey := "0x" + assetRegistryPrefix + blake2128Concat(binary.LittleEndian.AppendUint32(nil, id))
+		if err := c.rpcCall(ctx, chain, net.rpc, "state_getStorage", []any{regKey}, &details); err != nil {
+			return nil, nil, err
+		}
+		if details == nil {
+			skipped = append(skipped, fmt.Sprintf("%s: token %d is not in the asset registry", chain, id))
+			continue
+		}
+		db, err := hex.DecodeString(strings.TrimPrefix(*details, "0x"))
+		if err != nil {
+			skipped = append(skipped, fmt.Sprintf("%s: token %d registry entry is not hex", chain, id))
+			continue
+		}
+		symbol, decimals, err := decodeAssetDetails(db)
+		if err != nil {
+			skipped = append(skipped, fmt.Sprintf("%s: token %d: %v", chain, id, err))
+			continue
+		}
+		state.Symbol, state.Decimals = symbol, decimals
+		out = append(out, state)
+	}
+	return out, skipped, nil
+}
+
+// tokenKeyAssetID takes the asset id off the end of a Tokens.Accounts key:
+// the address prefix, then Twox64Concat(u32) — an 8-byte hash and the id.
+func tokenKeyAssetID(prefix, key string) (uint32, error) {
+	rest, ok := strings.CutPrefix(key, prefix)
+	if !ok || len(rest) != 2*(8+4) {
+		return 0, fmt.Errorf("unexpected Tokens.Accounts key %s", key)
+	}
+	b, err := hex.DecodeString(rest[16:])
+	if err != nil {
+		return 0, fmt.Errorf("unexpected Tokens.Accounts key %s: %w", key, err)
+	}
+	return binary.LittleEndian.Uint32(b), nil
+}
+
+// decodeAssetDetails reads symbol and decimals from a Hydration AssetRegistry
+// entry: name Option<Vec<u8>>, asset_type (a unit enum, one byte),
+// existential_deposit u128, symbol Option<Vec<u8>>, decimals Option<u8>,
+// xcm_rate_limit Option<u128>, is_sufficient bool.
+//
+// The tail is checked for its exact length, so a layout change fails here
+// instead of shifting every later field. Absent decimals is a refusal, not a
+// zero: read as whole units, six-decimal USDT would be a million times over.
+func decodeAssetDetails(b []byte) (string, int32, error) {
+	r := scaleReader{b: b}
+	name := r.optBytes()
+	r.skip(1 + 16) // asset_type, existential_deposit
+	symbol := r.optBytes()
+	var decimals byte
+	hasDecimals := r.byte() != 0
+	if hasDecimals {
+		decimals = r.byte()
+	}
+	if r.err != nil {
+		return "", 0, fmt.Errorf("asset registry entry: %w", r.err)
+	}
+	switch tail := len(b) - r.pos; {
+	case tail == 1+1 && b[r.pos] == 0, tail == 1+16+1 && b[r.pos] == 1:
+	default:
+		return "", 0, fmt.Errorf("asset registry entry has an unexpected layout (%d trailing bytes)", tail)
+	}
+	if !hasDecimals {
+		return "", 0, fmt.Errorf("asset registry states no decimals")
+	}
+	if symbol == nil {
+		symbol = name
+	}
+	if len(symbol) == 0 {
+		return "", 0, fmt.Errorf("asset registry states no symbol or name")
+	}
+	return string(symbol), int32(decimals), nil
+}
+
+// scaleReader reads the few SCALE shapes the asset registry uses. The first
+// error sticks, so a caller checks once after a run of reads.
+type scaleReader struct {
+	b   []byte
+	pos int
+	err error
+}
+
+func (r *scaleReader) byte() byte {
+	if r.err == nil && r.pos >= len(r.b) {
+		r.err = fmt.Errorf("truncated at byte %d", r.pos)
+	}
+	if r.err != nil {
+		return 0
+	}
+	v := r.b[r.pos]
+	r.pos++
+	return v
+}
+
+func (r *scaleReader) skip(n int) {
+	if r.err == nil && r.pos+n > len(r.b) {
+		r.err = fmt.Errorf("truncated at byte %d", r.pos)
+	}
+	if r.err == nil {
+		r.pos += n
+	}
+}
+
+// optBytes reads Option<Vec<u8>>, returning nil for None. Only the one- and
+// two-byte compact length modes are read; a registry string is never 16 KiB.
+func (r *scaleReader) optBytes() []byte {
+	if r.byte() == 0 || r.err != nil {
+		return nil
+	}
+	first := r.byte()
+	var n int
+	switch first & 3 {
+	case 0:
+		n = int(first >> 2)
+	case 1:
+		n = int(binary.LittleEndian.Uint16([]byte{first, r.byte()}) >> 2)
+	default:
+		if r.err == nil {
+			r.err = fmt.Errorf("compact length mode %d at byte %d", first&3, r.pos-1)
+		}
+		return nil
+	}
+	start := r.pos
+	r.skip(n)
+	if r.err != nil {
+		return nil
+	}
+	return r.b[start : start+n]
 }
 
 // blake2128Concat is the Blake2_128Concat hasher of FRAME storage maps: the

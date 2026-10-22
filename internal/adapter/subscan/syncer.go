@@ -3,6 +3,7 @@ package subscan
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/shopspring/decimal"
 
@@ -66,7 +67,27 @@ func (a *WalletSyncerAdapter) SyncWalletAnswered(ctx context.Context, address st
 				errs = append(errs, &entity.ChainError{Chain: chain, Err: err})
 				continue
 			}
+			var (
+				tokens  []TokenState
+				skipped []string
+			)
+			if net.tokens {
+				// A failed token read fails the chain, native coin included:
+				// an answered chain is reconciled, and a token missing from
+				// an answer would be zeroed as spent.
+				tokens, skipped, err = a.client.GetTokenStates(ctx, chain, address)
+				if err != nil {
+					errs = append(errs, &entity.ChainError{Chain: chain, Err: err})
+					continue
+				}
+			}
 			balances = append(balances, stateBalances(chain, net, state)...)
+			for _, t := range tokens {
+				balances = append(balances, tokenStateBalances(chain, net, t)...)
+			}
+			for _, reason := range skipped {
+				errs = append(errs, errors.New(reason))
+			}
 			answered = append(answered, chain)
 			continue
 		}
@@ -185,11 +206,7 @@ func splitLiquidity(a Account, row func(decimal.Decimal, entity.Liquidity) entit
 // shortcut: lock ids (Balances.Locks) are not read, so a staking lock is not
 // told apart from any other; read them when the runway figure needs staked HDX.
 func stateBalances(chain string, net network, s NativeState) []entity.WalletBalance {
-	total := s.Free.Add(s.Reserved)
-	if total.IsZero() {
-		return nil
-	}
-	row := func(amount decimal.Decimal, liquidity entity.Liquidity) entity.WalletBalance {
+	return partitionState(s.Free, s.Reserved, s.Frozen, func(amount decimal.Decimal, liquidity entity.Liquidity) entity.WalletBalance {
 		return entity.WalletBalance{
 			Symbol:    s.Symbol,
 			Name:      net.name,
@@ -198,17 +215,43 @@ func stateBalances(chain string, net network, s NativeState) []entity.WalletBala
 			Chain:     chain,
 			Liquidity: liquidity,
 		}
+	})
+}
+
+// tokenStateBalances is stateBalances for a Tokens pallet asset: orml keeps
+// free, reserved and frozen with the same meaning as the native coin.
+//
+// The registry id is carried as the contract for the reason tokenBalance gives:
+// registration is open, so the symbol is a claim and the id is the identity.
+func tokenStateBalances(chain string, net network, t TokenState) []entity.WalletBalance {
+	return partitionState(t.Free, t.Reserved, t.Frozen, func(amount decimal.Decimal, liquidity entity.Liquidity) entity.WalletBalance {
+		return entity.WalletBalance{
+			Symbol:          t.Symbol,
+			Name:            t.Symbol + " on " + net.name,
+			Amount:          amount.BigInt().String(),
+			Decimals:        int(t.Decimals),
+			ContractAddress: fmt.Sprintf("asset_registry/%d", t.AssetID),
+			Chain:           chain,
+			Liquidity:       liquidity,
+		}
+	})
+}
+
+func partitionState(free, reserved, frozen decimal.Decimal, row func(decimal.Decimal, entity.Liquidity) entity.WalletBalance) []entity.WalletBalance {
+	total := free.Add(reserved)
+	if total.IsZero() {
+		return nil
 	}
-	if !s.Reserved.IsZero() || s.Frozen.GreaterThan(s.Free) {
+	if !reserved.IsZero() || frozen.GreaterThan(free) {
 		return []entity.WalletBalance{row(total, entity.LiquidityUnknown)}
 	}
 
 	var out []entity.WalletBalance
-	if spendable := s.Free.Sub(s.Frozen); !spendable.IsZero() {
+	if spendable := free.Sub(frozen); !spendable.IsZero() {
 		out = append(out, row(spendable, entity.LiquidityLiquid))
 	}
-	if !s.Frozen.IsZero() {
-		out = append(out, row(s.Frozen, entity.LiquidityUnknown))
+	if !frozen.IsZero() {
+		out = append(out, row(frozen, entity.LiquidityUnknown))
 	}
 	return out
 }
