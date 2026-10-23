@@ -1036,6 +1036,9 @@ func (h *Handler) CreateAccount(ctx context.Context, req *connect.Request[apiv1.
 	if err := checkOperatorData(user, account.Data, nil); err != nil {
 		return nil, err
 	}
+	if err := checkMisspelledData(account.Data); err != nil {
+		return nil, err
+	}
 	created, err := h.store.CreateAccount(ctx, account)
 	if err != nil {
 		return nil, toConnectError(err)
@@ -1096,6 +1099,9 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 	}
 	if slices.Contains(fields, "data") {
 		if err := checkOperatorData(user, account.Data, existing.Data); err != nil {
+			return nil, err
+		}
+		if err := checkMisspelledData(account.Data); err != nil {
 			return nil, err
 		}
 		if err := restoreMaskedSecrets(account, existing); err != nil {
@@ -1218,6 +1224,23 @@ func checkOperatorData(user *entity.User, data, stored map[string]string) error 
 		}
 		return connect.NewError(connect.CodePermissionDenied,
 			fmt.Errorf("only admins may set data key %q", k))
+	}
+	return nil
+}
+
+// misspelledDataKeys maps accounts.data keys nothing reads to the key that is
+// read. A wallet's chains go under "chain", comma-separated; "chains" was taken
+// silently and the sync swept every chain instead of the ones named.
+var misspelledDataKeys = map[string]string{"chains": "chain"}
+
+// checkMisspelledData refuses a write carrying a key that looks like a setting
+// and is read by nothing.
+func checkMisspelledData(data map[string]string) error {
+	for wrong, right := range misspelledDataKeys {
+		if _, ok := data[wrong]; ok {
+			return connect.NewError(connect.CodeInvalidArgument,
+				fmt.Errorf("data key %q is not read; use %q", wrong, right))
+		}
 	}
 	return nil
 }
