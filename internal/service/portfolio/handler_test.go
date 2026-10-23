@@ -797,6 +797,32 @@ func TestUpdateAccount_BaseURLRequiresAdmin(t *testing.T) {
 	s.AssertExpectations(t)
 }
 
+// TestAccountData_ChainsKeyRefused: the sync reads a wallet's chains from
+// "chain"; "chains" used to be stored and ignored, so the sync swept every
+// chain the provider has instead of the one named.
+func TestAccountData_ChainsKeyRefused(t *testing.T) {
+	data := map[string]string{"provider": "alchemy", "address": "0xab", "chains": "fantom"}
+
+	s := &mockStore{}
+	_, err := newHandler(s).CreateAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreateAccountRequest{
+		Account: &apiv1.Account{Name: "probe", Type: apiv1.AccountType(entity.AccountTypeWallet), Data: data},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	assert.Contains(t, err.Error(), `use "chain"`)
+	s.AssertNotCalled(t, "CreateAccount", mock.Anything, mock.Anything)
+
+	s = &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	_, err = newHandler(s).UpdateAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdateAccountRequest{
+		Account:    &apiv1.Account{Id: testAccountID, Data: data},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"data"}},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	s.AssertNotCalled(t, "UpdateAccount", mock.Anything, mock.Anything, mock.Anything)
+}
+
 // --- Tests: ownership (IDOR) ---
 
 func TestOwnership_ForeignEntitiesReportNotFound(t *testing.T) {
