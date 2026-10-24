@@ -1001,6 +1001,10 @@ Cron / API Client → AutomationService/ExecuteRule
   caller's user and sync authority onto the call; `ServiceIdentityInterceptor` admits a matching
   token and honours `X-Sync-Authority` only alongside it. The edge must strip `X-Service-Token`
   from outside requests. Empty token (the monolith) admits no service calls.
+- **Cross-service calls**: `remotes: {domain: url}` sends a domain's calls to the process serving
+  it (gRPC over h2c) instead of its in-process handler; the start is refused when a domain is both
+  served and remote, or remote without a token. A cross-service interface is declared by its
+  consumer as a subset of the generated Connect client: proto is the only contract.
 - **Ownership enforcement**: every by-ID RPC loads the entity and requires the caller to be its
   owner or an admin (`middleware.EnsureOwner`), returning `NotFound` for foreign IDs so their
   existence isn't leaked. Holdings/transactions inherit ownership through their account.
