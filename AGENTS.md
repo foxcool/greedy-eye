@@ -41,3 +41,9 @@ make migrate-drift                   # what a live database has that schema.hcl 
 
 `TestMigrationsMatchSchema` (integration) fails when the two surfaces disagree,
 so a schema.hcl change without a migration cannot reach main.
+
+## Trust headers
+
+`X-User-*`, `X-Service-Token` and `X-Sync-Authority` grant rights (`internal/middleware`).
+An interceptor that writes them deletes them first and sets them only from ctx, so a
+reused or copied request cannot carry a previous caller's rights to the next hop.
