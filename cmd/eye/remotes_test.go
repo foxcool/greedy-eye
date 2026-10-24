@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,6 +17,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func withToken(remotes map[string]string) Config {
+	c := Config{Remotes: remotes}
+	c.Security.ServiceToken = "s"
+	return c
+}
 
 func TestValidateRemotes(t *testing.T) {
 	svc := func(types ...string) []ServiceConfig {
@@ -64,6 +72,9 @@ func TestValidateRemotes(t *testing.T) {
 			}(),
 			wantErr: "remotes.marketdat: unknown domain",
 		},
+		{name: "empty url", config: withToken(map[string]string{"settings": ""}), wantErr: "remotes.settings: want http://"},
+		{name: "no scheme", config: withToken(map[string]string{"settings": "b:8080"}), wantErr: "remotes.settings: want http://"},
+		{name: "tls", config: withToken(map[string]string{"settings": "https://b:8443"}), wantErr: "remotes.settings: want http://"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -93,7 +104,7 @@ func (s *settingsSpy) GetSetting(ctx context.Context, req *connect.Request[apiv1
 // A domain absent from remotes is answered by the local handler itself.
 func TestPickLocalWhenNotRemote(t *testing.T) {
 	local := &settingsSpy{}
-	got := pick[apiv1connect.SettingsServiceClient](newRemotes(nil, ""), ServiceConfigTypeSettings,
+	got := pick[apiv1connect.SettingsServiceClient](newRemotes(nil, "", slog.Default()), ServiceConfigTypeSettings,
 		local, apiv1connect.NewSettingsServiceClient)
 	assert.Same(t, local, got)
 }
@@ -104,15 +115,8 @@ func TestPickRemoteCallsOverH2C(t *testing.T) {
 	spy := &settingsSpy{}
 	mux := http.NewServeMux()
 	mux.Handle(apiv1connect.NewSettingsServiceHandler(spy))
-	srv := httptest.NewUnstartedServer(mux)
-	srv.Config.Protocols = new(http.Protocols)
-	srv.Config.Protocols.SetUnencryptedHTTP2(true)
-	srv.Start()
-	t.Cleanup(srv.Close)
-
-	rc := newRemotes(map[string]string{ServiceConfigTypeSettings: srv.URL}, "tok")
-	client := pick[apiv1connect.SettingsServiceClient](rc, ServiceConfigTypeSettings,
-		&settingsSpy{}, apiv1connect.NewSettingsServiceClient)
+	srv := h2cServer(t, mux)
+	client := remoteSettings(t, srv.URL)
 
 	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "u1", Email: "u1@x", Roles: []string{"user"}})
 	resp, err := client.GetSetting(ctx, connect.NewRequest(&apiv1.GetSettingRequest{Key: "k"}))
@@ -139,4 +143,70 @@ func TestCallCeilingKeepsAnExistingDeadline(t *testing.T) {
 
 	_, _ = call(context.Background(), connect.NewRequest(&apiv1.GetSettingRequest{}))
 	assert.WithinDuration(t, time.Now().Add(time.Hour), got, time.Minute)
+}
+
+func h2cServer(t *testing.T, h http.Handler) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewUnstartedServer(h)
+	srv.Config.Protocols = new(http.Protocols)
+	srv.Config.Protocols.SetUnencryptedHTTP2(true)
+	srv.Start()
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func remoteSettings(t *testing.T, url string) apiv1connect.SettingsServiceClient {
+	t.Helper()
+	rc := newRemotes(map[string]string{ServiceConfigTypeSettings: url}, "tok", slog.Default())
+	return pick[apiv1connect.SettingsServiceClient](rc, ServiceConfigTypeSettings,
+		&settingsSpy{}, apiv1connect.NewSettingsServiceClient)
+}
+
+// A redirect would hand the token to the host it names, so it is not followed.
+func TestRemoteDoesNotFollowRedirects(t *testing.T) {
+	var leaked string
+	elsewhere := h2cServer(t, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		leaked = r.Header.Get(middleware.HeaderServiceToken)
+	}))
+	redirector := h2cServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, elsewhere.URL+r.URL.Path, http.StatusFound)
+	}))
+
+	_, err := remoteSettings(t, redirector.URL).GetSetting(context.Background(),
+		connect.NewRequest(&apiv1.GetSettingRequest{Key: "k"}))
+	require.Error(t, err)
+	assert.Empty(t, leaked, "the token must not reach the redirect target")
+}
+
+// An unreachable sibling surfaces with its code but without its address.
+func TestRemoteTransportErrorHidesAddress(t *testing.T) {
+	srv := h2cServer(t, http.NotFoundHandler())
+	url := srv.URL
+	srv.Close()
+
+	_, err := remoteSettings(t, url).GetSetting(context.Background(),
+		connect.NewRequest(&apiv1.GetSettingRequest{Key: "k"}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeUnavailable, connect.CodeOf(err))
+	assert.NotContains(t, err.Error(), url[len("http://"):])
+}
+
+// What the sibling answered is the sibling's answer and passes through.
+func TestRemoteWireErrorPassesThrough(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.Handle(apiv1connect.NewSettingsServiceHandler(&notFoundSettings{}))
+	srv := h2cServer(t, mux)
+
+	_, err := remoteSettings(t, srv.URL).GetSetting(context.Background(),
+		connect.NewRequest(&apiv1.GetSettingRequest{Key: "k"}))
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	assert.Contains(t, err.Error(), "no such setting")
+}
+
+type notFoundSettings struct {
+	apiv1connect.UnimplementedSettingsServiceHandler
+}
+
+func (notFoundSettings) GetSetting(context.Context, *connect.Request[apiv1.GetSettingRequest]) (*connect.Response[apiv1.GetSettingResponse], error) {
+	return nil, connect.NewError(connect.CodeNotFound, errors.New("no such setting"))
 }

@@ -92,6 +92,15 @@ const (
 	ServiceConfigTypeSettings   = "settings"
 )
 
+// serviceTypes lists every type above: what services and remotes may name.
+var serviceTypes = []string{
+	ServiceConfigTypeMarketData,
+	ServiceConfigTypePortfolio,
+	ServiceConfigTypeAutomation,
+	ServiceConfigTypeAnalytics,
+	ServiceConfigTypeSettings,
+}
+
 func getConfig() (*Config, error) {
 	var err error
 	k := koanf.New(".")

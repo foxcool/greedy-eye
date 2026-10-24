@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"net/url"
 	"slices"
 	"time"
 
@@ -16,17 +17,8 @@ import (
 
 // remoteCallCeiling bounds a call whose ctx carries no deadline, so a hung
 // sibling cannot hold a background job forever.
-// shortcut: fixed for every method; make it configurable when a method needs more.
+// shortcut: fixed for every method; make it configurable when a method needs more (personal-wih8).
 const remoteCallCeiling = time.Minute
-
-// knownDomains are the domains remotes: may name: the service types.
-var knownDomains = []string{
-	ServiceConfigTypeMarketData,
-	ServiceConfigTypePortfolio,
-	ServiceConfigTypeAutomation,
-	ServiceConfigTypeAnalytics,
-	ServiceConfigTypeSettings,
-}
 
 // validateRemotes refuses a config this process could not run: a domain
 // served here and called over the network at once, a domain nobody knows
@@ -37,11 +29,13 @@ func validateRemotes(config *Config) error {
 		return nil
 	}
 	for _, domain := range slices.Sorted(maps.Keys(config.Remotes)) {
-		if !slices.Contains(knownDomains, domain) {
-			return fmt.Errorf("remotes.%s: unknown domain, expected one of %v", domain, knownDomains)
+		if !slices.Contains(serviceTypes, domain) {
+			return fmt.Errorf("remotes.%s: unknown domain, expected one of %v", domain, serviceTypes)
 		}
-		if config.Remotes[domain] == "" {
-			return fmt.Errorf("remotes.%s: empty url", domain)
+		// Only cleartext h2c is spoken; anything else would pass start and
+		// fail every call.
+		if u, err := url.Parse(config.Remotes[domain]); err != nil || u.Scheme != "http" || u.Host == "" {
+			return fmt.Errorf("remotes.%s: want http://host:port, got %q", domain, config.Remotes[domain])
 		}
 		for _, svc := range config.Services {
 			if svc.Type == domain {
@@ -68,16 +62,22 @@ type remotes struct {
 	opts []connect.ClientOption
 }
 
-func newRemotes(urls map[string]string, token string) *remotes {
+func newRemotes(urls map[string]string, token string, log *slog.Logger) *remotes {
 	// gRPC needs HTTP/2; siblings speak cleartext h2c, same as the server.
 	protocols := new(http.Protocols)
 	protocols.SetUnencryptedHTTP2(true)
 	return &remotes{
 		urls: urls,
-		http: &http.Client{Transport: &http.Transport{Protocols: protocols}},
+		http: &http.Client{
+			Transport: &http.Transport{Protocols: protocols},
+			// A redirect would carry the token and identity headers to
+			// whatever host it names; a sibling never redirects.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
 		opts: []connect.ClientOption{
 			connect.WithGRPC(),
 			connect.WithInterceptors(
+				transportErrorInterceptor(log),
 				callCeilingInterceptor(remoteCallCeiling),
 				middleware.ForwardIdentityInterceptor(token),
 			),
@@ -102,7 +102,7 @@ func pick[T any](r *remotes, domain string, local T,
 // the network, so a split deployment answering from the wrong side is
 // visible before its numbers are.
 func logRemotes(urls map[string]string, log *slog.Logger) {
-	for _, domain := range knownDomains {
+	for _, domain := range serviceTypes {
 		if url, ok := urls[domain]; ok {
 			log.Info("domain is remote", slog.String("domain", domain), slog.String("url", url))
 		} else {
@@ -122,6 +122,25 @@ func callCeilingInterceptor(ceiling time.Duration) connect.UnaryInterceptorFunc 
 			ctx, cancel := context.WithTimeout(ctx, ceiling)
 			defer cancel()
 			return next(ctx, req)
+		}
+	}
+}
+
+// transportErrorInterceptor keeps sibling addresses out of what a user sees:
+// an error that never reached the sibling (dial, reset, timeout) names the
+// host, so it is logged here and returned with its code only. Errors the
+// sibling answered with pass through untouched.
+func transportErrorInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {
+	return func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			resp, err := next(ctx, req)
+			if err == nil || connect.IsWireError(err) {
+				return resp, err
+			}
+			log.Error("remote call failed",
+				slog.String("procedure", req.Spec().Procedure),
+				slog.Any("error", err))
+			return nil, connect.NewError(connect.CodeOf(err), errors.New("dependent service unavailable"))
 		}
 	}
 }
