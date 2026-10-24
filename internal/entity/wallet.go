@@ -67,6 +67,19 @@ type AnsweringWalletSyncer interface {
 	SyncWalletAnswered(ctx context.Context, address string, chains []string) ([]WalletBalance, []string, error)
 }
 
+// BalanceConfirmer is a WalletSyncer that can be asked about named contracts.
+//
+// A listing source omits zero balances, so a position missing from its answer
+// is either gone or unread, and only a complete snapshot may read it as gone.
+// Asking for the contract by name turns that silence into a statement: an
+// explicit zero removes the position whatever else the sync failed to read.
+type BalanceConfirmer interface {
+	// ConfirmBalances returns the raw balance of each contract on chain that
+	// the source answered for, keyed by lower-case contract address. A
+	// contract missing from the result was not answered.
+	ConfirmBalances(ctx context.Context, address, chain string, contracts []string) (map[string]string, error)
+}
+
 // ExchangeBalance represents a single asset balance held on a centralized exchange.
 type ExchangeBalance struct {
 	Symbol   string // asset ticker as reported by the exchange (e.g. "BTC")

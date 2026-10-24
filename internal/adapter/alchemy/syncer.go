@@ -259,6 +259,34 @@ func (a *WalletSyncerAdapter) convert(tokens []Token) ([]entity.WalletBalance, [
 	return result, errs
 }
 
+// ConfirmBalances reads the named contracts on one chain directly. A contract
+// the API reported an error for, or answered with something that is not a hex
+// quantity, is left out: unanswered is not zero.
+func (a *WalletSyncerAdapter) ConfirmBalances(ctx context.Context, address, chain string, contracts []string) (map[string]string, error) {
+	n, ok := network[chain]
+	if !ok {
+		return nil, fmt.Errorf("alchemy: no network for chain %q", chain)
+	}
+	out := make(map[string]string, len(contracts))
+	for batch := range slices.Chunk(contracts, maxContractsPerCall) {
+		balances, err := a.client.TokenBalances(ctx, n.slug, address, batch)
+		if err != nil {
+			return nil, err
+		}
+		for _, b := range balances {
+			if b.Err != "" {
+				continue
+			}
+			amount, ok := hexToDecimal(b.Balance)
+			if !ok {
+				continue
+			}
+			out[strings.ToLower(b.Contract)] = amount
+		}
+	}
+	return out, nil
+}
+
 // refused names one token a chain answered with that this reader could not
 // read. Behind a contract it is an EntryError, which withholds removal for that
 // position alone; the native coin has no contract to scope it to.

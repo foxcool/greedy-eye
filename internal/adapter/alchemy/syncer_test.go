@@ -380,3 +380,58 @@ func TestClient_AKeyThatBreaksAURLStaysOutOfTheError(t *testing.T) {
 	assert.NotEmpty(t, gotPath, "the request was made rather than refused at parse time")
 	assert.NotContains(t, err.Error(), "SEC")
 }
+
+// TestConfirmBalances_ZeroIsAnAnswer: the Portfolio API leaves a zero balance
+// out; asked by contract, the RPC answers it. A per-contract error or a balance
+// that is not a hex quantity is not an answer, and must not read as zero.
+func TestConfirmBalances_ZeroIsAnAnswer(t *testing.T) {
+	var gotPath string
+	var gotParams []json.RawMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		var req struct {
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		assert.Equal(t, "alchemy_getTokenBalances", req.Method)
+		gotParams = req.Params
+		writeJSON(w, `{"jsonrpc":"2.0","id":1,"result":{"address":"0xabc","tokenBalances":[
+			{"contractAddress":"0x9F8F72AA9304C8B593D555F12EF6589CC3A579A2","tokenBalance":"0x0000000000000000000000000000000000000000000000000000000000000000","error":null},
+			{"contractAddress":"0x4da27a545c0c5b758a6ba100e3a049001de870f5","tokenBalance":"0x3e8","error":null},
+			{"contractAddress":"0x1111111111111111111111111111111111111111","tokenBalance":null,"error":"execution reverted"},
+			{"contractAddress":"0x2222222222222222222222222222222222222222","tokenBalance":"0x","error":null}
+		]}}`)
+	}))
+	defer srv.Close()
+
+	client := NewClient(Config{APIKey: "test-key"})
+	client.rpcURL = func(slug string) string { return srv.URL + "/" + slug }
+	got, err := NewWalletSyncer(client).ConfirmBalances(context.Background(), "0xabc", "eth", []string{
+		"0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2", "0x4da27a545c0c5b758a6ba100e3a049001de870f5",
+		"0x1111111111111111111111111111111111111111", "0x2222222222222222222222222222222222222222",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "/eth-mainnet/test-key", gotPath)
+	require.Len(t, gotParams, 3)
+	assert.Equal(t, map[string]string{
+		"0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2": "0",
+		"0x4da27a545c0c5b758a6ba100e3a049001de870f5": "1000",
+	}, got)
+}
+
+// TestConfirmBalances_RPCErrorFailsTheCall: a JSON-RPC error is no answer for
+// any contract, and an empty map would say the same — so it is an error.
+func TestConfirmBalances_RPCErrorFailsTheCall(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, `{"jsonrpc":"2.0","id":1,"error":{"code":429,"message":"compute units exceeded"}}`)
+	}))
+	defer srv.Close()
+
+	client := NewClient(Config{APIKey: "test-key"})
+	client.rpcURL = func(string) string { return srv.URL }
+	_, err := NewWalletSyncer(client).ConfirmBalances(context.Background(), "0xabc", "eth", []string{"0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2"})
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "test-key")
+}

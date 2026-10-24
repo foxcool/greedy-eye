@@ -39,8 +39,10 @@ const maxPages = 20
 // chain: the previous source needed two calls per chain, this needs one per
 // five.
 type Client struct {
-	apiKey     string
-	baseURL    string
+	apiKey  string
+	baseURL string
+	// rpcURL is the JSON-RPC endpoint of one network, without the key.
+	rpcURL     func(slug string) string
 	httpClient *http.Client
 }
 
@@ -59,6 +61,7 @@ func NewClient(cfg Config) *Client {
 	return &Client{
 		apiKey:     cfg.APIKey,
 		baseURL:    "https://api.g.alchemy.com/data/v1",
+		rpcURL:     func(slug string) string { return "https://" + slug + ".g.alchemy.com/v2" },
 		httpClient: &http.Client{Timeout: 30 * time.Second, Transport: cfg.Transport},
 	}
 }
@@ -269,4 +272,101 @@ func (c *Client) postTokens(ctx context.Context, payload tokensRequest) ([]byte,
 		return nil, fmt.Errorf("alchemy: read response: %w", err)
 	}
 	return body, nil
+}
+
+// maxContractsPerCall is the page size of alchemy_getTokenBalances: maxCount
+// caps the balances one answer carries at 100, so a longer list is asked for in
+// chunks rather than paged.
+const maxContractsPerCall = 100
+
+// ContractBalance is one answer of alchemy_getTokenBalances. Balance is a hex
+// quantity, empty when the API reported an error for the contract instead.
+type ContractBalance struct {
+	Contract string
+	Balance  string
+	Err      string
+}
+
+type rpcRequest struct {
+	JSONRPC string `json:"jsonrpc"`
+	ID      int    `json:"id"`
+	Method  string `json:"method"`
+	Params  []any  `json:"params"`
+}
+
+type tokenBalancesResponse struct {
+	Result struct {
+		TokenBalances []struct {
+			ContractAddress string  `json:"contractAddress"`
+			TokenBalance    *string `json:"tokenBalance"`
+			Error           any     `json:"error"`
+		} `json:"tokenBalances"`
+	} `json:"result"`
+	Error *struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// TokenBalances asks one network for the balances of the named contracts.
+// Unlike the Portfolio API it answers for a zero balance too, which is the
+// point: it is how a position missing from a listing is told apart from a
+// position that was not read.
+func (c *Client) TokenBalances(ctx context.Context, slug, address string, contracts []string) ([]ContractBalance, error) {
+	if len(contracts) > maxContractsPerCall {
+		return nil, fmt.Errorf("alchemy: %d contracts in one call, the API answers %d", len(contracts), maxContractsPerCall)
+	}
+	encoded, err := json.Marshal(rpcRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "alchemy_getTokenBalances",
+		Params:  []any{address, contracts, map[string]int{"maxCount": maxContractsPerCall}},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("alchemy: encode request: %w", err)
+	}
+
+	// The key is a path segment, as in postTokens, and is kept out of every
+	// error the same way.
+	url := fmt.Sprintf("%s/%s", c.rpcURL(slug), neturl.PathEscape(c.apiKey))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(encoded))
+	if err != nil {
+		return nil, fmt.Errorf("alchemy: create request: %w", urlerr.Strip(err))
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("alchemy: do request: %w", urlerr.Strip(err))
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("alchemy: API status %d for alchemy_getTokenBalances on %s", resp.StatusCode, slug)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("alchemy: read response: %w", err)
+	}
+	var parsed tokenBalancesResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, fmt.Errorf("alchemy: decode token balances: %w", err)
+	}
+	if parsed.Error != nil {
+		return nil, fmt.Errorf("alchemy: alchemy_getTokenBalances on %s: %s", slug, parsed.Error.Message)
+	}
+
+	out := make([]ContractBalance, 0, len(parsed.Result.TokenBalances))
+	for _, tb := range parsed.Result.TokenBalances {
+		cb := ContractBalance{Contract: tb.ContractAddress}
+		switch {
+		case tb.Error != nil:
+			cb.Err = fmt.Sprint(tb.Error)
+		case tb.TokenBalance != nil:
+			cb.Balance = *tb.TokenBalance
+		}
+		out = append(out, cb)
+	}
+	return out, nil
 }

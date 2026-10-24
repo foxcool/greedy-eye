@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math/big"
 	"slices"
 	"strings"
@@ -1472,7 +1473,14 @@ type removalScope struct {
 	all     bool
 	chains  map[string]string
 	refused []*entity.EntryError
+	// confirm asks the source about positions missing from the snapshot. An
+	// explicit zero it returns removes the row whatever the rest withholds.
+	confirm confirmFunc
 }
+
+// confirmFunc reads named contracts on one chain, summed over the account's
+// addresses, keyed by lower-case contract. A contract left out was not answered.
+type confirmFunc func(ctx context.Context, chain string, contracts []string) (map[string]*big.Int, error)
 
 type assetChain struct{ assetID, chain string }
 
@@ -1501,6 +1509,90 @@ func (p writePlan) withholds(hld *entity.Holding) bool {
 		return true
 	}
 	return p.withheld[assetChain{hld.AssetID, hld.Chain}]
+}
+
+// reconfirmVanished asks the source, by contract, about every swept non-zero
+// row the snapshot did not contain, and returns the ones it says are empty.
+//
+// Best effort: a row whose contract is unknown or whose chain did not answer
+// is left to the snapshot's completeness, as before. A non-zero answer leaves
+// the row alone too — a token the listing refused (no decimals) is the usual
+// case, and its last amount is closer to the truth than a zero would be.
+//
+// shortcut: native coins are not reconfirmed (no contract to name); a native
+// row still needs a complete snapshot to be zeroed — upgrade with eth_getBalance
+// when one is seen stuck.
+func (h *Handler) reconfirmVanished(ctx context.Context, accountID string, rows []*entity.Holding, seen map[positionKey]*accumulated, confirm confirmFunc) map[string]bool {
+	if confirm == nil {
+		return nil
+	}
+	// chain -> contract -> rows standing for it
+	candidates := map[string]map[string][]*entity.Holding{}
+	contractOf := map[assetChain]string{}
+	for _, hld := range rows {
+		// A row with liquidity is a partition the adapter made (staked vs
+		// liquid), which a token balance cannot speak for.
+		if hld.Chain == "" || hld.Liquidity != "" || !hld.Swept() || hld.Amount.IsZero() {
+			continue
+		}
+		if _, ok := seen[positionKey{assetID: hld.AssetID, chain: hld.Chain}]; ok {
+			continue
+		}
+		key := assetChain{hld.AssetID, hld.Chain}
+		contract, looked := contractOf[key]
+		if !looked {
+			contract = h.contractOn(ctx, hld.AssetID, hld.Chain)
+			contractOf[key] = contract
+		}
+		if contract == "" {
+			continue
+		}
+		if candidates[hld.Chain] == nil {
+			candidates[hld.Chain] = map[string][]*entity.Holding{}
+		}
+		candidates[hld.Chain][contract] = append(candidates[hld.Chain][contract], hld)
+	}
+
+	zero := map[string]bool{}
+	for chain, byContract := range candidates {
+		contracts := slices.Sorted(maps.Keys(byContract))
+		got, err := confirm(ctx, chain, contracts)
+		if err != nil {
+			h.log.Warn("vanished positions not reconfirmed", "account_id", accountID, "chain", chain, "error", err)
+			continue
+		}
+		for _, contract := range contracts {
+			balance, ok := got[contract]
+			if !ok {
+				continue
+			}
+			if balance.Sign() != 0 {
+				h.log.Info("vanished position reconfirmed non-zero; row kept",
+					"account_id", accountID, "chain", chain, "contract", contract, "balance", balance.String())
+				continue
+			}
+			for _, hld := range byContract[contract] {
+				zero[hld.ID] = true
+			}
+		}
+	}
+	return zero
+}
+
+// contractOn returns the lower-case contract an asset is bound to on chain, or
+// "" when it has none there or the lookup fails.
+func (h *Handler) contractOn(ctx context.Context, assetID, chain string) string {
+	full, err := h.mdClient.GetAsset(ctx, connect.NewRequest(&apiv1.GetAssetRequest{Id: assetID}))
+	if err != nil {
+		h.log.Warn("asset lookup for reconfirmation failed", "asset_id", assetID, "error", err)
+		return ""
+	}
+	for _, r := range full.Msg.GetExternalRefs() {
+		if r.GetSource() == entity.OnchainSource(chain) {
+			return strings.ToLower(r.GetRef())
+		}
+	}
+	return ""
 }
 
 // withheldPositions finds the assets refused entries stand for: the one bound
@@ -1746,7 +1838,7 @@ func (h *Handler) syncOneAccount(ctx context.Context, account *entity.Account) (
 	// rather than silent.
 	scope := removalScope{all: len(syncErrors) > 0 || skips.Total() > 0}
 	if account.Type == entity.AccountTypeWallet {
-		scope = removalScope{all: verdict.unscoped, chains: verdict.failed, refused: verdict.refused}
+		scope = removalScope{all: verdict.unscoped, chains: verdict.failed, refused: verdict.refused, confirm: verdict.confirm}
 	}
 	result, err := h.upsertSyncedBalances(ctx, account, balances, scope)
 	if err != nil {
@@ -1922,7 +2014,45 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 		answered: answeredChains(chains, balances, failedChains, reported),
 		refused:  refused,
 		unscoped: unscoped,
+		confirm:  confirmAcross(walletSyncer, addresses),
 	}, nil
+}
+
+// confirmAcross sums a confirmer's answers over every address of the account:
+// a position is one per (asset, chain), however many addresses hold it. A
+// contract counts as answered only when every address answered for it.
+func confirmAcross(syncer entity.WalletSyncer, addresses []string) confirmFunc {
+	confirmer, ok := syncer.(entity.BalanceConfirmer)
+	if !ok {
+		return nil
+	}
+	return func(ctx context.Context, chain string, contracts []string) (map[string]*big.Int, error) {
+		total := make(map[string]*big.Int, len(contracts))
+		answered := make(map[string]int, len(contracts))
+		for _, addr := range addresses {
+			got, err := confirmer.ConfirmBalances(ctx, addr, chain, contracts)
+			if err != nil {
+				return nil, err
+			}
+			for contract, raw := range got {
+				n, ok := new(big.Int).SetString(raw, 10)
+				if !ok {
+					continue
+				}
+				if total[contract] == nil {
+					total[contract] = new(big.Int)
+				}
+				total[contract].Add(total[contract], n)
+				answered[contract]++
+			}
+		}
+		for contract := range total {
+			if answered[contract] != len(addresses) {
+				delete(total, contract)
+			}
+		}
+		return total, nil
+	}
 }
 
 // nativeMirrors are OP Stack's LegacyERC20ETH predeploy: its balanceOf returns
@@ -2230,6 +2360,8 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 		}
 	}
 
+	confirmedZero := h.reconfirmVanished(ctx, account.ID, existingHoldings, byPosition, scope.confirm)
+
 	// Every row of the new snapshot is written in one transaction. A sync does
 	// not add positions, it replaces the picture of an account, and half a
 	// picture is not a smaller truth — it is a total that looks whole and is
@@ -2243,6 +2375,7 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 		legacyByAsset:      legacyByAsset,
 		existing:           existingHoldings,
 		zeroVanished:       complete,
+		confirmedZero:      confirmedZero,
 		failedChains:       scope.chains,
 		withheld:           withheld,
 		partial:            len(scope.chains) > 0 || len(scope.refused) > 0,
@@ -2281,6 +2414,8 @@ type chainVerdict struct {
 	// answered; unscoped is an error that names neither chain nor position.
 	refused  []*entity.EntryError
 	unscoped bool
+	// confirm is nil when the syncer cannot be asked about named contracts.
+	confirm confirmFunc
 }
 
 // answeredChains is the chains this sync has positive evidence for: the ones
@@ -2355,6 +2490,10 @@ type writePlan struct {
 	// zeroVanished says the snapshot is trustworthy enough to remove with: no
 	// unplaceable failure, no unresolved balance, not empty. See writeSyncedHoldings.
 	zeroVanished bool
+	// confirmedZero are rows the source, asked by name, said are empty. They
+	// are zeroed even when zeroVanished is false: that is a statement, not an
+	// inference from silence.
+	confirmedZero map[string]bool
 	// failedChains and withheld are what it still may not remove: every row on
 	// a chain that failed, and the positions a refused entry stands for.
 	failedChains map[string]string
@@ -2499,26 +2638,24 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 	// plan.zeroVanished is the guard the whole pass hangs on: a failed chain, an
 	// unresolved balance or an empty result must never be read as an emptied
 	// wallet. See upsertSyncedBalances.
-	if plan.zeroVanished {
-		for _, hld := range plan.existing {
-			if _, ok := refreshed[hld.ID]; ok {
-				continue
-			}
-			if !hld.Swept() || hld.Amount.IsZero() {
-				continue
-			}
-			if plan.withholds(hld) {
-				continue
-			}
-			hld.Amount = decimal.Zero
-			hld.SyncedAt = &syncedAt
-			if _, err := w.UpdateHolding(ctx, hld, []string{"amount", "synced_at"}); err != nil {
-				return writtenSnapshot{}, fmt.Errorf("zero vanished holding %s: %w", hld.ID, err)
-			}
-			// Deliberately not added to syncedAssetIDs: a zero position needs no
-			// price, and the provider quota is monthly.
-			written.holdingsZeroed++
+	for _, hld := range plan.existing {
+		if _, ok := refreshed[hld.ID]; ok {
+			continue
 		}
+		if !hld.Swept() || hld.Amount.IsZero() {
+			continue
+		}
+		if !plan.confirmedZero[hld.ID] && (!plan.zeroVanished || plan.withholds(hld)) {
+			continue
+		}
+		hld.Amount = decimal.Zero
+		hld.SyncedAt = &syncedAt
+		if _, err := w.UpdateHolding(ctx, hld, []string{"amount", "synced_at"}); err != nil {
+			return writtenSnapshot{}, fmt.Errorf("zero vanished holding %s: %w", hld.ID, err)
+		}
+		// Deliberately not added to syncedAssetIDs: a zero position needs no
+		// price, and the provider quota is monthly.
+		written.holdingsZeroed++
 	}
 
 	return written, nil
