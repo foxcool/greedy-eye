@@ -15,9 +15,8 @@ import (
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/pricefresh"
 	"github.com/foxcool/greedy-eye/internal/quoting"
-	"github.com/foxcool/greedy-eye/internal/service/portfolio"
-	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/shopspring/decimal"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -31,14 +30,14 @@ const unassignedGroupID = "unassigned"
 // Handler implements apiv1connect.AnalyticsServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedAnalyticsServiceHandler
-	store     Store
+	pfClient  PortfolioClient
 	mdClient  MarketDataClient         // optional; nil if not configured
 	setClient pricefresh.SettingReader // optional; nil means valuation defaults
 	log       *slog.Logger
 }
 
-func NewHandler(store Store, log *slog.Logger) *Handler {
-	return &Handler{store: store, log: log}
+func NewHandler(pc PortfolioClient, log *slog.Logger) *Handler {
+	return &Handler{pfClient: pc, log: log}
 }
 
 // WithMarketDataClient returns a new Handler with the MarketData client injected.
@@ -104,32 +103,28 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 			fmt.Errorf("grouping by %s is not implemented yet", msg.GroupBy))
 	}
 
-	// Scope resolution: which holdings, and who may see them.
-	var opts portfolio.ListHoldingsOpts
+	// Scope resolution: which holdings. Who may see them is the portfolio
+	// service's call: it scopes the list to the caller and refuses a foreign
+	// portfolio as not found.
+	listReq := &apiv1.ListHoldingsRequest{}
 	if isBalance {
 		if msg.ScopeId != "" {
 			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("scope_id must be empty for scope BALANCE"))
 		}
-		user, ok := middleware.UserFromContext(ctx)
-		if !ok {
+		if _, ok := middleware.UserFromContext(ctx); !ok {
 			return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
 		}
-		opts.UserID = user.ID
 	} else {
 		if msg.ScopeId == "" {
 			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("scope_id (portfolio id) is required"))
 		}
-		p, err := h.store.GetPortfolio(ctx, msg.ScopeId)
-		if err != nil {
-			return nil, toConnectError(err)
-		}
-		if err := middleware.EnsureOwner(ctx, p.UserID); err != nil {
+		// Read first so a missing or foreign portfolio is NotFound, not an
+		// empty map.
+		if _, err := h.pfClient.GetPortfolio(ctx, connect.NewRequest(&apiv1.GetPortfolioRequest{Id: msg.ScopeId})); err != nil {
 			return nil, err
 		}
-		opts.PortfolioID = msg.ScopeId
+		listReq.PortfolioId = &msg.ScopeId
 	}
-	opts.PageSize = maxHoldings
-	opts.HideExcluded = true
 
 	// One read of the valuation policy, used for both the currency the map is
 	// drawn in and the freshness rule below: the heatmap and the total must
@@ -147,9 +142,9 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 	}
 	from := time.Now().Add(-windowDuration(msg.Window))
 
-	holdings, _, err := h.store.ListHoldings(ctx, opts)
+	holdings, err := h.holdings(ctx, listReq)
 	if err != nil {
-		return nil, toConnectError(err)
+		return nil, err
 	}
 
 	// Aggregate holding values per leaf. Leaves are per asset when flat,
@@ -272,6 +267,41 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 	}), nil
 }
 
+// holdings reads the non-excluded holdings scope selects, at most maxHoldings.
+// The RPC pages and does not filter exclusions, so both happen here: a wallet
+// full of quarantined tokens must not crowd real positions off the first page.
+func (h *Handler) holdings(ctx context.Context, scope *apiv1.ListHoldingsRequest) ([]*entity.Holding, error) {
+	req := proto.CloneOf(scope)
+	pageSize := int32(maxHoldings)
+	req.PageSize = &pageSize
+	var out []*entity.Holding
+	for {
+		resp, err := h.pfClient.ListHoldings(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		for _, ph := range resp.Msg.Holdings {
+			if ph.Excluded {
+				continue
+			}
+			hld, err := holdingFromProto(ph)
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, err)
+			}
+			out = append(out, hld)
+			if len(out) == maxHoldings {
+				return out, nil
+			}
+		}
+		// An empty page guards against a server that repeats its cursor.
+		next := resp.Msg.NextPageToken
+		if next == "" || len(resp.Msg.Holdings) == 0 {
+			return out, nil
+		}
+		req.PageToken = &next
+	}
+}
+
 // maxUnpricedDisclosed caps the per-holding detail in a coverage block: the count
 // is always exact, the list is a sample bounded by read size. Same cap and same
 // reasoning as portfolio's; the two will share code on the third consumer.
@@ -305,14 +335,14 @@ func (h *Handler) groupID(ctx context.Context, groupBy apiv1.HeatmapGroupBy, hld
 		return pid, nil
 	}
 	pid := ""
-	acc, err := h.store.GetAccount(ctx, hld.AccountID)
+	acc, err := h.pfClient.GetAccount(ctx, connect.NewRequest(&apiv1.GetAccountRequest{Id: hld.AccountID}))
 	switch {
 	case err == nil:
-		pid = acc.PortfolioID
-	case errors.Is(err, store.ErrNotFound):
+		pid = acc.Msg.GetPortfolioId()
+	case connect.CodeOf(err) == connect.CodeNotFound:
 		// Keep the holding under "unassigned"; it outlived its account record.
 	default:
-		return "", toConnectError(err)
+		return "", err
 	}
 	if pid == "" {
 		pid = unassignedGroupID
@@ -371,14 +401,14 @@ func (h *Handler) groupLabel(ctx context.Context, groupBy apiv1.HeatmapGroupBy, 
 	var err error
 	switch groupBy {
 	case apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_ACCOUNT:
-		var acc *entity.Account
-		if acc, err = h.store.GetAccount(ctx, groupID); err == nil {
-			name = acc.Name
+		var acc *connect.Response[apiv1.Account]
+		if acc, err = h.pfClient.GetAccount(ctx, connect.NewRequest(&apiv1.GetAccountRequest{Id: groupID})); err == nil {
+			name = acc.Msg.Name
 		}
 	case apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_PORTFOLIO:
-		var p *entity.Portfolio
-		if p, err = h.store.GetPortfolio(ctx, groupID); err == nil {
-			name = p.Name
+		var p *connect.Response[apiv1.Portfolio]
+		if p, err = h.pfClient.GetPortfolio(ctx, connect.NewRequest(&apiv1.GetPortfolioRequest{Id: groupID})); err == nil {
+			name = p.Msg.Name
 		}
 	default:
 		return groupID, nil
@@ -387,10 +417,10 @@ func (h *Handler) groupLabel(ctx context.Context, groupBy apiv1.HeatmapGroupBy, 
 	switch {
 	case err == nil:
 		return name, nil
-	case errors.Is(err, store.ErrNotFound):
+	case connect.CodeOf(err) == connect.CodeNotFound:
 		return groupID, nil
 	default:
-		return "", toConnectError(err)
+		return "", err
 	}
 }
 
@@ -403,17 +433,4 @@ func windowDuration(w apiv1.HeatmapWindow) time.Duration {
 	default:
 		return 24 * time.Hour
 	}
-}
-
-func toConnectError(err error) error {
-	if errors.Is(err, store.ErrNotFound) {
-		return connect.NewError(connect.CodeNotFound, err)
-	}
-	if errors.Is(err, store.ErrInvalidArgument) {
-		return connect.NewError(connect.CodeInvalidArgument, err)
-	}
-	if errors.Is(err, store.ErrConstraint) {
-		return connect.NewError(connect.CodeFailedPrecondition, err)
-	}
-	return connect.NewError(connect.CodeInternal, err)
 }

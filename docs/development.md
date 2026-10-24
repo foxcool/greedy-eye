@@ -402,7 +402,7 @@ Service Layer (Connect handlers)
 ├── MarketDataService → MarketDataStore, credentials resolver (price providers)
 ├── PortfolioService  → PortfolioStore, MarketDataService, resolver (wallet/exchange syncers)
 ├── AutomationService → AutomationStore
-└── AnalyticsService  → PortfolioStore (read-only), MarketDataService (prices, assets)
+└── AnalyticsService  → PortfolioService (portfolios, accounts, holdings), MarketDataService (prices, assets), SettingsService (valuation policy); no store
 
 Cross-cutting
 ├── credentials.Resolver → PortfolioStore (accounts), adapter factories

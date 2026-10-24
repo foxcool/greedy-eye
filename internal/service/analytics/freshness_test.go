@@ -44,7 +44,7 @@ func TestHeatmap_ReportsStaleQuotes(t *testing.T) {
 	md.latest["eth|USD"] = observedAt(price("eth", "USD", "200000", 2), stale)
 	md.latest["btc|USD"] = observedAt(price("btc", "USD", "4000000", 2), fresh)
 
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
 	require.NoError(t, err)
 
@@ -70,7 +70,7 @@ func TestHeatmap_StaleCountIsPerHoldingNotPerAsset(t *testing.T) {
 	md.latest["eth|USD"] = observedAt(price("eth", "USD", "200000", 2), stale)
 	md.latest["btc|USD"] = observedAt(price("btc", "USD", "4000000", 2), time.Now())
 
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
 	require.NoError(t, err)
 
@@ -85,7 +85,7 @@ func TestHeatmap_HonoursTheStoredPolicy(t *testing.T) {
 	md.latest["eth|USD"] = observedAt(price("eth", "USD", "200000", 2), time.Now().Add(-2*time.Hour))
 	md.latest["btc|USD"] = observedAt(price("btc", "USD", "4000000", 2), time.Now())
 
-	base := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	base := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	t.Run("default keeps a two-hour-old quote current", func(t *testing.T) {
 		resp, err := base.GetHeatmap(userCtx("u1"), heatmapRequest())
@@ -106,7 +106,7 @@ func TestHeatmap_HonoursTheStoredPolicy(t *testing.T) {
 func TestHeatmap_QuotesWithoutTimesLeaveTheMapUndated(t *testing.T) {
 	st, md := fixture()
 
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
 	require.NoError(t, err)
 
@@ -129,7 +129,7 @@ func TestHeatmap_ExhaustedSourcesReadAsNeverPriced(t *testing.T) {
 		},
 	}
 
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
 	require.NoError(t, err)
 
@@ -144,7 +144,7 @@ func TestHeatmap_NoAttemptRecordStaysNoQuote(t *testing.T) {
 	st, md := fixture()
 	delete(md.latest, "eth|USD")
 
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
 	require.NoError(t, err)
 
@@ -165,7 +165,7 @@ func TestHeatmap_DisplayCurrencyComesFromTheSetting(t *testing.T) {
 	md.latest["btc|USD"] = price("btc", "USD", "4000000", 2)
 	md.latest["btc|RUB"] = price("btc", "RUB", "320000000", 2)
 
-	base := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	base := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	sizeOf := func(t *testing.T, h *Handler) float64 {
 		t.Helper()

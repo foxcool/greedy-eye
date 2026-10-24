@@ -828,6 +828,12 @@ func (h *Handler) ListHoldings(ctx context.Context, req *connect.Request[apiv1.L
 
 	opts := ListHoldingsOpts{UserID: user.ID}
 	if req.Msg.PortfolioId != nil {
+		// A named portfolio is scoped by its own ownership check, which lets an
+		// admin read one they do not own, as GetPortfolio does.
+		if _, err := h.ownedPortfolio(ctx, *req.Msg.PortfolioId); err != nil {
+			return nil, err
+		}
+		opts.UserID = ""
 		opts.PortfolioID = *req.Msg.PortfolioId
 	}
 	if req.Msg.AccountId != nil {
@@ -2785,6 +2791,9 @@ func holdingToProto(h *entity.Holding) *apiv1.Holding {
 	}
 	if h.ImportID != "" {
 		result.ImportId = &h.ImportID
+	}
+	if h.SyncedAt != nil {
+		result.SyncedAt = timestamppb.New(*h.SyncedAt)
 	}
 	return result
 }

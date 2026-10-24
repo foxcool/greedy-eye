@@ -92,6 +92,10 @@ message Holding {
   // balance — it is NOT a synonym for liquid, and a runway figure must not
   // read it as one. Sync writes one row per (account, asset, chain, liquidity).
   string liquidity = 13;
+  // Output only. Last time a sync wrote this row; unset if none ever did.
+  // A row a sync adopted keeps its original source, so this, not source,
+  // says whether a provider keeps the amount current.
+  optional google.protobuf.Timestamp synced_at = 14;
 }
 
 // Account represents a user's connection to an external financial entity.

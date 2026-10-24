@@ -1195,7 +1195,8 @@ func TestDeleteHolding_ForeignOwner(t *testing.T) {
 func TestListHoldings_WithFilters(t *testing.T) {
 	s := &mockStore{}
 	portfolioID := testPortfolioID
-	s.On("ListHoldings", mock.Anything, ListHoldingsOpts{UserID: testUserID, PortfolioID: testPortfolioID}).
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("ListHoldings", mock.Anything, ListHoldingsOpts{PortfolioID: testPortfolioID}).
 		Return([]*entity.Holding{testHolding(testHoldingID), testHolding(testHoldingID2)}, "next", nil)
 	h := newHandler(s)
 
@@ -1205,6 +1206,36 @@ func TestListHoldings_WithFilters(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, resp.Msg.Holdings, 2)
 	assert.Equal(t, "next", resp.Msg.NextPageToken)
+}
+
+func TestListHoldings_ForeignPortfolio(t *testing.T) {
+	portfolioID := testPortfolioID
+
+	t.Run("user gets not found", func(t *testing.T) {
+		s := &mockStore{}
+		s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+		h := newHandler(s)
+
+		_, err := h.ListHoldings(ctxWithUser(testUserID2), connect.NewRequest(&apiv1.ListHoldingsRequest{
+			PortfolioId: &portfolioID,
+		}))
+		assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+		s.AssertNotCalled(t, "ListHoldings")
+	})
+
+	t.Run("admin reads it", func(t *testing.T) {
+		s := &mockStore{}
+		s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+		s.On("ListHoldings", mock.Anything, ListHoldingsOpts{PortfolioID: testPortfolioID}).
+			Return([]*entity.Holding{testHolding(testHoldingID)}, "", nil)
+		h := newHandler(s)
+
+		resp, err := h.ListHoldings(ctxWithAdmin(testUserID2), connect.NewRequest(&apiv1.ListHoldingsRequest{
+			PortfolioId: &portfolioID,
+		}))
+		require.NoError(t, err)
+		assert.Len(t, resp.Msg.Holdings, 1, "not narrowed to the admin's own holdings")
+	})
 }
 
 func TestListHoldings_Unauthenticated(t *testing.T) {
