@@ -55,6 +55,10 @@ func run() error {
 
 	log := createLogger(config.Logger.Level)
 
+	if err := validateRemotes(config); err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+
 	// Init sentry
 	if config.Sentry.DSN != "" {
 		err := sentry.Init(sentry.ClientOptions{
@@ -192,11 +196,21 @@ func run() error {
 	// deployment that does not serve settings still lets the local handler
 	// answer in-process — the same shape as mdHandler above.
 	settingsHandler := settings.NewHandler(postgres.NewSettingsStore(pool), log)
+
+	// Cross-domain reads go to a local handler or, for a domain in remotes:,
+	// to a client of the process that serves it. Call sites are the same.
+	logRemotes(config.Remotes, log)
+	rc := newRemotes(config.Remotes, config.Security.ServiceToken)
+	mdClient := pick[apiv1connect.MarketDataServiceClient](rc, ServiceConfigTypeMarketData,
+		mdHandler, apiv1connect.NewMarketDataServiceClient)
+	settingsClient := pick[apiv1connect.SettingsServiceClient](rc, ServiceConfigTypeSettings,
+		settingsHandler, apiv1connect.NewSettingsServiceClient)
+
 	// Built before the loop for the same reason: analytics reads holdings
 	// through it.
 	pHandler := portfolio.NewHandler(portfolioStore, log).
-		WithMarketDataClient(mdHandler).
-		WithSettingsClient(settingsHandler).
+		WithMarketDataClient(mdClient).
+		WithSettingsClient(settingsClient).
 		WithWalletSyncerSource(credResolver).
 		WithExchangeSyncerSource(credResolver).
 		WithBrokerSyncerSource(credResolver).
@@ -224,9 +238,11 @@ func run() error {
 			path, handler := apiv1connect.NewAutomationServiceHandler(automationHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypeAnalytics:
-			aHandler := analytics.NewHandler(pHandler, log).
-				WithMarketDataClient(mdHandler).
-				WithSettingsClient(settingsHandler)
+			pClient := pick[apiv1connect.PortfolioServiceClient](rc, ServiceConfigTypePortfolio,
+				pHandler, apiv1connect.NewPortfolioServiceClient)
+			aHandler := analytics.NewHandler(pClient, log).
+				WithMarketDataClient(mdClient).
+				WithSettingsClient(settingsClient)
 			path, handler := apiv1connect.NewAnalyticsServiceHandler(aHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypeSettings:

@@ -304,6 +304,13 @@ EYE_SCHEDULER_PRICEFETCHCRON="0 * * * *"  # empty = price job off
 # beside that key — see docs/providers.md. This file configures the service,
 # not the providers it talks to.
 
+# Split deployment: a domain served by another process. Absent = in-process.
+# Each value is that process's h2c base URL; a domain may not be both here and
+# in services. Any remote requires the token both sides share.
+EYE_REMOTES_MARKETDATA=http://eye-b:8080
+EYE_REMOTES_SETTINGS=http://eye-b:8080
+EYE_SECURITY_SERVICETOKEN=...           # openssl rand -base64 32
+
 # Observability
 EYE_SENTRY_DSN=your_dsn
 ```
