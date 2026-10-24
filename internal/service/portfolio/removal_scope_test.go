@@ -1,6 +1,7 @@
 package portfolio
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -30,6 +31,19 @@ func syncedRow(id, assetID, chain, amount string) *entity.Holding {
 // and whatever error the test names.
 func scopeHarness(t *testing.T, rows []*entity.Holding, syncErr error, md *mockMDClient) (*apiv1.SyncAccountResponse, map[string]decimal.Decimal) {
 	t.Helper()
+	s, acct, updated := scopeStore(rows)
+	ws := &mockWalletSyncer{}
+	expectDAI(ws, syncErr)
+	return scopeHarnessWith(t, s, acct, ws, md, updated)
+}
+
+func expectDAI(ws *mockWalletSyncer, syncErr error) {
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth", "arbitrum"}).Return([]entity.WalletBalance{
+		{Symbol: "DAI", Amount: "200", Decimals: 18, ContractAddress: "0xdai", Chain: "eth"},
+	}, syncErr)
+}
+
+func scopeStore(rows []*entity.Holding) (*mockStore, *entity.Account, map[string]decimal.Decimal) {
 	acct := testAccount(testAccountID)
 	acct.Type = entity.AccountTypeWallet
 	acct.Data = map[string]string{"address": "0xabc", "chain": "eth,arbitrum"}
@@ -46,12 +60,11 @@ func scopeHarness(t *testing.T, rows []*entity.Holding, syncErr error, md *mockM
 			updated[hld.ID] = hld.Amount
 		}).
 		Return(&entity.Holding{}, nil)
+	return s, acct, updated
+}
 
-	ws := &mockWalletSyncer{}
-	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth", "arbitrum"}).Return([]entity.WalletBalance{
-		{Symbol: "DAI", Amount: "200", Decimals: 18, ContractAddress: "0xdai", Chain: "eth"},
-	}, syncErr)
-
+func scopeHarnessWith(t *testing.T, s *mockStore, _ *entity.Account, ws entity.WalletSyncer, md *mockMDClient, updated map[string]decimal.Decimal) (*apiv1.SyncAccountResponse, map[string]decimal.Decimal) {
+	t.Helper()
 	md.autoAsset = true
 	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
 		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
@@ -228,4 +241,92 @@ func TestUnrecordedChain(t *testing.T) {
 	assert.Equal(t, "Arbitrum", chain)
 	_, ok = unrecordedChain(nil, rows)
 	assert.False(t, ok)
+}
+
+// confirmingSyncer is a wallet syncer that can also be asked about contracts.
+type confirmingSyncer struct {
+	*mockWalletSyncer
+	balances map[string]string
+	err      error
+}
+
+func (c *confirmingSyncer) ConfirmBalances(_ context.Context, _, _ string, contracts []string) (map[string]string, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+	out := map[string]string{}
+	for _, contract := range contracts {
+		if b, ok := c.balances[contract]; ok {
+			out[contract] = b
+		}
+	}
+	return out, nil
+}
+
+func boundOnEth(md *mockMDClient, assetID, contract string) {
+	md.On("GetAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.GetAssetRequest]) bool {
+		return r.Msg.GetId() == assetID
+	})).Return(connect.NewResponse(&apiv1.Asset{
+		Id:           assetID,
+		ExternalRefs: []*apiv1.AssetExternalRef{{Source: entity.OnchainSource("eth"), Ref: contract}},
+	}), nil)
+}
+
+// reconfirmHarness syncs a wallet whose snapshot is incomplete (an unscoped
+// error withholds every inferred removal) and whose syncer answers by contract.
+func reconfirmHarness(t *testing.T, rows []*entity.Holding, cs *confirmingSyncer, md *mockMDClient) (*apiv1.SyncAccountResponse, map[string]decimal.Decimal) {
+	t.Helper()
+	s, acct, updated := scopeStore(rows)
+	expectDAI(cs.mockWalletSyncer, errors.New("resolve asset BINA: provider quota exhausted"))
+	return scopeHarnessWith(t, s, acct, cs, md, updated)
+}
+
+// TestSyncAccount_ConfirmedZeroRemovesDespiteIncompleteSnapshot: MKR and
+// stkAAVE on main were 0 on-chain for a day while an unrelated failure kept the
+// gate shut. Asked by contract, the chain says 0, and that is enough.
+func TestSyncAccount_ConfirmedZeroRemovesDespiteIncompleteSnapshot(t *testing.T) {
+	mkr := syncedRow("h-mkr", "asset-MKR", "eth", "284583021768310634")
+	unbound := syncedRow("h-old", "asset-OLD", "eth", "7")
+	md := &mockMDClient{}
+	boundOnEth(md, "asset-MKR", "0x9F8F72aA9304c8B593d555F12eF6589cC3A579A2")
+	md.On("GetAsset", mock.Anything, mock.Anything).Return(connect.NewResponse(&apiv1.Asset{Id: "asset-OLD"}), nil)
+	cs := &confirmingSyncer{mockWalletSyncer: &mockWalletSyncer{}, balances: map[string]string{
+		"0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2": "0",
+	}}
+
+	resp, updated := reconfirmHarness(t, []*entity.Holding{mkr, unbound}, cs, md)
+
+	assert.Equal(t, int32(1), resp.HoldingsZeroed)
+	assert.True(t, updated["h-mkr"].IsZero(), "an explicit zero is a statement, not an inference")
+	assert.NotContains(t, updated, "h-old", "no contract to ask about: left to the snapshot's completeness")
+}
+
+// TestSyncAccount_ConfirmedNonZeroKeepsRow: the listing dropped a balance the
+// chain still holds. Its last amount is nearer the truth than a zero.
+func TestSyncAccount_ConfirmedNonZeroKeepsRow(t *testing.T) {
+	mkr := syncedRow("h-mkr", "asset-MKR", "eth", "284583021768310634")
+	md := &mockMDClient{}
+	boundOnEth(md, "asset-MKR", "0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2")
+	cs := &confirmingSyncer{mockWalletSyncer: &mockWalletSyncer{}, balances: map[string]string{
+		"0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2": "1000",
+	}}
+
+	resp, updated := reconfirmHarness(t, []*entity.Holding{mkr}, cs, md)
+
+	assert.Equal(t, int32(0), resp.HoldingsZeroed)
+	assert.NotContains(t, updated, "h-mkr")
+}
+
+// TestSyncAccount_FailedReconfirmationKeepsRow: a confirmation that could not
+// be read says nothing, so the incomplete snapshot still withholds the row.
+func TestSyncAccount_FailedReconfirmationKeepsRow(t *testing.T) {
+	mkr := syncedRow("h-mkr", "asset-MKR", "eth", "284583021768310634")
+	md := &mockMDClient{}
+	boundOnEth(md, "asset-MKR", "0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2")
+	cs := &confirmingSyncer{mockWalletSyncer: &mockWalletSyncer{}, err: errors.New("status 429")}
+
+	resp, updated := reconfirmHarness(t, []*entity.Holding{mkr}, cs, md)
+
+	assert.Equal(t, int32(0), resp.HoldingsZeroed)
+	assert.NotContains(t, updated, "h-mkr")
 }
