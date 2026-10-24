@@ -154,7 +154,7 @@ func TestTotalAndHeatmapAgree(t *testing.T) {
 	st, md := agreementFixture()
 	ctx := userCtx("u1")
 
-	heat := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	heat := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 	value := portfolio.NewHandler(agreementStore{inner: st}, testLogger()).
 		WithMarketDataClient(agreementMD{inner: md})
 

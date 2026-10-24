@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -55,7 +56,25 @@ func (f *fakeStore) ListHoldings(_ context.Context, opts portfolio.ListHoldingsO
 		}
 		out = append(out, h)
 	}
+	// Pages like the real store: the token is the offset of the next row.
+	start := 0
+	if opts.PageToken != "" {
+		var err error
+		if start, err = strconv.Atoi(opts.PageToken); err != nil {
+			return nil, "", fmt.Errorf("page token %q: %w", opts.PageToken, err)
+		}
+	}
+	out = out[min(start, len(out)):]
+	if opts.PageSize > 0 && len(out) > opts.PageSize {
+		return out[:opts.PageSize], strconv.Itoa(start + opts.PageSize), nil
+	}
 	return out, "", nil
+}
+
+// client serves the fake through the real portfolio RPCs, so analytics is
+// tested against the same scoping and proto mapping it gets in production.
+func (f *fakeStore) client() PortfolioClient {
+	return portfolio.NewHandler(agreementStore{inner: f}, testLogger())
 }
 
 // ownedBy mirrors the real store's user scoping: by the owning portfolio,
@@ -193,7 +212,7 @@ func heatmapRequest(mut ...func(*apiv1.GetHeatmapRequest)) *connect.Request[apiv
 
 func TestGetHeatmap_FlatPortfolio(t *testing.T) {
 	st, md := fixture()
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
 	require.NoError(t, err)
@@ -221,7 +240,7 @@ func TestGetHeatmap_FlatPortfolio(t *testing.T) {
 
 func TestGetHeatmap_GroupByAccount(t *testing.T) {
 	st, md := fixture()
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest(func(m *apiv1.GetHeatmapRequest) {
 		m.GroupBy = apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_ACCOUNT
@@ -258,7 +277,7 @@ func TestGetHeatmap_CrossPricedAsset(t *testing.T) {
 	md.latest["wbtc|"] = price("wbtc", "btc", "99000000", 8)  // 0.99 BTC now
 	md.hist["wbtc|btc"] = price("wbtc", "btc", "100000000", 8) // 1.00 BTC at window start
 
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
 	require.NoError(t, err)
@@ -278,7 +297,7 @@ func TestGetHeatmap_SkipsUnpricedAndExcluded(t *testing.T) {
 		&entity.Holding{ID: "h4", AssetID: "eth", AccountID: "a1", PortfolioID: "p1", Amount: dec("1000000000000000000"), Decimals: 18, Excluded: true},
 	)
 
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
 	require.NoError(t, err)
@@ -312,7 +331,7 @@ func TestGetHeatmap_CoverageCapsTheList(t *testing.T) {
 		})
 	}
 
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
 	require.NoError(t, err)
@@ -328,7 +347,7 @@ func TestGetHeatmap_CoverageCapsTheList(t *testing.T) {
 // says so with counts, not with silence.
 func TestGetHeatmap_FullCoverageReportsNothingMissing(t *testing.T) {
 	st, md := fixture()
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
 	require.NoError(t, err)
@@ -355,7 +374,7 @@ func TestGetHeatmap_AmountAgeIgnoresUnsweptRows(t *testing.T) {
 	st.holdings[1].UpdatedAt = ancient
 	st.holdings[1].Source = entity.SourceManual
 
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
 	require.NoError(t, err)
@@ -384,7 +403,7 @@ func TestGetHeatmap_SkipsThinMarket(t *testing.T) {
 	thin.Volume = strPtr("4065500000000")      // $40,655 of 24h volume
 	md.latest["mnep|USD"] = thin
 
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
 	require.NoError(t, err)
@@ -411,7 +430,7 @@ func TestGetHeatmap_KeepsAssetWithoutReportedVolume(t *testing.T) {
 	md.assets["ausdc"] = &apiv1.Asset{Id: "ausdc", Name: "Aave USDC", Symbol: strPtr("aUSDC")}
 	md.latest["ausdc|USD"] = price("ausdc", "USD", "100000000", 8) // $1.00, no volume field
 
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
 	require.NoError(t, err)
@@ -431,7 +450,7 @@ func TestGetHeatmap_MissingHistoryMeansNeutralColor(t *testing.T) {
 	st, md := fixture()
 	delete(md.hist, "eth|USD")
 
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
 	require.NoError(t, err)
@@ -440,7 +459,7 @@ func TestGetHeatmap_MissingHistoryMeansNeutralColor(t *testing.T) {
 
 func TestGetHeatmap_OwnershipEnforced(t *testing.T) {
 	st, md := fixture()
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	_, err := h.GetHeatmap(userCtx("intruder"), heatmapRequest())
 	require.Error(t, err)
@@ -450,7 +469,7 @@ func TestGetHeatmap_OwnershipEnforced(t *testing.T) {
 
 func TestGetHeatmap_Validation(t *testing.T) {
 	st, md := fixture()
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 	ctx := userCtx("u1")
 
 	tests := []struct {
@@ -512,7 +531,7 @@ func balanceRequest(mut ...func(*apiv1.GetHeatmapRequest)) *connect.Request[apiv
 
 func TestGetHeatmap_BalanceFlat(t *testing.T) {
 	st, md := balanceFixture()
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	resp, err := h.GetHeatmap(userCtx("u1"), balanceRequest())
 	require.NoError(t, err)
@@ -528,7 +547,7 @@ func TestGetHeatmap_BalanceFlat(t *testing.T) {
 
 func TestGetHeatmap_BalanceGroupByPortfolio(t *testing.T) {
 	st, md := balanceFixture()
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	resp, err := h.GetHeatmap(userCtx("u1"), balanceRequest(func(m *apiv1.GetHeatmapRequest) {
 		m.GroupBy = apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_PORTFOLIO
@@ -557,7 +576,7 @@ func TestGetHeatmap_BalanceGroupByPortfolio(t *testing.T) {
 
 func TestGetHeatmap_BalanceGroupByAccount(t *testing.T) {
 	st, md := balanceFixture()
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	resp, err := h.GetHeatmap(userCtx("u1"), balanceRequest(func(m *apiv1.GetHeatmapRequest) {
 		m.GroupBy = apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_ACCOUNT
@@ -577,7 +596,7 @@ func TestGetHeatmap_BalanceScopesToCaller(t *testing.T) {
 	st.holdings = append(st.holdings,
 		&entity.Holding{ID: "hx", AssetID: "btc", AccountID: "ax", PortfolioID: "px", Amount: dec("100000000"), Decimals: 8},
 	)
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	resp, err := h.GetHeatmap(userCtx("u1"), balanceRequest())
 	require.NoError(t, err)
@@ -588,7 +607,7 @@ func TestGetHeatmap_BalanceScopesToCaller(t *testing.T) {
 
 func TestGetHeatmap_BalanceValidation(t *testing.T) {
 	st, md := balanceFixture()
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	_, err := h.GetHeatmap(userCtx("u1"), balanceRequest(func(m *apiv1.GetHeatmapRequest) {
 		m.ScopeId = "p1"
@@ -610,7 +629,7 @@ func TestGetHeatmap_BalanceValidation(t *testing.T) {
 
 func TestGetHeatmap_NoMarketDataClient(t *testing.T) {
 	st, _ := fixture()
-	h := NewHandler(st, testLogger())
+	h := NewHandler(st.client(), testLogger())
 
 	_, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
 	require.Error(t, err)
@@ -643,7 +662,7 @@ func TestGetHeatmap_AmountAgeIgnoresZeroedRows(t *testing.T) {
 	st.holdings[1].Source = entity.SourceSync
 	st.holdings[1].Amount = decimal.Zero
 
-	h := NewHandler(st, testLogger()).WithMarketDataClient(md)
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
 	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
 	require.NoError(t, err)
@@ -653,4 +672,73 @@ func TestGetHeatmap_AmountAgeIgnoresZeroedRows(t *testing.T) {
 	assert.Equal(t, uint32(2), cov.PricedCount, "the zeroed row is still counted; only the dating changes")
 	require.NotNil(t, cov.GetAmountsAsOf())
 	assert.Equal(t, recent, cov.GetAmountsAsOf().AsTime())
+}
+
+// A row a sync adopted keeps its import source; only synced_at says a provider
+// keeps it current. It has to survive the trip through the portfolio RPC, or
+// the map stops dating by it while the total still does.
+func TestGetHeatmap_AmountAgeCountsAdoptedRows(t *testing.T) {
+	adopted := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	recent := time.Date(2026, 8, 4, 6, 15, 0, 0, time.UTC)
+
+	st, md := fixture()
+	st.holdings[0].UpdatedAt = recent
+	st.holdings[0].Source = entity.SourceSync
+	st.holdings[1].UpdatedAt = adopted
+	st.holdings[1].Source = entity.SourceLLMImport
+	st.holdings[1].SyncedAt = &adopted
+
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
+
+	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
+	require.NoError(t, err)
+
+	require.NotNil(t, resp.Msg.Coverage.GetAmountsAsOf())
+	assert.Equal(t, adopted, resp.Msg.Coverage.GetAmountsAsOf().AsTime())
+}
+
+// Exclusions are filtered after the RPC, which pages. A page full of
+// quarantined tokens must not end the read before the real positions.
+func TestGetHeatmap_ExcludedRowsDoNotCrowdOutPages(t *testing.T) {
+	st, md := fixture()
+	var spam []*entity.Holding
+	for i := range maxHoldings {
+		spam = append(spam, &entity.Holding{
+			ID: fmt.Sprintf("spam-%d", i), AssetID: "eth", AccountID: "a1", PortfolioID: "p1",
+			Amount: dec("1"), Decimals: 18, Excluded: true,
+		})
+	}
+	st.holdings = append(spam, st.holdings...)
+
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
+
+	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
+	require.NoError(t, err)
+
+	assert.Len(t, resp.Msg.Nodes, 2, "both real positions sit on the second page")
+	assert.Equal(t, uint32(2), resp.Msg.Coverage.GetPricedCount())
+}
+
+// Swept reads Source, so an enum value the mapping misses would silently stop
+// a row from dating the map.
+func TestProvenanceFromProto_MapsEveryValue(t *testing.T) {
+	for v, name := range apiv1.ProvenanceSource_name {
+		s := apiv1.ProvenanceSource(v)
+		if s == apiv1.ProvenanceSource_PROVENANCE_SOURCE_UNSPECIFIED {
+			continue
+		}
+		assert.True(t, provenanceFromProto(s).Valid(), "%s maps to no entity source", name)
+	}
+}
+
+// An admin may open any portfolio's map, as GetPortfolio allows; the holdings
+// read must not narrow it back to the admin's own rows.
+func TestGetHeatmap_AdminSeesForeignPortfolio(t *testing.T) {
+	st, md := fixture()
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
+
+	admin := middleware.ContextWithUser(context.Background(), &entity.User{ID: "root", Roles: []string{"admin"}})
+	resp, err := h.GetHeatmap(admin, heatmapRequest())
+	require.NoError(t, err)
+	assert.Len(t, resp.Msg.Nodes, 2)
 }

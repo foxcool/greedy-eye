@@ -191,6 +191,21 @@ func run() error {
 	// deployment that does not serve settings still lets the local handler
 	// answer in-process — the same shape as mdHandler above.
 	settingsHandler := settings.NewHandler(postgres.NewSettingsStore(pool), log)
+	// Built before the loop for the same reason: analytics reads holdings
+	// through it.
+	pHandler := portfolio.NewHandler(portfolioStore, log).
+		WithMarketDataClient(mdHandler).
+		WithSettingsClient(settingsHandler).
+		WithWalletSyncerSource(credResolver).
+		WithExchangeSyncerSource(credResolver).
+		WithBrokerSyncerSource(credResolver).
+		WithBrokerAccountListerSource(credResolver).
+		// The registry that builds the clients also describes them to the
+		// account form, so the two cannot drift.
+		WithProviderCatalog(providers).
+		// Price sources are resolved and rate-limited in this process, so their
+		// health can be read here; see GetAccountHealth.
+		WithPriceSourceHealth(credResolver)
 	// The balance sweep runs against the portfolio service in this process.
 	// A deployment without one has no balances of its own to refresh, so the
 	// job stays unregistered rather than reaching across the network for them.
@@ -201,19 +216,6 @@ func run() error {
 			path, handler := apiv1connect.NewMarketDataServiceHandler(mdHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypePortfolio:
-			pHandler := portfolio.NewHandler(portfolioStore, log).
-				WithMarketDataClient(mdHandler).
-				WithSettingsClient(settingsHandler).
-				WithWalletSyncerSource(credResolver).
-				WithExchangeSyncerSource(credResolver).
-				WithBrokerSyncerSource(credResolver).
-				WithBrokerAccountListerSource(credResolver).
-				// The registry that builds the clients also describes them to
-				// the account form, so the two cannot drift.
-				WithProviderCatalog(providers).
-				// Price sources are resolved and rate-limited in this process,
-				// so their health can be read here; see GetAccountHealth.
-				WithPriceSourceHealth(credResolver)
 			path, handler := apiv1connect.NewPortfolioServiceHandler(pHandler, interceptor)
 			mux.Handle(path, handler)
 			balanceSweeper = pHandler
@@ -221,7 +223,7 @@ func run() error {
 			path, handler := apiv1connect.NewAutomationServiceHandler(automationHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypeAnalytics:
-			aHandler := analytics.NewHandler(portfolioStore, log).
+			aHandler := analytics.NewHandler(pHandler, log).
 				WithMarketDataClient(mdHandler).
 				WithSettingsClient(settingsHandler)
 			path, handler := apiv1connect.NewAnalyticsServiceHandler(aHandler, interceptor)
