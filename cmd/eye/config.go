@@ -42,6 +42,9 @@ type Config struct {
 		// Rotating is prepending a key and restarting — the rekey job re-seals
 		// everything in the background and logs when the tail can be dropped.
 		MasterKey string `koanf:"masterKey"`
+		// ServiceToken is the secret sibling services present to each other in
+		// a split deployment. Empty refuses every service call.
+		ServiceToken string `koanf:"serviceToken"`
 	} `koanf:"security"`
 	Scheduler struct {
 		Enabled bool `koanf:"enabled"`

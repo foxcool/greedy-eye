@@ -354,9 +354,8 @@ func mayFetchPrices(ctx context.Context) error {
 	return requireSyncOrAdmin(ctx, "fetching external prices")
 }
 
-// requireSyncOrAdmin passes the in-process sync (middleware.WithSyncAuthority)
-// and an admin. A split deployment will need a service identity in place of
-// the in-process mark.
+// requireSyncOrAdmin passes the sync (middleware.WithSyncAuthority, in-process
+// or from a sibling service) and an admin.
 func requireSyncOrAdmin(ctx context.Context, action string) error {
 	if middleware.SyncAuthority(ctx) {
 		return nil

@@ -996,6 +996,11 @@ Cron / API Client → AutomationService/ExecuteRule
   `X-User-Id`, `X-User-Email`, and `X-User-Roles` headers (ADR-004).
 - **User provisioning**: `middleware.UserProvisioningInterceptor` reads those headers, lazily
   provisions the user, and binds roles to the request context (roles never persisted).
+- **Service identity (split deployment)**: sibling services call each other with
+  `X-Service-Token` (`security.serviceToken`). `middleware.ForwardIdentityInterceptor` copies the
+  caller's user and sync authority onto the call; `ServiceIdentityInterceptor` admits a matching
+  token and honours `X-Sync-Authority` only alongside it. The edge must strip `X-Service-Token`
+  from outside requests. Empty token (the monolith) admits no service calls.
 - **Ownership enforcement**: every by-ID RPC loads the entity and requires the caller to be its
   owner or an admin (`middleware.EnsureOwner`), returning `NotFound` for foreign IDs so their
   existence isn't leaked. Holdings/transactions inherit ownership through their account.

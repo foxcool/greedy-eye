@@ -19,6 +19,13 @@ type contextKey string
 
 const userContextKey contextKey = "user"
 
+// Identity headers the edge injects and a sibling service forwards.
+const (
+	HeaderUserID    = "X-User-Id"
+	HeaderUserEmail = "X-User-Email"
+	HeaderUserRoles = "X-User-Roles"
+)
+
 // UserFromContext retrieves the provisioned user from the request context.
 func UserFromContext(ctx context.Context) (*entity.User, bool) {
 	u, ok := ctx.Value(userContextKey).(*entity.User)
@@ -38,12 +45,16 @@ func ContextWithUser(ctx context.Context, user *entity.User) context.Context {
 func UserProvisioningInterceptor(store UserProvisioner, log *slog.Logger) connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			userID := req.Header().Get("X-User-Id")
+			userID := req.Header().Get(HeaderUserID)
+			if userID == "" && ServiceCaller(ctx) {
+				// A background job of a sibling service acts for no user.
+				return next(ctx, req)
+			}
 			if userID == "" {
 				return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("missing X-User-Id header"))
 			}
 
-			email := req.Header().Get("X-User-Email")
+			email := req.Header().Get(HeaderUserEmail)
 
 			user, err := store.GetOrCreate(ctx, userID, email)
 			if err != nil {
@@ -51,7 +62,7 @@ func UserProvisioningInterceptor(store UserProvisioner, log *slog.Logger) connec
 				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("user provisioning failed"))
 			}
 
-			user.Roles = parseRoles(req.Header().Get("X-User-Roles"))
+			user.Roles = parseRoles(req.Header().Get(HeaderUserRoles))
 
 			ctx = context.WithValue(ctx, userContextKey, user)
 			return next(ctx, req)

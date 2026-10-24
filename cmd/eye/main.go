@@ -171,6 +171,7 @@ func run() error {
 	// Register Connect handlers
 	userStore := postgres.NewUserStore(pool)
 	interceptor := connect.WithInterceptors(
+		middleware.ServiceIdentityInterceptor(config.Security.ServiceToken),
 		middleware.UserProvisioningInterceptor(userStore, log),
 		loggingInterceptor(log),
 		callerInterceptor(),
