@@ -9,8 +9,8 @@ type syncAuthorityKey struct{}
 // provider reported may bind an asset's external ref (see marketdata
 // mayBindRef), and in-process pricing — the price sweep, a sync pricing what it
 // touched — may fetch prices (see marketdata mayFetchPrices).
-// The mark has no wire form and no interceptor sets it, so an RPC caller cannot
-// carry it; it holds while PortfolioService calls MarketData in-process.
+// Over RPC only a sibling service carries it, as X-Sync-Authority next to a
+// valid service token (see ServiceIdentityInterceptor); a user's call cannot.
 func WithSyncAuthority(ctx context.Context) context.Context {
 	return context.WithValue(ctx, syncAuthorityKey{}, true)
 }
