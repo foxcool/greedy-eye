@@ -31,7 +31,11 @@ type Config struct {
 	Server struct {
 		Port int `koanf:"port"`
 	} `koanf:"server"`
-	Services  []ServiceConfig `koanf:"services"`
+	Services []ServiceConfig `koanf:"services"`
+	// Remotes maps a domain served by another process to its base URL
+	// (http://host:port, h2c). A domain absent here is called in-process.
+	// Setting any requires security.serviceToken.
+	Remotes  map[string]string `koanf:"remotes"`
 	Security struct {
 		// MasterKey holds one or more base64-encoded 32-byte keys for
 		// accounts.data encryption at rest (ADR-005), comma-separated. Empty =
@@ -87,6 +91,15 @@ const (
 	ServiceConfigTypeAnalytics  = "analytics"
 	ServiceConfigTypeSettings   = "settings"
 )
+
+// serviceTypes lists every type above: what services and remotes may name.
+var serviceTypes = []string{
+	ServiceConfigTypeMarketData,
+	ServiceConfigTypePortfolio,
+	ServiceConfigTypeAutomation,
+	ServiceConfigTypeAnalytics,
+	ServiceConfigTypeSettings,
+}
 
 func getConfig() (*Config, error) {
 	var err error
@@ -173,4 +186,3 @@ func getConfig() (*Config, error) {
 
 	return &config, nil
 }
-
