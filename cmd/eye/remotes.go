@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/middleware"
+	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 )
 
 // remoteCallCeiling bounds a call whose ctx carries no deadline, so a hung
@@ -55,7 +57,6 @@ func validateRemotes(config *Config) error {
 //   - credResolver reads accounts.data through the portfolio store (personal-dwa.9)
 //   - the scheduler calls marketdata, automation and portfolio handlers (personal-dwa.11)
 //   - UserProvisioningInterceptor writes users from every service (personal-dwa.10)
-//   - marketdata reads holding provenance through the portfolio store (personal-dwa.3.3)
 type remotes struct {
 	urls map[string]string
 	http connect.HTTPClient
@@ -96,6 +97,17 @@ func pick[T any](r *remotes, domain string, local T,
 		return local
 	}
 	return newClient(r.http, url, r.opts...)
+}
+
+// holdingProvenance reads from the portfolio service when it is remote and
+// from its store otherwise: the RPC admits only a sibling or an admin, and an
+// in-process caller is neither.
+func holdingProvenance(r *remotes, local marketdata.HoldingProvenance) marketdata.HoldingProvenance {
+	url, ok := r.urls[ServiceConfigTypePortfolio]
+	if !ok {
+		return local
+	}
+	return marketdata.RemoteProvenance{Client: apiv1connect.NewPortfolioServiceClient(r.http, url, r.opts...)}
 }
 
 // logRemotes says once at startup which domains this process reaches over

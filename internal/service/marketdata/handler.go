@@ -155,6 +155,27 @@ type HoldingProvenance interface {
 	UnsolicitedAssets(ctx context.Context, assetIDs []string) (map[string]bool, error)
 }
 
+// UnsolicitedAssetsClient is the subset of PortfolioServiceClient that remote
+// provenance needs.
+type UnsolicitedAssetsClient interface {
+	ListUnsolicitedAssets(context.Context, *connect.Request[apiv1.ListUnsolicitedAssetsRequest]) (*connect.Response[apiv1.ListUnsolicitedAssetsResponse], error)
+}
+
+// RemoteProvenance reads holding provenance from a portfolio service in
+// another process.
+type RemoteProvenance struct {
+	Client UnsolicitedAssetsClient
+}
+
+func (p RemoteProvenance) UnsolicitedAssets(ctx context.Context, assetIDs []string) (map[string]bool, error) {
+	resp, err := p.Client.ListUnsolicitedAssets(ctx,
+		connect.NewRequest(&apiv1.ListUnsolicitedAssetsRequest{AssetIds: assetIDs}))
+	if err != nil {
+		return nil, fmt.Errorf("list unsolicited assets: %w", err)
+	}
+	return resp.Msg.Unsolicited, nil
+}
+
 // Handler implements apiv1connect.MarketDataServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedMarketDataServiceHandler

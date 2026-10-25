@@ -121,6 +121,9 @@ const (
 	// PortfolioServiceGetAccountHealthProcedure is the fully-qualified name of the PortfolioService's
 	// GetAccountHealth RPC.
 	PortfolioServiceGetAccountHealthProcedure = "/eye.v1.PortfolioService/GetAccountHealth"
+	// PortfolioServiceListUnsolicitedAssetsProcedure is the fully-qualified name of the
+	// PortfolioService's ListUnsolicitedAssets RPC.
+	PortfolioServiceListUnsolicitedAssetsProcedure = "/eye.v1.PortfolioService/ListUnsolicitedAssets"
 )
 
 // PortfolioServiceClient is a client for the eye.v1.PortfolioService service.
@@ -213,6 +216,10 @@ type PortfolioServiceClient interface {
 	// normal account and no data. Computed on read from the state the resolver,
 	// the rate limiter and the sweep already keep, so it cannot go stale.
 	GetAccountHealth(context.Context, *connect.Request[v1.GetAccountHealthRequest]) (*connect.Response[v1.GetAccountHealthResponse], error)
+	// ListUnsolicitedAssets tells identity scoring which assets nobody ever
+	// bought. The answer aggregates over every holder, so only a sibling service
+	// or an admin may ask.
+	ListUnsolicitedAssets(context.Context, *connect.Request[v1.ListUnsolicitedAssetsRequest]) (*connect.Response[v1.ListUnsolicitedAssetsResponse], error)
 }
 
 // NewPortfolioServiceClient constructs a client for the eye.v1.PortfolioService service. By
@@ -400,6 +407,12 @@ func NewPortfolioServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(portfolioServiceMethods.ByName("GetAccountHealth")),
 			connect.WithClientOptions(opts...),
 		),
+		listUnsolicitedAssets: connect.NewClient[v1.ListUnsolicitedAssetsRequest, v1.ListUnsolicitedAssetsResponse](
+			httpClient,
+			baseURL+PortfolioServiceListUnsolicitedAssetsProcedure,
+			connect.WithSchema(portfolioServiceMethods.ByName("ListUnsolicitedAssets")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -434,6 +447,7 @@ type portfolioServiceClient struct {
 	getAccountSweepSchedule   *connect.Client[v1.GetAccountSweepScheduleRequest, v1.GetAccountSweepScheduleResponse]
 	resetAccountSweepSchedule *connect.Client[v1.ResetAccountSweepScheduleRequest, v1.ResetAccountSweepScheduleResponse]
 	getAccountHealth          *connect.Client[v1.GetAccountHealthRequest, v1.GetAccountHealthResponse]
+	listUnsolicitedAssets     *connect.Client[v1.ListUnsolicitedAssetsRequest, v1.ListUnsolicitedAssetsResponse]
 }
 
 // CreatePortfolio calls eye.v1.PortfolioService.CreatePortfolio.
@@ -581,6 +595,11 @@ func (c *portfolioServiceClient) GetAccountHealth(ctx context.Context, req *conn
 	return c.getAccountHealth.CallUnary(ctx, req)
 }
 
+// ListUnsolicitedAssets calls eye.v1.PortfolioService.ListUnsolicitedAssets.
+func (c *portfolioServiceClient) ListUnsolicitedAssets(ctx context.Context, req *connect.Request[v1.ListUnsolicitedAssetsRequest]) (*connect.Response[v1.ListUnsolicitedAssetsResponse], error) {
+	return c.listUnsolicitedAssets.CallUnary(ctx, req)
+}
+
 // PortfolioServiceHandler is an implementation of the eye.v1.PortfolioService service.
 type PortfolioServiceHandler interface {
 	// --- Portfolio CRUD ---
@@ -671,6 +690,10 @@ type PortfolioServiceHandler interface {
 	// normal account and no data. Computed on read from the state the resolver,
 	// the rate limiter and the sweep already keep, so it cannot go stale.
 	GetAccountHealth(context.Context, *connect.Request[v1.GetAccountHealthRequest]) (*connect.Response[v1.GetAccountHealthResponse], error)
+	// ListUnsolicitedAssets tells identity scoring which assets nobody ever
+	// bought. The answer aggregates over every holder, so only a sibling service
+	// or an admin may ask.
+	ListUnsolicitedAssets(context.Context, *connect.Request[v1.ListUnsolicitedAssetsRequest]) (*connect.Response[v1.ListUnsolicitedAssetsResponse], error)
 }
 
 // NewPortfolioServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -854,6 +877,12 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 		connect.WithSchema(portfolioServiceMethods.ByName("GetAccountHealth")),
 		connect.WithHandlerOptions(opts...),
 	)
+	portfolioServiceListUnsolicitedAssetsHandler := connect.NewUnaryHandler(
+		PortfolioServiceListUnsolicitedAssetsProcedure,
+		svc.ListUnsolicitedAssets,
+		connect.WithSchema(portfolioServiceMethods.ByName("ListUnsolicitedAssets")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/eye.v1.PortfolioService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PortfolioServiceCreatePortfolioProcedure:
@@ -914,6 +943,8 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 			portfolioServiceResetAccountSweepScheduleHandler.ServeHTTP(w, r)
 		case PortfolioServiceGetAccountHealthProcedure:
 			portfolioServiceGetAccountHealthHandler.ServeHTTP(w, r)
+		case PortfolioServiceListUnsolicitedAssetsProcedure:
+			portfolioServiceListUnsolicitedAssetsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1037,4 +1068,8 @@ func (UnimplementedPortfolioServiceHandler) ResetAccountSweepSchedule(context.Co
 
 func (UnimplementedPortfolioServiceHandler) GetAccountHealth(context.Context, *connect.Request[v1.GetAccountHealthRequest]) (*connect.Response[v1.GetAccountHealthResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.GetAccountHealth is not implemented"))
+}
+
+func (UnimplementedPortfolioServiceHandler) ListUnsolicitedAssets(context.Context, *connect.Request[v1.ListUnsolicitedAssetsRequest]) (*connect.Response[v1.ListUnsolicitedAssetsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.ListUnsolicitedAssets is not implemented"))
 }
