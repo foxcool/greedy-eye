@@ -306,10 +306,13 @@ EYE_SCHEDULER_PRICEFETCHCRON="0 * * * *"  # empty = price job off
 
 # Split deployment: a domain served by another process. Absent = in-process.
 # Each value is that process's h2c base URL; a domain may not be both here and
-# in services. Any remote requires the token both sides share.
+# in services (see EYE_LOOPBACK). Any remote requires the token both sides share.
 EYE_REMOTES_MARKETDATA=http://eye-b:8080
 EYE_REMOTES_SETTINGS=http://eye-b:8080
 EYE_SECURITY_SERVICETOKEN=...           # openssl rand -base64 32
+# Test stands only: lets a served domain also sit in remotes, so one process
+# calls itself over the wire. Warns at startup; refuses to start without remotes.
+EYE_LOOPBACK=false
 
 # Observability
 EYE_SENTRY_DSN=your_dsn

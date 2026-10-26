@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
@@ -59,6 +60,26 @@ func TestValidateRemotes(t *testing.T) {
 			wantErr: "remotes.marketdata",
 		},
 		{
+			name: "loopback",
+			config: func() Config {
+				c := Config{Services: svc("portfolio", "marketdata"), Loopback: true,
+					Remotes: map[string]string{"marketdata": "http://proxy:8080"}}
+				c.Security.ServiceToken = "s"
+				return c
+			}(),
+		},
+		{
+			name:    "loopback without remotes",
+			config:  Config{Services: svc("portfolio", "marketdata"), Loopback: true},
+			wantErr: "loopback is set but remotes is empty",
+		},
+		{
+			name: "loopback without token",
+			config: Config{Services: svc("marketdata"), Loopback: true,
+				Remotes: map[string]string{"marketdata": "http://proxy:8080"}},
+			wantErr: "serviceToken",
+		},
+		{
 			name: "no token",
 			config: Config{Services: svc("portfolio"),
 				Remotes: map[string]string{"marketdata": "http://b:8080"}},
@@ -88,6 +109,20 @@ func TestValidateRemotes(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.wantErr)
 		})
 	}
+}
+
+// Loopback is announced at startup as a test-stand mode; without it nothing warns.
+func TestLogRemotesWarnsOnLoopback(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+
+	logRemotes(&Config{Remotes: map[string]string{"settings": "http://b:8080"}}, log)
+	assert.NotContains(t, buf.String(), "level=WARN")
+
+	buf.Reset()
+	logRemotes(&Config{Loopback: true, Remotes: map[string]string{"settings": "http://b:8080"}}, log)
+	assert.Contains(t, buf.String(), "level=WARN")
+	assert.Contains(t, buf.String(), "test stands only")
 }
 
 type settingsSpy struct {
