@@ -6,7 +6,7 @@ COMPOSE=docker compose -p eye --env-file deploy/.env
 COMPOSE_FILE=deploy/compose.yaml
 
 .PHONY: gen go-gen up debug down logs clean buf-gen docs-api \
-        test test-unit test-integration test-smoke schema-diff \
+        test test-unit test-integration test-smoke test-smoke-loopback schema-diff \
         migrate-apply migrate-diff migrate-status migrate-baseline migrate-drift \
         lint vet check
 
@@ -56,15 +56,25 @@ test-integration:
 # the shared postgres the dev stack is using, and each run starts from an empty,
 # freshly migrated greedy_eye_smoke with a backend built from the working tree.
 # API keys come from deploy/secrets.env when it exists; tests that need one skip.
+#
+# test-smoke-loopback runs the same suite against eye-smoke-loopback, which calls
+# its own domains over the wire through a recording proxy in the test container;
+# the edge tests then also assert the hops. Both use greedy_eye_smoke, so run
+# them one after another. --name gives the test container the DNS name the
+# stand's remotes point at.
 SMOKE=$(COMPOSE) -f $(COMPOSE_FILE) --profile smoke
-test-smoke:
+test-smoke: STAND=eye-smoke
+test-smoke: TESTER=eye-test
+test-smoke-loopback: STAND=eye-smoke-loopback
+test-smoke-loopback: TESTER=eye-test-loopback
+test-smoke test-smoke-loopback:
 	$(SMOKE) up -d --wait postgres
 	$(SMOKE) run --rm --no-deps smoke-db
 	$(SMOKE) run --rm --no-deps migrate-smoke
-	$(SMOKE) up -d --build --no-deps --force-recreate --wait eye-smoke
-	$(SMOKE) run --rm --no-deps eye-test \
+	$(SMOKE) up -d --build --no-deps --force-recreate --wait $(STAND)
+	$(SMOKE) run --rm --no-deps --name $(TESTER) $(TESTER) \
 		go test -v -p 1 -tags=smoke -timeout 120s ./test/smoke/...; \
-		status=$$?; $(SMOKE) rm -sf eye-smoke; exit $$status
+		status=$$?; $(SMOKE) rm -sf $(STAND); exit $$status
 
 # Atlas targets all run inside the compose migrate service, against the compose
 # postgres — same image and same commands an instance runs on deploy.

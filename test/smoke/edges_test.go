@@ -4,9 +4,10 @@ package smoke_test
 
 // Cross-domain edges a handler reaches through another service's client.
 // In a monolith the client is the local handler; with remotes: set it is a
-// network hop, and these same tests then walk the wire. The value and heatmap
-// tests price only in the caller's own display currency, so a settings hop
-// that lost X-User-Id falls back to dollars and fails them.
+// network hop, and these same tests then walk the wire. In the loopback run
+// requireHops also checks that each edge left the process carrying the caller.
+// The value and heatmap tests price only in the caller's own display currency,
+// so a settings hop that lost X-User-Id falls back to dollars and fails them.
 //
 // Not covered: marketdata -> portfolio (holding provenance). It is asked only
 // by SyncAccount with a wallet provider or by the rescore cron, and smoke has
@@ -19,6 +20,7 @@ import (
 
 	"connectrpc.com/connect"
 	v1 "github.com/foxcool/greedy-eye/api/v1"
+	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/pricefresh"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -120,7 +122,9 @@ func TestEdge_PortfolioToMarketData_Import(t *testing.T) {
 	userID := newUserID()
 	_, coinID := pricedCoin(t, userID)
 
+	mark := markHops()
 	portID := holdTwoCoins(t, userID)
+	requireHops(t, mark, userID, "portfolio", apiv1connect.MarketDataServiceName)
 
 	holdings, err := newPortfolioClient(userID).ListHoldings(ctx, connect.NewRequest(&v1.ListHoldingsRequest{
 		PortfolioId: &portID,
@@ -141,10 +145,13 @@ func TestEdge_PortfolioToSettingsAndMarketData_Value(t *testing.T) {
 	portID := holdTwoCoins(t, userID)
 	displayInEUR(t, userID)
 
+	mark := markHops()
 	resp, err := newPortfolioClient(userID).CalculatePortfolioValue(ctx, connect.NewRequest(&v1.CalculatePortfolioValueRequest{
 		PortfolioId: portID,
 	}))
 	require.NoError(t, err)
+	requireHops(t, mark, userID, "portfolio",
+		apiv1connect.SettingsServiceName, apiv1connect.MarketDataServiceName)
 	assert.Equal(t, eurID, resp.Msg.GetQuoteAssetId(), "display currency must come from the caller's setting")
 	assert.Equal(t, "22000", resp.Msg.GetTotalValueAmount(), "2 x 110.00 EUR")
 	assert.Equal(t, uint32(2), resp.Msg.GetDecimals())
@@ -161,12 +168,15 @@ func TestEdge_AnalyticsToAll_Heatmap(t *testing.T) {
 	portID := holdTwoCoins(t, userID)
 	displayInEUR(t, userID)
 
+	mark := markHops()
 	resp, err := newAnalyticsClient(userID).GetHeatmap(ctx, connect.NewRequest(&v1.GetHeatmapRequest{
 		Scope:   v1.HeatmapScope_HEATMAP_SCOPE_PORTFOLIO,
 		ScopeId: portID,
 		Window:  v1.HeatmapWindow_HEATMAP_WINDOW_24H,
 	}))
 	require.NoError(t, err)
+	requireHops(t, mark, userID, "analytics", apiv1connect.PortfolioServiceName,
+		apiv1connect.SettingsServiceName, apiv1connect.MarketDataServiceName)
 	assert.Equal(t, eurID, resp.Msg.GetQuoteAssetId(), "display currency must come from the caller's setting")
 
 	var leaf *v1.HeatmapNode

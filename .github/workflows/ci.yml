@@ -74,6 +74,21 @@ jobs:
           touch deploy/.env
           make test-smoke
 
+  # The same suite against one process that calls its own domains over the
+  # wire, through a proxy that checks each cross-domain hop carries the caller.
+  # A separate job, so a red says which mode broke.
+  smoke-loopback:
+    name: Run smoke tests (loopback)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run loopback smoke tests
+        run: |
+          touch deploy/.env
+          make test-smoke-loopback
+
   release:
     name: Release
     runs-on: ubuntu-latest
@@ -82,6 +97,7 @@ jobs:
       - unit-tests
       - integration-tests
       - smoke-tests
+      - smoke-loopback
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
