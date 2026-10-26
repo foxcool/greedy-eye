@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/middleware"
+	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 )
 
 // remoteCallCeiling bounds a call whose ctx carries no deadline, so a hung
@@ -55,7 +57,6 @@ func validateRemotes(config *Config) error {
 //   - credResolver reads accounts.data through the portfolio store (personal-dwa.9)
 //   - the scheduler calls marketdata, automation and portfolio handlers (personal-dwa.11)
 //   - UserProvisioningInterceptor writes users from every service (personal-dwa.10)
-//   - marketdata reads holding provenance through the portfolio store (personal-dwa.3.3)
 type remotes struct {
 	urls map[string]string
 	http connect.HTTPClient
@@ -85,9 +86,10 @@ func newRemotes(urls map[string]string, token string, log *slog.Logger) *remotes
 	}
 }
 
-// pick returns a client for domain when it is remote, the local handler
-// otherwise. T is the generated client interface: a local handler satisfies
-// it too, since unary handler and client methods share one signature.
+// pick returns a client for domain when it is remote, local otherwise. T is
+// what the caller depends on: usually the generated client interface, which a
+// local handler satisfies too, since unary handler and client methods share
+// one signature.
 func pick[T any](r *remotes, domain string, local T,
 	newClient func(connect.HTTPClient, string, ...connect.ClientOption) T,
 ) T {
@@ -96,6 +98,16 @@ func pick[T any](r *remotes, domain string, local T,
 		return local
 	}
 	return newClient(r.http, url, r.opts...)
+}
+
+// holdingProvenance reads from the portfolio service when it is remote and
+// from its store otherwise: the RPC admits only a sibling or an admin, and an
+// in-process caller is neither.
+func holdingProvenance(r *remotes, local marketdata.HoldingProvenance) marketdata.HoldingProvenance {
+	return pick(r, ServiceConfigTypePortfolio, local,
+		func(h connect.HTTPClient, url string, opts ...connect.ClientOption) marketdata.HoldingProvenance {
+			return marketdata.RemoteProvenance{Client: apiv1connect.NewPortfolioServiceClient(h, url, opts...)}
+		})
 }
 
 // logRemotes says once at startup which domains this process reaches over

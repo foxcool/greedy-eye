@@ -280,6 +280,14 @@ func (m *mockStore) ListTransactions(ctx context.Context, opts ListTransactionsO
 	return nil, args.String(1), args.Error(2)
 }
 
+func (m *mockStore) UnsolicitedAssets(ctx context.Context, assetIDs []string) (map[string]bool, error) {
+	args := m.Called(ctx, assetIDs)
+	if v := args.Get(0); v != nil {
+		return v.(map[string]bool), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 // Fixed UUID v7 constants for use across unit tests.
 // Using real UUID format so tests remain valid if UUID validation moves to handler layer.
 const (

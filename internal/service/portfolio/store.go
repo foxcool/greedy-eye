@@ -125,6 +125,11 @@ type Store interface {
 	GetTransaction(ctx context.Context, id string) (*entity.Transaction, error)
 	UpdateTransaction(ctx context.Context, t *entity.Transaction, fields []string) (*entity.Transaction, error)
 	ListTransactions(ctx context.Context, opts ListTransactionsOpts) ([]*entity.Transaction, string, error)
+
+	// UnsolicitedAssets maps each asset with a non-zero position to whether
+	// every such position came from sync and no transaction names it. An
+	// asset nobody holds is absent.
+	UnsolicitedAssets(ctx context.Context, assetIDs []string) (map[string]bool, error)
 }
 
 // ListPortfoliosOpts contains options for listing portfolios.

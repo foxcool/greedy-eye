@@ -403,6 +403,16 @@ service PortfolioService {
       body: "*"
     };
   }
+
+  // ListUnsolicitedAssets tells identity scoring which assets nobody ever
+  // bought. The answer aggregates over every holder, so only a sibling service
+  // or an admin may ask.
+  rpc ListUnsolicitedAssets(ListUnsolicitedAssetsRequest) returns (ListUnsolicitedAssetsResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/holdings/unsolicited"
+      body: "*"
+    };
+  }
 }
 
 // =============================================================================
@@ -488,6 +498,18 @@ message ListUnpricedHoldingsRequest {
 message ListUnpricedHoldingsResponse {
   repeated UnpricedHolding holdings = 1;
   string next_page_token = 2;
+}
+
+message ListUnsolicitedAssetsRequest {
+  // At most 1000.
+  repeated string asset_ids = 1;
+}
+
+message ListUnsolicitedAssetsResponse {
+  // Keyed by asset id: true when every live position arrived by sync and no
+  // transaction names the asset, false otherwise. An asset nobody holds is
+  // absent.
+  map<string, bool> unsolicited = 1;
 }
 
 message GetPortfolioPerformanceRequest {

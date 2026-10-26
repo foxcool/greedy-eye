@@ -180,14 +180,17 @@ func run() error {
 		loggingInterceptor(log),
 		callerInterceptor(),
 	)
+	// Cross-domain reads go to a local handler or, for a domain in remotes:,
+	// to a client of the process that serves it. Call sites are the same.
+	logRemotes(config.Remotes, log)
+	rc := newRemotes(config.Remotes, config.Security.ServiceToken, log)
 	mdHandler := marketdata.NewHandler(mdStore, log).
 		WithProviderSource(credResolver).
 		// The sweep interval is what a provider divides its remaining plan
 		// allowance by, so it comes from the cron spec rather than a second
 		// config key that could disagree with it.
 		WithRefreshWindow(sweepWindow(config.Scheduler.PriceFetchCron)).
-		// Identity scoring reads holding provenance from the portfolio store.
-		WithHoldingProvenance(portfolioStore)
+		WithHoldingProvenance(holdingProvenance(rc, portfolioStore))
 	automationStore := postgres.NewAutomationStore(pool)
 	automationHandler := automation.NewHandler(automationStore, log)
 	// Built before the loop because two other services read from it: valuation
@@ -197,10 +200,6 @@ func run() error {
 	// answer in-process — the same shape as mdHandler above.
 	settingsHandler := settings.NewHandler(postgres.NewSettingsStore(pool), log)
 
-	// Cross-domain reads go to a local handler or, for a domain in remotes:,
-	// to a client of the process that serves it. Call sites are the same.
-	logRemotes(config.Remotes, log)
-	rc := newRemotes(config.Remotes, config.Security.ServiceToken, log)
 	mdClient := pick[apiv1connect.MarketDataServiceClient](rc, ServiceConfigTypeMarketData,
 		mdHandler, apiv1connect.NewMarketDataServiceClient)
 	settingsClient := pick[apiv1connect.SettingsServiceClient](rc, ServiceConfigTypeSettings,

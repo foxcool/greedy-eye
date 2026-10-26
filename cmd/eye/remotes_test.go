@@ -14,6 +14,7 @@ import (
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
+	"github.com/foxcool/greedy-eye/internal/service/portfolio"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -209,4 +210,52 @@ type notFoundSettings struct {
 
 func (notFoundSettings) GetSetting(context.Context, *connect.Request[apiv1.GetSettingRequest]) (*connect.Response[apiv1.GetSettingResponse], error) {
 	return nil, connect.NewError(connect.CodeNotFound, errors.New("no such setting"))
+}
+
+// provenanceStore answers only the provenance RPC, and only for the ids it was
+// asked about, so a request that lost its ids comes back empty.
+type provenanceStore struct {
+	portfolio.Store
+	answer map[string]bool
+}
+
+func (s provenanceStore) UnsolicitedAssets(_ context.Context, ids []string) (map[string]bool, error) {
+	out := map[string]bool{}
+	for _, id := range ids {
+		if v, ok := s.answer[id]; ok {
+			out[id] = v
+		}
+	}
+	return out, nil
+}
+
+// A remote portfolio answers provenance to a call shaped like the nightly
+// rescore: no user, no SyncAuthority, only the token. A bought asset arrives
+// as false rather than vanishing, and an unheld one stays absent.
+func TestHoldingProvenanceOverRemote(t *testing.T) {
+	const (
+		bought  = "01926d35-6a1e-7005-8005-000000000001"
+		airdrop = "01926d35-6a1e-7005-8005-000000000002"
+		unheld  = "01926d35-6a1e-7005-8005-000000000003"
+	)
+	answer := map[string]bool{airdrop: true, bought: false}
+
+	h := portfolio.NewHandler(provenanceStore{answer: answer}, slog.Default())
+	mux := http.NewServeMux()
+	mux.Handle(apiv1connect.NewPortfolioServiceHandler(h, connect.WithInterceptors(
+		middleware.ServiceIdentityInterceptor("tok"),
+		middleware.UserProvisioningInterceptor(nil, slog.Default()),
+	)))
+	srv := h2cServer(t, mux)
+
+	rc := newRemotes(map[string]string{ServiceConfigTypePortfolio: srv.URL}, "tok", slog.Default())
+	got, err := holdingProvenance(rc, nil).UnsolicitedAssets(context.Background(), []string{bought, airdrop, unheld})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{airdrop: true, bought: false}, got)
+}
+
+// Without remotes.portfolio provenance stays on the store, never on the RPC.
+func TestHoldingProvenanceLocalWhenNotRemote(t *testing.T) {
+	local := provenanceStore{}
+	assert.Equal(t, local, holdingProvenance(newRemotes(nil, "", slog.Default()), local))
 }
