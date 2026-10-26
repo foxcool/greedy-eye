@@ -182,7 +182,7 @@ func run() error {
 	)
 	// Cross-domain reads go to a local handler or, for a domain in remotes:,
 	// to a client of the process that serves it. Call sites are the same.
-	logRemotes(config.Remotes, log)
+	logRemotes(config, log)
 	rc := newRemotes(config.Remotes, config.Security.ServiceToken, log)
 	mdHandler := marketdata.NewHandler(mdStore, log).
 		WithProviderSource(credResolver).

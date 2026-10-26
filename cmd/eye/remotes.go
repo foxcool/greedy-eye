@@ -23,11 +23,15 @@ import (
 const remoteCallCeiling = time.Minute
 
 // validateRemotes refuses a config this process could not run: a domain
-// served here and called over the network at once, a domain nobody knows
-// (a typo would silently fall back to the local handler), or remotes without
-// the token the other side admits service calls by.
+// served here and called over the network at once (unless loopback asks for
+// exactly that), a domain nobody knows (a typo would silently fall back to
+// the local handler), remotes without the token the other side admits service
+// calls by, or loopback with nothing to loop.
 func validateRemotes(config *Config) error {
 	if len(config.Remotes) == 0 {
+		if config.Loopback {
+			return errors.New("loopback is set but remotes is empty: no call would leave the process")
+		}
 		return nil
 	}
 	for _, domain := range slices.Sorted(maps.Keys(config.Remotes)) {
@@ -40,7 +44,7 @@ func validateRemotes(config *Config) error {
 			return fmt.Errorf("remotes.%s: want http://host:port, got %q", domain, config.Remotes[domain])
 		}
 		for _, svc := range config.Services {
-			if svc.Type == domain {
+			if svc.Type == domain && !config.Loopback {
 				return fmt.Errorf("remotes.%s: domain is also in services, serve it here or call it remotely, not both", domain)
 			}
 		}
@@ -113,9 +117,12 @@ func holdingProvenance(r *remotes, local marketdata.HoldingProvenance) marketdat
 // logRemotes says once at startup which domains this process reaches over
 // the network, so a split deployment answering from the wrong side is
 // visible before its numbers are.
-func logRemotes(urls map[string]string, log *slog.Logger) {
+func logRemotes(config *Config, log *slog.Logger) {
+	if config.Loopback {
+		log.Warn("loopback is on: served domains are called over the network, for test stands only")
+	}
 	for _, domain := range serviceTypes {
-		if url, ok := urls[domain]; ok {
+		if url, ok := config.Remotes[domain]; ok {
 			log.Info("domain is remote", slog.String("domain", domain), slog.String("url", url))
 		} else {
 			log.Info("domain is local", slog.String("domain", domain))

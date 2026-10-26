@@ -35,7 +35,11 @@ type Config struct {
 	// Remotes maps a domain served by another process to its base URL
 	// (http://host:port, h2c). A domain absent here is called in-process.
 	// Setting any requires security.serviceToken.
-	Remotes  map[string]string `koanf:"remotes"`
+	Remotes map[string]string `koanf:"remotes"`
+	// Loopback lets a domain sit in services and remotes at once, so one
+	// process calls itself over the wire. For test stands only: it proves
+	// cross-domain calls survive serialization, and costs a hop per call.
+	Loopback bool `koanf:"loopback"`
 	Security struct {
 		// MasterKey holds one or more base64-encoded 32-byte keys for
 		// accounts.data encryption at rest (ADR-005), comma-separated. Empty =
