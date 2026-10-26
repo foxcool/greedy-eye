@@ -2,6 +2,7 @@ package portfolio
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"testing"
 
@@ -33,21 +34,22 @@ func asServiceCaller(t *testing.T, h *Handler, ids []string) (*connect.Response[
 
 func TestListUnsolicitedAssets_ServiceAndAdminGetStoreAnswer(t *testing.T) {
 	ids := []string{testAssetID, testHoldingID}
-	answer := map[string]bool{testAssetID: true, testHoldingID: false}
+	want := map[string]bool{testAssetID: true, testHoldingID: false}
 
 	s := new(mockStore)
-	s.On("UnsolicitedAssets", mock.Anything, ids).Return(answer, nil)
+	// A copy, so an entry dropped in place cannot vanish from want as well.
+	s.On("UnsolicitedAssets", mock.Anything, ids).Return(maps.Clone(want), nil)
 	h := newHandler(s)
 
 	resp, err := asServiceCaller(t, h, ids)
 	require.NoError(t, err)
-	// A bought asset must arrive as false, not vanish: absent means held by nobody.
-	assert.Equal(t, answer, resp.Msg.Unsolicited)
+	// A false entry must arrive, not vanish: absent means held by nobody.
+	assert.Equal(t, want, resp.Msg.Unsolicited)
 
 	resp, err = h.ListUnsolicitedAssets(ctxWithAdmin(testUserID),
 		connect.NewRequest(&apiv1.ListUnsolicitedAssetsRequest{AssetIds: ids}))
 	require.NoError(t, err)
-	assert.Equal(t, answer, resp.Msg.Unsolicited)
+	assert.Equal(t, want, resp.Msg.Unsolicited)
 }
 
 func TestListUnsolicitedAssets_RegularUserDenied(t *testing.T) {
@@ -65,10 +67,16 @@ func TestListUnsolicitedAssets_RegularUserDenied(t *testing.T) {
 	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 }
 
-func TestListUnsolicitedAssets_RejectsBadIDs(t *testing.T) {
-	h := newHandler(new(mockStore))
+func TestListUnsolicitedAssets_IDLimitAndFormat(t *testing.T) {
+	full := slices.Repeat([]string{testAssetID}, maxUnsolicitedAssetIDs)
+	s := new(mockStore)
+	s.On("UnsolicitedAssets", mock.Anything, full).Return(map[string]bool{}, nil)
+	h := newHandler(s)
 
-	_, err := asServiceCaller(t, h, slices.Repeat([]string{testAssetID}, maxUnsolicitedAssetIDs+1))
+	_, err := asServiceCaller(t, h, full)
+	require.NoError(t, err)
+
+	_, err = asServiceCaller(t, h, append(full, testAssetID))
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 
 	_, err = asServiceCaller(t, h, []string{"not-a-uuid"})

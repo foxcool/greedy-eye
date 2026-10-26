@@ -507,8 +507,8 @@ message ListUnsolicitedAssetsRequest {
 
 message ListUnsolicitedAssetsResponse {
   // Keyed by asset id: true when every live position arrived by sync and no
-  // transaction names the asset, false when someone bought it. An asset nobody
-  // holds is absent.
+  // transaction names the asset, false otherwise. An asset nobody holds is
+  // absent.
   map<string, bool> unsolicited = 1;
 }
 

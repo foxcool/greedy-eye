@@ -86,9 +86,10 @@ func newRemotes(urls map[string]string, token string, log *slog.Logger) *remotes
 	}
 }
 
-// pick returns a client for domain when it is remote, the local handler
-// otherwise. T is the generated client interface: a local handler satisfies
-// it too, since unary handler and client methods share one signature.
+// pick returns a client for domain when it is remote, local otherwise. T is
+// what the caller depends on: usually the generated client interface, which a
+// local handler satisfies too, since unary handler and client methods share
+// one signature.
 func pick[T any](r *remotes, domain string, local T,
 	newClient func(connect.HTTPClient, string, ...connect.ClientOption) T,
 ) T {
@@ -103,11 +104,10 @@ func pick[T any](r *remotes, domain string, local T,
 // from its store otherwise: the RPC admits only a sibling or an admin, and an
 // in-process caller is neither.
 func holdingProvenance(r *remotes, local marketdata.HoldingProvenance) marketdata.HoldingProvenance {
-	url, ok := r.urls[ServiceConfigTypePortfolio]
-	if !ok {
-		return local
-	}
-	return marketdata.RemoteProvenance{Client: apiv1connect.NewPortfolioServiceClient(r.http, url, r.opts...)}
+	return pick(r, ServiceConfigTypePortfolio, local,
+		func(h connect.HTTPClient, url string, opts ...connect.ClientOption) marketdata.HoldingProvenance {
+			return marketdata.RemoteProvenance{Client: apiv1connect.NewPortfolioServiceClient(h, url, opts...)}
+		})
 }
 
 // logRemotes says once at startup which domains this process reaches over

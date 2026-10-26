@@ -1702,8 +1702,8 @@ func (x *ListUnsolicitedAssetsRequest) GetAssetIds() []string {
 type ListUnsolicitedAssetsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Keyed by asset id: true when every live position arrived by sync and no
-	// transaction names the asset, false when someone bought it. An asset nobody
-	// holds is absent.
+	// transaction names the asset, false otherwise. An asset nobody holds is
+	// absent.
 	Unsolicited   map[string]bool `protobuf:"bytes,1,rep,name=unsolicited,proto3" json:"unsolicited,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
