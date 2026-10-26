@@ -249,3 +249,33 @@ services:
     depends_on:
       eye-smoke:
         condition: service_healthy
+
+  # Loopback stand: eye-smoke with every domain served here AND called through
+  # remotes, which point at a recording proxy inside eye-test-loopback. Each
+  # cross-domain read then leaves the process, so the suite proves it survives
+  # serialization and the identity interceptors.
+  #
+  # The proxy is reachable only when eye-test-loopback runs with
+  # `run --name eye-test-loopback`: compose run gives no service-name alias.
+  eye-smoke-loopback:
+    extends: eye-smoke
+    environment:
+      EYE_LOOPBACK: "true"
+      EYE_REMOTES_MARKETDATA: http://eye-test-loopback:8090
+      EYE_REMOTES_PORTFOLIO: http://eye-test-loopback:8090
+      EYE_REMOTES_SETTINGS: http://eye-test-loopback:8090
+      EYE_REMOTES_AUTOMATION: http://eye-test-loopback:8090
+      EYE_REMOTES_ANALYTICS: http://eye-test-loopback:8090
+      # Not a secret: the stand is disposable and never reachable from outside.
+      EYE_SECURITY_SERVICETOKEN: &loopback-token smoke-loopback-token
+
+  eye-test-loopback:
+    extends: eye-test
+    container_name: eye-test-loopback
+    environment:
+      SMOKE_BACKEND_URL: "http://eye-smoke-loopback:8080"
+      SMOKE_HOP_PROXY: ":8090"
+      SMOKE_SERVICE_TOKEN: *loopback-token
+    depends_on: !override
+      eye-smoke-loopback:
+        condition: service_healthy

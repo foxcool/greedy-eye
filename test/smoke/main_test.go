@@ -48,7 +48,17 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	hops, err = startHopRecorder(serverURL)
+	if err != nil {
+		log.Error("failed to start hop proxy", "error", err)
+		os.Exit(1)
+	}
+	if hops != nil {
+		log.Info("loopback run: recording cross-domain hops", "addr", os.Getenv("SMOKE_HOP_PROXY"))
+	}
+
 	code := m.Run()
+	hops.close()
 	dbPool.Close()
 	os.Exit(code)
 }
