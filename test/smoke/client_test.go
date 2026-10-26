@@ -70,3 +70,17 @@ func userHeaders(userID string) headerInterceptor {
 		"X-User-Email": userID + "@smoke.test",
 	}
 }
+
+func newSettingsClient(userID string) apiv1connect.SettingsServiceClient {
+	return apiv1connect.NewSettingsServiceClient(
+		http.DefaultClient, serverURL,
+		connect.WithInterceptors(userHeaders(userID)),
+	)
+}
+
+func newAnalyticsClient(userID string) apiv1connect.AnalyticsServiceClient {
+	return apiv1connect.NewAnalyticsServiceClient(
+		http.DefaultClient, serverURL,
+		connect.WithInterceptors(userHeaders(userID)),
+	)
+}
