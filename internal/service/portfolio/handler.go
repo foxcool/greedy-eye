@@ -1736,7 +1736,7 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 		AssetsUpserted:        out.assetsUpserted,
 		HoldingsUpserted:      out.holdingsUpserted,
 		HoldingsZeroed:        out.holdingsZeroed,
-		PositionsSkipped:      intToI32(out.skips.Total()),
+		PositionsSkipped:      intToI32(out.skips.Total()) + out.unidentified,
 		AssetsDefaultedMarket: intToI32(out.skips.DefaultedMarket),
 		AccountsCreated:       out.accountsCreated,
 		Errors:                out.errors,
@@ -1769,6 +1769,7 @@ type syncOutcome struct {
 	holdingsZeroed   int32
 	accountsCreated  int32
 	skips            entity.BrokerSkips
+	unidentified     int32
 	syncedAssetIDs   []string
 	errors           []string
 }
@@ -1786,6 +1787,7 @@ func (o *syncOutcome) merge(other syncOutcome, accountName string) {
 	o.skips.UnknownMarket += other.skips.UnknownMarket
 	o.skips.Unparsable += other.skips.Unparsable
 	o.skips.DefaultedMarket += other.skips.DefaultedMarket
+	o.unidentified += other.unidentified
 	o.syncedAssetIDs = append(o.syncedAssetIDs, other.syncedAssetIDs...)
 	for _, e := range other.errors {
 		o.errors = append(o.errors, fmt.Sprintf("%s: %s", accountName, e))
@@ -1876,6 +1878,7 @@ func (h *Handler) syncOneAccount(ctx context.Context, account *entity.Account) (
 		holdingsUpserted: result.holdingsUpserted,
 		holdingsZeroed:   result.holdingsZeroed,
 		skips:            skips,
+		unidentified:     result.skipped,
 		syncedAssetIDs:   result.syncedAssetIDs,
 		errors:           append(syncErrors, result.syncErrors...),
 	}, nil
@@ -2194,6 +2197,7 @@ func (h *Handler) syncBrokerBalances(ctx context.Context, account *entity.Accoun
 func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Account, balances []syncedBalance, scope removalScope) (syncResult, error) {
 	var (
 		assetsUpserted int32
+		skipped        int32
 		syncErrors     []string
 	)
 	byPosition := make(map[positionKey]*accumulated)
@@ -2210,28 +2214,40 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 		if amt.Sign() == 0 {
 			continue
 		}
-		// A balance with no symbol at all is unidentifiable: the catalogue is
-		// still asked, because a ref it already knows names the position on its
-		// own, but if that lookup fails there is nothing left to call the position
-		// and nothing to key it by. Dropping it is a filter, not a failed
-		// observation — it costs the snapshot no right to remove positions.
-		// Counting it as a failure did, and one such balance on dev's 'hot' wallet
-		// kept the account from ever shedding a position sold in July.
+		// The symbol is a label, the contract is the identity. A token whose
+		// provider reported no symbol is still named by its address, so it gets a
+		// label derived from that address and goes the same way as any other
+		// contract: the catalogue binds the ref, and an unconfirmed contract lands
+		// in a market of its own, so the made-up label cannot meet a real ticker.
 		unnamed := strings.TrimSpace(b.symbol) == ""
+		if unnamed {
+			if sym, ok := contractDisplaySymbol(b.refSource, b.ref); ok {
+				b.symbol, unnamed = sym, false
+			}
+		}
+		// What is left unnamed has no on-chain contract to label it by. Dropping
+		// it is a filter, not a failed observation — it costs the snapshot no
+		// right to remove positions. Counting it as a failure did, and one such
+		// balance on dev's 'hot' wallet kept the account from ever shedding a
+		// position sold in July. It is counted in the response instead, so the
+		// position does not vanish unseen.
 		if unnamed && strings.TrimSpace(b.ref) == "" {
 			h.log.Warn("skipping unidentifiable balance", "chain", b.chain, "amount", b.amount)
+			skipped++
 			continue
 		}
 
 		assetID, created, verdict, rerr := h.resolveSyncedAsset(ctx, b)
 		if rerr != nil {
 			if unnamed {
-				// Named by neither symbol nor a ref the catalogue knows. The
-				// residual risk is a pre-external-ref asset whose token stopped
-				// reporting its symbol: it would resolve by symbol and no longer
-				// can, so its row may be zeroed while still held.
+				// Named by neither symbol nor a ref the catalogue knows, and the
+				// ref is not a contract a label can be derived from. The residual
+				// risk is a pre-external-ref asset whose token stopped reporting
+				// its symbol: it would resolve by symbol and no longer can, so its
+				// row may be zeroed while still held.
 				h.log.Warn("skipping unidentifiable balance",
 					"chain", b.chain, "ref_source", b.refSource, "ref", b.ref, "amount", b.amount, "error", rerr)
+				skipped++
 				continue
 			}
 			syncErrors = append(syncErrors, fmt.Sprintf("resolve asset %s: %v", b.symbol, rerr))
@@ -2382,7 +2398,7 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 		accountID:          account.ID,
 		defaultPortfolioID: account.PortfolioID,
 	}
-	result := syncResult{assetsUpserted: assetsUpserted, syncErrors: syncErrors}
+	result := syncResult{assetsUpserted: assetsUpserted, skipped: skipped, syncErrors: syncErrors}
 	var released int32
 	err = h.store.InHoldingsTx(ctx, func(w HoldingWriter) error {
 		written, werr := h.writeSyncedHoldings(ctx, w, plan)
@@ -2461,6 +2477,9 @@ type syncResult struct {
 	holdingsZeroed   int32
 	syncedAssetIDs   []string
 	syncErrors       []string
+	// skipped counts balances dropped as unidentifiable. They do not withhold
+	// removal (see upsertSyncedBalances); the count is what keeps them seen.
+	skipped int32
 }
 
 // countSyncWritten counts the rows a sync is allowed to zero, adopted ones
@@ -2711,6 +2730,28 @@ func (h *Handler) resolveSyncedAsset(ctx context.Context, b syncedBalance) (asse
 		return "", false, "", fmt.Errorf("marketdata returned no asset for %s", b.symbol)
 	}
 	return resp.Msg.Asset.Id, resp.Msg.Created, resp.Msg.Asset.GetIdentityVerdict(), nil
+}
+
+// contractDisplaySymbol labels a token the provider reported without a symbol,
+// from its contract alone: the same contract always gets the same label, and it
+// is short enough to read in a list. It is display only — identity is the
+// contract, which the ref carries. Only an on-chain contract qualifies: that is
+// the namespace in which an unconfirmed ref gets a market of its own, so two
+// labels can never collide on (symbol, market, type). A broker or provider id
+// shares the global market and is not labelled this way.
+func contractDisplaySymbol(refSource, ref string) (string, bool) {
+	if _, ok := entity.ChainFromOnchainSource(refSource); !ok {
+		return "", false
+	}
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", false
+	}
+	const head, tail = 6, 4 // "0x" plus four hex digits, and the last four
+	if len(ref) <= head+tail+2 {
+		return ref, true
+	}
+	return ref[:head] + ".." + ref[len(ref)-tail:], true
 }
 
 // isQuarantineVerdict reports whether an identity verdict excludes a synced

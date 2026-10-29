@@ -330,3 +330,73 @@ func TestSyncAccount_FailedReconfirmationKeepsRow(t *testing.T) {
 	assert.Equal(t, int32(0), resp.HoldingsZeroed)
 	assert.NotContains(t, updated, "h-mkr")
 }
+
+const unnamedContract = "0xAbCdEf0123456789aBcDeF0123456789abcd1234"
+
+func unnamedTokenHarness(t *testing.T, rows []*entity.Holding, tokens ...entity.WalletBalance) (*apiv1.SyncAccountResponse, *mockStore) {
+	t.Helper()
+	s, _, _ := scopeStore(rows)
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth", "arbitrum"}).Return(tokens, nil)
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: testAccountID}))
+	require.NoError(t, err)
+	return resp.Msg, s
+}
+
+// TestSyncAccount_TokenWithoutSymbolBecomesHolding: a provider that reports a
+// balance with no symbol still names the token by its contract. The position
+// must reach the account under a label derived from that contract rather than
+// vanish from the snapshot.
+func TestSyncAccount_TokenWithoutSymbolBecomesHolding(t *testing.T) {
+	resp, s := unnamedTokenHarness(t, nil,
+		entity.WalletBalance{Amount: "5", Decimals: 18, ContractAddress: unnamedContract, Chain: "eth"})
+
+	assert.Empty(t, resp.Errors)
+	assert.Zero(t, resp.PositionsSkipped)
+	assert.Equal(t, int32(1), resp.HoldingsUpserted)
+	s.AssertCalled(t, "CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		return h.AssetID == "asset-0XABCD..1234" && h.Chain == "eth"
+	}))
+}
+
+// TestSyncAccount_UnidentifiableBalanceIsCounted: no symbol and no contract
+// leaves nothing to name the position by. It is counted in the response so it
+// does not disappear unseen, and it does not withhold removal — a sold
+// position still goes.
+func TestSyncAccount_UnidentifiableBalanceIsCounted(t *testing.T) {
+	sold := syncedRow("h-sold", "asset-SOLD", "eth", "1")
+	resp, s := unnamedTokenHarness(t, []*entity.Holding{sold},
+		entity.WalletBalance{Amount: "5", Decimals: 18, Chain: "eth"},
+		entity.WalletBalance{Symbol: "DAI", Amount: "200", Decimals: 18, ContractAddress: "0xdai", Chain: "eth"})
+
+	assert.Equal(t, int32(1), resp.PositionsSkipped)
+	assert.Empty(t, resp.Errors)
+	assert.Equal(t, int32(1), resp.HoldingsZeroed, "a skipped balance must not freeze removal of sold positions")
+	s.AssertNotCalled(t, "CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		return h.AssetID != "asset-DAI"
+	}))
+}
+
+func TestContractDisplaySymbol(t *testing.T) {
+	cases := []struct {
+		name, source, ref, want string
+		ok                      bool
+	}{
+		{"evm address is shortened", "onchain:eth", unnamedContract, "0xAbCd..1234", true},
+		{"short ref kept whole", "onchain:ton", "1984", "1984", true},
+		{"broker namespace is not labelled", "tinvest", unnamedContract, "", false},
+		{"no ref", "onchain:eth", " ", "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := contractDisplaySymbol(c.source, c.ref)
+			assert.Equal(t, c.ok, ok)
+			assert.Equal(t, c.want, got)
+		})
+	}
+}
