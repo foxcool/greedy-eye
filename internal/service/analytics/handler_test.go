@@ -274,7 +274,7 @@ func TestGetHeatmap_CrossPricedAsset(t *testing.T) {
 		Amount: dec("100000000"), Decimals: 8, // 1 WBTC
 	})
 	md.assets["wbtc"] = &apiv1.Asset{Id: "wbtc", Name: "Wrapped BTC", Symbol: strPtr("WBTC")}
-	md.latest["wbtc|"] = price("wbtc", "btc", "99000000", 8)  // 0.99 BTC now
+	md.latest["wbtc|"] = price("wbtc", "btc", "99000000", 8)   // 0.99 BTC now
 	md.hist["wbtc|btc"] = price("wbtc", "btc", "100000000", 8) // 1.00 BTC at window start
 
 	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
@@ -584,7 +584,7 @@ func TestGetHeatmap_BalanceGroupByAccount(t *testing.T) {
 	require.NoError(t, err)
 
 	// a1 holds 3 ETH total (two portfolios merge within the account leaf).
-	require.Len(t, resp.Msg.Nodes, 6) // 3 groups + 3 leaves
+	require.Len(t, resp.Msg.Nodes, 6)           // 3 groups + 3 leaves
 	assert.Equal(t, "a2", resp.Msg.Nodes[0].Id) // 20000
 	assert.Equal(t, "a1", resp.Msg.Nodes[1].Id) // 6000
 	assert.Equal(t, "a3", resp.Msg.Nodes[2].Id) // 4000
@@ -702,7 +702,7 @@ func TestGetHeatmap_AmountAgeCountsAdoptedRows(t *testing.T) {
 func TestGetHeatmap_ExcludedRowsDoNotCrowdOutPages(t *testing.T) {
 	st, md := fixture()
 	var spam []*entity.Holding
-	for i := range maxHoldings {
+	for i := range holdingsPageSize {
 		spam = append(spam, &entity.Holding{
 			ID: fmt.Sprintf("spam-%d", i), AssetID: "eth", AccountID: "a1", PortfolioID: "p1",
 			Amount: dec("1"), Decimals: 18, Excluded: true,
@@ -741,4 +741,24 @@ func TestGetHeatmap_AdminSeesForeignPortfolio(t *testing.T) {
 	resp, err := h.GetHeatmap(admin, heatmapRequest())
 	require.NoError(t, err)
 	assert.Len(t, resp.Msg.Nodes, 2)
+}
+
+// The read follows the cursor to the end: nothing past the first page may be
+// dropped from the map.
+func TestGetHeatmap_ReadsEveryPage(t *testing.T) {
+	st, md := fixture()
+	for i := range 5 {
+		st.holdings = append(st.holdings, &entity.Holding{
+			ID: fmt.Sprintf("extra-%d", i), AssetID: "eth", AccountID: "a1", PortfolioID: "p1",
+			Amount: dec("1"), Decimals: 18,
+		})
+	}
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
+	h.holdingsPageSize = 2
+
+	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest())
+	require.NoError(t, err)
+
+	// Nodes are per asset; the 5 extra rows fold into eth's tile.
+	assert.Equal(t, uint32(len(st.holdings)), resp.Msg.Coverage.GetPricedCount())
 }
