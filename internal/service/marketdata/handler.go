@@ -1375,6 +1375,10 @@ type baseAssetKey struct {
 // sweep and denominates every price in the batch, so a wrong base is not one bad
 // row but a whole source priced against something nobody vouched for.
 //
+// What can be refused without a row is refused by quotableIdentity BEFORE the
+// catalogue is asked to create one: a refused base must not leave a row behind
+// in the catalogue.
+//
 // Two rows are refused. One on a CONTRACT market stands for a specific
 // unverified contract, minted by whoever paid the gas — dev 2026-08-04 showed
 // what that means for a lookup by ticker, when syncing a whale wallet pulled in
@@ -1385,16 +1389,22 @@ func quotableBase(a *entity.Asset) error {
 	if a == nil {
 		return fmt.Errorf("%w: no asset resolved", store.ErrInvalidArgument)
 	}
-	if entity.IsContractMarket(a.Market) {
+	return quotableIdentity(a.Symbol, a.Market, a.Type)
+}
+
+// quotableIdentity is quotableBase for what is known without a row: the ticker
+// asked for and the market its type implies.
+func quotableIdentity(symbol, market string, typ entity.AssetType) error {
+	if entity.IsContractMarket(market) {
 		return fmt.Errorf("%w: %s resolves to contract market %s, which cannot be a quote currency",
-			store.ErrInvalidArgument, a.Symbol, a.Market)
+			store.ErrInvalidArgument, symbol, market)
 	}
-	switch a.Type {
+	switch typ {
 	case entity.AssetTypeForex, entity.AssetTypeCryptocurrency:
 		return nil
 	default:
 		return fmt.Errorf("%w: %s resolves to an asset of type %d, which cannot be a quote currency",
-			store.ErrInvalidArgument, a.Symbol, a.Type)
+			store.ErrInvalidArgument, symbol, typ)
 	}
 }
 
@@ -1472,6 +1482,19 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	// ticker for different kinds of thing (a stablecoin USDT against a fiat USDT
 	// row) do not mean the same asset.
 	baseAssetCache := map[baseAssetKey]string{}
+	// Refusals live as long as this call, like the cache above: a base refused
+	// once is refused for every row of the batch without asking the catalogue
+	// again. Not kept across calls, so a fixed provider or catalogue is picked
+	// up by the next sweep.
+	baseRefused := map[baseAssetKey]error{}
+	reportedErrs := map[string]bool{}
+	reportErr := func(msg string) {
+		if reportedErrs[msg] {
+			return
+		}
+		reportedErrs[msg] = true
+		fetchErrs = append(fetchErrs, msg)
+	}
 	// Contest verdicts, shared by every provider in this run: the answer is a
 	// property of the catalogue, not of the source asking.
 	contested := map[string]bool{}
@@ -1577,12 +1600,23 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			if id, ok := baseAssetCache[key]; ok {
 				return id, nil
 			}
+			if err, ok := baseRefused[key]; ok {
+				return "", err
+			}
+			refuse := func(err error) (string, error) {
+				err = fmt.Errorf("resolve base asset %s: %w", key.symbol, err)
+				baseRefused[key] = err
+				return "", err
+			}
+			if err := quotableIdentity(key.symbol, entity.DefaultMarket(key.typ), key.typ); err != nil {
+				return refuse(err)
+			}
 			baseAsset, err := h.store.GetOrCreateAssetBySymbol(ctx, key.symbol, key.symbol, key.typ)
 			if err != nil {
 				return "", fmt.Errorf("resolve base asset %s: %w", key.symbol, err)
 			}
 			if err := quotableBase(baseAsset); err != nil {
-				return "", fmt.Errorf("resolve base asset %s: %w", key.symbol, err)
+				return refuse(err)
 			}
 			baseAssetCache[key] = baseAsset.ID
 			return baseAsset.ID, nil
@@ -1593,7 +1627,7 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		// that get thrown away.
 		defaultBaseID, err := resolveBase(provider.BaseAssetSymbol())
 		if err != nil {
-			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
+			reportErr(fmt.Sprintf("%s: %v", name, err))
 			continue
 		}
 
@@ -1636,7 +1670,7 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			if sym := results[i].BaseSymbol; sym != "" {
 				resolved, err := resolveBase(sym)
 				if err != nil {
-					fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
+					reportErr(fmt.Sprintf("%s: %v", name, err))
 					continue
 				}
 				baseID = resolved

@@ -1867,6 +1867,57 @@ func TestFetchExternalPrices_RowBaseOverridesProviderDefault(t *testing.T) {
 	assert.Equal(t, map[string]string{"usd-quoted": "usd-id", "rub-quoted": "rub-id"}, bases)
 }
 
+// stockBaseProvider names a base of a type that can never be a quote currency.
+type stockBaseProvider struct{ perRowBaseProvider }
+
+func (p *stockBaseProvider) BaseAssetType() entity.AssetType { return entity.AssetTypeStock }
+
+// A base refused by its type must not reach the catalogue: the create would
+// leave a row nobody can use, and each sweep would add the same refusal again.
+func TestFetchExternalPrices_UnquotableBaseCreatesNoRow(t *testing.T) {
+	a := testAsset("a-1")
+	s := &mockStore{}
+	expectExternalRefs(s)
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{a}, "", nil)
+
+	h := newHandler(s).WithProvider("broker", &stockBaseProvider{})
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a-1"}}))
+	require.NoError(t, err)
+
+	s.AssertNotCalled(t, "GetOrCreateAssetBySymbol", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	require.Len(t, resp.Msg.Errors, 1)
+	assert.Contains(t, resp.Msg.Errors[0], "cannot be a quote currency")
+}
+
+// A row-level base the catalogue answers with an unquotable row is refused once
+// per sweep: the same bad symbol on every row costs one lookup and one error.
+func TestFetchExternalPrices_RefusedRowBaseIsRememberedWithinSweep(t *testing.T) {
+	ids := []string{"r-1", "r-2", "r-3"}
+	var assets []*entity.Asset
+	rowBase := map[string]string{}
+	for _, id := range ids {
+		assets = append(assets, testAsset(id))
+		rowBase[id] = "BAD"
+	}
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("GetOrCreateAssetBySymbol", mock.Anything, "BAD", "BAD", entity.AssetTypeForex).Once().
+		Return(&entity.Asset{ID: "bad-id", Symbol: "BAD", Market: entity.ContractMarket("bsc", "0x1"), Type: entity.AssetTypeForex}, nil)
+	s.On("ListAssets", mock.Anything, mock.Anything).Return(assets, "", nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+
+	h := newHandler(s).WithProvider("broker", &perRowBaseProvider{rowBase: rowBase})
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: ids}))
+	require.NoError(t, err)
+
+	s.AssertNumberOfCalls(t, "GetOrCreateAssetBySymbol", 2) // USD once, BAD once
+	require.Len(t, resp.Msg.Errors, 1)
+	assert.Contains(t, resp.Msg.Errors[0], "BAD")
+}
+
 // discoveringProvider learns an identifier for the assets it is given, the way
 // a broker adapter resolves a ticker to a FIGI.
 type discoveringProvider struct {
