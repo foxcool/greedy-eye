@@ -23,8 +23,9 @@ type Store interface {
 	ListAssets(ctx context.Context, opts ListAssetsOpts) ([]*entity.Asset, string, error)
 	// ListStalePricingTargets returns assets due for a price refresh from one
 	// source, oldest deadline first. Everything it leaves out is either already
-	// in the database or backed off after repeated misses — re-requesting it
-	// would spend provider quota to learn nothing.
+	// in the database, backed off after repeated misses, deferred as unasked,
+	// or on a market opts.Binding does not admit — re-requesting it would spend
+	// provider quota to learn nothing.
 	ListStalePricingTargets(ctx context.Context, opts StalePricingOpts) ([]*entity.Asset, error)
 	// CountCoveredTargets counts the assets opts.Covered keeps out of the
 	// selection the same opts would otherwise return, ignoring Limit.
@@ -37,11 +38,16 @@ type Store interface {
 	// the next attempt out exponentially, so assets the provider does not list
 	// drain out of the rotation instead of blocking its head.
 	RecordPriceAttempts(ctx context.Context, opts RecordAttemptsOpts) error
+	// DeferUnaskedPricing keeps assets a sweep selected for a source but could
+	// not ask about out of that source's selection until opts.At+opts.Retry.
+	// Written apart from the attempt log, which records only requests made.
+	DeferUnaskedPricing(ctx context.Context, opts DeferUnaskedOpts) error
 	// ResetPriceAttempts forgives the back-off accrued against one source: the
-	// miss counter goes to zero and every asset it holds becomes due now. It
-	// does not delete the rows — attempted_at and succeeded_at stay, because
-	// they are the record of what was asked and when, and only the schedule
-	// derived from them is wrong. Returns how many assets were freed.
+	// miss counter goes to zero and every asset it holds becomes due now, and
+	// so does every asset it deferred as unasked. It does not delete the rows —
+	// attempted_at and succeeded_at stay, because they are the record of what
+	// was asked and when, and only the schedule derived from them is wrong.
+	// Returns how many assets were freed.
 	ResetPriceAttempts(ctx context.Context, sourceID string, at time.Time) (int64, error)
 	// PricingStatus reads the attempt log back for the given assets: whether any
 	// source ever priced each one, over what period it has been asked about, and
@@ -58,8 +64,9 @@ type Store interface {
 	ContestedAssets(ctx context.Context, assetIDs []string, excludeVerdicts []string) (map[string]bool, error)
 	// SweepSchedule aggregates the attempt log into what the next sweep would
 	// find: how many assets are due, how many are held back by their own
-	// back-off, how far out the queue reaches. Counted from the same table the
-	// selection reads, so it cannot disagree with the sweep it describes.
+	// back-off or as unasked, how far out the queue reaches. Counted with the
+	// predicate the selection runs, so it cannot disagree with the sweep it
+	// describes.
 	SweepSchedule(ctx context.Context, opts SweepScheduleOpts) ([]*entity.SourceSchedule, error)
 	// SetAssetVerdict writes an identity verdict (scam-filtering axis 1). A user
 	// verdict (source "user:*") is terminal: an automated write never overwrites
@@ -139,7 +146,8 @@ type StalePricingOpts struct {
 	// Zero means no cap.
 	Limit int
 	// Symbols restricts the selection to these symbols. Used for the subset a
-	// provider prices in a single request, which is not worth budgeting.
+	// provider prices in a single request, which is not worth budgeting. Nil
+	// means no restriction; an empty non-nil list selects nothing.
 	Symbols []string
 	// ExcludeSymbols is the complement of Symbols, for selecting everything the
 	// provider charges per unit for.
@@ -160,22 +168,30 @@ type StalePricingOpts struct {
 	// which keeps a slow overlap between sources.
 	Covered              []string
 	CoveredRecheckBefore time.Time
+	// Binding, when set, admits only assets on a market it speaks for
+	// (entity.PriceBinding.Admits). An asset the source may never price would
+	// otherwise sit at the head of its queue: it is dropped before any request,
+	// so it never gets an attempt row to move it back. Nil admits every market.
+	Binding *entity.PriceBinding
 }
 
 // SweepScheduleOpts selects which sources to report a queue for.
 type SweepScheduleOpts struct {
-	// SourceIDs limits the report to these sources. Empty reports every source
-	// present in the attempt log.
-	SourceIDs []string
-	// Now is the boundary between due and deferred, the same comparison
-	// ListStalePricingTargets makes.
-	Now time.Time
-	// ExcludeVerdicts drops quarantined assets, matching what the sweep itself
-	// selects. Counting them would report work nobody intends to do.
-	ExcludeVerdicts []string
-	// ExcludeContested drops contested assets, for the same reason: the
-	// selection never picks them (StalePricingOpts.ExcludeContested).
-	ExcludeContested bool
+	// Sources holds one selection per source, built the way the sweep builds
+	// its own, so the report counts exactly what the sweep would select from.
+	// Now in each is the boundary between due and deferred. Limit and Covered
+	// are ignored: the report is the queue before the budget is applied.
+	Sources []StalePricingOpts
+}
+
+// DeferUnaskedOpts records assets one sweep selected for a source and did not
+// ask about.
+type DeferUnaskedOpts struct {
+	SourceID string
+	At       time.Time
+	// Retry is how long the selection leaves the assets out.
+	Retry    time.Duration
+	AssetIDs []string
 }
 
 // RecordAttemptsOpts records what one sweep asked a source for and what came back.

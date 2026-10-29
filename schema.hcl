@@ -916,6 +916,45 @@ table "price_fetch_attempts" {
   }
 }
 
+// Assets a sweep selected for a source and then could not ask about: no ref in
+// the source's namespace, or the adapter has no request for them. Kept apart
+// from price_fetch_attempts so that table stays a log of requests actually
+// made; this one only postpones the next look.
+table "price_unasked_deferrals" {
+  schema = schema.public
+
+  column "asset_id" {
+    type = uuid
+    null = false
+  }
+  // Provider slug, matching price_fetch_attempts.source_id.
+  column "source_id" {
+    type = character_varying
+    null = false
+  }
+  // The sweep that last selected the asset and did not ask.
+  column "considered_at" {
+    type = timestamptz
+    null = false
+  }
+  // Until when the selection leaves the asset out for this source.
+  column "reconsider_at" {
+    type = timestamptz
+    null = false
+  }
+
+  primary_key {
+    columns = [column.asset_id, column.source_id]
+  }
+
+  foreign_key "price_unasked_deferrals_assets" {
+    columns     = [column.asset_id]
+    ref_columns = [table.assets.column.id]
+    on_update   = NO_ACTION
+    on_delete   = CASCADE
+  }
+}
+
 table "transactions" {
   schema = schema.public
 

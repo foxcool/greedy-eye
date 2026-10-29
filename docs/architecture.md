@@ -340,9 +340,9 @@ graph TB
   CreatePrice, CreatePrices, GetLatestPrice, ListPriceHistory, ListPricesByInterval, DeletePrice,
   DeletePrices, FetchExternalPrices (via the credentials resolver), GetPricingStatus (batched: what asking an asset's sources has produced, for the
   positions a valuation reports as unpriced; an asset never asked about is absent rather than
-  reported empty), GetSweepSchedule (per source: how many assets are due, deferred and
-  never attempted, how far the queue reaches, and why the sweep would skip the source — the
-  facts that tell a frozen schedule from an idle one, which the sweep's own summary cannot)
+  reported empty), GetSweepSchedule (per source: how many assets are due, deferred, never
+  attempted and unaskable, how far the queue reaches, and why the sweep would skip the source —
+  the facts that tell a frozen schedule from an idle one, which the sweep's own summary cannot)
 - RPCs stubbed: EnrichAssetData, FindSimilarAssets
 - Store: `MarketDataStore` (PostgreSQL) — assets, prices, `asset_external_refs`
 - Owns `ValuationCoverage` (ADR-008): the message lives here because it describes the price side
@@ -1136,7 +1136,7 @@ somebody chose, since that would report one currency's number under another curr
 - **Health Checks**: /health endpoint for all services
 - **Provider quota**: spend per credential persisted in `provider_usage`, reported on the sweep's own log line (no metrics system in-process yet)
 - **What counts as an attempt**: a miss is evidence about an ASSET, so only what a provider actually requested is recorded. The sweep selects per source but cannot know what a source covers, so each provider is handed the whole due list and reports the subset it asks for via `SelectiveProvider.Asked` (implemented by binance, coingecko, moex, tinvest, cbr). A transport-level failure records nothing at all: it is evidence about the source. Before this, MOEX carried 575 miss rows for crypto assets on dev and CBR 533, and 99.8% of the attempt log sat at the week-long back-off ceiling
-- **Sweep schedule**: `price_fetch_attempts` holds the per-source back-off. A sweep that selected nothing names each idle source with its reason (`nothing_due`, `all_deferred`, `budget_exhausted`) in its log line and in `FetchExternalPricesResponse.idle_sources`; `GetSweepSchedule` reports the same queue on demand. Before this, `fetched=0` meant both "everything is current" and "the whole catalogue is postponed", and telling them apart took a psql session on the host
+- **Sweep schedule**: `price_fetch_attempts` holds the per-source back-off. A sweep that selected nothing names each idle source with its reason (`nothing_due`, `all_deferred`, `budget_exhausted`) in its log line and in `FetchExternalPricesResponse.idle_sources`; `GetSweepSchedule` reports the same queue on demand. Before this, `fetched=0` meant both "everything is current" and "the whole catalogue is postponed", and telling them apart took a psql session on the host. The selection and the schedule read one predicate (`stalePricingWhere`): a source's population is what its `PriceBinding` admits by market, and for a source with no per-asset budget (CBR) only the symbols its single request covers; the schedule partitions that population into `due_now`, `deferred`, `never_attempted` and `unaskable`, so `due_now + never_attempted` is what the sweep would select before its budget. An asset the sweep selects and cannot ask about — no ref in the source's namespace (`Bound`), or no request the adapter can make (`Asked`) — is written to `price_unasked_deferrals`, not to `price_fetch_attempts`, and left out of that source's selection for a day; it is counted in `unaskable`. Without that it kept a NULL deadline and held the head of the queue on every sweep, counted as due and taking a budgeted source's limit. `ResetSweepSchedule` ends these deferrals along with the back-off
 - **Error Tracking**: Structured logging with correlation IDs
 - **SLA Monitoring**: Response time SLA tracking
 
