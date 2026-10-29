@@ -998,9 +998,15 @@ Cron / API Client → AutomationService/ExecuteRule
   provisions the user, and binds roles to the request context (roles never persisted).
 - **Service identity (split deployment)**: sibling services call each other with
   `X-Service-Token` (`security.serviceToken`). `middleware.ForwardIdentityInterceptor` copies the
-  caller's user and sync authority onto the call; `ServiceIdentityInterceptor` admits a matching
-  token and honours `X-Sync-Authority` only alongside it. The edge must strip `X-Service-Token`
-  from outside requests. Empty token (the monolith) admits no service calls.
+  caller's user, sync authority and spend labels onto the call, deleting any copy already on the
+  request first; `ServiceIdentityInterceptor` admits a matching token and honours
+  `X-Sync-Authority`, `X-Spend-Class` (traffic class, `internal/spend`) and `X-Spend-Caller`
+  (who spends the plan) only alongside it. Without the spend headers the far side would meter a background
+  sweep as an interactive `rpc:<method>` and spend the reserve held for people. A forwarded caller
+  keeps its name across the hop instead of becoming the RPC it crossed. The edge strips
+  `X-Service-Token`, `X-Sync-Authority`, `X-Spend-Class` and `X-Spend-Caller` from outside
+  requests (`trust-strip` in `deploy/compose.yaml`). Empty token (the monolith) admits no service
+  calls.
 - **Cross-service calls**: `remotes: {domain: url}` sends a domain's calls to the process serving
   it (gRPC over h2c) instead of its in-process handler; the start is refused when a domain is both
   served and remote, or remote without a token. A cross-service interface is declared by its

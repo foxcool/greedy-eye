@@ -371,9 +371,15 @@ func loggingInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {
 
 // callerInterceptor names the RPC as the caller of whatever provider requests it
 // makes, so a plan's spend can be traced to the procedure that spent it.
+// A call that arrives already named came from a sibling carrying its caller
+// (middleware.HeaderSpendCaller); the hop is transport, not a new entry point,
+// so it keeps the name it would have had in one process.
 func callerInterceptor() connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			if spend.CallerFromContext(ctx) != spend.Unlabelled {
+				return next(ctx, req)
+			}
 			return next(spend.WithCaller(ctx, rpcCaller(req.Spec().Procedure)), req)
 		}
 	}

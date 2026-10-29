@@ -12,6 +12,7 @@ import (
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/spend"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -28,6 +29,9 @@ type seen struct {
 	hasUser   bool
 	authority bool
 	service   bool
+	class     spend.Class
+	caller    string
+	header    http.Header
 }
 
 // startHop serves one procedure behind the production server chain and
@@ -39,10 +43,13 @@ func startHop(t *testing.T, prov UserProvisioner, log *slog.Logger, serverToken 
 	got := &seen{}
 	mux := http.NewServeMux()
 	mux.Handle(testProcedure, connect.NewUnaryHandler(testProcedure,
-		func(ctx context.Context, _ *connect.Request[apiv1.GetSettingRequest]) (*connect.Response[apiv1.GetSettingResponse], error) {
+		func(ctx context.Context, req *connect.Request[apiv1.GetSettingRequest]) (*connect.Response[apiv1.GetSettingResponse], error) {
 			got.user, got.hasUser = UserFromContext(ctx)
 			got.authority = SyncAuthority(ctx)
 			got.service = ServiceCaller(ctx)
+			got.class = spend.ClassFromContext(ctx)
+			got.caller = spend.CallerFromContext(ctx)
+			got.header = req.Header()
 			return connect.NewResponse(&apiv1.GetSettingResponse{}), nil
 		},
 		connect.WithInterceptors(
@@ -137,6 +144,40 @@ func TestForwardIdentity_StaleHeadersDropped(t *testing.T) {
 	prov.AssertNotCalled(t, "GetOrCreate")
 }
 
+func TestForwardIdentity_SpendLabelsCrossTheHop(t *testing.T) {
+	prov := &mockProvisioner{}
+	client, got := startHop(t, prov, newLogger(), testToken, ForwardIdentityInterceptor(testToken))
+
+	ctx := spend.WithCaller(spend.WithClass(context.Background(), spend.ClassBackground), "sweep:prices")
+	require.NoError(t, call(ctx, client))
+
+	assert.Equal(t, spend.ClassBackground, got.class, "a background sweep must not arrive as interactive")
+	assert.Equal(t, "sweep:prices", got.caller)
+}
+
+func TestForwardIdentity_UnlabelledCallArrivesInteractive(t *testing.T) {
+	prov := &mockProvisioner{}
+	client, got := startHop(t, prov, newLogger(), testToken, ForwardIdentityInterceptor(testToken))
+
+	require.NoError(t, call(context.Background(), client))
+
+	assert.Equal(t, spend.ClassInteractive, got.class)
+	assert.Empty(t, got.header.Get(HeaderSpendCaller), "unlabelled must not travel as a name")
+	assert.Empty(t, got.header.Get(HeaderSpendClass))
+}
+
+func TestForwardIdentity_StaleSpendLabelsDropped(t *testing.T) {
+	prov := &mockProvisioner{}
+	// Outermost, so it writes before the forwarder runs, as a reused request would.
+	stale := staticHeaders(HeaderSpendClass, spendClassBackground, HeaderSpendCaller, "previous-caller")
+	client, got := startHop(t, prov, newLogger(), testToken, stale, ForwardIdentityInterceptor(testToken))
+
+	require.NoError(t, call(context.Background(), client))
+
+	assert.Equal(t, spend.ClassInteractive, got.class, "a stale X-Spend-Class must not cross the hop")
+	assert.Equal(t, spend.Unlabelled, got.caller, "a stale X-Spend-Caller must not cross the hop")
+}
+
 func TestServiceIdentity_WrongTokenRejected(t *testing.T) {
 	prov := &mockProvisioner{}
 	client, got := startHop(t, prov, newLogger(), testToken, ForwardIdentityInterceptor("not-the-token"))
@@ -156,6 +197,17 @@ func TestServiceIdentity_AuthorityHeaderWithoutTokenIgnored(t *testing.T) {
 	require.NoError(t, call(context.Background(), client))
 	assert.False(t, got.authority)
 	assert.False(t, got.service)
+}
+
+func TestServiceIdentity_SpendHeadersWithoutTokenIgnored(t *testing.T) {
+	prov := &mockProvisioner{}
+	prov.On("GetOrCreate", mock.Anything, "u1", "").Return(&entity.User{ID: "u1"}, nil)
+	client, got := startHop(t, prov, newLogger(), testToken,
+		staticHeaders(HeaderUserID, "u1", HeaderSpendClass, spendClassBackground, HeaderSpendCaller, "sweep:prices"))
+
+	require.NoError(t, call(context.Background(), client))
+	assert.Equal(t, spend.ClassInteractive, got.class)
+	assert.Equal(t, spend.Unlabelled, got.caller)
 }
 
 func TestServiceIdentity_MissingTokenAndUser(t *testing.T) {
