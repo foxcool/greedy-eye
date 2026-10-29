@@ -52,7 +52,13 @@ services:
       - "traefik.http.routers.eye-dev.entrypoints=web,websecure"
       - "traefik.http.routers.eye-dev.tls=true"
       - "traefik.http.routers.eye-dev.priority=30"
-      - "traefik.http.routers.eye-dev.middlewares=psina-auth@docker"
+      - "traefik.http.routers.eye-dev.middlewares=trust-strip@docker,psina-auth@docker"
+      # Service-to-service headers never come from outside; an empty value
+      # removes the header (see docs/architecture.md §8.1).
+      - "traefik.http.middlewares.trust-strip.headers.customrequestheaders.X-Service-Token="
+      - "traefik.http.middlewares.trust-strip.headers.customrequestheaders.X-Sync-Authority="
+      - "traefik.http.middlewares.trust-strip.headers.customrequestheaders.X-Spend-Class="
+      - "traefik.http.middlewares.trust-strip.headers.customrequestheaders.X-Spend-Caller="
       # Auth middleware
       - "traefik.http.middlewares.psina-auth.forwardAuth.address=http://psina-dev:8080/verify"
       - "traefik.http.middlewares.psina-auth.forwardAuth.authRequestHeaders=Authorization,Cookie"
@@ -95,7 +101,13 @@ services:
       - "traefik.http.routers.eye-debug.entrypoints=web,websecure"
       - "traefik.http.routers.eye-debug.tls=true"
       - "traefik.http.routers.eye-debug.priority=30"
-      - "traefik.http.routers.eye-debug.middlewares=psina-auth@docker"
+      - "traefik.http.routers.eye-debug.middlewares=trust-strip@docker,psina-auth@docker"
+      # Service-to-service headers never come from outside; an empty value
+      # removes the header (see docs/architecture.md §8.1).
+      - "traefik.http.middlewares.trust-strip.headers.customrequestheaders.X-Service-Token="
+      - "traefik.http.middlewares.trust-strip.headers.customrequestheaders.X-Sync-Authority="
+      - "traefik.http.middlewares.trust-strip.headers.customrequestheaders.X-Spend-Class="
+      - "traefik.http.middlewares.trust-strip.headers.customrequestheaders.X-Spend-Caller="
       # Auth middleware
       - "traefik.http.middlewares.psina-auth.forwardAuth.address=http://psina-dev:8080/verify"
       - "traefik.http.middlewares.psina-auth.forwardAuth.authRequestHeaders=Authorization,Cookie"

@@ -44,6 +44,7 @@ so a schema.hcl change without a migration cannot reach main.
 
 ## Trust headers
 
-`X-User-*`, `X-Service-Token` and `X-Sync-Authority` grant rights (`internal/middleware`).
+`X-User-*`, `X-Service-Token`, `X-Sync-Authority`, `X-Spend-Class` and `X-Spend-Caller` grant
+rights (`internal/middleware`).
 An interceptor that writes them deletes them first and sets them only from ctx, so a
 reused or copied request cannot carry a previous caller's rights to the next hop.

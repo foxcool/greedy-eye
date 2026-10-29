@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
+	"connectrpc.com/connect"
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
+	"github.com/foxcool/greedy-eye/internal/spend"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -60,4 +63,22 @@ func TestHealthPayloadSurvivesAHostileVersion(t *testing.T) {
 func TestRPCCallerNamesTheMethod(t *testing.T) {
 	assert.Equal(t, "rpc:FetchExternalPrices",
 		rpcCaller(apiv1connect.MarketDataServiceFetchExternalPricesProcedure))
+}
+
+// A caller carried over from a sibling keeps its name: the hop must not turn a
+// sweep's spend into spend of the RPC it happened to cross.
+func TestCallerInterceptorKeepsAForwardedCaller(t *testing.T) {
+	var got string
+	next := connect.UnaryFunc(func(ctx context.Context, _ connect.AnyRequest) (connect.AnyResponse, error) {
+		got = spend.CallerFromContext(ctx)
+		return nil, nil
+	})
+	h := callerInterceptor()(next)
+	req := connect.NewRequest(&struct{}{})
+
+	_, _ = h(spend.WithCaller(context.Background(), "sweep:prices"), req)
+	assert.Equal(t, "sweep:prices", got)
+
+	_, _ = h(context.Background(), req)
+	assert.Equal(t, "rpc:", got, "an unnamed call is named by its procedure")
 }
