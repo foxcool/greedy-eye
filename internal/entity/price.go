@@ -118,7 +118,9 @@ type AssetPricingStatus struct {
 // nobody and a run with nothing to ask both report zero fetched and zero
 // stored, so a catalogue deferred until next week is indistinguishable from one
 // that is fully current. The counts here partition the assets the source is
-// allowed to be asked about, which makes the two states different sentences.
+// allowed to be asked about (its binding admits the market; for a source with
+// no budget, only the symbols its single request covers), which makes the two
+// states different sentences.
 //
 // It is a reading of the attempt log, not a plan: the actual next sweep also
 // applies the provider's budget on top, so DueNow is an upper bound on what
@@ -134,6 +136,11 @@ type SourceSchedule struct {
 	// They sort ahead of everything else, so a large count here means a sweep
 	// that has not yet reached the tail rather than one that is stuck.
 	NeverAttempted uint32
+	// Unaskable is how many a recent sweep selected and could not ask about —
+	// no ref in the source's namespace, or no request the adapter can make —
+	// and so left out for a day. The entry point for "why is this never
+	// priced": a binding to add, not a back-off to wait out.
+	Unaskable uint32
 	// SoonestDue is when the earliest deferred asset comes due. Zero when
 	// nothing is deferred — which is not the same as "due now", and callers
 	// must not render it as a date.

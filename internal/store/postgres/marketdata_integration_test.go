@@ -1588,8 +1588,7 @@ func TestSweepSchedule(t *testing.T) {
 
 	t.Run("due, deferred and never-attempted are counted apart", func(t *testing.T) {
 		got, err := s.SweepSchedule(ctx, marketdata.SweepScheduleOpts{
-			SourceIDs: []string{source},
-			Now:       now,
+			Sources: []marketdata.StalePricingOpts{{SourceID: source, Now: now}},
 		})
 		require.NoError(t, err)
 		require.Len(t, got, 1)
@@ -1609,8 +1608,7 @@ func TestSweepSchedule(t *testing.T) {
 	t.Run("nothing deferred leaves the timestamps absent", func(t *testing.T) {
 		// Far enough in the future that the deferred row has come due too.
 		got, err := s.SweepSchedule(ctx, marketdata.SweepScheduleOpts{
-			SourceIDs: []string{source},
-			Now:       now.Add(30 * 24 * time.Hour),
+			Sources: []marketdata.StalePricingOpts{{SourceID: source, Now: now.Add(30 * 24 * time.Hour)}},
 		})
 		require.NoError(t, err)
 		require.Len(t, got, 1)
@@ -1626,8 +1624,7 @@ func TestSweepSchedule(t *testing.T) {
 		// was never asked must not be omitted, or it reads as absence of trouble.
 		unasked := "sched-" + uuid.NewString()[:8]
 		got, err := s.SweepSchedule(ctx, marketdata.SweepScheduleOpts{
-			SourceIDs: []string{unasked},
-			Now:       now,
+			Sources: []marketdata.StalePricingOpts{{SourceID: unasked, Now: now}},
 		})
 		require.NoError(t, err)
 		require.Len(t, got, 1)
@@ -1643,22 +1640,235 @@ func TestSweepSchedule(t *testing.T) {
 
 		unasked := "sched-" + uuid.NewString()[:8]
 		withScam, err := s.SweepSchedule(ctx, marketdata.SweepScheduleOpts{
-			SourceIDs: []string{unasked},
-			Now:       now,
+			Sources: []marketdata.StalePricingOpts{{SourceID: unasked, Now: now}},
 		})
 		require.NoError(t, err)
 		require.Len(t, withScam, 1)
 
 		filtered, err := s.SweepSchedule(ctx, marketdata.SweepScheduleOpts{
-			SourceIDs:       []string{unasked},
-			Now:             now,
-			ExcludeVerdicts: []string{"scam", "impersonation"},
+			Sources: []marketdata.StalePricingOpts{{
+				SourceID: unasked, Now: now, ExcludeVerdicts: []string{"scam", "impersonation"},
+			}},
 		})
 		require.NoError(t, err)
 		require.Len(t, filtered, 1)
 
 		assert.Less(t, filtered[0].NeverAttempted, withScam[0].NeverAttempted,
 			"the sweep never asks about quarantined assets, so counting them would report work nobody intends to do")
+	})
+}
+
+// TestSweepSchedule_MatchesSelection: the schedule and the selection read one
+// predicate. Before they did, the selection took every market and the sweep
+// dropped the foreign ones in Go without a trace, while the schedule counted
+// them as due — a source looked stuck on assets it was never going to ask
+// about, and they held the head of its queue.
+func TestSweepSchedule_MatchesSelection(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+	now := time.Now()
+	suffix := strings.ToUpper(uuid.NewString()[:6])
+
+	mk := func(symbol, market string, typ entity.AssetType) *entity.Asset {
+		t.Helper()
+		a, err := s.CreateAsset(ctx, &entity.Asset{Symbol: symbol + suffix, Name: symbol, Market: market, Type: typ})
+		require.NoError(t, err)
+		return a
+	}
+	due := mk("MSDUE", entity.MarketCrypto, entity.AssetTypeCryptocurrency)
+	never := mk("MSNEVER", entity.MarketCrypto, entity.AssetTypeCryptocurrency)
+	held := mk("MSHELD", entity.MarketCrypto, entity.AssetTypeCryptocurrency)
+	unasked := mk("MSUNASKED", entity.MarketCrypto, entity.AssetTypeCryptocurrency)
+	foreign := mk("MSFOREIGN", "moex", entity.AssetTypeStock)
+	inFeed := mk("MSFEED", entity.MarketForex, entity.AssetTypeForex)
+	offFeed := mk("MSOFFFEED", entity.MarketForex, entity.AssetTypeForex)
+	fixture := []string{due.ID, never.ID, held.ID, unasked.ID, foreign.ID, inFeed.ID, offFeed.ID}
+
+	crypto := "msc-" + uuid.NewString()[:8]
+	feed := "msf-" + uuid.NewString()[:8]
+	for _, source := range []string{crypto, feed} {
+		require.NoError(t, s.RecordPriceAttempts(ctx, marketdata.RecordAttemptsOpts{
+			SourceID: source, At: now.Add(-3 * time.Hour), Priced: []string{due.ID, foreign.ID, offFeed.ID}, TTL: time.Hour,
+		}))
+	}
+	require.NoError(t, s.RecordPriceAttempts(ctx, marketdata.RecordAttemptsOpts{
+		SourceID: crypto, At: now, Missed: []string{held.ID}, TTL: time.Hour, MaxBackoff: 7 * 24 * time.Hour,
+	}))
+	require.NoError(t, s.DeferUnaskedPricing(ctx, marketdata.DeferUnaskedOpts{
+		SourceID: crypto, At: now, Retry: 24 * time.Hour, AssetIDs: []string{unasked.ID},
+	}))
+
+	cryptoBinding := entity.PriceBinding{Markets: []string{entity.MarketCrypto}, RefSource: "venue"}
+	forexBinding := entity.PriceBinding{Markets: []string{entity.MarketForex}}
+	populations := map[string]marketdata.StalePricingOpts{
+		// A binding whose market is the listing.
+		crypto: {SourceID: crypto, Now: now, Binding: &cryptoBinding, ExcludeContested: true},
+		// A source with no budget: only the symbols its one request covers.
+		feed: {SourceID: feed, Now: now, Binding: &forexBinding, Symbols: []string{inFeed.Symbol}, ExcludeContested: true},
+	}
+
+	scopes := map[string][]string{"fixture": fixture, "catalogue": nil}
+	for name, ids := range scopes {
+		t.Run("counts equal the selection over the "+name, func(t *testing.T) {
+			for source, opts := range populations {
+				opts.IDs = ids
+				selected, err := s.ListStalePricingTargets(ctx, opts)
+				require.NoError(t, err)
+				sched, err := s.SweepSchedule(ctx, marketdata.SweepScheduleOpts{Sources: []marketdata.StalePricingOpts{opts}})
+				require.NoError(t, err)
+				require.Len(t, sched, 1)
+				assert.Equal(t, source, sched[0].SourceID)
+				assert.Equal(t, len(selected), int(sched[0].DueNow+sched[0].NeverAttempted), source)
+			}
+		})
+	}
+
+	t.Run("each admitted asset is in exactly one count", func(t *testing.T) {
+		opts := populations[crypto]
+		opts.IDs = fixture
+		selected, err := s.ListStalePricingTargets(ctx, opts)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{due.ID, never.ID}, assetIDs(selected))
+
+		sched, err := s.SweepSchedule(ctx, marketdata.SweepScheduleOpts{Sources: []marketdata.StalePricingOpts{opts}})
+		require.NoError(t, err)
+		got := sched[0]
+		assert.Equal(t, uint32(1), got.DueNow)
+		assert.Equal(t, uint32(1), got.NeverAttempted)
+		assert.Equal(t, uint32(1), got.Deferred)
+		assert.Equal(t, uint32(1), got.Unaskable, "deferred as unasked, and in no other count")
+		assert.False(t, got.SoonestDue.IsZero())
+		assert.True(t, got.SoonestDue.Before(now.Add(2*time.Hour)),
+			"soonest_due dates the back-off, not the unasked deferral a day out")
+	})
+
+	t.Run("a market the binding does not admit is neither selected nor counted", func(t *testing.T) {
+		opts := populations[crypto]
+		opts.IDs = []string{foreign.ID, inFeed.ID}
+		selected, err := s.ListStalePricingTargets(ctx, opts)
+		require.NoError(t, err)
+		assert.Empty(t, selected)
+		sched, err := s.SweepSchedule(ctx, marketdata.SweepScheduleOpts{Sources: []marketdata.StalePricingOpts{opts}})
+		require.NoError(t, err)
+		assert.Zero(t, sched[0].DueNow+sched[0].NeverAttempted+sched[0].Deferred+sched[0].Unaskable)
+	})
+
+	t.Run("a currency outside a no-budget feed is neither selected nor counted", func(t *testing.T) {
+		opts := populations[feed]
+		opts.IDs = fixture
+		selected, err := s.ListStalePricingTargets(ctx, opts)
+		require.NoError(t, err)
+		assert.Equal(t, []string{inFeed.ID}, assetIDs(selected))
+		sched, err := s.SweepSchedule(ctx, marketdata.SweepScheduleOpts{Sources: []marketdata.StalePricingOpts{opts}})
+		require.NoError(t, err)
+		assert.Equal(t, uint32(0), sched[0].DueNow, "the off-feed currency was due by its attempt row")
+		assert.Equal(t, uint32(1), sched[0].NeverAttempted)
+	})
+
+	t.Run("a contract market is admitted only when the binding says so", func(t *testing.T) {
+		token := mk("MSTOKEN", entity.ContractMarket("eth", "0x"+strings.ToLower(suffix)), entity.AssetTypeCryptocurrency)
+		withContracts := entity.PriceBinding{Markets: []string{entity.MarketCrypto}, ContractMarkets: true}
+		for binding, want := range map[*entity.PriceBinding]int{&cryptoBinding: 0, &withContracts: 1} {
+			got, err := s.ListStalePricingTargets(ctx, marketdata.StalePricingOpts{
+				SourceID: crypto, Now: now, Binding: binding, IDs: []string{token.ID},
+			})
+			require.NoError(t, err)
+			assert.Len(t, got, want)
+		}
+	})
+}
+
+// TestDeferUnaskedPricing: an asset selected and not asked is left out of that
+// source's selection for the retry period, without an attempt row — the log of
+// requests stays a log of requests, so PricingStatus reads the same.
+func TestDeferUnaskedPricing(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Millisecond)
+	source := "unasked-" + uuid.NewString()[:8]
+	other := "unasked-" + uuid.NewString()[:8]
+	day := 24 * time.Hour
+
+	missed := createTestAsset(t, s, "UnaskedMissed") // asked long ago, no quote
+	fresh := createTestAsset(t, s, "UnaskedFresh")   // never asked
+	ids := []string{missed.ID, fresh.ID}
+
+	require.NoError(t, s.RecordPriceAttempts(ctx, marketdata.RecordAttemptsOpts{
+		SourceID: source, At: now.Add(-30 * day), Missed: []string{missed.ID}, TTL: time.Hour,
+	}))
+	before, err := s.PricingStatus(ctx, ids)
+	require.NoError(t, err)
+
+	selected := func(source string, at time.Time) []string {
+		t.Helper()
+		got, err := s.ListStalePricingTargets(ctx, marketdata.StalePricingOpts{SourceID: source, Now: at, IDs: ids})
+		require.NoError(t, err)
+		return assetIDs(got)
+	}
+	require.ElementsMatch(t, ids, selected(source, now), "precondition: both due")
+
+	for _, src := range []string{source, other} {
+		require.NoError(t, s.DeferUnaskedPricing(ctx, marketdata.DeferUnaskedOpts{
+			SourceID: src, At: now, Retry: day, AssetIDs: ids,
+		}))
+	}
+
+	assert.Empty(t, selected(source, now), "not due after the sweep that deferred them")
+	assert.Empty(t, selected(source, now.Add(day-time.Minute)), "and not for a day")
+	assert.ElementsMatch(t, ids, selected(source, now.Add(day)), "reconsidered once the day is out")
+
+	t.Run("the attempt log and PricingStatus do not change", func(t *testing.T) {
+		after, err := s.PricingStatus(ctx, ids)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, before, after, "asked-no-quote stays that, never-asked stays absent")
+	})
+
+	t.Run("the schedule counts them as unaskable only", func(t *testing.T) {
+		sched, err := s.SweepSchedule(ctx, marketdata.SweepScheduleOpts{
+			Sources: []marketdata.StalePricingOpts{{SourceID: source, Now: now, IDs: ids}},
+		})
+		require.NoError(t, err)
+		got := sched[0]
+		assert.Equal(t, uint32(2), got.Unaskable)
+		assert.Zero(t, got.DueNow+got.Deferred+got.NeverAttempted)
+	})
+
+	t.Run("a repeated sweep moves the deadline from its own start", func(t *testing.T) {
+		require.NoError(t, s.DeferUnaskedPricing(ctx, marketdata.DeferUnaskedOpts{
+			SourceID: source, At: now.Add(time.Hour), Retry: day, AssetIDs: append(ids, missed.ID),
+		}))
+		assert.Empty(t, selected(source, now.Add(day)))
+		assert.ElementsMatch(t, ids, selected(source, now.Add(day+time.Hour)))
+	})
+
+	t.Run("a reset frees the named source's deferrals, once per asset", func(t *testing.T) {
+		at := now.Add(2 * time.Hour)
+		freed, err := s.ResetPriceAttempts(ctx, source, at)
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), freed, "missed is held twice — back-off and deferral — and freed once")
+		assert.ElementsMatch(t, ids, selected(source, at))
+		assert.Empty(t, selected(other, at), "another source keeps its deferrals")
+	})
+
+	t.Run("deleting the asset deletes its deferral", func(t *testing.T) {
+		gone := createTestAsset(t, s, "UnaskedGone")
+		require.NoError(t, s.DeferUnaskedPricing(ctx, marketdata.DeferUnaskedOpts{
+			SourceID: source, At: now, Retry: day, AssetIDs: []string{gone.ID},
+		}))
+		require.NoError(t, s.DeleteAsset(ctx, gone.ID))
+		var n int
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT count(*) FROM price_unasked_deferrals WHERE asset_id = $1`, gone.ID).Scan(&n))
+		assert.Zero(t, n)
+	})
+
+	t.Run("source and a positive retry are required", func(t *testing.T) {
+		err := s.DeferUnaskedPricing(ctx, marketdata.DeferUnaskedOpts{Retry: day, AssetIDs: ids})
+		require.ErrorIs(t, err, store.ErrInvalidArgument)
+		err = s.DeferUnaskedPricing(ctx, marketdata.DeferUnaskedOpts{SourceID: source, AssetIDs: ids})
+		require.ErrorIs(t, err, store.ErrInvalidArgument)
 	})
 }
 
@@ -1786,7 +1996,9 @@ func TestContestedAssets(t *testing.T) {
 			t.Helper()
 			read := func(exclude bool) uint32 {
 				got, err := s.SweepSchedule(ctx, marketdata.SweepScheduleOpts{
-					SourceIDs: []string{"contest-test"}, ExcludeVerdicts: quarantine, ExcludeContested: exclude,
+					Sources: []marketdata.StalePricingOpts{{
+						SourceID: "contest-test", ExcludeVerdicts: quarantine, ExcludeContested: exclude,
+					}},
 				})
 				require.NoError(t, err)
 				require.Len(t, got, 1)

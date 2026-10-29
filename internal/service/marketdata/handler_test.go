@@ -223,6 +223,10 @@ func (m *mockStore) RecordPriceAttempts(ctx context.Context, opts RecordAttempts
 	return m.Called(ctx, opts).Error(0)
 }
 
+func (m *mockStore) DeferUnaskedPricing(ctx context.Context, opts DeferUnaskedOpts) error {
+	return m.Called(ctx, opts).Error(0)
+}
+
 func (m *mockStore) ResetPriceAttempts(ctx context.Context, sourceID string, at time.Time) (int64, error) {
 	args := m.Called(ctx, sourceID, at)
 	return args.Get(0).(int64), args.Error(1)
@@ -2364,7 +2368,7 @@ func TestFetchExternalPrices_AllDeferredIsNamed(t *testing.T) {
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
 		Return([]*entity.Asset{}, nil)
 	s.On("SweepSchedule", mock.Anything, mock.MatchedBy(func(o SweepScheduleOpts) bool {
-		return assert.ObjectsAreEqual([]string{"fake"}, o.SourceIDs)
+		return assert.ObjectsAreEqual([]string{"fake"}, scheduleSources(o))
 	})).Return([]*entity.SourceSchedule{{SourceID: "fake", Deferred: 12}}, nil)
 
 	h := newHandler(s).WithProvider("fake", &fakePriceProvider{})
@@ -2416,13 +2420,23 @@ func TestFetchExternalPrices_WorkingSweepReportsNoIdleSource(t *testing.T) {
 
 // --- Tests: GetSweepSchedule ---
 
+// scheduleSources names the sources a schedule read covers, in order.
+func scheduleSources(o SweepScheduleOpts) []string {
+	out := make([]string, 0, len(o.Sources))
+	for _, src := range o.Sources {
+		out = append(out, src.SourceID)
+	}
+	return out
+}
+
 // The RPC reports every source the instance can price with, so a single frozen
 // source is visible without having to name it first.
 func TestGetSweepSchedule_ReportsEverySource(t *testing.T) {
 	s := &mockStore{}
 	s.On("SweepSchedule", mock.Anything, mock.MatchedBy(func(o SweepScheduleOpts) bool {
-		return assert.ObjectsAreEqual([]string{"a", "b"}, o.SourceIDs) &&
-			assert.ObjectsAreEqual(quarantineVerdicts, o.ExcludeVerdicts)
+		return assert.ObjectsAreEqual([]string{"a", "b"}, scheduleSources(o)) &&
+			assert.ObjectsAreEqual(quarantineVerdicts, o.Sources[0].ExcludeVerdicts) &&
+			o.Sources[0].ExcludeContested
 	})).Return([]*entity.SourceSchedule{
 		{SourceID: "a", DueNow: 3},
 		{SourceID: "b", Deferred: 7, MaxMisses: 9},
@@ -2439,6 +2453,58 @@ func TestGetSweepSchedule_ReportsEverySource(t *testing.T) {
 	assert.Equal(t, uint32(3), resp.Msg.GetSources()[0].GetDueNow())
 	assert.Equal(t, uint32(7), resp.Msg.GetSources()[1].GetDeferred())
 	assert.Equal(t, uint32(9), resp.Msg.GetSources()[1].GetMaxMisses())
+}
+
+// unaskable is reported per source, apart from the back-off counts.
+func TestGetSweepSchedule_ReportsUnaskable(t *testing.T) {
+	s := &mockStore{}
+	s.On("SweepSchedule", mock.Anything, mock.Anything).
+		Return([]*entity.SourceSchedule{{SourceID: "a", DueNow: 2, Deferred: 3, NeverAttempted: 4, Unaskable: 5}}, nil)
+
+	h := newHandler(s).WithProvider("a", &fakePriceProvider{})
+
+	resp, err := h.GetSweepSchedule(context.Background(),
+		connect.NewRequest(&apiv1.GetSweepScheduleRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetSources(), 1)
+	got := resp.Msg.GetSources()[0]
+	assert.Equal(t, uint32(5), got.GetUnaskable())
+	assert.Equal(t, uint32(2), got.GetDueNow())
+	assert.Equal(t, uint32(3), got.GetDeferred())
+	assert.Equal(t, uint32(4), got.GetNeverAttempted())
+}
+
+// The schedule counts the population the sweep selects from: the provider's
+// binding, and for a source with no budget only the symbols its one request
+// covers. A schedule over the whole catalogue reported CBR's never-asked
+// crypto as due work forever.
+func TestGetSweepSchedule_CountsWhatTheSweepSelectsFrom(t *testing.T) {
+	s := &mockStore{}
+	var got SweepScheduleOpts
+	s.On("SweepSchedule", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { got = args.Get(1).(SweepScheduleOpts) }).
+		Return([]*entity.SourceSchedule{{SourceID: "feed"}, {SourceID: "metered"}}, nil)
+
+	h := newHandler(s).
+		WithProvider("feed", &fakePriceProvider{exempt: []string{"EUR"}, budget: 0, hasBudget: true}).
+		WithProvider("metered", &fakePriceProvider{exempt: []string{"BTC"}, budget: 10, hasBudget: true})
+	h.refreshWindow = time.Hour
+
+	_, err := h.GetSweepSchedule(context.Background(),
+		connect.NewRequest(&apiv1.GetSweepScheduleRequest{}))
+	require.NoError(t, err)
+	require.Len(t, got.Sources, 2)
+
+	feed, metered := got.Sources[0], got.Sources[1]
+	assert.Equal(t, "feed", feed.SourceID)
+	require.NotNil(t, feed.Binding)
+	assert.Equal(t, testBinding, *feed.Binding)
+	assert.Equal(t, []string{"EUR"}, feed.Symbols, "no budget: only the exempt symbols are ever selected")
+
+	assert.Equal(t, "metered", metered.SourceID)
+	assert.Nil(t, metered.Symbols, "a budget leaves the whole admitted market in the queue")
+	assert.Zero(t, metered.Limit, "the schedule is the queue before the budget")
+	assert.True(t, metered.ExcludeContested)
 }
 
 func TestResetSweepSchedule_ForgivesNamedSourcesOnly(t *testing.T) {
@@ -2723,6 +2789,111 @@ func TestFetchExternalPrices_TransportFailureRecordsNoMisses(t *testing.T) {
 	s.AssertNotCalled(t, "RecordPriceAttempts", mock.Anything, mock.Anything)
 }
 
+// --- Tests: selected but not asked ---
+
+// unaskingProvider binds by ref and requests only the assets it speaks for,
+// the way Binance does with its listing snapshot.
+type unaskingProvider struct {
+	bindingProvider
+	speaksFor  map[string]bool
+	fetchError error
+}
+
+func (u *unaskingProvider) Asked(assets []*entity.Asset) []*entity.Asset {
+	out := make([]*entity.Asset, 0, len(assets))
+	for _, a := range assets {
+		if u.speaksFor[a.ID] {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+func (u *unaskingProvider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]entity.StoredPrice, error) {
+	if u.fetchError != nil {
+		return nil, u.fetchError
+	}
+	return u.bindingProvider.FetchPrices(ctx, u.Asked(assets))
+}
+
+// unaskedSweep runs one unattended sweep over three selected crypto assets: one
+// bound and asked, one with no ref (dropped by Bound), one bound that the
+// adapter has no request for (dropped by Asked).
+func unaskedSweep(t *testing.T, fetchError error) (*mockStore, StalePricingOpts, *RecordAttemptsOpts, []DeferUnaskedOpts) {
+	t.Helper()
+	s := &mockStore{}
+	expectExternalRefs(s)
+	expectBaseAsset(s)
+
+	bound := func(id string) *entity.Asset {
+		a := marketAsset(id, strings.ToUpper(id), entity.MarketCrypto)
+		a.ExternalRefs = []entity.AssetExternalRef{{AssetID: id, Source: "venue", Ref: id + "USDT"}}
+		return a
+	}
+	asked, unasked := bound("asked"), bound("unasked")
+	unbound := marketAsset("unbound", "UNBOUND", entity.MarketCrypto)
+
+	var selected StalePricingOpts
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { selected = args.Get(1).(StalePricingOpts) }).
+		Return([]*entity.Asset{asked, unbound, unasked}, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil).Maybe()
+	var recorded *RecordAttemptsOpts
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { o := args.Get(1).(RecordAttemptsOpts); recorded = &o }).
+		Return(nil).Maybe()
+	var deferred []DeferUnaskedOpts
+	s.On("DeferUnaskedPricing", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { deferred = append(deferred, args.Get(1).(DeferUnaskedOpts)) }).
+		Return(nil)
+
+	p := &unaskingProvider{
+		bindingProvider: bindingProvider{binding: entity.PriceBinding{Markets: []string{entity.MarketCrypto}, RefSource: "venue"}},
+		speaksFor:       map[string]bool{"asked": true},
+		fetchError:      fetchError,
+	}
+	_, err := newHandler(s).WithProvider("venue", p).FetchExternalPrices(syncContext(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+	return s, selected, recorded, deferred
+}
+
+// An asset the sweep selected and did not ask about used to leave no trace: no
+// attempt row, so its deadline stayed NULL and it held the head of the queue on
+// every sweep, counted as due and taking a budgeted source's limit. It is now
+// deferred for a day, and still has no attempt row: nothing was asked, so
+// PricingStatus must not learn "asked, no quote" from it.
+func TestFetchExternalPrices_SelectedButUnaskedIsDeferredNotRecorded(t *testing.T) {
+	_, selected, recorded, deferred := unaskedSweep(t, nil)
+
+	require.NotNil(t, selected.Binding, "the selection admits by the provider's binding")
+	assert.Equal(t, []string{entity.MarketCrypto}, selected.Binding.Markets)
+
+	require.NotNil(t, recorded)
+	assert.Equal(t, []string{"asked"}, recorded.Priced)
+	assert.Empty(t, recorded.Missed, "an unasked asset gets no attempt row")
+
+	var ids []string
+	for _, d := range deferred {
+		assert.Equal(t, "venue", d.SourceID)
+		assert.Equal(t, recorded.At, d.At, "deferred from the sweep's own clock")
+		assert.GreaterOrEqual(t, d.Retry, 24*time.Hour, "reconsidered no sooner than a day later")
+		ids = append(ids, d.AssetIDs...)
+	}
+	assert.ElementsMatch(t, []string{"unbound", "unasked"}, ids)
+}
+
+// A failed request says nothing about which assets the adapter would have
+// asked about, so only the Bound drop — known before any request — is deferred.
+func TestFetchExternalPrices_TransportFailureDefersOnlyTheUnbound(t *testing.T) {
+	s, _, recorded, deferred := unaskedSweep(t, errors.New("unexpected status 400"))
+
+	assert.Nil(t, recorded)
+	s.AssertNotCalled(t, "RecordPriceAttempts", mock.Anything, mock.Anything)
+	require.Len(t, deferred, 1)
+	assert.Equal(t, []string{"unbound"}, deferred[0].AssetIDs)
+}
+
 // TestQuotableBase pins which resolved rows may denominate a provider's prices.
 // The guard runs once per sweep per provider, before anything is fetched, so a
 // row it lets through becomes the denominator of that source's whole batch.
@@ -2842,6 +3013,7 @@ func fetchNamed(t *testing.T, p PriceProvider, assets []*entity.Asset, contested
 	s.On("ContestedAssets", mock.Anything, mock.Anything, quarantineVerdicts).Return(contested, nil).Maybe()
 	s.On("ListAssets", mock.Anything, mock.Anything).Return(assets, "", nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil).Maybe()
+	s.On("DeferUnaskedPricing", mock.Anything, mock.Anything).Return(nil).Maybe()
 	s.On("CreatePrices", mock.Anything, mock.Anything).Return(len(assets), nil).Maybe()
 
 	resp, err := newHandler(s).WithProvider("venue", p).FetchExternalPrices(syncContext(),

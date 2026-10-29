@@ -2923,10 +2923,12 @@ func (x *ResetSweepScheduleResponse) GetAssetsFreed() map[string]uint32 {
 //
 // The counts partition the assets this source is allowed to be asked about:
 // due_now would be selected by the next run, deferred are held back by their
-// own back-off, never_attempted have no attempt row at all. Quarantined and
-// contested assets (UNPRICED_REASON_AMBIGUOUS_TICKER) are in none of them — the
-// sweep never asks about those, so counting them here would report work nobody
-// intends to do.
+// own back-off, never_attempted have no attempt row at all, unaskable were
+// selected and could not be asked about. Allowed means the source's binding
+// admits the asset's market and, for a source with no per-asset budget, the
+// symbol is one its single request covers. Quarantined and contested assets
+// (UNPRICED_REASON_AMBIGUOUS_TICKER) are in none of them — the sweep never asks
+// about those, so counting them here would report work nobody intends to do.
 type SourceSchedule struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	SourceId       string                 `protobuf:"bytes,1,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
@@ -2946,7 +2948,12 @@ type SourceSchedule struct {
 	// plan, a frozen bucket. Absent means the source would be asked. This is the
 	// same judgement the sweep makes, read from the same provider, not a second
 	// opinion computed here.
-	SkipReason    *string `protobuf:"bytes,8,opt,name=skip_reason,json=skipReason,proto3,oneof" json:"skip_reason,omitempty"`
+	SkipReason *string `protobuf:"bytes,8,opt,name=skip_reason,json=skipReason,proto3,oneof" json:"skip_reason,omitempty"`
+	// Assets a recent sweep selected and could not ask about — no ref in this
+	// source's namespace, or no request the adapter can make for them — and left
+	// out for a day so they do not hold the head of the queue. Not in deferred:
+	// nothing was asked, so there is no back-off. A reset frees them too.
+	Unaskable     uint32 `protobuf:"varint,9,opt,name=unaskable,proto3" json:"unaskable,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3035,6 +3042,13 @@ func (x *SourceSchedule) GetSkipReason() string {
 		return *x.SkipReason
 	}
 	return ""
+}
+
+func (x *SourceSchedule) GetUnaskable() uint32 {
+	if x != nil {
+		return x.Unaskable
+	}
+	return 0
 }
 
 var File_v1_marketdata_proto protoreflect.FileDescriptor
@@ -3312,7 +3326,7 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\fassets_freed\x18\x01 \x03(\v23.eye.v1.ResetSweepScheduleResponse.AssetsFreedEntryR\vassetsFreed\x1a>\n" +
 	"\x10AssetsFreedEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\x90\x03\n" +
+	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\xae\x03\n" +
 	"\x0eSourceSchedule\x12\x1b\n" +
 	"\tsource_id\x18\x01 \x01(\tR\bsourceId\x12\x17\n" +
 	"\adue_now\x18\x02 \x01(\rR\x06dueNow\x12\x1a\n" +
@@ -3324,7 +3338,8 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\n" +
 	"max_misses\x18\a \x01(\rR\tmaxMisses\x12$\n" +
 	"\vskip_reason\x18\b \x01(\tH\x02R\n" +
-	"skipReason\x88\x01\x01B\x0e\n" +
+	"skipReason\x88\x01\x01\x12\x1c\n" +
+	"\tunaskable\x18\t \x01(\rR\tunaskableB\x0e\n" +
 	"\f_soonest_dueB\x12\n" +
 	"\x10_latest_deferredB\x0e\n" +
 	"\f_skip_reason*\xb6\x01\n" +

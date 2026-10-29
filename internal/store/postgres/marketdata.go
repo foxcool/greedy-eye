@@ -903,7 +903,7 @@ func (s *MarketDataStore) ListAssets(ctx context.Context, opts marketdata.ListAs
 // everything else, so a freshly synced token is priced on the next sweep, and
 // the id tie-break keeps the rotation deterministic.
 func (s *MarketDataStore) ListStalePricingTargets(ctx context.Context, opts marketdata.StalePricingOpts) ([]*entity.Asset, error) {
-	where, args, err := stalePricingWhere(opts, false)
+	where, args, err := stalePricingWhere(opts, scopeDue)
 	if err != nil {
 		return nil, err
 	}
@@ -916,9 +916,7 @@ func (s *MarketDataStore) ListStalePricingTargets(ctx context.Context, opts mark
 
 	query := fmt.Sprintf(`
 		SELECT `+prefixedAssetColumns+`
-		FROM assets a
-		LEFT JOIN price_fetch_attempts f
-			ON f.asset_id = a.id AND f.source_id = $1
+		FROM `+stalePricingFrom+`
 		WHERE %s
 		ORDER BY f.next_attempt_at ASC NULLS FIRST, a.id
 		%s`, where, limitClause)
@@ -950,16 +948,14 @@ func (s *MarketDataStore) CountCoveredTargets(ctx context.Context, opts marketda
 	if len(opts.Covered) == 0 {
 		return 0, nil
 	}
-	where, args, err := stalePricingWhere(opts, true)
+	where, args, err := stalePricingWhere(opts, scopeCovered)
 	if err != nil {
 		return 0, err
 	}
 	var n int
 	err = s.pool.QueryRow(ctx, `
 		SELECT count(*)
-		FROM assets a
-		LEFT JOIN price_fetch_attempts f
-			ON f.asset_id = a.id AND f.source_id = $1
+		FROM `+stalePricingFrom+`
 		WHERE `+where, args...).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count covered pricing targets: %w", err)
@@ -967,9 +963,36 @@ func (s *MarketDataStore) CountCoveredTargets(ctx context.Context, opts marketda
 	return n, nil
 }
 
-// stalePricingWhere builds the selection predicate shared by the list and the
-// covered count; coveredOnly keeps exactly the rows Covered would drop.
-func stalePricingWhere(opts marketdata.StalePricingOpts, coveredOnly bool) (string, []any, error) {
+// stalePricingFrom joins an asset to one source's ($1) attempt row and unasked
+// deferral. Every reader of stalePricingWhere selects from it.
+const stalePricingFrom = `assets a
+		LEFT JOIN price_fetch_attempts f
+			ON f.asset_id = a.id AND f.source_id = $1
+		LEFT JOIN price_unasked_deferrals u
+			ON u.asset_id = a.id AND u.source_id = $1`
+
+// unaskedHeld is true while an asset's unasked deferral outlasts $2. It takes
+// precedence over the attempt row in the schedule: the selection skips the
+// asset until the deferral ends, whatever the attempt row says.
+const unaskedHeld = "COALESCE(u.reconsider_at > $2, false)"
+
+// pricingScope is which part of a source's population stalePricingWhere keeps.
+type pricingScope int
+
+const (
+	// scopeAdmitted is every asset the source may be asked about, due or not:
+	// the population SweepSchedule partitions.
+	scopeAdmitted pricingScope = iota
+	// scopeDue is what ListStalePricingTargets returns.
+	scopeDue
+	// scopeCovered is what Covered keeps out of scopeDue.
+	scopeCovered
+)
+
+// stalePricingWhere builds the selection predicate shared by the list, the
+// covered count and the schedule, so the three cannot disagree about which
+// assets a source is asked about. $1 is the source and $2 the deadline.
+func stalePricingWhere(opts marketdata.StalePricingOpts, scope pricingScope) (string, []any, error) {
 	if opts.SourceID == "" {
 		return "", nil, fmt.Errorf("%w: source_id is required", store.ErrInvalidArgument)
 	}
@@ -983,9 +1006,22 @@ func stalePricingWhere(opts marketdata.StalePricingOpts, coveredOnly bool) (stri
 		args = append(args, v)
 		return fmt.Sprintf("$%d", len(args))
 	}
-	where := []string{"(f.next_attempt_at IS NULL OR f.next_attempt_at <= $2)"}
+	where := []string{"TRUE"}
+	if scope != scopeAdmitted {
+		where = append(where, "(f.next_attempt_at IS NULL OR f.next_attempt_at <= $2)", "NOT "+unaskedHeld)
+	}
 
-	if len(opts.Symbols) > 0 {
+	if b := opts.Binding; b != nil {
+		// The SQL form of entity.PriceBinding.Admits, market normalised the
+		// same way.
+		market := "lower(trim(a.market))"
+		admit := market + " = ANY(" + next(nonNil(b.Markets)) + ")"
+		if b.ContractMarkets {
+			admit = "(" + admit + " OR " + market + " LIKE 'onchain:%')"
+		}
+		where = append(where, admit)
+	}
+	if opts.Symbols != nil {
 		where = append(where, "a.symbol = ANY("+next(opts.Symbols)+")")
 	}
 	if len(opts.ExcludeSymbols) > 0 {
@@ -1000,11 +1036,11 @@ func stalePricingWhere(opts marketdata.StalePricingOpts, coveredOnly bool) (stri
 	if opts.ExcludeContested {
 		where = append(where, "NOT "+contestedWhere(next(nonNil(opts.ExcludeVerdicts))))
 	}
-	if len(opts.Covered) > 0 {
+	if len(opts.Covered) > 0 && scope != scopeAdmitted {
 		// Never asked counts as asked long ago: the first time is not overlap.
 		covered := fmt.Sprintf("(a.id = ANY(%s::uuid[]) AND COALESCE(f.attempted_at >= %s, false))",
 			next(opts.Covered), next(opts.CoveredRecheckBefore))
-		if coveredOnly {
+		if scope == scopeCovered {
 			where = append(where, covered)
 		} else {
 			where = append(where, "NOT "+covered)
@@ -1051,134 +1087,70 @@ func (s *MarketDataStore) FreshTradedQuotes(ctx context.Context, excludeSource s
 	return out, nil
 }
 
-// SweepSchedule aggregates the attempt log per source into the queue the next
-// sweep would find.
+// SweepSchedule partitions each source's admitted population into the queue
+// the next sweep would find.
 //
-// Two queries rather than one. The counts of due/deferred come from
-// price_fetch_attempts grouped by source, which is cheap and indexed. The
-// never-attempted count cannot: an asset with no row for this source produces
-// no row to group, so it has to be counted against the asset table with the
-// same verdict filter the selection applies. Folding both into one statement
-// would mean a cross join of every asset with every source, which is the
-// catalogue times four for a number that fits in a uint32.
+// One query per source, over the population stalePricingWhere admits rather
+// than over the attempt log: an asset with no row for this source produces no
+// row to group, and an attempt row says nothing about whether the source may
+// still be asked about the asset. Reading the selection's own predicate is
+// what keeps due_now + never_attempted equal to what the selection returns
+// before its budget is applied.
 func (s *MarketDataStore) SweepSchedule(ctx context.Context, opts marketdata.SweepScheduleOpts) ([]*entity.SourceSchedule, error) {
-	now := opts.Now
-	if now.IsZero() {
-		now = time.Now()
-	}
-
-	args := []any{now}
-	where := []string{"TRUE"}
-	if len(opts.SourceIDs) > 0 {
-		where = append(where, fmt.Sprintf("f.source_id = ANY($%d)", len(args)+1))
-		args = append(args, opts.SourceIDs)
-	}
-	if len(opts.ExcludeVerdicts) > 0 {
-		where = append(where, fmt.Sprintf("a.identity_verdict <> ALL($%d)", len(args)+1))
-		args = append(args, opts.ExcludeVerdicts)
-	}
-	if opts.ExcludeContested {
-		where = append(where, "NOT "+contestedWhere(fmt.Sprintf("$%d", len(args)+1)))
-		args = append(args, nonNil(opts.ExcludeVerdicts))
-	}
-
-	query := fmt.Sprintf(`
-		SELECT f.source_id,
-		       count(*) FILTER (WHERE f.next_attempt_at <= $1)                AS due_now,
-		       count(*) FILTER (WHERE f.next_attempt_at > $1)                 AS deferred,
-		       min(f.next_attempt_at) FILTER (WHERE f.next_attempt_at > $1)   AS soonest_due,
-		       max(f.next_attempt_at) FILTER (WHERE f.next_attempt_at > $1)   AS latest_deferred,
-		       coalesce(max(f.misses), 0)                                     AS max_misses
-		FROM price_fetch_attempts f
-		JOIN assets a ON a.id = f.asset_id
-		WHERE %s
-		GROUP BY f.source_id
-		ORDER BY f.source_id`, strings.Join(where, " AND "))
-
-	rows, err := s.pool.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read sweep schedule: %w", err)
-	}
-	defer rows.Close()
-
-	bySource := map[string]*entity.SourceSchedule{}
-	var out []*entity.SourceSchedule
-	for rows.Next() {
-		var sched entity.SourceSchedule
-		var due, deferred, misses int64
-		var soonest, latest *time.Time
-		if err := rows.Scan(&sched.SourceID, &due, &deferred, &soonest, &latest, &misses); err != nil {
-			return nil, fmt.Errorf("failed to scan sweep schedule: %w", err)
-		}
-		sched.DueNow = uint32(due)        // #nosec G115 -- bounded by the catalogue
-		sched.Deferred = uint32(deferred) // #nosec G115 -- bounded by the catalogue
-		sched.MaxMisses = uint32(misses)  // #nosec G115 -- bounded by the back-off cap
-		if soonest != nil {
-			sched.SoonestDue = *soonest
-		}
-		if latest != nil {
-			sched.LatestDeferred = *latest
-		}
-		row := sched
-		bySource[sched.SourceID] = &row
-		out = append(out, &row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate sweep schedule: %w", err)
-	}
-
-	if len(opts.SourceIDs) == 0 {
-		return out, nil
-	}
-
-	// Never-attempted is only answerable for sources we were asked about by
-	// name: without a list there is nothing to count an absent row against.
-	// A source with no attempt rows at all still gets an entry — "this source
-	// has never been asked" is the most important thing this RPC can say, and
-	// omitting it would report silence as absence.
-	for _, sourceID := range opts.SourceIDs {
-		n, err := s.countNeverAttempted(ctx, sourceID, opts.ExcludeVerdicts, opts.ExcludeContested)
+	out := make([]*entity.SourceSchedule, 0, len(opts.Sources))
+	for _, src := range opts.Sources {
+		sched, err := s.sourceSchedule(ctx, src)
 		if err != nil {
 			return nil, err
 		}
-		sched, ok := bySource[sourceID]
-		if !ok {
-			sched = &entity.SourceSchedule{SourceID: sourceID}
-			out = append(out, sched)
-		}
-		sched.NeverAttempted = n
+		out = append(out, sched)
 	}
-
 	return out, nil
 }
 
-// countNeverAttempted counts assets this source has no attempt row for. They
-// sort ahead of everything else in the selection, so this is the head of the
-// queue rather than its tail.
-func (s *MarketDataStore) countNeverAttempted(ctx context.Context, sourceID string, excludeVerdicts []string, excludeContested bool) (uint32, error) {
-	args := []any{sourceID}
-	where := []string{"f.asset_id IS NULL"}
-	if len(excludeVerdicts) > 0 {
-		where = append(where, fmt.Sprintf("a.identity_verdict <> ALL($%d)", len(args)+1))
-		args = append(args, excludeVerdicts)
-	}
-	if excludeContested {
-		where = append(where, "NOT "+contestedWhere(fmt.Sprintf("$%d", len(args)+1)))
-		args = append(args, nonNil(excludeVerdicts))
+// sourceSchedule counts one source's queue. A source never asked about
+// anything still gets an entry: "this source has never been asked" is the most
+// important thing the schedule can say, and omitting it would report silence
+// as absence.
+func (s *MarketDataStore) sourceSchedule(ctx context.Context, opts marketdata.StalePricingOpts) (*entity.SourceSchedule, error) {
+	where, args, err := stalePricingWhere(opts, scopeAdmitted)
+	if err != nil {
+		return nil, err
 	}
 
-	query := fmt.Sprintf(`
-		SELECT count(*)
-		FROM assets a
-		LEFT JOIN price_fetch_attempts f
-			ON f.asset_id = a.id AND f.source_id = $1
-		WHERE %s`, strings.Join(where, " AND "))
+	query := `
+		SELECT count(*) FILTER (WHERE NOT held AND next_attempt_at <= $2)             AS due_now,
+		       count(*) FILTER (WHERE NOT held AND next_attempt_at > $2)              AS deferred,
+		       count(*) FILTER (WHERE NOT held AND next_attempt_at IS NULL)           AS never_attempted,
+		       count(*) FILTER (WHERE held)                                           AS unaskable,
+		       min(next_attempt_at) FILTER (WHERE NOT held AND next_attempt_at > $2)  AS soonest_due,
+		       max(next_attempt_at) FILTER (WHERE NOT held AND next_attempt_at > $2)  AS latest_deferred,
+		       coalesce(max(misses), 0)                                               AS max_misses
+		FROM (
+			SELECT f.next_attempt_at, f.misses, ` + unaskedHeld + ` AS held
+			FROM ` + stalePricingFrom + `
+			WHERE ` + where + `
+		) admitted`
 
-	var n int64
-	if err := s.pool.QueryRow(ctx, query, args...).Scan(&n); err != nil {
-		return 0, fmt.Errorf("failed to count never-attempted assets: %w", err)
+	sched := &entity.SourceSchedule{SourceID: opts.SourceID}
+	var due, deferred, never, unaskable, misses int64
+	var soonest, latest *time.Time
+	if err := s.pool.QueryRow(ctx, query, args...).Scan(
+		&due, &deferred, &never, &unaskable, &soonest, &latest, &misses); err != nil {
+		return nil, fmt.Errorf("failed to read sweep schedule: %w", err)
 	}
-	return uint32(n), nil // #nosec G115 -- bounded by the catalogue
+	sched.DueNow = uint32(due)           // #nosec G115 -- bounded by the catalogue
+	sched.Deferred = uint32(deferred)    // #nosec G115 -- bounded by the catalogue
+	sched.NeverAttempted = uint32(never) // #nosec G115 -- bounded by the catalogue
+	sched.Unaskable = uint32(unaskable)  // #nosec G115 -- bounded by the catalogue
+	sched.MaxMisses = uint32(misses)     // #nosec G115 -- bounded by the back-off cap
+	if soonest != nil {
+		sched.SoonestDue = *soonest
+	}
+	if latest != nil {
+		sched.LatestDeferred = *latest
+	}
+	return sched, nil
 }
 
 // RecordPriceAttempts records one sweep's outcome for a source.
@@ -1249,6 +1221,43 @@ func (s *MarketDataStore) RecordPriceAttempts(ctx context.Context, opts marketda
 	return nil
 }
 
+// DeferUnaskedPricing records that one sweep selected these assets for a
+// source and did not ask about them, and keeps them out of that source's
+// selection until At+Retry.
+//
+// Without it such an asset never moves: it gets no attempt row, so its place
+// in the queue stays NULLS FIRST, and a budgeted selection spends its LIMIT on
+// it every sweep. An upsert from At, so a repeated sweep moves the deadline
+// rather than stacking anything.
+func (s *MarketDataStore) DeferUnaskedPricing(ctx context.Context, opts marketdata.DeferUnaskedOpts) error {
+	if opts.SourceID == "" {
+		return fmt.Errorf("%w: source_id is required", store.ErrInvalidArgument)
+	}
+	if opts.Retry <= 0 {
+		return fmt.Errorf("%w: retry must be positive", store.ErrInvalidArgument)
+	}
+	if len(opts.AssetIDs) == 0 {
+		return nil
+	}
+	at := opts.At
+	if at.IsZero() {
+		at = time.Now()
+	}
+
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO price_unasked_deferrals (asset_id, source_id, considered_at, reconsider_at)
+		SELECT DISTINCT id, $2, $3::timestamptz, $3::timestamptz + make_interval(secs => $4::float8)
+		FROM unnest($1::uuid[]) AS id
+		ON CONFLICT (asset_id, source_id) DO UPDATE SET
+			considered_at = EXCLUDED.considered_at,
+			reconsider_at = EXCLUDED.reconsider_at`,
+		opts.AssetIDs, opts.SourceID, at, opts.Retry.Seconds())
+	if err != nil {
+		return fmt.Errorf("failed to defer unasked pricing targets: %w", err)
+	}
+	return nil
+}
+
 // ResetPriceAttempts forgives the back-off accrued against one source.
 //
 // The miss counter is the schedule's whole memory: next_attempt_at is derived
@@ -1256,7 +1265,9 @@ func (s *MarketDataStore) RecordPriceAttempts(ctx context.Context, opts marketda
 // the assets deferred until a date computed from a history just disclaimed.
 // Both move together, and the attempt timestamps are deliberately left alone —
 // what was asked and when is a fact; only the conclusion drawn from it is
-// being withdrawn.
+// being withdrawn. Unasked deferrals end at the same instant: a reset means
+// "ask now", and the operator resetting after fixing a binding should not wait
+// a day for it. An asset held by both is freed once.
 func (s *MarketDataStore) ResetPriceAttempts(ctx context.Context, sourceID string, at time.Time) (int64, error) {
 	if sourceID == "" {
 		return 0, fmt.Errorf("%w: source_id is required", store.ErrInvalidArgument)
@@ -1265,15 +1276,25 @@ func (s *MarketDataStore) ResetPriceAttempts(ctx context.Context, sourceID strin
 		at = time.Now()
 	}
 
-	tag, err := s.pool.Exec(ctx, `
-		UPDATE price_fetch_attempts
-		SET misses = 0, next_attempt_at = $2::timestamptz
-		WHERE source_id = $1 AND (misses > 0 OR next_attempt_at > $2::timestamptz)`,
-		sourceID, at)
+	var freed int64
+	err := s.pool.QueryRow(ctx, `
+		WITH attempts AS (
+			UPDATE price_fetch_attempts
+			SET misses = 0, next_attempt_at = $2::timestamptz
+			WHERE source_id = $1 AND (misses > 0 OR next_attempt_at > $2::timestamptz)
+			RETURNING asset_id
+		), unasked AS (
+			UPDATE price_unasked_deferrals
+			SET reconsider_at = $2::timestamptz
+			WHERE source_id = $1 AND reconsider_at > $2::timestamptz
+			RETURNING asset_id
+		)
+		SELECT count(*) FROM (SELECT asset_id FROM attempts UNION SELECT asset_id FROM unasked) freed`,
+		sourceID, at).Scan(&freed)
 	if err != nil {
 		return 0, fmt.Errorf("failed to reset price attempts: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return freed, nil
 }
 
 // CreatePrice creates a new price record.

@@ -1353,6 +1353,12 @@ const (
 	// exactly on the deadline, and a start a few milliseconds earlier than the
 	// last one would otherwise skip a whole hour.
 	dueSlack = time.Minute
+	// unaskedRetry is how long an asset the sweep selected and could not ask
+	// about stays out of that source's selection. A day: such assets come back
+	// rarely enough not to share a budgeted LIMIT with the askable ones, and a
+	// ref bound in the meantime is used within a day without a trigger of its
+	// own. ResetSweepSchedule is the lever for sooner.
+	unaskedRetry = 24 * time.Hour
 )
 
 // baseAssetKey identifies a quote currency the way the catalogue does: a ticker
@@ -1534,7 +1540,7 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			// postponed" do not read the same.
 			deferredUntil := ""
 			if outcome == outcomeAllDeferred {
-				if until := h.soonestDue(ctx, name); !until.IsZero() {
+				if until := h.soonestDue(ctx, name, provider); !until.IsZero() {
 					deferredUntil = until.Format(time.RFC3339)
 				}
 			}
@@ -1593,7 +1599,10 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 
 		h.attachExternalRefs(ctx, assets)
 		h.discoverRefs(ctx, name, provider, assets)
-		assets = slices.DeleteFunc(assets, func(a *entity.Asset) bool { return !binding.Bound(a) })
+		// Known before any request, so deferred whatever the request does.
+		var unbound []*entity.Asset
+		assets, unbound = partition(assets, binding.Bound)
+		h.deferUnasked(ctx, sweepAt, name, unbound)
 		if len(assets) == 0 {
 			continue
 		}
@@ -1612,7 +1621,9 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		// source's silence filed against an asset it does not cover. Asked AFTER
 		// the fetch on purpose: a provider that consults a cached listing set
 		// has it warm by now, so the first sweep filters as well as the tenth.
-		h.recordAttempts(ctx, sweepAt, name, askedOf(provider, assets), results)
+		asked := askedOf(provider, assets)
+		h.recordAttempts(ctx, sweepAt, name, asked, results)
+		h.deferUnasked(ctx, sweepAt, name, notIn(assets, asked))
 
 		totalFetched += len(results)
 		for i := range results {
@@ -1738,18 +1749,8 @@ func (h *Handler) admitted(ctx context.Context, b entity.PriceBinding, assets []
 // save nothing.
 func (h *Handler) refreshTargets(ctx context.Context, now time.Time, sourceID string, p PriceProvider, ids []string) ([]*entity.Asset, selectionOutcome, int, error) {
 	due := now.Add(dueSlack)
-	base := StalePricingOpts{
-		SourceID:         sourceID,
-		Now:              due,
-		ExcludeVerdicts:  quarantineVerdicts,
-		IDs:              ids,
-		ExcludeContested: true,
-	}
-
-	var exempt []string
-	if bp, ok := p.(BudgetExemptProvider); ok {
-		exempt = bp.BudgetExemptSymbols()
-	}
+	plan := h.planSweep(sourceID, p, now, due, ids)
+	base, exempt := plan.opts, plan.exempt
 
 	var targets []*entity.Asset
 	if len(exempt) > 0 {
@@ -1764,23 +1765,20 @@ func (h *Handler) refreshTargets(ctx context.Context, now time.Time, sourceID st
 
 	budgeted := base
 	budgeted.ExcludeSymbols = exempt
-	if bp, ok := p.(BudgetedProvider); ok && h.refreshWindow > 0 {
-		n, ok := bp.AssetBudget(now, h.refreshWindow)
-		if ok {
-			if n <= 0 {
-				// Nothing outside the exempt set is worth asking for. That is
-				// not the same statement as "this provider has nothing left":
-				// CBR answers zero permanently, because its whole feed is the
-				// one exempt document. Whether a provider can be asked at all
-				// is HealthReportingProvider's question, asked before this.
-				return targets, outcomeBudgetZero, 0, nil
-			}
-			budgeted.Limit = n
-			// Only a plan-metered source yields: its allowance is the scarce
-			// one, and the free sources are what take load off it.
-			budgeted.Covered = h.coveredElsewhere(ctx, sourceID, now)
-			budgeted.CoveredRecheckBefore = due.Add(-coverRecheck)
+	if plan.metered {
+		if plan.budget <= 0 {
+			// Nothing outside the exempt set is worth asking for. That is
+			// not the same statement as "this provider has nothing left":
+			// CBR answers zero permanently, because its whole feed is the
+			// one exempt document. Whether a provider can be asked at all
+			// is HealthReportingProvider's question, asked before this.
+			return targets, outcomeBudgetZero, 0, nil
 		}
+		budgeted.Limit = plan.budget
+		// Only a plan-metered source yields: its allowance is the scarce
+		// one, and the free sources are what take load off it.
+		budgeted.Covered = h.coveredElsewhere(ctx, sourceID, now)
+		budgeted.CoveredRecheckBefore = due.Add(-coverRecheck)
 	}
 	got, err := h.store.ListStalePricingTargets(ctx, budgeted)
 	if err != nil {
@@ -1804,7 +1802,54 @@ func (h *Handler) refreshTargets(ctx context.Context, now time.Time, sourceID st
 	// slice as one that is entirely up to date. Asking the schedule is the only
 	// way to tell, and it is only asked on the empty path — a sweep that found
 	// work pays nothing for this.
-	return targets, h.explainEmptySelection(ctx, sourceID, due), 0, nil
+	return targets, h.explainEmptySelection(ctx, plan.population()), 0, nil
+}
+
+// sweepPlan is what one source's sweep selects from, and how its budget
+// splits that selection.
+type sweepPlan struct {
+	// opts admits what the source may be asked about at all: its binding's
+	// markets, without quarantined or contested assets.
+	opts StalePricingOpts
+	// exempt are the symbols one request covers, selected outside the budget.
+	exempt []string
+	// budget caps the rest when metered is true.
+	budget  int
+	metered bool
+}
+
+// planSweep reads a provider's binding, exempt symbols and budget into the
+// selection its sweep runs. The sweep and GetSweepSchedule both start here, so
+// the schedule counts the population the sweep draws from.
+func (h *Handler) planSweep(sourceID string, p PriceProvider, now, due time.Time, ids []string) sweepPlan {
+	binding := p.Binding()
+	plan := sweepPlan{opts: StalePricingOpts{
+		SourceID:         sourceID,
+		Now:              due,
+		ExcludeVerdicts:  quarantineVerdicts,
+		IDs:              ids,
+		ExcludeContested: true,
+		Binding:          &binding,
+	}}
+	if bp, ok := p.(BudgetExemptProvider); ok {
+		plan.exempt = bp.BudgetExemptSymbols()
+	}
+	if bp, ok := p.(BudgetedProvider); ok && h.refreshWindow > 0 {
+		plan.budget, plan.metered = bp.AssetBudget(now, h.refreshWindow)
+	}
+	return plan
+}
+
+// population is the whole selection before the budget caps it. A source with
+// no budget selects only its exempt symbols, so only those are its queue: CBR
+// is never asked about a currency outside its feed, and counting one as due
+// would report work nobody intends to do.
+func (p sweepPlan) population() StalePricingOpts {
+	o := p.opts
+	if p.metered && p.budget <= 0 {
+		o.Symbols = append([]string{}, p.exempt...)
+	}
+	return o
 }
 
 // countCovered reports how many due assets opts.Covered kept out. A failed
@@ -1894,12 +1939,10 @@ const (
 // soonestDue reports when this source's earliest deferred asset comes due, for
 // the log line that says how long a frozen queue stays frozen. Zero when
 // unknown — a log line is not worth failing a sweep over.
-func (h *Handler) soonestDue(ctx context.Context, sourceID string) time.Time {
+func (h *Handler) soonestDue(ctx context.Context, sourceID string, p PriceProvider) time.Time {
+	now := time.Now()
 	scheds, err := h.store.SweepSchedule(ctx, SweepScheduleOpts{
-		SourceIDs:        []string{sourceID},
-		Now:              time.Now(),
-		ExcludeVerdicts:  quarantineVerdicts,
-		ExcludeContested: true,
+		Sources: []StalePricingOpts{h.planSweep(sourceID, p, now, now, nil).population()},
 	})
 	if err != nil || len(scheds) == 0 {
 		return time.Time{}
@@ -1911,13 +1954,8 @@ func (h *Handler) soonestDue(ctx context.Context, sourceID string) time.Time {
 //
 // Best-effort by design: this runs to produce a log line, and failing to
 // explain an empty sweep must not fail the sweep itself.
-func (h *Handler) explainEmptySelection(ctx context.Context, sourceID string, now time.Time) selectionOutcome {
-	scheds, err := h.store.SweepSchedule(ctx, SweepScheduleOpts{
-		SourceIDs:        []string{sourceID},
-		Now:              now,
-		ExcludeVerdicts:  quarantineVerdicts,
-		ExcludeContested: true,
-	})
+func (h *Handler) explainEmptySelection(ctx context.Context, population StalePricingOpts) selectionOutcome {
+	scheds, err := h.store.SweepSchedule(ctx, SweepScheduleOpts{Sources: []StalePricingOpts{population}})
 	if err != nil || len(scheds) == 0 {
 		return outcomeUnknown
 	}
@@ -2041,12 +2079,12 @@ func (h *Handler) GetSweepSchedule(ctx context.Context, req *connect.Request[api
 	}
 	slices.Sort(sourceIDs)
 
-	schedules, err := h.store.SweepSchedule(ctx, SweepScheduleOpts{
-		SourceIDs:        sourceIDs,
-		Now:              time.Now(),
-		ExcludeVerdicts:  quarantineVerdicts,
-		ExcludeContested: true,
-	})
+	now := time.Now()
+	populations := make([]StalePricingOpts, 0, len(sourceIDs))
+	for _, name := range sourceIDs {
+		populations = append(populations, h.planSweep(name, providers[name], now, now, nil).population())
+	}
+	schedules, err := h.store.SweepSchedule(ctx, SweepScheduleOpts{Sources: populations})
 	if err != nil {
 		return nil, toConnectError(err)
 	}
@@ -2058,6 +2096,7 @@ func (h *Handler) GetSweepSchedule(ctx context.Context, req *connect.Request[api
 			DueNow:         sched.DueNow,
 			Deferred:       sched.Deferred,
 			NeverAttempted: sched.NeverAttempted,
+			Unaskable:      sched.Unaskable,
 			MaxMisses:      sched.MaxMisses,
 		}
 		if !sched.SoonestDue.IsZero() {
@@ -2153,6 +2192,61 @@ func (h *Handler) resolveProviders(ctx context.Context) (map[string]PriceProvide
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("no price providers configured"))
 	}
 	return providers, nil
+}
+
+// deferUnasked keeps assets the sweep selected for a source and did not ask
+// about out of that source's selection for unaskedRetry.
+//
+// Nothing is written to the attempt log for them: no request was made, and a
+// row there would turn "never asked" into "asked, no quote" for every reader
+// of it. Without some record, though, the asset keeps its place at the head of
+// the queue and a budgeted selection spends its limit on it every sweep.
+// Best-effort, like recordAttempts.
+func (h *Handler) deferUnasked(ctx context.Context, at time.Time, sourceID string, assets []*entity.Asset) {
+	if len(assets) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(assets))
+	for _, a := range assets {
+		ids = append(ids, a.ID)
+	}
+	err := h.store.DeferUnaskedPricing(ctx, DeferUnaskedOpts{
+		SourceID: sourceID,
+		At:       at,
+		Retry:    unaskedRetry,
+		AssetIDs: ids,
+	})
+	if h.log == nil {
+		return
+	}
+	if err != nil {
+		h.log.Warn("defer unasked pricing targets failed", "source", sourceID, "error", err)
+		return
+	}
+	h.log.Info("price sweep: selected but not asked, deferred", "provider", sourceID,
+		"count", len(ids), "until", at.Add(unaskedRetry).Format(time.RFC3339))
+}
+
+// partition splits assets into those keep accepts and the rest, both in order.
+func partition(assets []*entity.Asset, keep func(*entity.Asset) bool) (kept, dropped []*entity.Asset) {
+	for _, a := range assets {
+		if keep(a) {
+			kept = append(kept, a)
+		} else {
+			dropped = append(dropped, a)
+		}
+	}
+	return kept, dropped
+}
+
+// notIn returns the assets absent from subset, in order.
+func notIn(assets, subset []*entity.Asset) []*entity.Asset {
+	in := make(map[string]bool, len(subset))
+	for _, a := range subset {
+		in[a.ID] = true
+	}
+	_, out := partition(assets, func(a *entity.Asset) bool { return in[a.ID] })
+	return out
 }
 
 // recordAttempts marks what was asked of a source and what came back, so the

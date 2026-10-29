@@ -793,10 +793,12 @@ message ResetSweepScheduleResponse {
 //
 // The counts partition the assets this source is allowed to be asked about:
 // due_now would be selected by the next run, deferred are held back by their
-// own back-off, never_attempted have no attempt row at all. Quarantined and
-// contested assets (UNPRICED_REASON_AMBIGUOUS_TICKER) are in none of them — the
-// sweep never asks about those, so counting them here would report work nobody
-// intends to do.
+// own back-off, never_attempted have no attempt row at all, unaskable were
+// selected and could not be asked about. Allowed means the source's binding
+// admits the asset's market and, for a source with no per-asset budget, the
+// symbol is one its single request covers. Quarantined and contested assets
+// (UNPRICED_REASON_AMBIGUOUS_TICKER) are in none of them — the sweep never asks
+// about those, so counting them here would report work nobody intends to do.
 message SourceSchedule {
   string source_id = 1;
   uint32 due_now = 2;
@@ -816,4 +818,9 @@ message SourceSchedule {
   // same judgement the sweep makes, read from the same provider, not a second
   // opinion computed here.
   optional string skip_reason = 8;
+  // Assets a recent sweep selected and could not ask about — no ref in this
+  // source's namespace, or no request the adapter can make for them — and left
+  // out for a day so they do not hold the head of the queue. Not in deferred:
+  // nothing was asked, so there is no back-off. A reset frees them too.
+  uint32 unaskable = 9;
 }
