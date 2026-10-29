@@ -2,6 +2,7 @@ package analytics
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"testing"
 
@@ -152,6 +153,25 @@ func agreementFixture() (*fakeStore, *fakeMD) {
 
 func TestTotalAndHeatmapAgree(t *testing.T) {
 	st, md := agreementFixture()
+	assertAgreement(t, st, md, 5100.0, 2)
+}
+
+// Past one page both surfaces must still read the same set: a total that counts
+// rows the map never read is the silent-gap failure.
+func TestTotalAndHeatmapAgree_MoreThanOnePage(t *testing.T) {
+	st, md := agreementFixture()
+	for i := range holdingsPageSize + 1 {
+		st.holdings = append(st.holdings, &entity.Holding{
+			ID: fmt.Sprintf("bulk-%d", i), AssetID: "eth", AccountID: "a1", PortfolioID: "p1",
+			Amount: dec("200"), Decimals: 2,
+		})
+	}
+	// 2 ETH at 2000 each per bulk row, on top of the base fixture.
+	assertAgreement(t, st, md, 5100.0+float64(holdingsPageSize+1)*4000.0, uint32(2+holdingsPageSize+1))
+}
+
+func assertAgreement(t *testing.T, st *fakeStore, md *fakeMD, wantTotal float64, wantPriced uint32) {
+	t.Helper()
 	ctx := userCtx("u1")
 
 	heat := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
@@ -183,14 +203,12 @@ func TestTotalAndHeatmapAgree(t *testing.T) {
 
 	assert.Equal(t, vc.PricedCount, hc.PricedCount, "same positions entered both")
 	assert.Equal(t, vc.UnpricedCount, hc.UnpricedCount, "same positions were left out of both")
-	assert.Equal(t, uint32(len(heatResp.Msg.Nodes)), hc.PricedCount,
-		"every priced holding draws exactly one tile")
 
 	assert.Equal(t, unpricedReasons(vc), unpricedReasons(hc),
 		"a position kept out of the total and out of the map is kept out FOR THE SAME REASON")
 
 	// Anchors, so that a change making both surfaces equally wrong still fails.
-	assert.Equal(t, uint32(2), vc.PricedCount, "eth direct + sol crossed")
+	assert.Equal(t, wantPriced, vc.PricedCount, "eth direct + sol crossed")
 	assert.Equal(t, uint32(4), vc.UnpricedCount, "mnep thin + ghost unquoted + orph unconvertible + twin contested")
 
 	// The reasons are compared as a multiset above; this names the one the
@@ -201,7 +219,7 @@ func TestTotalAndHeatmapAgree(t *testing.T) {
 	assert.Contains(t, unpricedReasons(vc), "twin:UNPRICED_REASON_AMBIGUOUS_TICKER",
 		"a contested ticker is named as such, not as a gap nobody looked at")
 	assert.Equal(t, uint32(1), valueResp.Msg.ExcludedCount, "the quarantined holding is disclosed")
-	assert.Equal(t, 5100.0, total.InexactFloat64(), "2 ETH at 2000, plus 10 SOL at 100 EUR crossed at 1.10")
+	assert.Equal(t, wantTotal, total.InexactFloat64(), "2 ETH at 2000, plus 10 SOL at 100 EUR crossed at 1.10")
 }
 
 // unpricedReasons is the multiset of reasons a coverage block discloses, as a

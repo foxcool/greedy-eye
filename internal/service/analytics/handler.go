@@ -20,8 +20,12 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// maxHoldings caps how many holdings a single heatmap reads.
-const maxHoldings = 1000
+// holdingsPageSize is how many holdings one ListHoldings round trip asks for.
+// It is a batch size, not a limit: holdings keeps following the cursor until
+// the portfolio service runs out, the same as portfolio's allHoldings. A cap
+// here would drop the tail of a large portfolio from the map while the total
+// still counted it.
+const holdingsPageSize = 1000
 
 // unassignedGroupID labels holdings whose account belongs to no portfolio
 // when grouping a balance heatmap by portfolio.
@@ -34,10 +38,12 @@ type Handler struct {
 	mdClient  MarketDataClient         // optional; nil if not configured
 	setClient pricefresh.SettingReader // optional; nil means valuation defaults
 	log       *slog.Logger
+
+	holdingsPageSize int32 // batch size of the holdings read; tests shrink it
 }
 
 func NewHandler(pc PortfolioClient, log *slog.Logger) *Handler {
-	return &Handler{pfClient: pc, log: log}
+	return &Handler{pfClient: pc, log: log, holdingsPageSize: holdingsPageSize}
 }
 
 // WithMarketDataClient returns a new Handler with the MarketData client injected.
@@ -267,12 +273,12 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 	}), nil
 }
 
-// holdings reads the non-excluded holdings scope selects, at most maxHoldings.
+// holdings reads every non-excluded holding scope selects.
 // The RPC pages and does not filter exclusions, so both happen here: a wallet
 // full of quarantined tokens must not crowd real positions off the first page.
 func (h *Handler) holdings(ctx context.Context, scope *apiv1.ListHoldingsRequest) ([]*entity.Holding, error) {
 	req := proto.CloneOf(scope)
-	pageSize := int32(maxHoldings)
+	pageSize := h.holdingsPageSize
 	req.PageSize = &pageSize
 	var out []*entity.Holding
 	for {
@@ -289,9 +295,6 @@ func (h *Handler) holdings(ctx context.Context, scope *apiv1.ListHoldingsRequest
 				return nil, connect.NewError(connect.CodeInternal, err)
 			}
 			out = append(out, hld)
-			if len(out) == maxHoldings {
-				return out, nil
-			}
 		}
 		// An empty page guards against a server that repeats its cursor.
 		next := resp.Msg.NextPageToken
