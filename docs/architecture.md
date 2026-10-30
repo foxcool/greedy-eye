@@ -1011,6 +1011,7 @@ Cron / API Client → AutomationService/ExecuteRule
   it (gRPC over h2c) instead of its in-process handler; the start is refused when a domain is both
   served and remote, or remote without a token. A cross-service interface is declared by its
   consumer as a subset of the generated Connect client: proto is the only contract.
+  `cmd/eye/ports.go` makes the build fail when a port stops being such a subset.
 - **Ownership enforcement**: every by-ID RPC loads the entity and requires the caller to be its
   owner or an admin (`middleware.EnsureOwner`), returning `NotFound` for foreign IDs so their
   existence isn't leaked. Holdings/transactions inherit ownership through their account.
@@ -1742,7 +1743,9 @@ System Quality
 - Description: Unit tests and store-level integration tests (testcontainers) exist. There is no
   test that runs the service the way it is deployed, and none at all for the microservice mode
   the architecture claims to support.
-- Impact: The "splittable into services" property is asserted, never verified.
+- Impact: The "splittable into services" property is verified only at the type level (each
+  cross-service port is a subset of its generated client, `cmd/eye/ports.go`); that a split
+  deployment actually works is asserted, never verified.
 - Resolution Plan: per-domain schemas and Postgres roles as an enforced service boundary, plus a
   distributed stand in CI.
 
