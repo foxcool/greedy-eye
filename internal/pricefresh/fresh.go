@@ -49,7 +49,8 @@ type Policy struct {
 	// DefaultMaxAge.
 	MaxAge time.Duration
 	// DisplayCurrency is the asset a total is expressed in when the caller does
-	// not name one. Empty means DefaultDisplayCurrency.
+	// not name one. Empty means DefaultDisplayCurrency; read it through
+	// QuoteAsset, which applies that default.
 	//
 	// It rides this document rather than one of its own because it is the same
 	// kind of statement: the rules a valuation runs under, chosen by whoever
@@ -126,7 +127,7 @@ func ParsePolicy(raw []byte) (Policy, error) {
 func (p Policy) Encode() ([]byte, error) {
 	return json.Marshal(settingValue{
 		PriceMaxAge:     p.maxAge().String(),
-		DisplayCurrency: p.displayCurrency(),
+		DisplayCurrency: p.QuoteAsset(),
 	})
 }
 
@@ -205,16 +206,13 @@ func (p Policy) maxAge() time.Duration {
 	return p.MaxAge
 }
 
-// DisplayCurrency is the symbol a total is expressed in under this policy,
-// substituting the default for an unset one so callers need not repeat it.
-func (p Policy) displayCurrency() string {
+// QuoteAsset returns the asset a valuation should be expressed in when the
+// caller named none, substituting the default for an unset DisplayCurrency.
+// Exported because that choice belongs to the policy, not to a constant
+// repeated in every service that produces a total.
+func (p Policy) QuoteAsset() string {
 	if p.DisplayCurrency == "" {
 		return DefaultDisplayCurrency
 	}
 	return p.DisplayCurrency
 }
-
-// QuoteAsset returns the asset a valuation should be expressed in when the
-// caller named none. Exported because that choice belongs to the policy, not to
-// a constant repeated in every service that produces a total.
-func (p Policy) QuoteAsset() string { return p.displayCurrency() }

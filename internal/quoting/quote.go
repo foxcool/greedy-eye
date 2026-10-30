@@ -11,10 +11,10 @@ package quoting
 import (
 	"context"
 	"log/slog"
-	"math"
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
+	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/marketdepth"
 	"github.com/foxcool/greedy-eye/internal/pricefresh"
 	"github.com/shopspring/decimal"
@@ -259,18 +259,5 @@ func RealUnit(p *apiv1.Price, log *slog.Logger, assetID string) (decimal.Decimal
 		}
 		return decimal.Zero, false, nil
 	}
-	return last.Shift(-decI32(p.Decimals)), true, nil
-}
-
-// decI32 clamps stored decimals to int32. They arrive from external metadata and
-// are tiny in practice (<= ~36), but the wire type permits values that would
-// overflow when narrowed, which gosec flags as G115. Clamping rather than
-// erroring is safe: an absurd decimals value already yields meaningless amounts
-// downstream, so the clamp only ever rewrites input that was broken to begin
-// with.
-func decI32(d uint32) int32 {
-	if d > math.MaxInt32 {
-		return math.MaxInt32
-	}
-	return int32(d)
+	return last.Shift(-entity.DecI32(p.Decimals)), true, nil
 }

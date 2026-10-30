@@ -2,7 +2,6 @@ package analytics
 
 import (
 	"context"
-	"math"
 	"time"
 
 	"connectrpc.com/connect"
@@ -137,13 +136,6 @@ func (h *Handler) histPrice(ctx context.Context, assetID, baseID string, from ti
 		return decimal.Zero, false, nil
 	}
 	return quoting.RealUnit(resp.Msg.Prices[0], h.log, assetID)
-}
-
-func decI32(d uint32) int32 {
-	if d > math.MaxInt32 {
-		return math.MaxInt32
-	}
-	return int32(d)
 }
 
 // sharpenUnpriced replaces NO_QUOTE with the more specific reason the pricing

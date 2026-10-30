@@ -2309,6 +2309,177 @@ func TestFetchExternalPrices_ReconciliationIgnoresHealth(t *testing.T) {
 	assert.NotEmpty(t, p.asked, "an explicitly named asset is still asked for")
 }
 
+// --- Tests: several keys for one provider ---
+
+// keySource hands out a fixed registry with several keys per slug, the way the
+// credentials resolver does for a user with two accounts of one provider.
+type keySource map[string][]PriceProvider
+
+func (k keySource) PriceProvidersFor(context.Context, string) (map[string][]PriceProvider, error) {
+	return k, nil
+}
+
+// errSpentMidFetch fails the way a key does when its plan runs out during the
+// request: the rate limiter refuses it, and the adapter wraps the refusal.
+var errSpentMidFetch = fmt.Errorf("coingecko native lookup: do request: %w", spend.ErrQuotaExhausted)
+
+// TestFetchExternalPrices_SpentKeyHandsTheSweepToTheNext: with two CoinGecko
+// accounts, the first running out ended CoinGecko's part of the sweep, and the
+// second account's whole plan sat unused until the first one's period rolled
+// over. The next key now takes the same due assets, and nothing is recorded
+// against them for the refusal.
+func TestFetchExternalPrices_SpentKeyHandsTheSweepToTheNext(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.MatchedBy(func(o RecordAttemptsOpts) bool {
+		return o.SourceID == "coingecko" && assert.ObjectsAreEqual([]string{"a1"}, o.Priced) && len(o.Missed) == 0
+	})).Return(nil).Once()
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+
+	first := &fakePriceProvider{fetchError: errSpentMidFetch}
+	second := &fakePriceProvider{prices: map[string]bool{"a1": true}}
+	h := newHandler(s).WithProviderSource(keySource{"coingecko": {first, second}})
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+
+	assert.Len(t, first.asked, 1)
+	require.Len(t, second.asked, 1, "the next key takes over")
+	assert.Equal(t, "a1", second.asked[0][0].ID)
+	assert.Equal(t, int32(1), resp.Msg.PricesFetched)
+	assert.Empty(t, resp.Msg.Errors, "a spent key with another behind it is not a failure")
+	s.AssertExpectations(t)
+}
+
+// TestFetchExternalPrices_UnusableKeyIsPassedForTheNext: a key already spent
+// before the sweep is not asked, and the one behind it is.
+func TestFetchExternalPrices_UnusableKeyIsPassedForTheNext(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+
+	spent := &stuckProvider{reason: "share spent"}
+	next := &fakePriceProvider{prices: map[string]bool{"a1": true}}
+	h := newHandler(s).WithProviderSource(keySource{"coingecko": {spent, next}})
+
+	resp, err := h.FetchExternalPrices(backgroundCtx(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a1"}}))
+	require.NoError(t, err)
+
+	assert.Empty(t, spent.asked)
+	assert.NotEmpty(t, next.asked)
+	assert.Empty(t, resp.Msg.DeferredAssets, "a source with a usable key defers nothing")
+}
+
+// TestFetchExternalPrices_OtherFailureDoesNotMoveToTheNextKey: only a spent
+// plan hands over. A rejected request is the source's answer, and asking the
+// next key would spend its plan on the same rejection.
+func TestFetchExternalPrices_OtherFailureDoesNotMoveToTheNextKey(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil)
+
+	first := &fakePriceProvider{fetchError: errors.New("unexpected status 400 from CoinGecko")}
+	second := &fakePriceProvider{prices: map[string]bool{"a1": true}}
+	h := newHandler(s).WithProviderSource(keySource{"coingecko": {first, second}})
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+
+	assert.Empty(t, second.asked)
+	assert.NotEmpty(t, resp.Msg.Errors)
+}
+
+// TestFetchExternalPrices_LoneSpentKeyEndsTheSource: with one account nothing
+// changes — the refusal is reported and filed against no asset.
+func TestFetchExternalPrices_LoneSpentKeyEndsTheSource(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil)
+
+	only := &fakePriceProvider{fetchError: errSpentMidFetch}
+	h := newHandler(s).WithProviderSource(keySource{"coingecko": {only}})
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+
+	assert.Len(t, only.asked, 1)
+	require.Len(t, resp.Msg.Errors, 1)
+	assert.Contains(t, resp.Msg.Errors[0], "quota exhausted")
+	s.AssertNotCalled(t, "RecordPriceAttempts", mock.Anything, mock.Anything)
+}
+
+// A key refused mid-fetch with only spent keys behind it ends the source with
+// the refusal, as one key would — a second spent account must not turn the
+// error into a clean-looking sweep.
+func TestFetchExternalPrices_MidFetchRefusalSurvivesSpentKeysBehind(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil)
+
+	first := &fakePriceProvider{fetchError: errSpentMidFetch}
+	spent := &stuckProvider{reason: "share spent"}
+	h := newHandler(s).WithProviderSource(keySource{"coingecko": {first, spent}})
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+
+	require.Len(t, resp.Msg.Errors, 1)
+	assert.Contains(t, resp.Msg.Errors[0], "quota exhausted")
+	s.AssertNotCalled(t, "RecordPriceAttempts", mock.Anything, mock.Anything)
+}
+
+// A key refused mid-fetch had already counted the named assets it left over;
+// the key that takes over and asks for all of them must not report those.
+func TestFetchExternalPrices_TakeoverKeyReplacesDeferredCount(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil).Once()
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1"), testAsset("a2")}, nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(2, nil)
+
+	first := &fakePriceProvider{fetchError: errSpentMidFetch}
+	second := &fakePriceProvider{prices: map[string]bool{"a1": true, "a2": true}}
+	h := newHandler(s).WithProviderSource(keySource{"coingecko": {first, second}})
+
+	resp, err := h.FetchExternalPrices(backgroundCtx(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a1", "a2"}}))
+	require.NoError(t, err)
+
+	require.NotEmpty(t, second.asked)
+	assert.Empty(t, resp.Msg.DeferredAssets, "the key that answered left nothing over")
+}
+
+// TestGetSweepSchedule_NamesASkipOnlyWhenEveryKeyIsSpent: the schedule asks
+// what the sweep would do, and the sweep moves past a spent key.
+func TestGetSweepSchedule_NamesASkipOnlyWhenEveryKeyIsSpent(t *testing.T) {
+	s := &mockStore{}
+	s.On("SweepSchedule", mock.Anything, mock.Anything).Return([]*entity.SourceSchedule{{SourceID: "coingecko"}}, nil)
+
+	spent := &stuckProvider{reason: "share spent"}
+	h := newHandler(s).WithProviderSource(keySource{"coingecko": {spent, &fakePriceProvider{}}})
+	resp, err := h.GetSweepSchedule(syncContext(), connect.NewRequest(&apiv1.GetSweepScheduleRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Sources, 1)
+	assert.Nil(t, resp.Msg.Sources[0].SkipReason)
+
+	h = newHandler(s).WithProviderSource(keySource{"coingecko": {spent, &stuckProvider{reason: "paused"}}})
+	resp, err = h.GetSweepSchedule(syncContext(), connect.NewRequest(&apiv1.GetSweepScheduleRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Sources, 1)
+	assert.Equal(t, "paused", resp.Msg.Sources[0].GetSkipReason())
+}
+
 // --- Tests: background work that names its assets is still background (personal-ozdu) ---
 
 func backgroundCtx() context.Context {
@@ -2446,6 +2617,35 @@ func TestFetchExternalPrices_NothingDueIsNamed(t *testing.T) {
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
 	require.NoError(t, err)
 	assert.Equal(t, "nothing_due", resp.Msg.GetIdleSources()["fake"])
+}
+
+// A named source the caller has no provider for is answered by name: otherwise
+// the response is the same zero as a source that priced nothing, with no
+// reason attached.
+func TestFetchExternalPrices_UnconfiguredNamedSourceIsNamed(t *testing.T) {
+	s := &mockStore{}
+	p := &fakePriceProvider{}
+	h := newHandler(s).WithProvider("fake", p)
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{SourceIds: []string{"binance"}}))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"binance": "not_configured"}, resp.Msg.GetIdleSources())
+	assert.Zero(t, resp.Msg.GetPricesFetched())
+	assert.Empty(t, p.asked)
+}
+
+// Named assets that resolve to nothing end the request early; the unconfigured
+// source must still be named rather than vanish with the rest of the work.
+func TestFetchExternalPrices_UnconfiguredSourceSurvivesUnknownAssets(t *testing.T) {
+	s := &mockStore{}
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{}, "", nil)
+	h := newHandler(s).WithProvider("fake", &fakePriceProvider{})
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"missing"}, SourceIds: []string{"binance"}}))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"binance": "not_configured"}, resp.Msg.GetIdleSources())
 }
 
 // A sweep that found work reports no idle source at all — and pays nothing for

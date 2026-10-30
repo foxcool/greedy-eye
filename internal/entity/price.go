@@ -1,6 +1,7 @@
 package entity
 
 import (
+	"math"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -20,6 +21,18 @@ type Price struct {
 	// Bid is the highest price for selling
 	Bid  decimal.Decimal
 	Time time.Time
+}
+
+// DecI32 narrows a Decimals value to the int32 exponent decimal.Shift takes.
+// Decimals come from external metadata and are tiny in practice (<= ~36), but
+// the wire type permits values that overflow when narrowed (gosec G115).
+// Clamping rather than erroring is safe: an absurd decimals value already
+// yields meaningless amounts, so the clamp only rewrites input that was broken.
+func DecI32(d uint32) int32 {
+	if d > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(d)
 }
 
 // StoredPrice represents price data from database.

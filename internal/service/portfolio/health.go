@@ -233,9 +233,6 @@ func skipReason(s entity.SkippedAccount, admin bool) *apiv1.HealthReason {
 		r.Kind = apiv1.HealthReasonKind_HEALTH_REASON_KIND_DISABLED
 		r.Message = fmt.Sprintf("a %s account that could serve prices is disabled by its owner", s.Provider)
 		return r // nothing upstream to detail
-	case entity.SkipShadowed:
-		r.Kind = apiv1.HealthReasonKind_HEALTH_REASON_KIND_SHADOWED
-		r.Message = fmt.Sprintf("another %s account with a different key prices first; this key is never used for prices", s.Provider)
 	default:
 		r.Kind = apiv1.HealthReasonKind_HEALTH_REASON_KIND_CANNOT_BUILD
 		r.Message = fmt.Sprintf("a %s price client cannot be built from this account's settings", s.Provider)
@@ -339,27 +336,45 @@ func deferralReason(d *entity.SyncDeferral, now time.Time) *apiv1.HealthReason {
 // sourceHealth reports every source the registry reached, and every provider
 // it only passed over. Named by slug alone: the account behind a shared source
 // is not the caller's to know.
+//
+// A source is one entry however many keys serve it. It is OK while any key can
+// be asked, since the sweep moves past a spent one; only with every key paused
+// is it UNUSABLE, until the soonest of them comes back.
 func sourceHealth(report *entity.PriceSourceReport, admin bool) []*apiv1.SourceHealth {
 	var out []*apiv1.SourceHealth
-	reached := make(map[string]bool, len(report.Sources))
+	reached := make(map[string]*apiv1.SourceHealth, len(report.Sources))
+	soonest := map[string]entity.PriceSourceState{}
 	for _, s := range report.Sources {
-		reached[s.Provider] = true
-		sh := &apiv1.SourceHealth{Provider: s.Provider, State: apiv1.HealthState_HEALTH_STATE_OK}
-		if s.Unusable {
-			sh.Reasons = []*apiv1.HealthReason{pausedReason(s)}
-			sh.State = apiv1.HealthState_HEALTH_STATE_UNUSABLE
+		sh, ok := reached[s.Provider]
+		if !ok {
+			sh = &apiv1.SourceHealth{Provider: s.Provider, State: apiv1.HealthState_HEALTH_STATE_UNUSABLE}
+			reached[s.Provider] = sh
+			out = append(out, sh)
 		}
-		out = append(out, sh)
+		if !s.Unusable {
+			sh.State = apiv1.HealthState_HEALTH_STATE_OK
+			continue
+		}
+		// A key with no deadline says nothing about when the source is back.
+		if prev, seen := soonest[s.Provider]; !seen ||
+			(!s.Until.IsZero() && (prev.Until.IsZero() || s.Until.Before(prev.Until))) {
+			soonest[s.Provider] = s
+		}
+	}
+	for _, sh := range out {
+		if sh.State == apiv1.HealthState_HEALTH_STATE_UNUSABLE {
+			sh.Reasons = []*apiv1.HealthReason{pausedReason(soonest[sh.Provider])}
+		}
 	}
 
 	// A price provider every account of which failed to build, or was
 	// disabled, is a source the caller's prices lack entirely. A slug with no
-	// price adapter is not a price source at all, and a shadowed account means
-	// another one serves. Disabled and broken together read as broken: the
-	// owner's choice must not hide an account that would fail if enabled.
+	// price adapter is not a price source at all. Disabled and broken together
+	// read as broken: the owner's choice must not hide an account that would
+	// fail if enabled.
 	unreached := map[string]*apiv1.SourceHealth{}
 	for _, s := range report.Skipped {
-		if s.Provider == "" || reached[s.Provider] {
+		if _, ok := reached[s.Provider]; s.Provider == "" || ok {
 			continue
 		}
 		if s.Kind != entity.SkipCannotBuild && s.Kind != entity.SkipDisabled {

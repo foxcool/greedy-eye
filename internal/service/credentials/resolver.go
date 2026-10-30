@@ -421,27 +421,40 @@ func (r *Resolver) BrokerAccountListerForAccount(a *entity.Account) (entity.Brok
 	return client.(entity.BrokerAccountLister), nil
 }
 
-// PriceInventory is what one resolution of the price registry saw: the
-// providers it can reach, and the accounts it could have used and did not.
+// PriceKey is one credential able to serve a provider slug.
+type PriceKey struct {
+	Provider marketdata.PriceProvider
+	// AccountID is the account the credential came from. Empty for a source
+	// that needs no credential.
+	AccountID string
+}
+
+// PriceInventory is what one resolution of the price registry saw: the keys it
+// can reach for each provider, and the accounts it could have used and did not.
 type PriceInventory struct {
-	Providers map[string]marketdata.PriceProvider
-	// Serving names the account behind each provider that came from one.
-	// Credential-free sources have no entry.
-	Serving map[string]string
+	// Keys lists each provider's keys in the order a fetch tries them: the
+	// user's own accounts, then shared ones, then the sole operator's.
+	Keys    map[string][]PriceKey
 	Skipped []Skipped
 
 	servingAccounts map[string]*entity.Account
 }
 
 // PriceProvidersFor resolves the effective price provider registry for the
-// user: credential-free sources overlaid by system-shared accounts and then the
-// user's own (most specific wins per provider slug).
-func (r *Resolver) PriceProvidersFor(ctx context.Context, userID string) (map[string]marketdata.PriceProvider, error) {
+// user: every key per provider slug, the most specific first. A credential-free
+// source stands in only for a slug no account serves.
+func (r *Resolver) PriceProvidersFor(ctx context.Context, userID string) (map[string][]marketdata.PriceProvider, error) {
 	inv, err := r.PriceInventoryFor(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	return inv.Providers, nil
+	out := make(map[string][]marketdata.PriceProvider, len(inv.Keys))
+	for slug, keys := range inv.Keys {
+		for _, k := range keys {
+			out[slug] = append(out[slug], k.Provider)
+		}
+	}
+	return out, nil
 }
 
 // PriceInventoryFor resolves the same registry as PriceProvidersFor and reports
@@ -451,11 +464,11 @@ func (r *Resolver) PriceProvidersFor(ctx context.Context, userID string) (map[st
 // reached is a complete, correct and reassuring sentence that says nothing about
 // the configured account sitting unused beside them — which is exactly how prod
 // went six days without refreshing a crypto price.
+//
+// Every account of a provider is kept, not only the first: they are
+// interchangeable, and a second key behind a spent one is what keeps the sweep
+// going until the period rolls over.
 func (r *Resolver) PriceInventoryFor(ctx context.Context, userID string) (PriceInventory, error) {
-	providers := make(map[string]marketdata.PriceProvider, len(r.cfg.KeylessPriceProviders))
-	maps.Copy(providers, r.cfg.KeylessPriceProviders)
-	serving := make(map[string]*entity.Account)
-
 	candidates, skipped, err := r.accountsFor(ctx, userID, entity.CapabilityMarketData)
 	if err != nil {
 		return PriceInventory{}, err
@@ -471,10 +484,10 @@ func (r *Resolver) PriceInventoryFor(ctx context.Context, userID string) (PriceI
 	// account, and it keeps its first — highest-priority — position.
 	candidates = firstOccurrences(candidates)
 
-	// candidates are ordered user-first; iterate in reverse so system accounts
-	// apply first and the user's own credentials overwrite them.
-	for i := len(candidates) - 1; i >= 0; i-- {
-		a := candidates[i]
+	keys := make(map[string][]PriceKey)
+	apiKeys := make(map[string][]string)        // slug → the api_key behind each kept key
+	serving := make(map[string]*entity.Account) // slug → the account its first key came from
+	for _, a := range candidates {
 		slug := a.Data[DataProviderKey]
 		factory, ok := r.cfg.PriceProviders[slug]
 		if !ok {
@@ -491,7 +504,7 @@ func (r *Resolver) PriceInventoryFor(ctx context.Context, userID string) (PriceI
 		}
 		client, err := r.clientFor("price_provider", a, func() (any, error) { return factory(a) })
 		if err != nil {
-			// One account that cannot be built costs its own provider, not the
+			// One account that cannot be built costs its own key, not the
 			// registry. Failing the whole resolution here would let a single
 			// misconfigured credential stop every price in the sweep —
 			// CoinGecko, MOEX, the FX leg — which is a far larger outage than
@@ -513,38 +526,28 @@ func (r *Resolver) PriceInventoryFor(ctx context.Context, userID string) (PriceI
 			})
 			continue
 		}
-		// Iterating in reverse, a later assignment outranks the one it
-		// replaces. Between accounts of one level holding different keys that
-		// is a working credential nothing asks — docs/providers.md warns about
-		// a key added to the newer of two duplicates. Not shadowing: a user's
-		// own account replacing a shared one (the intended override; the
-		// shared one still serves everybody else), or copies of one token, as
-		// every account a broker token reaches is.
-		if prev, ok := serving[slug]; ok && ownedBy(prev, userID) == ownedBy(a, userID) &&
-			prev.Data["api_key"] != a.Data["api_key"] {
-			skipped = append(skipped, Skipped{
-				Provider:  slug,
-				AccountID: prev.ID,
-				Kind:      entity.SkipShadowed,
-				Reason:    "another account for this provider is used first: " + a.ID,
-			})
+		// Copies of one key — every account a broker token reaches — are one
+		// plan: moving to a copy would ask the same spent allowance again.
+		if slices.Contains(apiKeys[slug], a.Data["api_key"]) {
+			continue
 		}
-		providers[slug] = client.(marketdata.PriceProvider)
-		serving[slug] = a
+		apiKeys[slug] = append(apiKeys[slug], a.Data["api_key"])
+		keys[slug] = append(keys[slug], PriceKey{Provider: client.(marketdata.PriceProvider), AccountID: a.ID})
+		if _, ok := serving[slug]; !ok {
+			serving[slug] = a
+		}
 	}
 
-	servingIDs := make(map[string]string, len(serving))
-	for slug, a := range serving {
-		servingIDs[slug] = a.ID
+	// A credential-free source stands in only where no account serves its
+	// slug. Behind one it would be a way round the account's own limit, which
+	// is how a free feed gets throttled after an enforcement notice.
+	for slug, p := range r.cfg.KeylessPriceProviders {
+		if _, claimed := keys[slug]; !claimed {
+			keys[slug] = []PriceKey{{Provider: p}}
+		}
 	}
 
-	return PriceInventory{Providers: providers, Serving: servingIDs, Skipped: skipped, servingAccounts: serving}, nil
-}
-
-// ownedBy reports whether the account belongs to the user resolving it. With
-// nobody resolving, every candidate is on one level.
-func ownedBy(a *entity.Account, userID string) bool {
-	return userID != "" && a.UserID == userID
+	return PriceInventory{Keys: keys, Skipped: skipped, servingAccounts: serving}, nil
 }
 
 // firstOccurrences drops repeated accounts, keeping each at its first position.
@@ -566,7 +569,7 @@ type unusableUntil interface {
 	UnusableUntil() (reason string, until time.Time, unusable bool)
 }
 
-// PriceSourceHealth reports, for the user's price registry, every source it
+// PriceSourceHealth reports, for the user's price registry, every key it
 // reached with whether it can be asked now, and every account it passed over.
 // It resolves exactly what PriceProvidersFor resolves, so the answer describes
 // the registry the user's work actually runs on.
@@ -577,12 +580,14 @@ func (r *Resolver) PriceSourceHealth(ctx context.Context, userID string) (*entit
 	}
 
 	report := &entity.PriceSourceReport{Skipped: inv.Skipped}
-	for _, slug := range slices.Sorted(maps.Keys(inv.Providers)) {
-		state := entity.PriceSourceState{Provider: slug, AccountID: inv.Serving[slug]}
-		if hp, ok := inv.Providers[slug].(unusableUntil); ok {
-			state.Reason, state.Until, state.Unusable = hp.UnusableUntil()
+	for _, slug := range slices.Sorted(maps.Keys(inv.Keys)) {
+		for _, k := range inv.Keys[slug] {
+			state := entity.PriceSourceState{Provider: slug, AccountID: k.AccountID}
+			if hp, ok := k.Provider.(unusableUntil); ok {
+				state.Reason, state.Until, state.Unusable = hp.UnusableUntil()
+			}
+			report.Sources = append(report.Sources, state)
 		}
-		report.Sources = append(report.Sources, state)
 	}
 	return report, nil
 }
