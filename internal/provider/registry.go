@@ -160,15 +160,18 @@ func (r *Registry) WalletSyncers() map[string]credentials.WalletProvider {
 // one instead is not available: accounts.user_id is NOT NULL, so before the
 // first user there is nobody to own the row.
 //
-// TON answers without a key on a much tighter allowance ("tonapi:keyless" in
-// the limits table). An account carrying a key still overrides this and gets
-// the keyed rate.
+// TON and Blockchair answer without a key on a much tighter allowance
+// ("<slug>:keyless" in the limits table). An account carrying a key still
+// overrides this and gets the keyed rate.
 func (r *Registry) KeylessWalletSyncers() map[string]credentials.WalletProvider {
 	return map[string]credentials.WalletProvider{
 		esploraadapter.ProviderName: r.keylessWallet(esploraadapter.ProviderName),
 		cosmosadapter.ProviderName:  r.keylessWallet(cosmosadapter.ProviderName),
 		tzktadapter.ProviderName:    r.keylessWallet(tzktadapter.ProviderName),
 		tonapiadapter.ProviderName:  r.keylessWallet(tonapiadapter.ProviderName),
+		// Best effort: the free tier is IP-metered and refuses busy shared
+		// networks. Unregistered, a fresh instance cannot sync dash or doge at all.
+		blockchairadapter.ProviderName: r.keylessWallet(blockchairadapter.ProviderName),
 	}
 }
 
@@ -217,6 +220,16 @@ func (r *Registry) keylessWallet(slug string) credentials.WalletProvider {
 			},
 			Chains:         tonapiadapter.SupportedChains(),
 			HandlesAddress: tonapiadapter.HandlesAddress,
+		}
+	case blockchairadapter.ProviderName:
+		return credentials.WalletProvider{
+			Factory: func(*entity.Account) (entity.WalletSyncer, error) {
+				return blockchairadapter.NewWalletSyncer(blockchairadapter.NewClient(blockchairadapter.Config{
+					Transport: r.limits.Transport(cred, nil),
+				})), nil
+			},
+			Chains:         blockchairadapter.SupportedChains(),
+			HandlesAddress: blockchairadapter.HandlesAddress,
 		}
 	default:
 		return credentials.WalletProvider{}

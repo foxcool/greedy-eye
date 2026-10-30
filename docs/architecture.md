@@ -704,7 +704,10 @@ undo the binding (`DeleteAssetExternalRef`).
   2026-08-11..17 refreshed no crypto price for six days with binance sitting unscoped behind three
   scoped accounts, while every manual fetch worked because it carried a user id. The startup line
   therefore names the accounts it **skipped** and why — a list of what worked cannot show an
-  absence (`Resolver.Skipped`, `internal/service/credentials/resolver.go`).
+  absence (`Resolver.Skipped`, `internal/service/credentials/resolver.go`). For the same reason
+  one line names every registered provider, unresolved ones included, with where unattended work
+  gets it: keyless, system, operator, or per-account (`Resolver.Inventory`,
+  `internal/service/credentials/inventory.go`).
 - **Accounts of one price provider are interchangeable keys.** `PriceProvidersFor` hands out an
   ordered list per slug — own accounts, then shared, then the sole operator's; copies of one
   `api_key` count once — and the sweep walks it: a key whose credential reports itself spent is
@@ -1021,6 +1024,7 @@ Cron / API Client → AutomationService/ExecuteRule
   it (gRPC over h2c) instead of its in-process handler; the start is refused when a domain is both
   served and remote, or remote without a token. A cross-service interface is declared by its
   consumer as a subset of the generated Connect client: proto is the only contract.
+  `cmd/eye/ports.go` makes the build fail when a port stops being such a subset.
 - **Ownership enforcement**: every by-ID RPC loads the entity and requires the caller to be its
   owner or an admin (`middleware.EnsureOwner`), returning `NotFound` for foreign IDs so their
   existence isn't leaked. Holdings/transactions inherit ownership through their account.
@@ -1752,7 +1756,9 @@ System Quality
 - Description: Unit tests and store-level integration tests (testcontainers) exist. There is no
   test that runs the service the way it is deployed, and none at all for the microservice mode
   the architecture claims to support.
-- Impact: The "splittable into services" property is asserted, never verified.
+- Impact: The "splittable into services" property is verified only at the type level (each
+  cross-service port is a subset of its generated client, `cmd/eye/ports.go`); that a split
+  deployment actually works is asserted, never verified.
 - Resolution Plan: per-domain schemas and Postgres roles as an enforced service boundary, plus a
   distributed stand in CI.
 

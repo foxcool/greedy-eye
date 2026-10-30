@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -177,15 +179,7 @@ func (c *Client) GetMultiplePrices(ctx context.Context, assetIDs []string, curre
 
 // fetchMarkets reads one page of /coins/markets into result.
 func (c *Client) fetchMarkets(ctx context.Context, assetIDs []string, currency string, result map[string]*PriceData) error {
-	url := fmt.Sprintf(
-		"%s/coins/markets?vs_currency=%s&ids=%s&order=market_cap_desc&per_page=%d&page=1&sparkline=false",
-		c.baseURL,
-		currency,
-		strings.Join(assetIDs, ","),
-		marketsPageSize,
-	)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.marketsURL(assetIDs, currency), nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -223,6 +217,34 @@ func (c *Client) fetchMarkets(ctx context.Context, assetIDs []string, currency s
 	}
 
 	return nil
+}
+
+// marketsURL addresses one /coins/markets page. Values are encoded, not
+// spliced: an id carrying '&' or '#' would otherwise add or cut parameters.
+func (c *Client) marketsURL(assetIDs []string, currency string) string {
+	query := url.Values{
+		"vs_currency": {currency},
+		"ids":         {strings.Join(assetIDs, ",")},
+		"order":       {"market_cap_desc"},
+		"per_page":    {strconv.Itoa(marketsPageSize)},
+		"page":        {"1"},
+		"sparkline":   {"false"},
+	}
+	return c.baseURL + "/coins/markets?" + query.Encode()
+}
+
+// tokenPriceURL addresses one /simple/token_price batch. The endpoint honours
+// market cap, volume and change but silently ignores include_24hr_high/low,
+// so those are not asked for.
+func (c *Client) tokenPriceURL(platform string, addresses []string, currency string) string {
+	query := url.Values{
+		"contract_addresses":  {strings.Join(addresses, ",")},
+		"vs_currencies":       {currency},
+		"include_market_cap":  {"true"},
+		"include_24hr_vol":    {"true"},
+		"include_24hr_change": {"true"},
+	}
+	return c.baseURL + "/simple/token_price/" + url.PathEscape(platform) + "?" + query.Encode()
 }
 
 // evmAddressRe matches a canonical EVM contract address. Catalog tags may
@@ -300,22 +322,7 @@ func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, 
 		end := min(i+batchSize, len(valid))
 		batch := valid[i:end]
 
-		// token_price supports market cap, volume and change — not high/low.
-		// It used to be asked for include_24hr_high/low, which this endpoint
-		// ignores without complaint: every contract-priced asset in the
-		// catalogue ended up with high = low = 0, and none of them carried any
-		// market context at all. A price with no volume behind it is what let
-		// MNEP stand second in the dev portfolio (personal-6ae).
-		url := fmt.Sprintf(
-			"%s/simple/token_price/%s?contract_addresses=%s&vs_currencies=%s"+
-				"&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true",
-			c.baseURL,
-			platform,
-			strings.Join(batch, ","),
-			currency,
-		)
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.tokenPriceURL(platform, batch, currency), nil)
 		if err != nil {
 			return result, fmt.Errorf("create request: %w", err)
 		}
@@ -408,8 +415,7 @@ func (c *Client) GetSupportedCurrencies(ctx context.Context) ([]string, error) {
 
 // Ping checks if the API is reachable.
 func (c *Client) Ping(ctx context.Context) error {
-	url := c.baseURL + "/ping"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/ping", nil)
 	if err != nil {
 		return err
 	}

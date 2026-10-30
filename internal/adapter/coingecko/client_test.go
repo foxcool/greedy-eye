@@ -276,3 +276,76 @@ func TestGetTokenPricesByContract_AsksForMarketContext(t *testing.T) {
 	assert.InDelta(t, 90000.0, pd.Volume24h, 1e-9)
 	assert.InDelta(t, -4.25, pd.ChangePercent, 1e-9)
 }
+
+// hostileValues carry the characters that split or end a query string. Each
+// must reach the server as one literal value, never as extra parameters.
+var hostileValues = map[string]string{
+	"query syntax": "0xabc&vs_currencies=eur#frag+x=1",
+	"space":        "0xabc def",
+}
+
+func newQueryRecorder(t *testing.T) (*Client, *[]*url.URL) {
+	t.Helper()
+	var seen []*url.URL
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.URL)
+		_, _ = fmt.Fprint(w, `[]`)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := NewClient(Config{APIKey: "demo-key"})
+	client.baseURL = srv.URL
+	client.httpClient = srv.Client()
+	return client, &seen
+}
+
+// TestTokenPriceURL_EscapesEveryValue: the URL is assembled from caller data,
+// so a value with query syntax in it must not add parameters or change the path.
+func TestTokenPriceURL_EscapesEveryValue(t *testing.T) {
+	for name, hostile := range hostileValues {
+		t.Run(name, func(t *testing.T) {
+			client, seen := newQueryRecorder(t)
+			platform := "ethereum/../coins?x=1"
+
+			resp, err := client.httpClient.Get(client.tokenPriceURL(platform, []string{hostile, "0x01"}, "usd"))
+			require.NoError(t, err)
+			_ = resp.Body.Close()
+
+			require.Len(t, *seen, 1)
+			got := (*seen)[0]
+			assert.Equal(t, "/simple/token_price/"+platform, got.Path)
+			assert.Equal(t, url.Values{
+				"contract_addresses":  {hostile + ",0x01"},
+				"vs_currencies":       {"usd"},
+				"include_market_cap":  {"true"},
+				"include_24hr_vol":    {"true"},
+				"include_24hr_change": {"true"},
+			}, got.Query())
+		})
+	}
+}
+
+// TestGetMultiplePrices_EscapesIDs: coin ids are not validated anywhere on the
+// way in, so the request itself has to keep them inside the ids parameter.
+func TestGetMultiplePrices_EscapesIDs(t *testing.T) {
+	for name, hostile := range hostileValues {
+		t.Run(name, func(t *testing.T) {
+			client, seen := newQueryRecorder(t)
+
+			_, err := client.GetMultiplePrices(context.Background(), []string{"bitcoin", hostile}, "usd")
+			require.NoError(t, err)
+
+			require.Len(t, *seen, 1)
+			got := (*seen)[0]
+			assert.Equal(t, "/coins/markets", got.Path)
+			assert.Equal(t, url.Values{
+				"vs_currency": {"usd"},
+				"ids":         {"bitcoin," + hostile},
+				"order":       {"market_cap_desc"},
+				"per_page":    {"250"},
+				"page":        {"1"},
+				"sparkline":   {"false"},
+			}, got.Query())
+		})
+	}
+}

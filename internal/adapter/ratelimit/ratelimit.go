@@ -20,6 +20,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -225,7 +226,7 @@ type UsageStore interface {
 	// summed over callers.
 	LoadUsage(ctx context.Context, periodStart time.Time) ([]Usage, error)
 	// AddUsage adds deltas to the stored counters, inserting rows that do not
-	// exist yet.
+	// exist yet. It applies all deltas or none: a failed call is retried whole.
 	AddUsage(ctx context.Context, deltas []Usage) error
 }
 
@@ -240,6 +241,7 @@ type Registry struct {
 	overrides map[string]Limit
 	usage     UsageStore
 	now       func() time.Time
+	log       *slog.Logger
 
 	mu      sync.Mutex
 	buckets map[string]*bucket
@@ -247,6 +249,8 @@ type Registry struct {
 	// as they are created. Buckets are made lazily on first use, so the
 	// restored counters cannot be pushed into them up front.
 	loaded map[string]Usage
+	// unflushed is spend a failed write handed back, for the next flush.
+	unflushed []Usage
 
 	stop chan struct{}
 	done chan struct{}
@@ -273,6 +277,7 @@ func NewRegistry(overrides map[string]Limit, opts ...Option) *Registry {
 	r := &Registry{
 		overrides: overrides,
 		now:       time.Now,
+		log:       slog.Default(),
 		buckets:   make(map[string]*bucket),
 		loaded:    make(map[string]Usage),
 	}
@@ -338,30 +343,72 @@ func (r *Registry) flushLoop(ctx context.Context) {
 			// writes what is pending, under a context of its own.
 			return
 		case <-ticker.C:
-			flushCtx, cancel := context.WithTimeout(ctx, flushInterval)
-			_ = r.Flush(flushCtx)
-			cancel()
+			r.flushOnce(ctx)
 		}
 	}
 }
 
-// Flush writes pending spend to the store.
+func (r *Registry) flushOnce(ctx context.Context) {
+	flushCtx, cancel := context.WithTimeout(ctx, flushInterval)
+	defer cancel()
+	if err := r.Flush(flushCtx); err != nil {
+		r.log.Error("Failed to persist provider usage, will retry", slog.Any("error", err))
+	}
+}
+
+// Flush writes pending spend to the store. Spend a failed write carried is
+// kept for the next flush: dropping it would under-report the period, and a
+// restart would restore a counter that lets the plan be spent past its end.
+// A write that committed but still reported failure is counted twice, which
+// errs towards stopping early.
 func (r *Registry) Flush(ctx context.Context) error {
 	if r == nil || r.usage == nil {
 		return nil
 	}
 
 	r.mu.Lock()
-	var deltas []Usage
+	deltas := r.unflushed
+	r.unflushed = nil
 	for _, b := range r.buckets {
 		deltas = append(deltas, b.takePending()...)
 	}
 	r.mu.Unlock()
 
+	// A retried delta and new spend of the same caller must be one row: an
+	// upsert that touches a row twice in one statement is refused.
+	deltas = mergeUsage(deltas)
 	if len(deltas) == 0 {
 		return nil
 	}
-	return r.usage.AddUsage(ctx, deltas)
+	if err := r.usage.AddUsage(ctx, deltas); err != nil {
+		r.mu.Lock()
+		r.unflushed = append(r.unflushed, deltas...)
+		r.mu.Unlock()
+		return err
+	}
+	return nil
+}
+
+// mergeUsage sums deltas that land on the same stored row, keeping first-seen
+// order.
+func mergeUsage(deltas []Usage) []Usage {
+	type rowKey struct {
+		provider, fp, caller string
+		start                int64
+	}
+	at := make(map[rowKey]int, len(deltas))
+	out := make([]Usage, 0, len(deltas))
+	for _, d := range deltas {
+		k := rowKey{d.Provider, d.Fingerprint, d.Caller, d.PeriodStart.UnixNano()}
+		if i, ok := at[k]; ok {
+			out[i].Requests += d.Requests
+			out[i].Backoffs += d.Backoffs
+			continue
+		}
+		at[k] = len(out)
+		out = append(out, d)
+	}
+	return out
 }
 
 // Transport returns an http.RoundTripper that paces requests against the

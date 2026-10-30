@@ -436,6 +436,8 @@ type PriceInventory struct {
 	// user's own accounts, then shared ones, then the sole operator's.
 	Keys    map[string][]PriceKey
 	Skipped []Skipped
+
+	servingAccounts map[string]*entity.Account
 }
 
 // PriceProvidersFor resolves the effective price provider registry for the
@@ -483,7 +485,8 @@ func (r *Resolver) PriceInventoryFor(ctx context.Context, userID string) (PriceI
 	candidates = firstOccurrences(candidates)
 
 	keys := make(map[string][]PriceKey)
-	apiKeys := make(map[string][]string) // slug → the api_key behind each kept key
+	apiKeys := make(map[string][]string)        // slug → the api_key behind each kept key
+	serving := make(map[string]*entity.Account) // slug → the account its first key came from
 	for _, a := range candidates {
 		slug := a.Data[DataProviderKey]
 		factory, ok := r.cfg.PriceProviders[slug]
@@ -530,6 +533,9 @@ func (r *Resolver) PriceInventoryFor(ctx context.Context, userID string) (PriceI
 		}
 		apiKeys[slug] = append(apiKeys[slug], a.Data["api_key"])
 		keys[slug] = append(keys[slug], PriceKey{Provider: client.(marketdata.PriceProvider), AccountID: a.ID})
+		if _, ok := serving[slug]; !ok {
+			serving[slug] = a
+		}
 	}
 
 	// A credential-free source stands in only where no account serves its
@@ -541,7 +547,7 @@ func (r *Resolver) PriceInventoryFor(ctx context.Context, userID string) (PriceI
 		}
 	}
 
-	return PriceInventory{Keys: keys, Skipped: skipped}, nil
+	return PriceInventory{Keys: keys, Skipped: skipped, servingAccounts: serving}, nil
 }
 
 // firstOccurrences drops repeated accounts, keeping each at its first position.
