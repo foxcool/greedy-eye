@@ -54,7 +54,16 @@ Two things regularly trip this up:
 
 ## On-chain providers (`service` + `onchain_lookup`)
 
-These sync wallet balances. Every one of them needs an account, key or not.
+These sync wallet balances. Keyed providers need an account. Keyless ones —
+`esplora`, `cosmos`, `tzkt`, `tonapi`, `blockchair` — are registered by
+default, so a fresh instance reads their chains with no row created; an account
+naming the same slug still wins, which is how one gets a key or a smaller share.
+
+The startup log line `provider inventory without a user` names every provider
+with where unattended work gets it from: `keyless` (registered default),
+`system` (an account shared through `system_scopes`), `operator` (the sole
+operator's own account), `per_account` (exchange and broker syncers, which read
+the synced account's own key) or `unresolved`.
 
 | `provider` | Chains | Key | Where to get it |
 |---|---|---|---|
