@@ -1472,6 +1472,13 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	// Sources this run had nothing to ask, keyed by why. Reported so an
 	// unattended sweep can say "postponed" rather than only "zero".
 	idleSources := map[string]string{}
+	// The loop below only visits configured sources, so a named one without a
+	// provider would otherwise vanish from the response.
+	for _, id := range req.Msg.SourceIds {
+		if _, ok := providers[id]; !ok {
+			idleSources[id] = string(outcomeNotConfigured)
+		}
+	}
 	// Named assets background work left to the sweep, per source.
 	deferredAssets := map[string]int32{}
 	// Due assets a metered source skipped because another source covers them.
@@ -1968,6 +1975,9 @@ const (
 	// outcomeCovered: every due asset was left to another source's fresh
 	// traded quote.
 	outcomeCovered selectionOutcome = "covered"
+	// outcomeNotConfigured: the request named a source the caller has no
+	// provider for.
+	outcomeNotConfigured selectionOutcome = "not_configured"
 )
 
 // soonestDue reports when this source's earliest deferred asset comes due, for
