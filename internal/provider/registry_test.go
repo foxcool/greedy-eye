@@ -183,6 +183,30 @@ func TestKeylessProvidersBuildWithoutAnAccount(t *testing.T) {
 	assert.NotEmpty(t, r.KeylessPriceProviders())
 }
 
+// TestKeylessMeansRegisteredByDefault: the catalogue tells a form "no account
+// needed" through Keyless. A provider marked so but not registered keyless
+// reads nothing on a fresh instance while the form says it should.
+func TestKeylessMeansRegisteredByDefault(t *testing.T) {
+	r := testRegistry()
+	wallets, prices := r.KeylessWalletSyncers(), r.KeylessPriceProviders()
+
+	for _, d := range r.Descriptors() {
+		for _, k := range d.Kinds {
+			var registered bool
+			switch k {
+			case catalog.KindWallet:
+				_, registered = wallets[d.Slug]
+			case catalog.KindPrice:
+				_, registered = prices[d.Slug]
+			default:
+				continue // an exchange always reads the synced account's own key
+			}
+			assert.Equal(t, d.Keyless, registered,
+				"provider %q: catalogue says keyless=%v, %s registered by default=%v", d.Slug, d.Keyless, k, registered)
+		}
+	}
+}
+
 // TestAccountBackedFactoriesReadTheirCredentials guards the wiring the move
 // could have broken silently: a factory that ignores the account it is handed
 // builds a client with no key, and the provider answers as if the account had
