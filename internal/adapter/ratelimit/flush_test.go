@@ -123,8 +123,8 @@ func TestFlushFailureIsLogged(t *testing.T) {
 	assert.Contains(t, buf.String(), errStoreDown.Error())
 }
 
-// TestFlushRetryUnderConcurrentSpend: spend reserved while flushes fail and
-// succeed at random is written exactly once. Run with -race.
+// TestFlushRetryUnderConcurrentSpend: spend reserved while flushes alternately
+// fail and succeed is written exactly once. Run with -race.
 func TestFlushRetryUnderConcurrentSpend(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)

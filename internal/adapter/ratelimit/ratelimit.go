@@ -228,7 +228,9 @@ type UsageStore interface {
 	// summed over callers.
 	LoadUsage(ctx context.Context, periodStart time.Time) ([]Usage, error)
 	// AddUsage adds deltas to the stored counters, inserting rows that do not
-	// exist yet. It applies all deltas or none: a failed call is retried whole.
+	// exist yet. A failed call is retried whole, so a store must not apply part
+	// of a batch; a call that committed but still reported an error is counted
+	// twice, which errs towards stopping early.
 	AddUsage(ctx context.Context, deltas []Usage) error
 }
 
