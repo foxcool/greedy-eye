@@ -223,7 +223,7 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 				return nil, err
 			}
 		}
-		holdingValue := hld.Amount.Shift(-decI32(hld.Decimals)).Mul(ap.unit)
+		holdingValue := hld.Amount.Shift(-entity.DecI32(hld.Decimals)).Mul(ap.unit)
 		values[key] = values[key].Add(holdingValue)
 	}
 
