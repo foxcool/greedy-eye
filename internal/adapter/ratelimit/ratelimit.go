@@ -461,20 +461,32 @@ func (r *Registry) Snapshot() []Usage {
 // bucket returns the shared budget for one credential, creating it on first
 // use. Different keys on one provider get different buckets, which is correct:
 // providers meter per key, and the keyless tier meters per IP.
+//
+// The key is what provider_usage persists — provider and key, not tier. The
+// limit is resolved on every call and put on the live bucket, so a quota or
+// tier edited on the account reaches the next client built from it, with the
+// spend kept. Accounts sharing one key with different limits: the last one
+// presented governs.
 func (r *Registry) bucket(c Credential) *bucket {
 	fp := fingerprint(c.APIKey)
-	key := c.Provider + "/" + fp + "/" + c.tier()
+	key := c.Provider + "/" + fp
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	limit := r.limitFor(c)
+	loaded := func(start time.Time) (Usage, bool) {
+		u, ok := r.loaded[usageKey(c.Provider, fp, start)]
+		return u, ok
+	}
+
 	if b, ok := r.buckets[key]; ok {
+		b.setLimit(limit, r.now(), loaded)
 		return b
 	}
 
-	limit := r.limitFor(c)
 	b := newBucket(c.Provider, fp, limit, periodStart(r.now(), limit.Period))
-	if u, ok := r.loaded[usageKey(c.Provider, fp, b.periodStart)]; ok {
+	if u, ok := loaded(b.periodStart); ok {
 		b.restore(u)
 	}
 	r.buckets[key] = b
@@ -620,6 +632,35 @@ func (b *bucket) restore(u Usage) {
 	defer b.mu.Unlock()
 	b.requests = u.Requests
 	b.backoffs = u.Backoffs
+}
+
+// setLimit puts a re-resolved limit on a live bucket. Spend is kept: a new
+// quota or tier changes the ceiling, not what the key has already used.
+func (b *bucket) setLimit(l Limit, now time.Time, loaded func(time.Time) (Usage, bool)) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.limit == l {
+		return
+	}
+
+	if l.RPS != b.limit.RPS {
+		b.limiter.SetLimit(rate.Limit(l.RPS))
+	}
+	if l.Burst != b.limit.Burst {
+		b.limiter.SetBurst(max(l.Burst, 1))
+	}
+	if l.Period != b.limit.Period {
+		// A different window counts different spend, so the counters restart
+		// from what Start loaded for it, as a restart would.
+		// shortcut: in-process spend of the new window since Start is not
+		// counted; upgrade if accounts start switching between day and month.
+		b.periodStart = periodStart(now, l.Period)
+		b.requests, b.backoffs = 0, 0
+		if u, ok := loaded(b.periodStart); ok {
+			b.requests, b.backoffs = u.Requests, u.Backoffs
+		}
+	}
+	b.limit = l
 }
 
 // rollPeriod resets the counters when now falls in a later period. Callers must

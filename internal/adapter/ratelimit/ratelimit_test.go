@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 
 	"github.com/foxcool/greedy-eye/internal/spend"
 )
@@ -504,10 +505,71 @@ func TestTierSelectsLimit(t *testing.T) {
 	assert.Equal(t, QuotaMonth, demo.Period)
 	assert.Greater(t, pro.Quota, demo.Quota)
 
-	assert.NotSame(t,
+	assert.Same(t,
 		reg.bucket(Credential{Provider: "coingecko", APIKey: "key"}),
 		reg.bucket(Credential{Provider: "coingecko", APIKey: "key", Tier: "pro"}),
-		"a tier change is a different budget")
+		"a tier change is a new ceiling on the same key's spend")
+}
+
+// TestQuotaChangeReachesLiveBucket: an account's quota is edited while the
+// process runs, and the next client built from it must be held to the new
+// share. Dev lowered 1500 to 500 and kept spending to 1129.
+func TestQuotaChangeReachesLiveBucket(t *testing.T) {
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	reg := quotaRegistry(1000, func() time.Time { return now })
+	cred := Credential{Provider: "test", APIKey: "key", Limit: Limit{Quota: 10, Period: QuotaMonth}}
+
+	doRequests(t, &http.Client{Transport: reg.Transport(cred, nil)}, srv.URL, 6)
+
+	lowered := cred
+	lowered.Limit.Quota = 5
+	client := &http.Client{Transport: reg.Transport(lowered, nil)}
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, nil)
+	require.NoError(t, err)
+	_, err = client.Do(req) //nolint:bodyclose // the request never goes out
+	require.ErrorIs(t, err, ErrQuotaExhausted, "6 spent is over a share of 5")
+	assert.EqualValues(t, 6, hits.Load())
+
+	left, _, ok := reg.Remaining(lowered)
+	require.True(t, ok)
+	assert.Zero(t, left)
+}
+
+// TestTierChangeKeepsSpend: the provider meters the key, and so does
+// provider_usage — the tier is not part of either. Moving a key to another plan
+// mid-month must not forget what it spent since the process started.
+func TestTierChangeKeepsSpend(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	store := &fakeUsageStore{rows: []Usage{{
+		Provider: "coingecko", Fingerprint: fingerprint("key"),
+		PeriodStart: periodStart(now, QuotaMonth), Requests: 100,
+	}}}
+	reg := NewRegistry(nil, WithClock(func() time.Time { return now }), WithUsageStore(store))
+	require.NoError(t, reg.Start(ctx))
+	t.Cleanup(func() { _ = reg.Stop(ctx) })
+
+	demo := Credential{Provider: "coingecko", APIKey: "key"}
+	b := reg.bucket(demo)
+	for range 50 {
+		require.NoError(t, b.reserve(spend.ClassInteractive, spend.Unlabelled, now))
+	}
+
+	pro := Credential{Provider: "coingecko", APIKey: "key", Tier: "pro"}
+	left, _, ok := reg.Remaining(pro)
+	require.True(t, ok)
+	proCeiling := int(float64(defaultLimits["coingecko:pro"].Quota) * backgroundReserve)
+	assert.Equal(t, proCeiling-150, left, "restored 100 plus 50 spent since start")
+	assert.Equal(t, rate.Limit(defaultLimits["coingecko:pro"].RPS), reg.bucket(pro).limiter.Limit(),
+		"the new plan's rate applies too")
 }
 
 // TestQuotaRefusalReachesCaller: an exhausted quota surfaces as an error rather
