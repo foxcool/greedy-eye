@@ -1310,7 +1310,7 @@ func (h *Handler) contractResolver(ctx context.Context) (ContractResolver, error
 
 	// shortcut: a slug's first key only, so a spent first key fails the
 	// confirmation rather than handing it to the next; walk the keys as the
-	// sweep does once that shows up.
+	// sweep does once that shows up (personal-so6k).
 	first := func(name string) (ContractResolver, bool) {
 		if keys := providers[name]; len(keys) > 0 {
 			r, ok := keys[0].(ContractResolver)
@@ -1510,6 +1510,9 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	// request — is the source's answer for this run, and its remaining keys
 	// are passed over.
 	answered := map[string]bool{}
+	// A key refused mid-fetch, kept until a later key answers: if none can, the
+	// refusal is the source's answer, as it is with a single key.
+	spentMidFetch := map[string]error{}
 	for _, k := range keyTurns(providers) {
 		name, provider := k.name, k.provider
 		if answered[name] {
@@ -1535,10 +1538,17 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 				if k.last && backgroundIDs != nil {
 					deferredAssets[name] = int32(len(backgroundIDs)) // #nosec G115 -- bounded by request size
 				}
+				if err := spentMidFetch[name]; k.last && err != nil {
+					fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
+				}
 				continue
 			}
 		}
 		answered[name] = true
+		// A previous key's counts describe work it never finished.
+		delete(spentMidFetch, name)
+		delete(deferredAssets, name)
+		delete(coveredAssets, name)
 
 		// Selection is per source because freshness is: an asset Binance priced
 		// a minute ago is still stale for CoinGecko.
@@ -1659,11 +1669,12 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 
 		results, err := provider.FetchPrices(ctx, assets)
 		if err != nil && !k.last && errors.Is(err, spend.ErrQuotaExhausted) {
-			// Nothing is recorded, so the next key selects the same due assets
-			// within its own allowance.
+			// No attempt is recorded, so the next key selects the same due
+			// assets within its own allowance.
 			h.log.Info("price sweep: key spent mid-fetch, next key takes over",
 				"provider", name, "key", k.index)
 			answered[name] = false
+			spentMidFetch[name] = err
 			continue
 		}
 		if err != nil {

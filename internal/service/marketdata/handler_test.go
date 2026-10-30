@@ -2416,6 +2416,50 @@ func TestFetchExternalPrices_LoneSpentKeyEndsTheSource(t *testing.T) {
 	s.AssertNotCalled(t, "RecordPriceAttempts", mock.Anything, mock.Anything)
 }
 
+// A key refused mid-fetch with only spent keys behind it ends the source with
+// the refusal, as one key would — a second spent account must not turn the
+// error into a clean-looking sweep.
+func TestFetchExternalPrices_MidFetchRefusalSurvivesSpentKeysBehind(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil)
+
+	first := &fakePriceProvider{fetchError: errSpentMidFetch}
+	spent := &stuckProvider{reason: "share spent"}
+	h := newHandler(s).WithProviderSource(keySource{"coingecko": {first, spent}})
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+
+	require.Len(t, resp.Msg.Errors, 1)
+	assert.Contains(t, resp.Msg.Errors[0], "quota exhausted")
+	s.AssertNotCalled(t, "RecordPriceAttempts", mock.Anything, mock.Anything)
+}
+
+// A key refused mid-fetch had already counted the named assets it left over;
+// the key that takes over and asks for all of them must not report those.
+func TestFetchExternalPrices_TakeoverKeyReplacesDeferredCount(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil).Once()
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1"), testAsset("a2")}, nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(2, nil)
+
+	first := &fakePriceProvider{fetchError: errSpentMidFetch}
+	second := &fakePriceProvider{prices: map[string]bool{"a1": true, "a2": true}}
+	h := newHandler(s).WithProviderSource(keySource{"coingecko": {first, second}})
+
+	resp, err := h.FetchExternalPrices(backgroundCtx(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a1", "a2"}}))
+	require.NoError(t, err)
+
+	require.NotEmpty(t, second.asked)
+	assert.Empty(t, resp.Msg.DeferredAssets, "the key that answered left nothing over")
+}
+
 // TestGetSweepSchedule_NamesASkipOnlyWhenEveryKeyIsSpent: the schedule asks
 // what the sweep would do, and the sweep moves past a spent key.
 func TestGetSweepSchedule_NamesASkipOnlyWhenEveryKeyIsSpent(t *testing.T) {
