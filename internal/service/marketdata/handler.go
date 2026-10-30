@@ -125,7 +125,10 @@ type BudgetedProvider interface {
 // ProviderSource resolves the effective price provider registry for a user
 // from stored account credentials (see internal/service/credentials).
 type ProviderSource interface {
-	PriceProvidersFor(ctx context.Context, userID string) (map[string]PriceProvider, error)
+	// PriceProvidersFor returns every key able to serve each provider slug, in
+	// the order they are tried: a key whose plan is spent hands the work to the
+	// next one rather than ending it.
+	PriceProvidersFor(ctx context.Context, userID string) (map[string][]PriceProvider, error)
 }
 
 // ContractResolver confirms a token's on-chain identity: given a chain and a
@@ -1300,24 +1303,26 @@ func (h *Handler) rivalOnChain(
 // It is consulted only for contracts that are not bound yet, so a settled
 // catalog costs nothing per sync.
 func (h *Handler) contractResolver(ctx context.Context) (ContractResolver, error) {
-	providers := h.providers
-	if h.providerSource != nil {
-		userID := ""
-		if user, ok := middleware.UserFromContext(ctx); ok {
-			userID = user.ID
-		}
-		resolved, err := h.providerSource.PriceProvidersFor(ctx, userID)
-		if err != nil {
-			return nil, fmt.Errorf("resolve price providers: %w", err)
-		}
-		providers = resolved
+	providers, err := h.providerKeys(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("resolve price providers: %w", err)
 	}
 
-	if r, ok := providers[coingeckoProvider].(ContractResolver); ok {
+	// shortcut: a slug's first key only, so a spent first key fails the
+	// confirmation rather than handing it to the next; walk the keys as the
+	// sweep does once that shows up.
+	first := func(name string) (ContractResolver, bool) {
+		if keys := providers[name]; len(keys) > 0 {
+			r, ok := keys[0].(ContractResolver)
+			return r, ok
+		}
+		return nil, false
+	}
+	if r, ok := first(coingeckoProvider); ok {
 		return r, nil
 	}
 	for _, name := range slices.Sorted(maps.Keys(providers)) {
-		if r, ok := providers[name].(ContractResolver); ok {
+		if r, ok := first(name); ok {
 			return r, nil
 		}
 	}
@@ -1499,7 +1504,17 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	// property of the catalogue, not of the source asking.
 	contested := map[string]bool{}
 
-	for name, provider := range providers {
+	// A source's keys are tried in order, and the next one gets a turn only
+	// when this one's plan is spent: before anything is selected for it, or
+	// during the fetch. Any other outcome — prices, nothing due, a failed
+	// request — is the source's answer for this run, and its remaining keys
+	// are passed over.
+	answered := map[string]bool{}
+	for _, k := range keyTurns(providers) {
+		name, provider := k.name, k.provider
+		if answered[name] {
+			continue
+		}
 		if len(req.Msg.SourceIds) > 0 && !slices.Contains(req.Msg.SourceIds, name) {
 			continue
 		}
@@ -1516,13 +1531,14 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		// not that path, and is skipped like the sweep.
 		if hp, ok := provider.(HealthReportingProvider); ok && named == nil {
 			if reason, unusable := hp.Unusable(); unusable {
-				h.log.Info("price sweep: provider skipped", "provider", name, "reason", reason)
-				if backgroundIDs != nil {
+				h.log.Info("price sweep: provider skipped", "provider", name, "key", k.index, "reason", reason)
+				if k.last && backgroundIDs != nil {
 					deferredAssets[name] = int32(len(backgroundIDs)) // #nosec G115 -- bounded by request size
 				}
 				continue
 			}
 		}
+		answered[name] = true
 
 		// Selection is per source because freshness is: an asset Binance priced
 		// a minute ago is still stale for CoinGecko.
@@ -1642,6 +1658,14 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		}
 
 		results, err := provider.FetchPrices(ctx, assets)
+		if err != nil && !k.last && errors.Is(err, spend.ErrQuotaExhausted) {
+			// Nothing is recorded, so the next key selects the same due assets
+			// within its own allowance.
+			h.log.Info("price sweep: key spent mid-fetch, next key takes over",
+				"provider", name, "key", k.index)
+			answered[name] = false
+			continue
+		}
 		if err != nil {
 			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
 			// A failed request is about the source, not the assets: Binance
@@ -2116,7 +2140,8 @@ func (h *Handler) GetSweepSchedule(ctx context.Context, req *connect.Request[api
 	now := time.Now()
 	populations := make([]StalePricingOpts, 0, len(sourceIDs))
 	for _, name := range sourceIDs {
-		populations = append(populations, h.planSweep(name, providers[name], now, now, nil).population())
+		key, _, _ := sweepKey(providers[name])
+		populations = append(populations, h.planSweep(name, key, now, now, nil).population())
 	}
 	schedules, err := h.store.SweepSchedule(ctx, SweepScheduleOpts{Sources: populations})
 	if err != nil {
@@ -2142,11 +2167,9 @@ func (h *Handler) GetSweepSchedule(ctx context.Context, req *connect.Request[api
 		// Asked of the provider rather than inferred: "would this be skipped"
 		// is a question only the provider can answer, and answering it here
 		// from the counts would be a guess dressed as a fact.
-		if p, ok := providers[sched.SourceID]; ok {
-			if hp, ok := p.(HealthReportingProvider); ok {
-				if reason, unusable := hp.Unusable(); unusable {
-					item.SkipReason = &reason
-				}
+		if keys, ok := providers[sched.SourceID]; ok {
+			if _, reason, unusable := sweepKey(keys); unusable {
+				item.SkipReason = &reason
 			}
 		}
 		out = append(out, item)
@@ -2204,28 +2227,73 @@ func (h *Handler) ResetSweepSchedule(ctx context.Context, req *connect.Request[a
 }
 
 // resolveProviders returns the price registry as the caller's credentials
-// define it, falling back to the static env-configured one.
+// define it, falling back to the static one.
 //
 // Shared by the sweep and by GetSweepSchedule on purpose: a schedule computed
 // against a different set of providers than the one that does the fetching
 // would answer a question about an instance that does not exist.
-func (h *Handler) resolveProviders(ctx context.Context) (map[string]PriceProvider, error) {
-	providers := h.providers
-	if h.providerSource != nil {
-		userID := ""
-		if user, ok := middleware.UserFromContext(ctx); ok {
-			userID = user.ID
-		}
-		resolved, err := h.providerSource.PriceProvidersFor(ctx, userID)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("resolve price providers: %w", err))
-		}
-		providers = resolved
+func (h *Handler) resolveProviders(ctx context.Context) (map[string][]PriceProvider, error) {
+	providers, err := h.providerKeys(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("resolve price providers: %w", err))
 	}
 	if len(providers) == 0 {
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("no price providers configured"))
 	}
 	return providers, nil
+}
+
+// providerKeys returns each slug's keys in the order they are tried. The static
+// registry holds one key per slug.
+func (h *Handler) providerKeys(ctx context.Context) (map[string][]PriceProvider, error) {
+	if h.providerSource == nil {
+		keys := make(map[string][]PriceProvider, len(h.providers))
+		for name, p := range h.providers {
+			keys[name] = []PriceProvider{p}
+		}
+		return keys, nil
+	}
+	userID := ""
+	if user, ok := middleware.UserFromContext(ctx); ok {
+		userID = user.ID
+	}
+	return h.providerSource.PriceProvidersFor(ctx, userID)
+}
+
+// keyTurn is one key's place in a fetch: index within its source's keys, and
+// whether no key comes after it.
+type keyTurn struct {
+	name     string
+	provider PriceProvider
+	index    int
+	last     bool
+}
+
+// keyTurns lays every source's keys out in the order they are tried.
+func keyTurns(providers map[string][]PriceProvider) []keyTurn {
+	var out []keyTurn
+	for name, keys := range providers {
+		for i, p := range keys {
+			out = append(out, keyTurn{name: name, provider: p, index: i, last: i == len(keys)-1})
+		}
+	}
+	return out
+}
+
+// sweepKey is the key an unattended sweep asks first: the first whose
+// credential can carry background work. With every key unusable it is the last
+// one, with its reason.
+func sweepKey(keys []PriceProvider) (p PriceProvider, reason string, unusable bool) {
+	for _, p = range keys {
+		hp, ok := p.(HealthReportingProvider)
+		if !ok {
+			return p, "", false
+		}
+		if reason, unusable = hp.Unusable(); !unusable {
+			return p, "", false
+		}
+	}
+	return p, reason, unusable
 }
 
 // deferUnasked keeps assets the sweep selected for a source and did not ask

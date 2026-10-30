@@ -428,7 +428,7 @@ func logProviderInventory(ctx context.Context, resolver *credentials.Resolver, l
 			slog.String("reason", s.Reason))
 	}
 
-	slugs := slices.Sorted(maps.Keys(inventory.Providers))
+	slugs := slices.Sorted(maps.Keys(inventory.Keys))
 	if len(slugs) == 0 {
 		log.Warn("no price provider is reachable: unattended pricing will do nothing until an account carries a credential")
 		return

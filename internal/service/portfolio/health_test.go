@@ -75,11 +75,11 @@ func healthFixture(t *testing.T) (*mockStore, *fakeSourceHealth, time.Time) {
 		Sources: []entity.PriceSourceState{
 			{Provider: "coingecko", AccountID: "system-cg", Unusable: true, Reason: "paused after repeated refusals", Until: until},
 			{Provider: "moex"},
-			{Provider: "binance", AccountID: "old"},
+			{Provider: "binance", AccountID: "old", Unusable: true, Reason: "this deployment's share of the plan is spent for the period", Until: until},
+			{Provider: "binance", AccountID: "young"},
 		},
 		Skipped: []entity.SkippedAccount{
 			{Provider: "tinvest", AccountID: "broken", Kind: entity.SkipCannotBuild, Reason: "account unusable: root_ca is required"},
-			{Provider: "binance", AccountID: "young", Kind: entity.SkipShadowed, Reason: "another account for this provider is used first: old"},
 		},
 	}}
 	return store, src, until
@@ -98,7 +98,8 @@ func TestAccountHealthNamesEveryWayAnAccountGoesInert(t *testing.T) {
 
 	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_OK, got["ok"].State)
 	assert.Empty(t, got["ok"].Reasons)
-	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_OK, got["old"].State, "the account that shadows is the one in use")
+	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_OK, got["young"].State, "the key behind a spent one is the one in use")
+	assert.Empty(t, got["young"].Reasons)
 
 	dot := got["dot"]
 	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_DEGRADED, dot.State)
@@ -119,10 +120,10 @@ func TestAccountHealthNamesEveryWayAnAccountGoesInert(t *testing.T) {
 	require.Len(t, broken.Reasons, 1)
 	assert.Equal(t, apiv1.HealthReasonKind_HEALTH_REASON_KIND_CANNOT_BUILD, broken.Reasons[0].Kind)
 
-	young := got["young"]
-	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_UNUSABLE, young.State)
-	require.Len(t, young.Reasons, 1)
-	assert.Equal(t, apiv1.HealthReasonKind_HEALTH_REASON_KIND_SHADOWED, young.Reasons[0].Kind)
+	old := got["old"]
+	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_UNUSABLE, old.State, "a spent key is still spent, whatever serves after it")
+	require.Len(t, old.Reasons, 1)
+	assert.Equal(t, apiv1.HealthReasonKind_HEALTH_REASON_KIND_PROVIDER_PAUSED, old.Reasons[0].Kind)
 
 	assert.Equal(t, testUserID, src.asked)
 }
@@ -177,7 +178,9 @@ func TestAccountHealthNamesSharedSourcesBySlugOnly(t *testing.T) {
 	assert.NotContains(t, cg.Reasons[0].Message, "system-cg")
 
 	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_OK, got["moex"].State)
-	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_OK, got["binance"].State, "a shadowed duplicate does not make its provider unreachable")
+	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_OK, got["binance"].State, "a spent key with another behind it does not make its provider unusable")
+	assert.Empty(t, got["binance"].Reasons)
+	assert.Len(t, resp.Msg.Sources, 4, "one entry per provider, not per key")
 
 	tinvest := got["tinvest"]
 	require.NotNil(t, tinvest, "a provider every account of which was passed over is a missing source")
@@ -208,6 +211,32 @@ func TestAccountHealthPausedSourceMarksTheAccountServingIt(t *testing.T) {
 	require.Len(t, cg.Reasons, 1)
 	assert.Equal(t, apiv1.HealthReasonKind_HEALTH_REASON_KIND_PROVIDER_PAUSED, cg.Reasons[0].Kind)
 	assert.Equal(t, until, cg.Reasons[0].Until.AsTime())
+}
+
+// TestAccountHealthSourceWithEveryKeyPausedIsBackWithTheSoonest: the source
+// comes back when its first key does, so that is the deadline it names.
+func TestAccountHealthSourceWithEveryKeyPausedIsBackWithTheSoonest(t *testing.T) {
+	soon := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	late := soon.Add(24 * time.Hour)
+	store := newHealthStore()
+	store.On("ListAccounts", mock.Anything, mock.Anything).Return([]*entity.Account{}, "", nil)
+	store.On("ListSyncDeferrals", mock.Anything, testUserID, "").Return(nil, nil)
+	src := &fakeSourceHealth{report: &entity.PriceSourceReport{Sources: []entity.PriceSourceState{
+		{Provider: "coingecko", AccountID: "a", Unusable: true, Reason: "paused", Until: late},
+		{Provider: "coingecko", AccountID: "b", Unusable: true, Reason: "paused"},
+		{Provider: "coingecko", AccountID: "c", Unusable: true, Reason: "spent", Until: soon},
+	}}}
+
+	resp, err := newHandler(store).WithPriceSourceHealth(src).
+		GetAccountHealth(ctxWithUser(testUserID), connect.NewRequest(&apiv1.GetAccountHealthRequest{}))
+	require.NoError(t, err)
+
+	require.Len(t, resp.Msg.Sources, 1)
+	cg := resp.Msg.Sources[0]
+	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_UNUSABLE, cg.State)
+	require.Len(t, cg.Reasons, 1)
+	assert.Equal(t, soon, cg.Reasons[0].Until.AsTime())
+	assert.Contains(t, cg.Reasons[0].Message, "spent")
 }
 
 // TestAccountHealthWithoutSourceHealthSaysUnknown: a handler that cannot ask

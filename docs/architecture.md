@@ -705,6 +705,16 @@ undo the binding (`DeleteAssetExternalRef`).
   scoped accounts, while every manual fetch worked because it carried a user id. The startup line
   therefore names the accounts it **skipped** and why — a list of what worked cannot show an
   absence (`Resolver.Skipped`, `internal/service/credentials/resolver.go`).
+- **Accounts of one price provider are interchangeable keys.** `PriceProvidersFor` hands out an
+  ordered list per slug — own accounts, then shared, then the sole operator's; copies of one
+  `api_key` count once — and the sweep walks it: a key whose credential reports itself spent is
+  passed before anything is selected for it, and a fetch refused with `spend.ErrQuotaExhausted`
+  hands the same due assets to the next key, recording nothing against them. Any other failure is
+  the source's answer for the run. Before this the registry was one client per slug, so a second
+  CoinGecko account was dropped as "shadowed" while the first ran dry. A credential-free source
+  stands in only for a slug no account serves: queued behind an account it would bypass that
+  account's own limit. `GetAccountHealth` reports a source as one entry, `UNUSABLE` only when
+  every key is.
 - **An account can be stood down without being deleted** (`disabled_at`, personal-2cw0). Until
   then the only way to stop a provider was `DeleteAccount`, which takes the write-only credential
   with it. A disabled account keeps its key and holdings, but nothing uses it: the resolver drops

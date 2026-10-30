@@ -19,7 +19,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -31,10 +30,9 @@ import (
 	"github.com/foxcool/greedy-eye/internal/spend"
 )
 
-// ErrQuotaExhausted is returned instead of performing a request when the
-// credential's plan volume for the period is spent. Unlike a back-off, which
-// waits, this cannot be retried into success before the period rolls over.
-var ErrQuotaExhausted = errors.New("provider quota exhausted for the period")
+// ErrQuotaExhausted is spend.ErrQuotaExhausted, where service code, which
+// imports no adapter, can match it.
+var ErrQuotaExhausted = spend.ErrQuotaExhausted
 
 // QuotaPeriod is the window a plan's volume allowance resets on.
 type QuotaPeriod string

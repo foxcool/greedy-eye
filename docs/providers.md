@@ -46,11 +46,17 @@ Two things regularly trip this up:
   the mask is required, and an update whose mask omits `systemScopes` leaves the
   field untouched without complaining. Changing it needs the mask to name
   `systemScopes` (camelCase in JSON) *and* an admin caller.
-- When two accounts share a provider slug, the resolver takes the **first by
-  id**, and ids are UUIDv7 — so the oldest one wins. A key added to the newer
-  duplicate is silently ignored while an empty older account shadows it.
-  `GetAccountHealth` names the shadowed one; disabling the older account
-  (`update_mask: ["disabled"]`) hands over to the newer without deleting a key.
+- When two accounts share a provider slug, the resolver orders them **by id**,
+  and ids are UUIDv7 — so the oldest one comes first (the user's own before
+  shared ones). For **market data** every account is a key: when the first
+  one's plan is spent — before the sweep or during a fetch — the next one takes
+  over, so a second CoinGecko account extends the month instead of sitting
+  unused. Accounts holding the same key are one plan and count once. Only a
+  spent plan hands over: a key that fails for any other reason (revoked,
+  unpaid) keeps being asked first, and so does a keyless one, which has no
+  plan to run out of. Disabling it (`update_mask: ["disabled"]`) takes it out
+  of the order without deleting the key. Wallet readers have no such order —
+  see below.
 
 ## On-chain providers (`service` + `onchain_lookup`)
 
