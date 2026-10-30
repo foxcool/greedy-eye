@@ -9,9 +9,8 @@
 package marketdepth
 
 import (
-	"math"
-
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
+	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/shopspring/decimal"
 )
 
@@ -50,13 +49,6 @@ func Thin(p *apiv1.Price, rate decimal.Decimal) bool {
 		// market, and knowing nothing is not grounds for dropping the holding.
 		return false
 	}
-	volume := raw.Shift(-decI32(p.Decimals)).Mul(rate)
+	volume := raw.Shift(-entity.DecI32(p.Decimals)).Mul(rate)
 	return volume.LessThan(minVolume)
-}
-
-func decI32(d uint32) int32 {
-	if d > math.MaxInt32 {
-		return math.MaxInt32
-	}
-	return int32(d)
 }

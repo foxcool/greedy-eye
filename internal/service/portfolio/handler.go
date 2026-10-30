@@ -378,7 +378,7 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 			// by decision, not for lack of a quote, so it stays out of coverage.
 			excludedCount++
 			if priced.outcome == quoting.Priced {
-				excludedTotal = excludedTotal.Add(hld.Amount.Shift(-decI32(hld.Decimals)).Mul(priced.unit))
+				excludedTotal = excludedTotal.Add(hld.Amount.Shift(-entity.DecI32(hld.Decimals)).Mul(priced.unit))
 			}
 			continue
 		}
@@ -405,7 +405,7 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 		}
 
 		// value = (amount / 10^holding.Decimals) * unitPrice
-		holdingValue := hld.Amount.Shift(-decI32(hld.Decimals)).Mul(priced.unit)
+		holdingValue := hld.Amount.Shift(-entity.DecI32(hld.Decimals)).Mul(priced.unit)
 		total = total.Add(holdingValue)
 	}
 	if !oldestAmount.IsZero() {
@@ -665,7 +665,7 @@ func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Requ
 			continue
 		}
 
-		divisorCurrent := decimal.New(1, decI32(hld.Decimals)+decI32(latestPrice.Decimals))
+		divisorCurrent := decimal.New(1, entity.DecI32(hld.Decimals)+entity.DecI32(latestPrice.Decimals))
 		holdingCurrent := hld.Amount.
 			Mul(latestLast).
 			Div(divisorCurrent)
@@ -695,7 +695,7 @@ func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Requ
 			continue
 		}
 
-		divisorFrom := decimal.New(1, decI32(hld.Decimals)+decI32(fromPrice.Decimals))
+		divisorFrom := decimal.New(1, entity.DecI32(hld.Decimals)+entity.DecI32(fromPrice.Decimals))
 		holdingFrom := hld.Amount.
 			Mul(fromLast).
 			Div(divisorFrom)

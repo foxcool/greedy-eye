@@ -211,6 +211,12 @@ func TestParsePolicyDisplayCurrency(t *testing.T) {
 		assert.Equal(t, DefaultDisplayCurrency, Policy{}.QuoteAsset(),
 			"a zero policy must not resolve a quote asset to the empty string")
 	})
+
+	t.Run("an unset policy encodes the default, not an empty currency", func(t *testing.T) {
+		raw, err := Policy{}.Encode()
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"price_max_age":"48h0m0s","display_currency":"USD"}`, string(raw))
+	})
 }
 
 func TestQuotedAt(t *testing.T) {
