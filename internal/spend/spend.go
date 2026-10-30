@@ -8,6 +8,8 @@ package spend
 import (
 	"context"
 	"errors"
+	"strings"
+	"unicode/utf8"
 )
 
 // ErrQuotaExhausted is returned instead of performing a request when the
@@ -65,7 +67,25 @@ func WithCaller(ctx context.Context, name string) context.Context {
 	if outer, ok := ctx.Value(callerKey{}).(string); ok {
 		name = outer + "/" + name
 	}
-	return context.WithValue(ctx, callerKey{}, name)
+	return context.WithValue(ctx, callerKey{}, cleanCaller(name))
+}
+
+// maxCallerLen keeps a label far below what a Postgres index row can hold.
+const maxCallerLen = 200
+
+// cleanCaller makes any label storable. The caller is part of the usage row's
+// key, and a label the store refuses (invalid UTF-8, an oversized index row)
+// fails every retried flush with it — the label can arrive over the wire.
+func cleanCaller(name string) string {
+	name = strings.ToValidUTF8(name, "?")
+	if len(name) <= maxCallerLen {
+		return name
+	}
+	cut := maxCallerLen
+	for cut > 0 && !utf8.RuneStart(name[cut]) {
+		cut--
+	}
+	return name[:cut]
 }
 
 // CallerFromContext reports the caller carried by ctx, or Unlabelled.
