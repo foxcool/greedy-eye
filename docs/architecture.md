@@ -704,7 +704,10 @@ undo the binding (`DeleteAssetExternalRef`).
   2026-08-11..17 refreshed no crypto price for six days with binance sitting unscoped behind three
   scoped accounts, while every manual fetch worked because it carried a user id. The startup line
   therefore names the accounts it **skipped** and why — a list of what worked cannot show an
-  absence (`Resolver.Skipped`, `internal/service/credentials/resolver.go`).
+  absence (`Resolver.Skipped`, `internal/service/credentials/resolver.go`). For the same reason
+  one line names every registered provider, unresolved ones included, with where unattended work
+  gets it: keyless, system, operator, or per-account (`Resolver.Inventory`,
+  `internal/service/credentials/inventory.go`).
 - **An account can be stood down without being deleted** (`disabled_at`, personal-2cw0). Until
   then the only way to stop a provider was `DeleteAccount`, which takes the write-only credential
   with it. A disabled account keeps its key and holdings, but nothing uses it: the resolver drops

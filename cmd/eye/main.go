@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net/http"
 	"os"
 	"os/signal"
-	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -403,16 +401,24 @@ func healthPayload(ver string) ([]byte, error) {
 	})
 }
 
-// logProviderInventory logs, once at startup, which price sources unattended
-// work can reach and which it skipped. Credentials live in the database, so a
-// missing key would otherwise surface only as a silent sweep hours later.
+// logProviderInventory logs, once at startup, every provider with whether
+// unattended work resolves it and from which kind of account, then the price
+// accounts it skipped. Credentials live in the database, so a missing key
+// would otherwise surface only as a silent sweep hours later.
 // Resolved with no user in context: the scheduler's own view.
 func logProviderInventory(ctx context.Context, resolver *credentials.Resolver, log *slog.Logger) {
-	inventory, err := resolver.PriceInventoryFor(ctx, "")
+	inventory, err := resolver.Inventory(ctx)
 	if err != nil {
-		log.Error("could not take stock of price providers", slog.Any("error", err))
+		log.Error("could not take stock of providers", slog.Any("error", err))
 		return
 	}
+
+	// One line, so one boot's answer can be grepped and diffed against the next.
+	attrs := make([]any, 0, len(inventory.Providers))
+	for _, p := range inventory.Providers {
+		attrs = append(attrs, slog.String(p.Provider, p.String()))
+	}
+	log.Info("provider inventory without a user", slog.Group("providers", attrs...))
 
 	for _, s := range inventory.Skipped {
 		if s.Kind == entity.SkipDisabled {
@@ -427,13 +433,6 @@ func logProviderInventory(ctx context.Context, resolver *credentials.Resolver, l
 			slog.String("account_id", s.AccountID),
 			slog.String("reason", s.Reason))
 	}
-
-	slugs := slices.Sorted(maps.Keys(inventory.Providers))
-	if len(slugs) == 0 {
-		log.Warn("no price provider is reachable: unattended pricing will do nothing until an account carries a credential")
-		return
-	}
-	log.Info("price providers reachable without a user", slog.Any("providers", slugs))
 }
 
 // sweepWindow is how long the price job waits between runs, read off its own

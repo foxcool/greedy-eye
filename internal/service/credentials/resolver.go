@@ -429,6 +429,8 @@ type PriceInventory struct {
 	// Credential-free sources have no entry.
 	Serving map[string]string
 	Skipped []Skipped
+
+	servingAccounts map[string]*entity.Account
 }
 
 // PriceProvidersFor resolves the effective price provider registry for the
@@ -536,7 +538,7 @@ func (r *Resolver) PriceInventoryFor(ctx context.Context, userID string) (PriceI
 		servingIDs[slug] = a.ID
 	}
 
-	return PriceInventory{Providers: providers, Serving: servingIDs, Skipped: skipped}, nil
+	return PriceInventory{Providers: providers, Serving: servingIDs, Skipped: skipped, servingAccounts: serving}, nil
 }
 
 // ownedBy reports whether the account belongs to the user resolving it. With
