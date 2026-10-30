@@ -2548,7 +2548,9 @@ type FetchExternalPricesResponse struct {
 	// Sources this run selected nothing from, and why: "nothing_due",
 	// "all_deferred", "budget_exhausted", "contested" (every asset it could have
 	// priced carries a ticker another live asset also claims), "covered" (every
-	// due asset already has a fresh traded quote from another source), "unknown".
+	// due asset already has a fresh traded quote from another source),
+	// "not_configured" (source_ids named it, but the caller has no such
+	// provider), "unknown".
 	//
 	// Without it, prices_fetched=0 is the only thing an unattended sweep can say,
 	// and it means both "everything is current" and "the whole catalogue is

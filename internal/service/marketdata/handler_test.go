@@ -2448,6 +2448,35 @@ func TestFetchExternalPrices_NothingDueIsNamed(t *testing.T) {
 	assert.Equal(t, "nothing_due", resp.Msg.GetIdleSources()["fake"])
 }
 
+// A named source the caller has no provider for is answered by name: otherwise
+// the response is the same zero as a source that priced nothing, with no
+// reason attached.
+func TestFetchExternalPrices_UnconfiguredNamedSourceIsNamed(t *testing.T) {
+	s := &mockStore{}
+	p := &fakePriceProvider{}
+	h := newHandler(s).WithProvider("fake", p)
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{SourceIds: []string{"binance"}}))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"binance": "not_configured"}, resp.Msg.GetIdleSources())
+	assert.Zero(t, resp.Msg.GetPricesFetched())
+	assert.Empty(t, p.asked)
+}
+
+// Named assets that resolve to nothing end the request early; the unconfigured
+// source must still be named rather than vanish with the rest of the work.
+func TestFetchExternalPrices_UnconfiguredSourceSurvivesUnknownAssets(t *testing.T) {
+	s := &mockStore{}
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{}, "", nil)
+	h := newHandler(s).WithProvider("fake", &fakePriceProvider{})
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"missing"}, SourceIds: []string{"binance"}}))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"binance": "not_configured"}, resp.Msg.GetIdleSources())
+}
+
 // A sweep that found work reports no idle source at all — and pays nothing for
 // the explanation, which only the empty path asks for.
 func TestFetchExternalPrices_WorkingSweepReportsNoIdleSource(t *testing.T) {
