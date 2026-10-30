@@ -1448,6 +1448,18 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		backgroundIDs = uniqueIDs(req.Msg.AssetIds)
 	}
 
+	// Sources this run had nothing to ask, keyed by why. Reported so an
+	// unattended sweep can say "postponed" rather than only "zero".
+	idleSources := map[string]string{}
+	// The provider loop only visits configured sources and the named-asset path
+	// can return before it, so a named source without a provider is recorded
+	// first or it would vanish from the response.
+	for _, id := range req.Msg.SourceIds {
+		if _, ok := providers[id]; !ok {
+			idleSources[id] = string(outcomeNotConfigured)
+		}
+	}
+
 	// Reconciliation reads exactly the assets it names. Paging the catalogue and
 	// filtering in Go is both wasteful and lossy — the discarded page token used
 	// to cap the whole sweep at 500 assets.
@@ -1462,23 +1474,13 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			return nil, toConnectError(err)
 		}
 		if len(named) == 0 {
-			return connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil
+			return connect.NewResponse(&apiv1.FetchExternalPricesResponse{IdleSources: idleSources}), nil
 		}
 	}
 
 	var allPrices []*entity.StoredPrice
 	var fetchErrs []string
 	var totalFetched int
-	// Sources this run had nothing to ask, keyed by why. Reported so an
-	// unattended sweep can say "postponed" rather than only "zero".
-	idleSources := map[string]string{}
-	// The loop below only visits configured sources, so a named one without a
-	// provider would otherwise vanish from the response.
-	for _, id := range req.Msg.SourceIds {
-		if _, ok := providers[id]; !ok {
-			idleSources[id] = string(outcomeNotConfigured)
-		}
-	}
 	// Named assets background work left to the sweep, per source.
 	deferredAssets := map[string]int32{}
 	// Due assets a metered source skipped because another source covers them.
@@ -1958,7 +1960,8 @@ func (h *Handler) coveredElsewhere(ctx context.Context, sourceID string, now tim
 }
 
 // selectionOutcome says why a sweep selected what it did, so the log can tell
-// "nothing was due" from "everything is postponed".
+// "nothing was due" from "everything is postponed". not_configured is the one
+// outcome decided before selection: there was no source to select with.
 type selectionOutcome string
 
 const (
