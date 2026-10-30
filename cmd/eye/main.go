@@ -169,6 +169,7 @@ func run() error {
 	// the same reason: when the numbers stop moving, "is the fix even running"
 	// has to be answerable before "did it work".
 	log.Info("greedy-eye starting", slog.String("version", version))
+	log.LogAttrs(context.Background(), slog.LevelInfo, "active features", featureSnapshot(config, encryptor)...)
 
 	logProviderInventory(context.Background(), credResolver, log)
 
