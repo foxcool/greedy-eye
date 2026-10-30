@@ -5,7 +5,16 @@
 // Service code imports no adapter, so the label cannot live in one.
 package spend
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrQuotaExhausted is returned instead of performing a request when the
+// credential's plan volume for the period is spent. Unlike a back-off, which
+// waits, this cannot be retried into success before the period rolls over —
+// only another credential can carry the work.
+var ErrQuotaExhausted = errors.New("provider quota exhausted for the period")
 
 // Class marks how a request behaves when the credential's plan volume is
 // nearly spent.

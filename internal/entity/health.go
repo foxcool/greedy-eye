@@ -11,8 +11,6 @@ const (
 	SkipNoAdapter SkipKind = "no_adapter"
 	// SkipCannotBuild: a client could not be built from the account's data.
 	SkipCannotBuild SkipKind = "cannot_build"
-	// SkipShadowed: another account for the same provider is chosen first.
-	SkipShadowed SkipKind = "shadowed"
 	// SkipOperators: unattended work will not choose between several
 	// credential holders. Not about one account.
 	SkipOperators SkipKind = "operators"
@@ -30,12 +28,14 @@ type SkippedAccount struct {
 	Reason string
 }
 
-// PriceSourceState is one price source the resolver reached for a user, and
-// whether its credential can carry unattended work right now.
+// PriceSourceState is one key of a price source the resolver reached for a
+// user, and whether its credential can carry unattended work right now. A
+// provider with several accounts has one state per key, in the order they are
+// tried.
 type PriceSourceState struct {
 	Provider string
-	// AccountID is the account whose credential serves the source. Empty for
-	// a source that needs no credential.
+	// AccountID is the account whose credential this key is. Empty for a
+	// source that needs no credential.
 	AccountID string
 	Unusable  bool
 	Reason    string

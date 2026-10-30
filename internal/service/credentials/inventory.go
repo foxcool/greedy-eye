@@ -90,7 +90,7 @@ func (r *Resolver) Inventory(ctx context.Context) (Inventory, error) {
 		switch a, ok := prices.servingAccounts[slug]; {
 		case ok:
 			set(slug, RolePrice, originOf(a, entity.CapabilityMarketData))
-		case prices.Providers[slug] != nil:
+		case len(prices.Keys[slug]) > 0:
 			set(slug, RolePrice, OriginKeyless)
 		default:
 			set(slug, RolePrice, OriginUnresolved)

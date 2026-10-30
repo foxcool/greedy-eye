@@ -446,7 +446,8 @@ const (
 	HealthReasonKind_HEALTH_REASON_KIND_NO_ADAPTER HealthReasonKind = 1
 	// A client cannot be built from the account's data.
 	HealthReasonKind_HEALTH_REASON_KIND_CANNOT_BUILD HealthReasonKind = 2
-	// Another account for the same provider is used first; this one is never asked.
+	// No longer reported: every account of a provider is a key tried in order,
+	// and a spent one hands over to the next. Kept so the number is not reused.
 	HealthReasonKind_HEALTH_REASON_KIND_SHADOWED HealthReasonKind = 3
 	// The provider's plan is spent for unattended work, or it is pausing after
 	// refusals. until says when it may be asked again.
