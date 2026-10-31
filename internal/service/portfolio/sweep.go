@@ -95,6 +95,11 @@ func (o SweepOpts) withDefaults() SweepOpts {
 // cannot vouch for, whether the unit that failed is the whole account or a part
 // of it.
 type SweepReport struct {
+	// Every picked account lands in exactly one of Synced, Failed and Skipped;
+	// Partial is a subset of Synced. Without Skipped, an account that was picked
+	// and then not synced was in Picked and in nothing else, so the line could not
+	// be reconciled.
+	//
 	// Picked is how many accounts this run took, Stale how many were waiting,
 	// Deferred how many the sweep is holding back. The third is in neither of
 	// the first two — the selection and the count both exclude a standing-down
@@ -112,6 +117,7 @@ type SweepReport struct {
 	Synced           int // accounts whose sync returned
 	Failed           int // accounts whose sync errored, or that never got a turn
 	Partial          int // accounts that synced without speaking for every balance
+	Skipped          int // accounts picked and not synced: another sync held the claim, or the owner disabled them since
 	HoldingsUpserted int32
 	HoldingsZeroed   int32
 
@@ -280,11 +286,13 @@ func (h *Handler) sweepAccount(ctx context.Context, acct *entity.Account, report
 	if errors.Is(err, errAccountDisabled) {
 		// Disabled between selection and sync. Not a failure, and deferring it
 		// would file a schedule for an account the sweep no longer takes.
+		report.Skipped++
 		return
 	}
 	if errors.Is(err, errSyncInProgress) {
 		// Another sync holds the account and is about to land what this one
 		// would. Neither a failure nor a miss to back off from.
+		report.Skipped++
 		return
 	}
 	if err != nil {
@@ -382,6 +390,7 @@ func (h *Handler) LogSweepReport(report SweepReport, elapsed time.Duration) {
 		slog.Int("synced", report.Synced),
 		slog.Int("failed", report.Failed),
 		slog.Int("partial", report.Partial),
+		slog.Int("skipped", report.Skipped),
 		slog.Int("holdings_upserted", int(report.HoldingsUpserted)),
 		slog.Int("holdings_zeroed", int(report.HoldingsZeroed)),
 		slog.Duration("duration", elapsed))

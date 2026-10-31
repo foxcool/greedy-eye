@@ -400,3 +400,48 @@ func TestContractDisplaySymbol(t *testing.T) {
 		})
 	}
 }
+
+// TestSyncAccount_EmptySnapshotNamesItsCause: a provider that returned nothing
+// and one whose every balance was unidentifiable both leave an empty snapshot,
+// and both withhold removal. The message has to name which, because the fix for
+// one is on the provider side and for the other on the token side.
+func TestSyncAccount_EmptySnapshotNamesItsCause(t *testing.T) {
+	cases := []struct {
+		name        string
+		tokens      []entity.WalletBalance
+		wantSkipped int32
+		wantMsg     string
+		notMsg      string
+	}{
+		{
+			name:    "provider returned nothing",
+			tokens:  []entity.WalletBalance{},
+			wantMsg: "provider returned no positions",
+			notMsg:  "skipped",
+		},
+		{
+			name: "everything it returned was skipped",
+			tokens: []entity.WalletBalance{
+				{Amount: "5", Decimals: 18, Chain: "eth"},
+				{Amount: "7", Decimals: 18, Chain: "arbitrum"},
+			},
+			wantSkipped: 2,
+			wantMsg:     "2 skipped as unidentifiable",
+			notMsg:      "returned no positions",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			held := syncedRow("h-held", "asset-HELD", "eth", "1")
+			resp, s := unnamedTokenHarness(t, []*entity.Holding{held}, tc.tokens...)
+
+			assert.Equal(t, tc.wantSkipped, resp.PositionsSkipped)
+			assert.Zero(t, resp.HoldingsZeroed, "removal is withheld whatever emptied the snapshot")
+			require.Len(t, resp.Errors, 1)
+			assert.Contains(t, resp.Errors[0], tc.wantMsg)
+			assert.NotContains(t, resp.Errors[0], tc.notMsg)
+			assert.Contains(t, resp.Errors[0], "1 synced holding(s) left untouched")
+			s.AssertNotCalled(t, "UpdateHolding", mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
+}

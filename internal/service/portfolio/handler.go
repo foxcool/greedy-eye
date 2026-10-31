@@ -2446,11 +2446,19 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 	// where "gone" and "not answered" are impossible to tell apart, and reading
 	// it as an emptied account would wipe the whole snapshot in one sync. Say so
 	// instead: the rows survive, and the caller learns why they were left alone.
+	//
+	// An empty snapshot has two causes with the same remedy for the rows and
+	// different ones for the operator: the provider returned nothing, or all it
+	// returned was unidentifiable and counted in skipped. The message names which.
 	if complete && len(order) == 0 {
 		if untouched := countSyncWritten(existingHoldings); untouched > 0 {
 			complete = false
+			cause := "provider returned no positions"
+			if skipped > 0 {
+				cause = fmt.Sprintf("provider returned no identifiable positions (%d skipped as unidentifiable)", skipped)
+			}
 			syncErrors = append(syncErrors, fmt.Sprintf(
-				"provider returned no positions: %d synced holding(s) left untouched rather than zeroed", untouched))
+				"%s: %d synced holding(s) left untouched rather than zeroed", cause, untouched))
 		}
 	}
 

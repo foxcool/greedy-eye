@@ -1249,7 +1249,10 @@ somebody chose, since that would report one currency's number under another curr
     `SyncAccount` resolves wallet syncers and exchange credentials per user, so a user-agnostic
     sweep would reach only what an admin shared system-wide
   - Every run reports itself — accounts **stale**, **picked** and **deferred** as three separate
-    numbers, plus synced, failed, partial, holdings written and zeroed. Nobody reads a scheduled
+    numbers, plus synced, failed, skipped, partial, holdings written and zeroed. Every picked
+    account is in exactly one of synced, failed and skipped (partial is a subset of synced);
+    skipped is an account picked and then not synced because another sync held its claim or its
+    owner disabled it in between. Nobody reads a scheduled
     job's return value, so a silent failure would be indistinguishable from an account that was
     not due. Stale and picked were one number called "due" that reported the *limit*: "due 2" with
     twelve accounts stale is what let the starvation above read like a healthy sweep with little
