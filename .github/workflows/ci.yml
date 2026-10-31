@@ -19,7 +19,9 @@ jobs:
           go-version: stable
 
       - name: Check gofmt (covers build-tagged files)
-        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+        run: |
+          out="$(gofmt -l .)" || exit 1
+          if [ -n "$out" ]; then echo "gofmt drift (run gofmt -w):"; echo "$out"; exit 1; fi
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v8

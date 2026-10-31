@@ -135,7 +135,7 @@ vet:
 # gofmt ignores build tags, unlike golangci-lint, so this also covers the
 # integration and smoke files that the linter's formatter never loads.
 fmt-check:
-	@out="$$(gofmt -l .)"; if [ -n "$$out" ]; then echo "gofmt drift (run gofmt -w):"; echo "$$out"; exit 1; fi
+	@out="$$(gofmt -l .)" || exit 1; if [ -n "$$out" ]; then echo "gofmt drift (run gofmt -w):"; echo "$$out"; exit 1; fi
 
 # Run golangci-lint via Docker (matches CI)
 lint: fmt-check
