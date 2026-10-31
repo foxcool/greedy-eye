@@ -137,9 +137,13 @@ vet:
 fmt-check:
 	@out="$$(gofmt -l .)" || exit 1; if [ -n "$$out" ]; then echo "gofmt drift (run gofmt -w):"; echo "$$out"; exit 1; fi
 
-# Run golangci-lint via Docker (matches CI)
+# Run golangci-lint via Docker (matches CI). Build tags come from .golangci.yml.
+# Modules live in a named volume, not the host GOMODCACHE: runs after the first
+# download nothing, and the container cannot write into the host's cache.
+LINT_MODCACHE ?= greedy-eye-lint-gomod
+
 lint: fmt-check
-	docker run --rm -v $(PWD):/app -w /app golangci/golangci-lint:latest golangci-lint run -v
+	docker run --rm -v $(PWD):/app -v $(LINT_MODCACHE):/go/pkg/mod -w /app golangci/golangci-lint:latest golangci-lint run -v
 
 # Pre-commit check: vet + lint + unit tests
 check: vet lint test-unit
