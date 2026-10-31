@@ -23,10 +23,14 @@ jobs:
           out="$(gofmt -l .)" || exit 1
           if [ -n "$out" ]; then echo "gofmt drift (run gofmt -w):"; echo "$out"; exit 1; fi
 
+      - name: Check build tags are linted (run.build-tags)
+        run: go run ./internal/tools/tagcheck
+
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          # Must move together with GOLANGCI_LINT_VERSION in the Makefile.
+          version: v2.15.0
 
   unit-tests:
     name: Run unit tests

@@ -19,6 +19,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -246,6 +247,8 @@ type Registry struct {
 	usage     UsageStore
 	now       func() time.Time
 	log       *slog.Logger
+	// flushEvery is flushInterval; tests shorten it to catch a flush in flight.
+	flushEvery time.Duration
 
 	mu      sync.Mutex
 	buckets map[string]*bucket
@@ -257,9 +260,16 @@ type Registry struct {
 	loaded map[string]Usage
 	// unflushed is spend a failed write handed back, for the next flush.
 	unflushed []Usage
+	// inflight is what the running write took and has not settled. A write
+	// can hang past Stop's deadline, and the loss line must still name it.
+	inflight []Usage
 
-	stop chan struct{}
-	done chan struct{}
+	// flushing admits one write at a time, so inflight is one write's.
+	flushing chan struct{}
+
+	stop       chan struct{}
+	done       chan struct{}
+	cancelLoop context.CancelFunc
 }
 
 // Option configures a Registry.
@@ -281,11 +291,13 @@ func WithClock(now func() time.Time) Option {
 // dial a provider down (or up, on a paid plan) without a rebuild.
 func NewRegistry(overrides map[string]Limit, opts ...Option) *Registry {
 	r := &Registry{
-		overrides: overrides,
-		now:       time.Now,
-		log:       slog.Default(),
-		buckets:   make(map[string]*bucket),
-		loaded:    make(map[string]Usage),
+		overrides:  overrides,
+		now:        time.Now,
+		log:        slog.Default(),
+		flushEvery: flushInterval,
+		flushing:   make(chan struct{}, 1),
+		buckets:    make(map[string]*bucket),
+		loaded:     make(map[string]Usage),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -319,36 +331,142 @@ func (r *Registry) Start(ctx context.Context) error {
 	r.stop = make(chan struct{})
 	r.done = make(chan struct{})
 	// ctx is the process lifetime, not the startup load's: the flush loop
-	// outlives this call and each flush takes its own timeout from it.
-	go r.flushLoop(ctx)
+	// outlives this call and each flush takes its own timeout from it. Stop
+	// cancels it to hold a write in flight to Stop's own deadline.
+	loopCtx, cancel := context.WithCancel(ctx)
+	r.cancelLoop = cancel
+	go r.flushLoop(loopCtx, r.stop)
 	return nil
 }
 
-// Stop ends the flush loop and writes what is still pending.
+// Stop's retry pauses: the first one, doubling up to the second.
+const (
+	finalFlushBackoff    = 200 * time.Millisecond
+	finalFlushBackoffMax = 2 * time.Second
+)
+
+// Stop ends the flush loop and writes what is still pending. Nothing ticks
+// after the process exits, so a failed final write is retried with backoff, and
+// spend reserved while a write was in flight is written after it, until ctx
+// ends; spend still unwritten then is logged once with its amount, since that
+// line is all that remains of it. A periodic write in flight is held to ctx's
+// deadline too. ctx must carry a deadline: without one a store that never
+// recovers holds the shutdown forever.
 func (r *Registry) Stop(ctx context.Context) error {
 	if r == nil || r.stop == nil {
 		return nil
 	}
 	close(r.stop)
-	<-r.done
 	r.stop = nil
-	return r.Flush(ctx)
+	defer r.cancelLoop()
+	unbind := context.AfterFunc(ctx, r.cancelLoop)
+	defer unbind()
+	select {
+	case <-r.done:
+	case <-ctx.Done():
+		// A store that ignores cancellation keeps the write; its spend is
+		// in inflight, so the loss line still names it. Cancel first: a tick
+		// after the line must not write what it called lost.
+		r.cancelLoop()
+		r.logLost()
+		return ctx.Err()
+	}
+
+	wait := finalFlushBackoff
+	for {
+		err := r.Flush(ctx)
+		if err == nil {
+			if !r.hasPending() {
+				return nil
+			}
+			// Spend reserved while that write was in flight.
+			if ctx.Err() == nil {
+				continue
+			}
+			r.logLost()
+			return ctx.Err()
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			r.logLost()
+			return err
+		case <-timer.C:
+		}
+		wait = min(wait*2, finalFlushBackoffMax)
+	}
 }
 
-func (r *Registry) flushLoop(ctx context.Context) {
+// logLost reports the spend the store never accepted: what failed writes handed
+// back, what a write still in flight carries (it may yet land: in_flight says how
+// much is unsure), and what was reserved since the last attempt.
+func (r *Registry) logLost() {
+	r.mu.Lock()
+	unwritten := r.unflushed
+	for _, b := range r.buckets {
+		unwritten = append(unwritten, b.takePending()...)
+	}
+	r.unflushed = mergeUsage(unwritten)
+	// The write in flight still owns its spend (settle files it), so it is
+	// reported here but not handed back: a late settle would hold it twice.
+	lost := mergeUsage(append(append([]Usage(nil), r.unflushed...), r.inflight...))
+	var inflight int64
+	for _, u := range r.inflight {
+		inflight += u.Requests
+	}
+	r.mu.Unlock()
+
+	var requests, backoffs int64
+	rows := make([]string, 0, len(lost))
+	for _, u := range lost {
+		requests += u.Requests
+		backoffs += u.Backoffs
+		rows = append(rows, fmt.Sprintf("%s/%s/%s/%q:+%d", u.Provider, u.Fingerprint,
+			u.PeriodStart.UTC().Format(time.RFC3339), u.Caller, u.Requests))
+	}
+	r.log.Error("Provider usage lost: the store did not accept it before shutdown",
+		slog.Int64("requests", requests), slog.Int64("backoffs", backoffs),
+		slog.Int64("in_flight", inflight), slog.Any("rows", rows))
+}
+
+// hasPending reports spend not yet written: reserved since the last flush, or
+// handed back by a failed one.
+func (r *Registry) hasPending() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.unflushed) > 0 {
+		return true
+	}
+	for _, b := range r.buckets {
+		if b.hasPending() {
+			return true
+		}
+	}
+	return false
+}
+
+// flushLoop is handed stop rather than reading r.stop: Stop clears r.stop
+// while the loop may still be finishing a write.
+func (r *Registry) flushLoop(ctx context.Context, stop <-chan struct{}) {
 	defer close(r.done)
-	ticker := time.NewTicker(flushInterval)
+	ticker := time.NewTicker(r.flushEvery)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-r.stop:
+		case <-stop:
 			return
 		case <-ctx.Done():
 			// The lifetime this registry was started for is over. Stop still
 			// writes what is pending, under a context of its own.
 			return
 		case <-ticker.C:
+			// select picks at random among ready cases: a tick queued behind a
+			// write that outlived Stop must not write what Stop reported lost.
+			if ctx.Err() != nil {
+				return
+			}
 			r.flushOnce(ctx)
 		}
 	}
@@ -372,27 +490,108 @@ func (r *Registry) Flush(ctx context.Context) error {
 		return nil
 	}
 
+	select {
+	case r.flushing <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-r.flushing }()
+
 	r.mu.Lock()
 	deltas := r.unflushed
 	r.unflushed = nil
 	for _, b := range r.buckets {
 		deltas = append(deltas, b.takePending()...)
 	}
-	r.mu.Unlock()
-
 	// A retried delta and new spend of the same caller must be one row: an
 	// upsert that touches a row twice in one statement is refused.
 	deltas = mergeUsage(deltas)
+	r.inflight = deltas
+	r.mu.Unlock()
+
 	if len(deltas) == 0 {
 		return nil
 	}
-	if err := r.usage.AddUsage(ctx, deltas); err != nil {
-		r.mu.Lock()
-		r.unflushed = append(r.unflushed, deltas...)
-		r.mu.Unlock()
+	err := r.usage.AddUsage(ctx, deltas)
+	if err == nil {
+		r.settle(nil)
+		return nil
+	}
+	if len(deltas) == 1 || ctx.Err() != nil {
+		r.settle(deltas)
 		return err
 	}
-	return nil
+	return r.isolate(ctx, deltas, err)
+}
+
+// settle ends the write in flight and hands what it could not write back for
+// the next flush, in one step, so a loss line drawn at any moment finds the
+// spend in one place or the other, never in both or neither. A write that
+// settles after Stop's loss line was drawn is past that line: nothing flushes
+// or reports again.
+func (r *Registry) settle(kept []Usage) {
+	r.mu.Lock()
+	r.inflight = nil
+	r.unflushed = append(r.unflushed, kept...)
+	r.mu.Unlock()
+}
+
+// isolate retries a failed batch row by row. A row the store rejects for good
+// would otherwise sit in every later statement and stop all spend from landing.
+// Each row is its own atomic write, so nothing is applied twice.
+//
+// A row is blamed only when another one landed in the same pass: the store is
+// then known to work, and the failure is the row's. When nothing lands the store
+// is down, which one error for the batch says better than one per row. Failed
+// rows are kept, never dropped: an under-reported period is the failure this
+// package exists to prevent, and merging keeps what is held to one row per key.
+func (r *Registry) isolate(ctx context.Context, deltas []Usage, batchErr error) error {
+	type rejected struct {
+		delta Usage
+		err   error
+	}
+	var (
+		landed  int
+		bad     []rejected
+		kept    []Usage
+		rowErrs []error
+	)
+	for i, d := range deltas {
+		err := ctx.Err()
+		if err == nil {
+			if err = r.usage.AddUsage(ctx, []Usage{d}); err == nil {
+				landed++
+				continue
+			}
+			if ctx.Err() == nil {
+				bad = append(bad, rejected{d, err})
+				kept = append(kept, d)
+				rowErrs = append(rowErrs, err)
+				continue
+			}
+		}
+		// Out of time, which is not the row's fault: it and the rows never
+		// tried are kept unblamed, for the next flush or Stop's loss line.
+		kept = append(kept, deltas[i:]...)
+		rowErrs = append(rowErrs, err)
+		break
+	}
+	r.settle(kept)
+
+	if landed == 0 {
+		return batchErr
+	}
+	for _, b := range bad {
+		r.log.Error("Provider usage row could not be written, keeping it",
+			slog.String("provider", b.delta.Provider),
+			slog.String("key_fingerprint", b.delta.Fingerprint),
+			slog.String("period_start", b.delta.PeriodStart.UTC().Format(time.RFC3339)),
+			slog.String("caller", b.delta.Caller),
+			slog.Int64("requests", b.delta.Requests),
+			slog.Int64("backoffs", b.delta.Backoffs),
+			slog.Any("error", b.err))
+	}
+	return errors.Join(rowErrs...)
 }
 
 // mergeUsage sums deltas that land on the same stored row, keeping first-seen
@@ -868,6 +1067,12 @@ func (b *bucket) noteRejected(status int, until time.Time) {
 	b.streak = 0
 	b.rejectedUntil = until
 	b.rejectedStatus = status
+}
+
+func (b *bucket) hasPending() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.pending) > 0
 }
 
 // takePending returns and clears the spend the store has not seen, one delta

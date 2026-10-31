@@ -11,6 +11,19 @@ import (
 // the whole set can be handed to one transaction: a sync rewrites a snapshot,
 // and half a snapshot is not a smaller truth, it is a wrong one.
 type HoldingWriter interface {
+	// LockAccountPortfolio returns the account's portfolio and holds it until
+	// the transaction ends. A new holding stamped with an account's portfolio
+	// takes the value from here, never from a read made before the
+	// transaction: that one can be a move out of date, and the holding would
+	// stay behind in the portfolio the account left.
+	//
+	// The read is FOR SHARE, which conflicts with the FOR NO KEY UPDATE a move
+	// takes (the KEY SHARE of an insert's foreign-key check does not). So
+	// either this write commits first and the move's holdings UPDATE, a new
+	// statement under READ COMMITTED, carries its rows; or it waits for the
+	// move and reads the portfolio the move wrote. Call it first in the
+	// transaction, before any holding is locked, so the two cannot deadlock.
+	LockAccountPortfolio(ctx context.Context, accountID string) (string, error)
 	CreateHolding(ctx context.Context, h *entity.Holding) (*entity.Holding, error)
 	UpdateHolding(ctx context.Context, h *entity.Holding, fields []string) (*entity.Holding, error)
 }

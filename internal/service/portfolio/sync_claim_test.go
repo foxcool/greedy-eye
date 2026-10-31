@@ -15,6 +15,7 @@ import (
 
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/store"
 )
 
 // readingSyncer answers each call with the next reading in line. The first
@@ -228,4 +229,37 @@ func TestSyncDueAccounts_EveryPickedAccountIsAccountedFor(t *testing.T) {
 	assert.Zero(t, report.Failed)
 	assert.Equal(t, 2, report.Skipped, "the held claim and the mid-sweep disable are named, not lost")
 	assert.Equal(t, report.Picked, report.Synced+report.Failed+report.Skipped)
+}
+
+// TestWritesStopWhenTheAccountPortfolioCannotBeLocked: a sync or import that
+// cannot read the account's portfolio inside its write must not create a
+// holding stamped with a guess.
+func TestWritesStopWhenTheAccountPortfolioCannotBeLocked(t *testing.T) {
+	t.Run("sync", func(t *testing.T) {
+		syncer := newReadingSyncer("100")
+		close(syncer.release)
+		h, s, written := claimFixture(t, syncer)
+		s.lockErr = store.ErrNotFound
+
+		_, err := h.SyncAccount(ctxWithUser(testUserID), syncReq())
+		require.ErrorIs(t, err, store.ErrNotFound)
+		assert.Empty(t, written())
+	})
+	t.Run("import", func(t *testing.T) {
+		s := &mockStore{lockErr: store.ErrNotFound}
+		s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
+		s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+		md := &mockMDClient{}
+		md.On("FindOrCreateAsset", mock.Anything, mock.Anything).
+			Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: &apiv1.Asset{Id: testAssetID}}), nil)
+
+		resp, err := newHandler(s).WithMarketDataClient(md).ImportPositions(ctxWithUser(testUserID),
+			connect.NewRequest(&apiv1.ImportPositionsRequest{
+				AccountId: testAccountID,
+				Positions: []*apiv1.ImportPositionItem{{Symbol: "DOT", Amount: "5"}},
+			}))
+		require.NoError(t, err)
+		assert.Equal(t, int32(1), resp.Msg.Failed)
+		s.AssertNotCalled(t, "CreateHolding", mock.Anything, mock.Anything)
+	})
 }

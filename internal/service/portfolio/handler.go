@@ -1057,7 +1057,7 @@ func (h *Handler) CreateAccount(ctx context.Context, req *connect.Request[apiv1.
 	account := accountFromProto(req.Msg.Account)
 	account.UserID = user.ID
 	// An account is born active. Standing it down is a later act with its own
-	// checks (standDown); the INSERT does not write the flag, so accepting it
+	// checks (checkStandDown); the INSERT does not write the flag, so accepting it
 	// here would answer with a state the row does not hold.
 	account.DisabledAt = nil
 	for k, v := range account.Data {
@@ -1122,8 +1122,13 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 	}
 
 	account := accountFromProto(req.Msg.Account)
+	// Every check the handler can make runs before the first write, so a
+	// request refused here changes nothing — the sweep's schedule included.
+	// Two refusals still come later: a failed secret rotation, and the store's
+	// broker-identity index, which answers only as the row is written.
+	var flagMoves bool
 	if slices.Contains(fields, "disabled") || slices.Contains(fields, "type") {
-		if err := h.standDown(ctx, existing, account, fields); err != nil {
+		if flagMoves, err = checkStandDown(existing, account, fields); err != nil {
 			return nil, err
 		}
 	}
@@ -1143,6 +1148,22 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 			return nil, err
 		}
 	}
+	// The store runs the capability invariant too, but only as it writes the
+	// row — after the deferral and the secret copies below have moved.
+	if err := checkMergedCapabilities(existing, account, fields); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	if flagMoves {
+		// Cleared before the row is written: if the write then fails, the
+		// account has lost a deferral it would rebuild on its next miss, not
+		// kept one that contradicts its new state. The owner's id, not the
+		// caller's: an admin may change somebody else's account, and the
+		// deferral is filed under the owner.
+		if _, err := h.store.ClearSyncDeferrals(ctx, existing.UserID, []string{existing.ID}); err != nil {
+			return nil, toConnectError(err)
+		}
+	}
 	var rotated, stale []string
 	if slices.Contains(fields, "data") {
 		// The copies of the old secret are carried BEFORE this row is written.
@@ -1151,13 +1172,6 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 		// reports success over the copy still sending the old credential. This
 		// way the row keeps the old value until every copy has the new one, so
 		// a retry finds the stragglers again — and the error names them.
-		//
-		// So everything that can still refuse this row is asked first: the
-		// capability invariant otherwise lives only in the store write, and a
-		// request it rejects must not have moved another account's secret.
-		if err := checkMergedCapabilities(existing, account, fields); err != nil {
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
-		}
 		rotated, stale, err = h.rotateCopiedSecrets(ctx, existing, account.Data)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf(
@@ -1185,23 +1199,20 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 	return connect.NewResponse(accountToProto(updated)), nil
 }
 
-// standDown checks a write that touches the disabled flag or the type, and
-// clears the balance sweep's deferral of the account when the flag moves.
+// checkStandDown checks a write that touches the disabled flag or the type,
+// and reports whether the flag moves — the caller then clears the balance
+// sweep's deferral of the account.
 //
 // A disabled manual account is refused however it would come about — by
 // disabling a manual account, or by turning a disabled one manual with the
 // flag left out of the mask: nothing external reads a manual account, so the
-// flag would change nothing while looking like an action. The deferral goes in both
-// directions. Re-enabling is what an owner does after changing something —
+// flag would change nothing while looking like an action. The deferral goes in
+// both directions. Re-enabling is what an owner does after changing something —
 // often the key itself — and an account held back for misses its old key
 // earned should be tried at once. Disabling drops a schedule for an account the
 // sweep will no longer take, which would otherwise sit in GetSweepSchedule as
 // "deferred" with nothing behind it.
-//
-// Cleared before the row is written: if the write then fails, the account has
-// lost a deferral it would rebuild on its next miss, not kept one that
-// contradicts its new state.
-func (h *Handler) standDown(ctx context.Context, existing, account *entity.Account, fields []string) error {
+func checkStandDown(existing, account *entity.Account, fields []string) (bool, error) {
 	accountType, disabled := existing.Type, existing.Disabled()
 	if slices.Contains(fields, "type") {
 		accountType = account.Type
@@ -1210,18 +1221,10 @@ func (h *Handler) standDown(ctx context.Context, existing, account *entity.Accou
 		disabled = account.Disabled()
 	}
 	if accountType == entity.AccountTypeManual && disabled {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New(
+		return false, connect.NewError(connect.CodeInvalidArgument, errors.New(
 			"a manual account cannot be disabled: no provider reads it, so there is nothing to stand down"))
 	}
-	if disabled == existing.Disabled() {
-		return nil
-	}
-	// The owner's id, not the caller's: an admin may change somebody else's
-	// account, and the deferral is filed under the owner.
-	if _, err := h.store.ClearSyncDeferrals(ctx, existing.UserID, []string{existing.ID}); err != nil {
-		return toConnectError(err)
-	}
-	return nil
+	return disabled != existing.Disabled(), nil
 }
 
 // errAccountDisabled marks a sync refused because the owner stood the account
@@ -2471,18 +2474,17 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 	// collected into syncErrors: the account keeps the snapshot it had, which
 	// is coherent, rather than a mix of two syncs.
 	plan := writePlan{
-		order:              order,
-		byPosition:         byPosition,
-		holdingByPosition:  holdingByPosition,
-		legacyByAsset:      legacyByAsset,
-		existing:           existingHoldings,
-		zeroVanished:       complete,
-		confirmedZero:      confirmedZero,
-		failedChains:       scope.chains,
-		withheld:           withheld,
-		partial:            len(scope.chains) > 0 || len(scope.refused) > 0,
-		accountID:          account.ID,
-		defaultPortfolioID: account.PortfolioID,
+		order:             order,
+		byPosition:        byPosition,
+		holdingByPosition: holdingByPosition,
+		legacyByAsset:     legacyByAsset,
+		existing:          existingHoldings,
+		zeroVanished:      complete,
+		confirmedZero:     confirmedZero,
+		failedChains:      scope.chains,
+		withheld:          withheld,
+		partial:           len(scope.chains) > 0 || len(scope.refused) > 0,
+		accountID:         account.ID,
 	}
 	result := syncResult{assetsUpserted: assetsUpserted, skipped: skipped, syncErrors: syncErrors}
 	var released int32
@@ -2605,9 +2607,8 @@ type writePlan struct {
 	withheld     map[assetChain]bool
 	// partial says some failure was scoped. A row with no chain cannot be
 	// matched to a failed chain or a refused contract, so it is withheld then.
-	partial            bool
-	accountID          string
-	defaultPortfolioID string
+	partial   bool
+	accountID string
 }
 
 // writtenSnapshot is what one transactional write of a snapshot produced.
@@ -2638,6 +2639,12 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 	refreshed := make(map[string]struct{}, len(plan.existing))
 	// One instant per snapshot: it is one observation of the account.
 	syncedAt := time.Now()
+
+	// First: see HoldingWriter.LockAccountPortfolio.
+	portfolioID, err := w.LockAccountPortfolio(ctx, plan.accountID)
+	if err != nil {
+		return writtenSnapshot{}, err
+	}
 
 	for _, key := range plan.order {
 		entry := plan.byPosition[key]
@@ -2696,7 +2703,7 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 			}
 			refreshed[existing.ID] = struct{}{}
 		} else {
-			// Create new holding; inherit account's default portfolio if configured.
+			// Create new holding in the account's portfolio as of this transaction.
 			// A scam/impersonation verdict on the asset excludes the new holding
 			// from the sums; the position still syncs (no frozen holding), it is
 			// just quarantined. An existing holding's excluded flag is left alone
@@ -2704,7 +2711,7 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 			_, err := w.CreateHolding(ctx, &entity.Holding{
 				AssetID:     assetID,
 				AccountID:   plan.accountID,
-				PortfolioID: plan.defaultPortfolioID,
+				PortfolioID: portfolioID,
 				Amount:      amount,
 				Decimals:    decimals,
 				Chain:       key.chain,
