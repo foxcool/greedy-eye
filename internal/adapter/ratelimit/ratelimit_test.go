@@ -757,9 +757,14 @@ func TestRejectedKeyIsUnusableUntilItIsAnswered(t *testing.T) {
 	_, unusable = reg.Budget(cred).Unusable()
 	assert.False(t, unusable, "an accepted request clears the rejection")
 
-	// No key, no credential to reject: a feed answering 403 to an unnamed
-	// client is refusing the client, not a key.
+	// A 403 is a host or firewall block, which every key meets alike.
 	status.Store(http.StatusForbidden)
+	get()
+	_, unusable = reg.Budget(cred).Unusable()
+	assert.False(t, unusable, "a block is not a dead key")
+
+	// No key, no credential to reject.
+	status.Store(http.StatusUnauthorized)
 	keyless := Credential{Provider: "test"}
 	client = &http.Client{Transport: reg.Transport(keyless, nil)}
 	get()

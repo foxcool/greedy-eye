@@ -383,8 +383,8 @@ func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, 
 	return result, errors.Join(errs...)
 }
 
-// statusError describes a non-OK answer. A keyed request refused with 401 or
-// 403 wraps spend.ErrCredentialRejected, so a caller holding another key can
+// statusError describes a non-OK answer. A keyed request refused with 401
+// wraps spend.ErrCredentialRejected, so a caller holding another key can
 // tell a dead key from an outage; without a key there is none to reject.
 func (c *Client) statusError(status int) error {
 	if c.apiKey != "" && spend.RejectsCredential(status) {

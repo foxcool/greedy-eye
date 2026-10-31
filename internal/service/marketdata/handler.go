@@ -1617,17 +1617,17 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		// the background share, and the request may well be somebody checking
 		// whether the provider is back. Background work naming its assets is
 		// not that path, and is skipped like the sweep.
-		done := pricedBefore[name]
+		pricedEarlier := pricedBefore[name]
 		if hp, ok := provider.(HealthReportingProvider); ok && named == nil {
 			if reason, unusable := hp.Unusable(); unusable {
 				h.log.Info("price sweep: provider skipped", "provider", name, "key", k.index, "reason", reason)
-				if k.last && len(done) == 0 {
+				if k.last && len(pricedEarlier) == 0 {
 					// Every key of the source was tried and none can carry work:
 					// that is the source's answer, and without it the source
 					// vanishes from the response like an unconfigured one did.
 					idleSources[name] = string(outcomeUnusable) + ": " + reason
 				}
-				if left := len(backgroundIDs) - len(done); k.last && backgroundIDs != nil && left > 0 {
+				if left := len(backgroundIDs) - len(pricedEarlier); k.last && backgroundIDs != nil && left > 0 {
 					deferredAssets[name] = int32(left) // #nosec G115 -- bounded by request size
 				}
 				if msg := refusedMidFetch[name]; k.last && msg != "" {
@@ -1637,7 +1637,10 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			}
 		}
 		answered[name] = true
-		// A previous key's counts describe work it never finished.
+		// A previous key's counts describe work it never finished. Its refusal
+		// is kept aside: if this key asks nothing, it is still the source's
+		// answer for what the refused key left.
+		pendingRefusal := refusedMidFetch[name]
 		delete(refusedMidFetch, name)
 		delete(deferredAssets, name)
 		delete(coveredAssets, name)
@@ -1669,7 +1672,7 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			// in covered_assets instead.
 			// What an earlier key priced this run is not left over, whether
 			// or not this key's selection still holds it.
-			if left := len(backgroundIDs) - len(assets) - coveredCount - len(notIn(done, assets)); left > 0 {
+			if left := len(backgroundIDs) - len(assets) - coveredCount - len(notIn(pricedEarlier, assets)); left > 0 {
 				deferredAssets[name] = int32(left) // #nosec G115 -- bounded by request size
 				h.log.Info("price fetch: named assets left to the sweep",
 					"provider", name, "named", len(backgroundIDs), "asked", len(assets), "deferred", left)
@@ -1689,14 +1692,19 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			}
 			h.log.Info("price sweep: nothing selected",
 				"provider", name, "reason", string(outcome), "soonest_due", deferredUntil)
-			if len(done) == 0 {
+			if len(pricedEarlier) == 0 {
 				idleSources[name] = string(outcome)
+			} else if pendingRefusal != "" {
+				fetchErrs = append(fetchErrs, pendingRefusal)
 			}
 			continue
 		}
-		if len(done) > 0 {
+		if len(pricedEarlier) > 0 {
 			// Priced by a key refused mid-fetch; asking again would pay twice.
-			if assets = notIn(assets, done); len(assets) == 0 {
+			if assets = notIn(assets, pricedEarlier); len(assets) == 0 {
+				if pendingRefusal != "" {
+					fetchErrs = append(fetchErrs, pendingRefusal)
+				}
 				continue
 			}
 		}

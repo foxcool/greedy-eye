@@ -2697,7 +2697,8 @@ func TestFetchExternalPrices_PartialRefusalBeforeSpentKeysIsKept(t *testing.T) {
 }
 
 // A key that selects nothing after an earlier one priced part of the run does
-// not make the source idle: it contributed.
+// not make the source idle: it contributed. The refusal still stands for what
+// the refused key left, since this key asked for none of it.
 func TestFetchExternalPrices_NothingLeftAfterRefusalIsNotIdle(t *testing.T) {
 	s := &mockStore{}
 	expectBaseAsset(s)
@@ -2719,6 +2720,8 @@ func TestFetchExternalPrices_NothingLeftAfterRefusalIsNotIdle(t *testing.T) {
 	assert.Empty(t, second.asked)
 	assert.Equal(t, []string{"a1"}, storedIDs(s))
 	assert.Empty(t, resp.Msg.IdleSources)
+	require.Len(t, resp.Msg.Errors, 1, "what the refused key left is still reported")
+	assert.Contains(t, resp.Msg.Errors[0], "1 of 2 assets left unpriced")
 }
 
 // Background work naming its assets: what the refused key priced is fresh, so

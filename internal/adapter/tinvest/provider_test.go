@@ -3,6 +3,7 @@ package tinvest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -733,7 +734,7 @@ func TestFetchPricesRefusalInALaterBatchIsReported(t *testing.T) {
 // A revoked token is the provider refusing the credential, which a caller with
 // another token acts on; it must be told apart from any other failure.
 func TestFetchPricesRejectedTokenIsTyped(t *testing.T) {
-	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+	for status, rejected := range map[int]bool{http.StatusUnauthorized: true, http.StatusForbidden: false} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(status)
@@ -744,7 +745,8 @@ func TestFetchPricesRejectedTokenIsTyped(t *testing.T) {
 			require.NoError(t, err)
 
 			_, err = NewProvider(c).FetchPrices(context.Background(), pricedAAPLThenMore())
-			require.ErrorIs(t, err, spend.ErrCredentialRejected)
+			require.Error(t, err)
+			assert.Equal(t, rejected, errors.Is(err, spend.ErrCredentialRejected))
 		})
 	}
 }

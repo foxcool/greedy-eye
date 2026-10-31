@@ -402,32 +402,28 @@ func TestFetchPrices_ContractRefusalMidBatchIsReported(t *testing.T) {
 	assert.Equal(t, 2, rt.seen, "no batch is sent after the refusal")
 }
 
-// TestFetchPrices_RejectedKeyIsTyped: a 401 or 403 is the provider refusing the
-// key, which a caller holding another key acts on; it must be told apart from
-// any other status.
+// TestFetchPrices_RejectedKeyIsTyped: a 401 is the provider refusing the key,
+// which a caller holding another key acts on; it must be told apart from any
+// other status. A 403 is CoinGecko blocking the host, which every key meets.
 func TestFetchPrices_RejectedKeyIsTyped(t *testing.T) {
-	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
-		t.Run(fmt.Sprint(status), func(t *testing.T) {
-			p := serveProvider(t, func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(status)
-			})
-
-			_, err := p.FetchPrices(context.Background(), []*entity.Asset{
-				{ID: "btc", Symbol: "BTC", Market: entity.MarketCrypto},
-			})
-			require.ErrorIs(t, err, spend.ErrCredentialRejected, "curated batch")
-
-			_, err = p.FetchPrices(context.Background(), contractAssets(1))
-			require.ErrorIs(t, err, spend.ErrCredentialRejected, "contract batch")
-		})
-	}
-
 	p := serveProvider(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
+		w.WriteHeader(http.StatusUnauthorized)
 	})
 	_, err := p.FetchPrices(context.Background(), []*entity.Asset{
 		{ID: "btc", Symbol: "BTC", Market: entity.MarketCrypto},
 	})
-	require.Error(t, err)
-	assert.NotErrorIs(t, err, spend.ErrCredentialRejected, "an outage says nothing about the key")
+	require.ErrorIs(t, err, spend.ErrCredentialRejected, "curated batch")
+	_, err = p.FetchPrices(context.Background(), contractAssets(1))
+	require.ErrorIs(t, err, spend.ErrCredentialRejected, "contract batch")
+
+	for _, status := range []int{http.StatusForbidden, http.StatusInternalServerError} {
+		p := serveProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(status)
+		})
+		_, err := p.FetchPrices(context.Background(), []*entity.Asset{
+			{ID: "btc", Symbol: "BTC", Market: entity.MarketCrypto},
+		})
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, spend.ErrCredentialRejected, "status %d says nothing about the key", status)
+	}
 }

@@ -693,7 +693,7 @@ type bucket struct {
 	// that IS persisted and refuses before any request goes out.
 	streak int64
 	// rejectedUntil is how long the provider's last refusal of the key itself
-	// (rejectedStatus, a 401 or 403) keeps it unusable; see rejectedRetry.
+	// (rejectedStatus, a 401) keeps it unusable; see rejectedRetry.
 	// Not persisted, like streak: a restart asks the key again, which costs
 	// one refused request.
 	rejectedUntil  time.Time

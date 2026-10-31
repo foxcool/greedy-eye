@@ -27,7 +27,7 @@ const (
 	// transient. Retrying hourly against an exhausted plan is cheap; staying
 	// silent through a recovery is not.
 	maxEscalatedBackoff = 2 * time.Hour
-	// rejectedRetry is how long a key the provider refused (401/403) is
+	// rejectedRetry is how long a key the provider refused (401) is
 	// reported unusable, so a sweep passes it over and its owner sees why.
 	// Hours, like maxEscalatedBackoff: a revoked key stays revoked, and the
 	// usual repair is a new key, which is a new bucket; this bounds only how
@@ -53,9 +53,8 @@ var backoffStatuses = map[int]bool{
 type limitedTransport struct {
 	base   http.RoundTripper
 	bucket *bucket
-	// keyed is whether requests carry a key a 401 or 403 can be about. A
-	// keyless feed refusing an unnamed client (CBR answers 403 to Go's default
-	// user agent) is not refusing a credential.
+	// keyed is whether requests carry a key a 401 can be about. A keyless
+	// feed refusing an unnamed client is not refusing a credential.
 	keyed bool
 
 	// now is injectable so tests do not have to wait out a freeze.

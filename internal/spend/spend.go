@@ -20,7 +20,7 @@ import (
 var ErrQuotaExhausted = errors.New("provider quota exhausted for the period")
 
 // ErrCredentialRejected is wrapped by an adapter whose provider refused the
-// credential itself (HTTP 401 or 403): a revoked or expired key. Like a spent
+// credential itself (HTTP 401): a revoked or expired key. Like a spent
 // plan, retrying the same credential cannot help and another one may, so a
 // caller holding several keys moves to the next; any other failure says
 // nothing about the key and is the source's answer.
@@ -34,9 +34,12 @@ func KeyRefused(err error) bool {
 }
 
 // RejectsCredential reports whether an HTTP status is a provider refusing the
-// credential a request carried.
+// credential a request carried. Only 401: a 403 is how CoinGecko and Binance
+// answer an IP or firewall block, which every key from this host meets alike,
+// so it is an outage, not a dead key, and must not walk through every key or
+// mark a working one rejected.
 func RejectsCredential(status int) bool {
-	return status == http.StatusUnauthorized || status == http.StatusForbidden
+	return status == http.StatusUnauthorized
 }
 
 // Class marks how a request behaves when the credential's plan volume is
