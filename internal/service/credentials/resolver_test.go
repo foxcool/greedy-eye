@@ -314,6 +314,65 @@ func TestAccountOverridesAKeylessDefault(t *testing.T) {
 	assert.Equal(t, []string{"sys-cbr"}, served(got, "cbr"), "the account replaces the default rather than queueing in front of it")
 }
 
+// TestKeylessDefaultStaysOutOfAKeyedFailoverChain: the default stands in for a
+// slug nobody serves. Behind a keyed account it would be a way round that
+// account's spent plan, and the inventory would count it as one of its keys.
+func TestKeylessDefaultStaysOutOfAKeyedFailoverChain(t *testing.T) {
+	now := time.Now()
+	cfg := Config{
+		PriceProviders: map[string]PriceProviderFactory{
+			"coingecko": func(a *entity.Account) (marketdata.PriceProvider, error) {
+				return &fakeProvider{name: a.ID}, nil
+			},
+		},
+		KeylessPriceProviders: map[string]marketdata.PriceProvider{
+			"coingecko": &fakeProvider{name: "keyless"},
+		},
+	}
+
+	cfg.Source = &fakeSource{}
+	r := NewResolver(cfg)
+	inv, err := r.PriceInventoryFor(context.Background(), "")
+	require.NoError(t, err)
+	require.Len(t, inv.Keys["coingecko"], 1)
+	assert.Equal(t, "keyless", inv.Keys["coingecko"][0].Provider.(*fakeProvider).name)
+	assert.Empty(t, inv.Keys["coingecko"][0].AccountID, "the default is no account's key")
+
+	cfg.Source = &fakeSource{system: []*entity.Account{
+		account("cg-1", "coingecko", now),
+		account("cg-2", "coingecko", now.Add(-time.Hour)),
+	}}
+	r = NewResolver(cfg)
+	got, err := r.PriceProvidersFor(context.Background(), "")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"cg-1", "cg-2"}, served(got, "coingecko"),
+		"two keys fail over between themselves and the default is not a third")
+}
+
+// TestKeylessDefaultCoversAnAccountThatCannotBeBuilt pins the current meaning
+// of "no account serves the slug": a keyed account whose client cannot be built
+// serves nothing, so the default stands in while the skip is still reported.
+func TestKeylessDefaultCoversAnAccountThatCannotBeBuilt(t *testing.T) {
+	r := NewResolver(Config{
+		Source: &fakeSource{system: []*entity.Account{account("cg-broken", "coingecko", time.Now())}},
+		PriceProviders: map[string]PriceProviderFactory{
+			"coingecko": func(*entity.Account) (marketdata.PriceProvider, error) {
+				return nil, errors.New("bad plan")
+			},
+		},
+		KeylessPriceProviders: map[string]marketdata.PriceProvider{
+			"coingecko": &fakeProvider{name: "keyless"},
+		},
+	})
+
+	inv, err := r.PriceInventoryFor(context.Background(), "")
+	require.NoError(t, err)
+	require.Len(t, inv.Keys["coingecko"], 1)
+	assert.Empty(t, inv.Keys["coingecko"][0].AccountID)
+	require.Len(t, inv.Skipped, 1)
+	assert.Equal(t, entity.SkipCannotBuild, inv.Skipped[0].Kind)
+}
+
 // TestUnattendedWorkUsesTheSoleOperator: a sweep runs with nobody in context, so
 // it sees only accounts carrying system_scopes — and setting those needs the
 // admin role, which no RPC grants. On a self-hosted instance that is a deadlock:
