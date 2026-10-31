@@ -744,9 +744,13 @@ func TestUpdateAccount_SystemScopesRequireAdmin(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 
+	// A scope must be among the capabilities, which the handler now checks
+	// before writing as the store always did.
+	scoped := testAccount(testAccountID)
+	scoped.Capabilities = []entity.AccountCapability{entity.CapabilityMarketData}
 	s := &mockStore{}
-	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
-	s.On("UpdateAccount", mock.Anything, mock.Anything, []string{"system_scopes"}).Return(testAccount(testAccountID), nil)
+	s.On("GetAccount", mock.Anything, testAccountID).Return(scoped, nil)
+	s.On("UpdateAccount", mock.Anything, mock.Anything, []string{"system_scopes"}).Return(scoped, nil)
 	h = newHandler(s)
 	_, err = h.UpdateAccount(ctxWithAdmin(testUserID), req)
 	require.NoError(t, err)
