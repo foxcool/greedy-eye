@@ -711,36 +711,74 @@ func (h *Handler) FindSimilarAssets(ctx context.Context, req *connect.Request[ap
 // FindOrCreateAsset resolves an asset by its composite identity (symbol,
 // market, type), creating it only when nothing matches and dry_run is false.
 // Find-first keeps batch imports from polluting the catalog with duplicates.
+//
+// Resolution and writing are two steps: planAsset only reads, and every write
+// lives in applyAssetPlan. A dry run stops at the plan, so it cannot reach a
+// write on any branch rather than relying on each write to check the flag.
 func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[apiv1.FindOrCreateAssetRequest]) (*connect.Response[apiv1.FindOrCreateAssetResponse], error) {
-	symbol := entity.NormalizeSymbol(req.Msg.Symbol)
+	plan, err := h.planAsset(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	if req.Msg.DryRun {
+		if plan.asset == nil {
+			// Would create: report the plan without an asset payload.
+			return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Created: true}), nil
+		}
+		// The verdict that stands; re-scoring would persist it.
+		return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: assetToProto(plan.asset)}), nil
+	}
+	return h.applyAssetPlan(ctx, plan, req.Msg)
+}
 
-	typ := entity.AssetType(req.Msg.Type)
+// assetPlan is what FindOrCreateAsset resolved before writing anything.
+type assetPlan struct {
+	// asset is the row the request resolves to; nil means one must be created.
+	asset *entity.Asset
+	// bindRef is set when asset was found by identity rather than by the ref,
+	// so the ref is not bound to it yet.
+	bindRef bool
+
+	symbol    string
+	market    string
+	typ       entity.AssetType
+	refSource string // empty when the request carries no external ref
+	ref       string
+}
+
+// planAsset resolves a FindOrCreateAsset request without writing.
+func (h *Handler) planAsset(ctx context.Context, msg *apiv1.FindOrCreateAssetRequest) (assetPlan, error) {
+	symbol := entity.NormalizeSymbol(msg.Symbol)
+
+	typ := entity.AssetType(msg.Type)
 	if typ == entity.AssetTypeUnspecified {
 		typ = entity.AssetTypeCryptocurrency
 	}
 
 	market := ""
-	if req.Msg.Market != nil {
-		market = entity.NormalizeMarket(*req.Msg.Market)
+	if msg.Market != nil {
+		market = entity.NormalizeMarket(*msg.Market)
 	}
 	if market == "" {
 		market = entity.DefaultMarket(typ)
 	}
 	if market == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("market is required for this asset type"))
+		return assetPlan{}, connect.NewError(connect.CodeInvalidArgument, errors.New("market is required for this asset type"))
 	}
 
-	if err := mayReportProviderFlags(ctx, req.Msg); err != nil {
-		return nil, err
+	if err := mayReportProviderFlags(ctx, msg); err != nil {
+		return assetPlan{}, err
 	}
 
-	refSource := strings.TrimSpace(req.Msg.GetExternalRefSource())
-	ref := strings.TrimSpace(req.Msg.GetExternalRef())
+	refSource := strings.TrimSpace(msg.GetExternalRefSource())
+	ref := strings.TrimSpace(msg.GetExternalRef())
 	hasRef := refSource != "" && ref != ""
 	if hasRef {
 		if err := mayBindRef(ctx); err != nil {
-			return nil, err
+			return assetPlan{}, err
 		}
+	} else {
+		refSource, ref = "", ""
 	}
 
 	// Resolve by external ref first: a token's contract is its identity, so a
@@ -748,13 +786,18 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 	// stays its own asset instead of resolving to the real one.
 	if hasRef {
 		if assetID, ferr := h.store.FindAssetIDByExternalRef(ctx, refSource, ref); ferr == nil {
-			if a, gerr := h.store.GetAsset(ctx, assetID); gerr == nil {
-				return h.respondScored(ctx, a, req.Msg, false), nil
+			a, gerr := h.store.GetAsset(ctx, assetID)
+			if gerr == nil {
+				return assetPlan{asset: a}, nil
 			}
-			// A ref pointing at a missing asset should not happen (FK CASCADE);
-			// fall through to identity resolution rather than fail the sync.
+			// Only a ref whose asset is gone may fall through to the symbol. Any
+			// other error says nothing about the bound asset, and resolving by
+			// symbol instead would land the position on another row.
+			if !errors.Is(gerr, store.ErrNotFound) {
+				return assetPlan{}, toConnectError(gerr)
+			}
 		} else if !errors.Is(ferr, store.ErrNotFound) {
-			return nil, toConnectError(ferr)
+			return assetPlan{}, toConnectError(ferr)
 		}
 	}
 
@@ -766,7 +809,7 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 	// balance is dropped AND the account's snapshot counts as incomplete, which
 	// keeps it from removing positions that really are gone.
 	if symbol == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument,
+		return assetPlan{}, connect.NewError(connect.CodeInvalidArgument,
 			errors.New("symbol is required unless the external ref resolves a known asset"))
 	}
 
@@ -775,36 +818,43 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 	if hasRef {
 		resolved, merr := h.marketForContract(ctx, market, symbol, typ, refSource, ref)
 		if merr != nil {
-			return nil, connect.NewError(connect.CodeUnavailable, merr)
+			return assetPlan{}, connect.NewError(connect.CodeUnavailable, merr)
 		}
 		market = resolved
 	}
 
+	plan := assetPlan{symbol: symbol, market: market, typ: typ, refSource: refSource, ref: ref}
 	found, err := h.store.FindAssetByIdentity(ctx, symbol, market, typ)
 	if err == nil {
-		// Bind the contract to the resolved asset so the next sync short-circuits
-		// on the ref (and cross-chain contracts of the same symbol collapse onto
-		// one asset).
-		if hasRef {
-			h.bindExternalRef(ctx, found.ID, refSource, ref)
-		}
-		return h.respondScored(ctx, found, req.Msg, false), nil
+		plan.asset = found
+		plan.bindRef = hasRef
+		return plan, nil
 	}
 	if !errors.Is(err, store.ErrNotFound) {
-		return nil, toConnectError(err)
+		return assetPlan{}, toConnectError(err)
 	}
 
 	if err := mayCreateAsset(ctx); err != nil {
-		return nil, err
+		return assetPlan{}, err
+	}
+	return plan, nil
+}
+
+// applyAssetPlan performs the writes a plan calls for.
+func (h *Handler) applyAssetPlan(ctx context.Context, p assetPlan, req *apiv1.FindOrCreateAssetRequest) (*connect.Response[apiv1.FindOrCreateAssetResponse], error) {
+	hasRef := p.refSource != ""
+	if p.asset != nil {
+		// Bind the contract to the resolved asset so the next sync short-circuits
+		// on the ref (and cross-chain contracts of the same symbol collapse onto
+		// one asset).
+		if p.bindRef {
+			h.bindExternalRef(ctx, p.asset.ID, p.refSource, p.ref)
+		}
+		return h.respondScored(ctx, p.asset, req, false), nil
 	}
 
-	if req.Msg.DryRun {
-		// Would create: report the plan without an asset payload.
-		return connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Created: true}), nil
-	}
-
-	name := symbol
-	if n := entity.NormalizeName(req.Msg.GetName()); n != "" {
+	name := p.symbol
+	if n := entity.NormalizeName(req.GetName()); n != "" {
 		name = n
 	}
 	// Mirror the contract as a tag on an on-chain create. It is a snapshot of the
@@ -813,46 +863,47 @@ func (h *Handler) FindOrCreateAsset(ctx context.Context, req *connect.Request[ap
 	// presence still says "created from a contract", which is what admits the
 	// asset to the contract price path; clients also show it when no refs load.
 	tags := []string{}
-	if hasRef && strings.HasPrefix(refSource, "onchain:") {
-		tags = append(tags, "contract:"+ref)
+	if hasRef && strings.HasPrefix(p.refSource, "onchain:") {
+		tags = append(tags, "contract:"+p.ref)
 	}
 	created, err := h.store.CreateAsset(ctx, &entity.Asset{
-		Symbol: symbol,
+		Symbol: p.symbol,
 		Name:   name,
-		Type:   typ,
-		Market: market,
+		Type:   p.typ,
+		Market: p.market,
 		Tags:   tags,
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrConstraint) {
 			// Concurrent insert won the race — read back the existing row.
-			if existing, ferr := h.store.FindAssetByIdentity(ctx, symbol, market, typ); ferr == nil {
+			if existing, ferr := h.store.FindAssetByIdentity(ctx, p.symbol, p.market, p.typ); ferr == nil {
 				if hasRef {
-					h.bindExternalRef(ctx, existing.ID, refSource, ref)
+					h.bindExternalRef(ctx, existing.ID, p.refSource, p.ref)
 				}
-				return h.respondScored(ctx, existing, req.Msg, false), nil
+				return h.respondScored(ctx, existing, req, false), nil
 			}
 		}
 		return nil, toConnectError(err)
 	}
 
 	if hasRef {
-		h.bindExternalRef(ctx, created.ID, refSource, ref)
+		h.bindExternalRef(ctx, created.ID, p.refSource, p.ref)
 	}
-	return h.respondScored(ctx, created, req.Msg, true), nil
+	return h.respondScored(ctx, created, req, true), nil
 }
 
 // respondScored returns the response with the effective verdict stamped on the
 // asset so the sync path can derive holdings.excluded from it.
 //
 // Only the sync, or the call that just created the row, re-scores and persists
-// the verdict (never over a user verdict); a dry run persists nothing. Anyone
+// the verdict (never over a user verdict); a dry run never gets here (see
+// FindOrCreateAsset). Anyone
 // else gets the verdict that stands: they reported no provider flags, so their
 // score would overwrite the sync's judgement drawn from the provider's flags
 // (personal-ztoc).
 func (h *Handler) respondScored(ctx context.Context, a *entity.Asset, req *apiv1.FindOrCreateAssetRequest, created bool) *connect.Response[apiv1.FindOrCreateAssetResponse] {
 	verdict := a.IdentityVerdict
-	if created || (middleware.SyncAuthority(ctx) && !req.DryRun) {
+	if created || middleware.SyncAuthority(ctx) {
 		verdict = h.scoreAndPersistVerdict(ctx, a, req, created)
 	}
 	p := assetToProto(a)
