@@ -2,11 +2,13 @@ package tinvest
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/spend"
 	"github.com/shopspring/decimal"
 )
 
@@ -180,6 +182,12 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 		batch := figis[start:end]
 
 		prices, err := p.client.LastPrices(ctx, batch)
+		if spend.KeyRefused(err) {
+			// Every later batch would be refused too, and the caller may hold
+			// another token for them: only an error tells it so. Swallowed, the
+			// rest were filed as misses and waited for the next sweep.
+			return result, fmt.Errorf("tinvest last prices, batch from %d of %d: %w", start, len(figis), err)
+		}
 		if err != nil {
 			// Partial by design: one failing batch must not cost the portfolio
 			// the prices another batch already answered with.
@@ -196,6 +204,11 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 				continue
 			}
 			inst, known, err := p.catalog.instrument(ctx, lp.FIGI)
+			if spend.KeyRefused(err) {
+				// No row of this batch or a later one can be priced without
+				// the catalogue; the same hand-over as a refused batch.
+				return result, fmt.Errorf("tinvest instrument catalogue: %w", err)
+			}
 			if err != nil {
 				lastErr = err
 				continue

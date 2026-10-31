@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/spend"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -338,4 +339,95 @@ func TestAsked_AgreesWithWhatIsSent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got)
 	assert.Zero(t, calls)
+}
+
+// refusingTransport lets the first `allow` token_price requests through and
+// refuses the rest with err, the way the rate limiter refuses a key whose plan
+// ran out between two batches.
+type refusingTransport struct {
+	base  http.RoundTripper
+	allow int
+	err   error
+	seen  int
+}
+
+func (rt *refusingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if strings.HasPrefix(req.URL.Path, "/simple/token_price/") {
+		rt.seen++
+		if rt.seen > rt.allow {
+			return nil, rt.err
+		}
+	}
+	return rt.base.RoundTrip(req)
+}
+
+// contractAssets builds n tokens on one chain, enough to need several
+// token_price batches at the keyed batch size.
+func contractAssets(n int) []*entity.Asset {
+	out := make([]*entity.Asset, n)
+	for i := range out {
+		out[i] = contractAssetOn(fmt.Sprintf("c%03d", i), "eth", fmt.Sprintf("0x%040x", i+1))
+	}
+	return out
+}
+
+// echoTokenPrices answers every token_price request with a price for each
+// address it names.
+func echoTokenPrices(w http.ResponseWriter, r *http.Request) {
+	var parts []string
+	for _, addr := range strings.Split(r.URL.Query().Get("contract_addresses"), ",") {
+		parts = append(parts, fmt.Sprintf(`%q: {"usd": 1.5}`, addr))
+	}
+	_, _ = fmt.Fprintf(w, "{%s}", strings.Join(parts, ","))
+}
+
+// TestFetchPrices_ContractRefusalMidBatchIsReported: a key that runs out after
+// the first contract batch returned the first batch's prices with no error, so
+// the sweep filed the rest as misses and never offered them to the next key.
+// The refusal now travels up, wrapped, beside what was already fetched.
+func TestFetchPrices_ContractRefusalMidBatchIsReported(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(echoTokenPrices))
+	t.Cleanup(srv.Close)
+	client := NewClient(Config{APIKey: "demo-key"})
+	client.baseURL = srv.URL
+	rt := &refusingTransport{base: srv.Client().Transport, allow: 1, err: spend.ErrQuotaExhausted}
+	client.httpClient = &http.Client{Transport: rt}
+	p := NewProvider(client)
+
+	assets := contractAssets(keyedContractBatch + 5)
+	got, err := p.FetchPrices(context.Background(), assets)
+
+	require.ErrorIs(t, err, spend.ErrQuotaExhausted)
+	assert.Len(t, got, keyedContractBatch, "the first batch's prices come back with the refusal")
+	assert.Equal(t, 2, rt.seen, "no batch is sent after the refusal")
+}
+
+// TestFetchPrices_RejectedKeyIsTyped: a 401 or 403 is the provider refusing the
+// key, which a caller holding another key acts on; it must be told apart from
+// any other status.
+func TestFetchPrices_RejectedKeyIsTyped(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			p := serveProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(status)
+			})
+
+			_, err := p.FetchPrices(context.Background(), []*entity.Asset{
+				{ID: "btc", Symbol: "BTC", Market: entity.MarketCrypto},
+			})
+			require.ErrorIs(t, err, spend.ErrCredentialRejected, "curated batch")
+
+			_, err = p.FetchPrices(context.Background(), contractAssets(1))
+			require.ErrorIs(t, err, spend.ErrCredentialRejected, "contract batch")
+		})
+	}
+
+	p := serveProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	_, err := p.FetchPrices(context.Background(), []*entity.Asset{
+		{ID: "btc", Symbol: "BTC", Market: entity.MarketCrypto},
+	})
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, spend.ErrCredentialRejected, "an outage says nothing about the key")
 }

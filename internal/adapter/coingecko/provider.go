@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/spend"
 	"github.com/shopspring/decimal"
 )
 
@@ -324,18 +325,24 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 		}
 
 		pricesByAddr, err := p.client.GetTokenPricesByContract(ctx, platform, addrs, cgQuoteCurrency)
-		if err != nil {
-			// Non-fatal: the map may still hold prices from succeeded batches,
-			// and the native lookup above has already been collected.
-			p.log.Warn("coingecko contract lookup partially failed",
-				"platform", platform, "error", err)
-		}
 		for addr, pd := range pricesByAddr {
 			assetID, ok := addrToID[strings.ToLower(addr)]
 			if !ok {
 				continue
 			}
 			result = append(result, storedPrice(assetID, pd, now))
+		}
+		if spend.KeyRefused(err) {
+			// Returned, not logged: the caller may hold another key for what
+			// is left, and only an error tells it so. Swallowed, the rest were
+			// filed as misses and waited for the next sweep.
+			return result, fmt.Errorf("coingecko contract lookup on %s: %w", platform, err)
+		}
+		if err != nil {
+			// Non-fatal: the map may still hold prices from succeeded batches,
+			// and the native lookup above has already been collected.
+			p.log.Warn("coingecko contract lookup partially failed",
+				"platform", platform, "error", err)
 		}
 	}
 

@@ -3,12 +3,14 @@ package tinvest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/spend"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -663,6 +665,86 @@ func TestFetchPricesSessionStateDoesNotLaunderAFrozenFund(t *testing.T) {
 			require.True(t, prices[0].Volume.Valid,
 				"the catalogue's refusal is not withdrawn by a state describing the trading day")
 			assert.True(t, prices[0].Volume.Decimal.IsZero())
+		})
+	}
+}
+
+// refuseLaterPrices lets the first `allow` last-price requests through and
+// refuses the rest with err, the way the rate limiter refuses a token whose
+// allowance ran out between two batches.
+type refuseLaterPrices struct {
+	base  http.RoundTripper
+	allow int
+	err   error
+	seen  int
+}
+
+func (rt *refuseLaterPrices) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Path == pathLastPrices {
+		rt.seen++
+		if rt.seen > rt.allow {
+			return nil, rt.err
+		}
+	}
+	return rt.base.RoundTrip(req)
+}
+
+// pricedAAPLThenMore is AAPL, which the stub prices, followed by enough bound
+// paper to spill into a second batch.
+func pricedAAPLThenMore() []*entity.Asset {
+	assets := []*entity.Asset{asset("AAPL", "spbex", entity.AssetTypeStock, "BBG000B9XRY4")}
+	for i := range batchSize + 1 {
+		assets = append(assets, asset(fmt.Sprintf("X%03d", i), "spbex", entity.AssetTypeStock, fmt.Sprintf("BBG0FILLER%03d", i)))
+	}
+	return assets
+}
+
+// A refusal in a later batch came back as the first batch's prices and no
+// error, so the sweep filed the unasked rest as misses and never offered them
+// to another token. The refusal now travels up beside what was fetched.
+func TestFetchPricesRefusalInALaterBatchIsReported(t *testing.T) {
+	api := &stubAPI{
+		shares: universe,
+		prices: `{"lastPrices":[{"figi":"BBG000B9XRY4","price":{"units":"229","nano":0},
+			"time":"2026-08-09T15:30:00Z","lastPriceType":"LAST_PRICE_EXCHANGE"}]}`,
+		calls: map[string]int{},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := map[string]string{pathShares: api.shares, pathLastPrices: api.prices}[r.URL.Path]
+		if body == "" {
+			body = `{}`
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	rt := &refuseLaterPrices{base: srv.Client().Transport, allow: 1, err: spend.ErrQuotaExhausted}
+	c, err := NewClient(Config{Token: "test-token", BaseURL: srv.URL, Transport: rt})
+	require.NoError(t, err)
+	p := NewProvider(c)
+	p.now = func() time.Time { return testNow }
+
+	prices, err := p.FetchPrices(context.Background(), pricedAAPLThenMore())
+
+	require.ErrorIs(t, err, spend.ErrQuotaExhausted)
+	require.Len(t, prices, 1, "the first batch's price comes back with the refusal")
+	assert.Equal(t, "asset-AAPL", prices[0].AssetID)
+}
+
+// A revoked token is the provider refusing the credential, which a caller with
+// another token acts on; it must be told apart from any other failure.
+func TestFetchPricesRejectedTokenIsTyped(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"code":16,"message":"Authentication token is missing or invalid"}`))
+			}))
+			t.Cleanup(srv.Close)
+			c, err := NewClient(Config{Token: "revoked", BaseURL: srv.URL, Transport: srv.Client().Transport})
+			require.NoError(t, err)
+
+			_, err = NewProvider(c).FetchPrices(context.Background(), pricedAAPLThenMore())
+			require.ErrorIs(t, err, spend.ErrCredentialRejected)
 		})
 	}
 }

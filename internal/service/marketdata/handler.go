@@ -1585,14 +1585,19 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	contested := map[string]bool{}
 
 	// A source's keys are tried in order, and the next one gets a turn only
-	// when this one's plan is spent: before anything is selected for it, or
+	// when the provider refuses this one — its plan spent or the credential
+	// rejected (spend.KeyRefused) — before anything is selected for it, or
 	// during the fetch. Any other outcome — prices, nothing due, a failed
 	// request — is the source's answer for this run, and its remaining keys
-	// are passed over.
+	// are passed over: an outage would refuse every key alike, and asking each
+	// would spend every allowance on it.
 	answered := map[string]bool{}
 	// A key refused mid-fetch, kept until a later key answers: if none can, the
 	// refusal is the source's answer, as it is with a single key.
-	spentMidFetch := map[string]error{}
+	refusedMidFetch := map[string]string{}
+	// What keys refused mid-fetch priced before the refusal. Their prices are
+	// kept, and a later key is asked only for the rest.
+	pricedBefore := map[string][]*entity.Asset{}
 	for _, k := range keyTurns(providers) {
 		name, provider := k.name, k.provider
 		if answered[name] {
@@ -1612,27 +1617,28 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		// the background share, and the request may well be somebody checking
 		// whether the provider is back. Background work naming its assets is
 		// not that path, and is skipped like the sweep.
+		done := pricedBefore[name]
 		if hp, ok := provider.(HealthReportingProvider); ok && named == nil {
 			if reason, unusable := hp.Unusable(); unusable {
 				h.log.Info("price sweep: provider skipped", "provider", name, "key", k.index, "reason", reason)
-				if k.last {
+				if k.last && len(done) == 0 {
 					// Every key of the source was tried and none can carry work:
 					// that is the source's answer, and without it the source
 					// vanishes from the response like an unconfigured one did.
 					idleSources[name] = string(outcomeUnusable) + ": " + reason
 				}
-				if k.last && backgroundIDs != nil {
-					deferredAssets[name] = int32(len(backgroundIDs)) // #nosec G115 -- bounded by request size
+				if left := len(backgroundIDs) - len(done); k.last && backgroundIDs != nil && left > 0 {
+					deferredAssets[name] = int32(left) // #nosec G115 -- bounded by request size
 				}
-				if err := spentMidFetch[name]; k.last && err != nil {
-					fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
+				if msg := refusedMidFetch[name]; k.last && msg != "" {
+					fetchErrs = append(fetchErrs, msg)
 				}
 				continue
 			}
 		}
 		answered[name] = true
 		// A previous key's counts describe work it never finished.
-		delete(spentMidFetch, name)
+		delete(refusedMidFetch, name)
 		delete(deferredAssets, name)
 		delete(coveredAssets, name)
 
@@ -1661,7 +1667,9 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			// having priced them half an hour earlier.
 			// Covered assets are not waiting for the sweep; they are reported
 			// in covered_assets instead.
-			if left := len(backgroundIDs) - len(assets) - coveredCount; left > 0 {
+			// What an earlier key priced this run is not left over, whether
+			// or not this key's selection still holds it.
+			if left := len(backgroundIDs) - len(assets) - coveredCount - len(notIn(done, assets)); left > 0 {
 				deferredAssets[name] = int32(left) // #nosec G115 -- bounded by request size
 				h.log.Info("price fetch: named assets left to the sweep",
 					"provider", name, "named", len(backgroundIDs), "asked", len(assets), "deferred", left)
@@ -1681,8 +1689,16 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			}
 			h.log.Info("price sweep: nothing selected",
 				"provider", name, "reason", string(outcome), "soonest_due", deferredUntil)
-			idleSources[name] = string(outcome)
+			if len(done) == 0 {
+				idleSources[name] = string(outcome)
+			}
 			continue
+		}
+		if len(done) > 0 {
+			// Priced by a key refused mid-fetch; asking again would pay twice.
+			if assets = notIn(assets, done); len(assets) == 0 {
+				continue
+			}
 		}
 
 		// A price lands only on a bound asset, enforced once here rather than
@@ -1754,22 +1770,6 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		}
 
 		results, err := provider.FetchPrices(ctx, assets)
-		if err != nil && !k.last && errors.Is(err, spend.ErrQuotaExhausted) {
-			// No attempt is recorded, so the next key selects the same due
-			// assets within its own allowance.
-			h.log.Info("price sweep: key spent mid-fetch, next key takes over",
-				"provider", name, "key", k.index)
-			answered[name] = false
-			spentMidFetch[name] = err
-			continue
-		}
-		if err != nil {
-			fetchErrs = append(fetchErrs, fmt.Sprintf("%s: %v", name, err))
-			// A failed request is about the source, not the assets: Binance
-			// rejects a whole request over one untradable symbol, and recording
-			// misses would grow the back-off of every asset in the batch.
-			continue
-		}
 
 		// Only what this provider actually requested counts as an attempt. The
 		// rest was never asked, and a miss recorded against it would be one
@@ -1777,8 +1777,36 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		// the fetch on purpose: a provider that consults a cached listing set
 		// has it warm by now, so the first sweep filters as well as the tenth.
 		asked := askedOf(provider, assets)
+		if err != nil {
+			// A failed request is about the source, not the assets: Binance
+			// rejects a whole request over one untradable symbol, and recording
+			// misses would grow the back-off of every asset in the batch. What
+			// came back before the failure is kept and recorded as priced, and
+			// nothing is recorded against the rest.
+			priced := pricedAmong(asked, results)
+			msg := fmt.Sprintf("%s: %v", name, err)
+			if len(priced) > 0 {
+				msg += fmt.Sprintf("; %d of %d assets left unpriced", len(asked)-len(priced), len(asked))
+			}
+			if !k.last && spend.KeyRefused(err) {
+				// Nothing is recorded for the rest, so the next key selects
+				// them within its own allowance.
+				h.log.Info("price sweep: key refused mid-fetch, next key takes over",
+					"provider", name, "key", k.index, "priced", len(priced), "reason", err)
+				answered[name] = false
+				refusedMidFetch[name] = msg
+				pricedBefore[name] = append(pricedBefore[name], priced...)
+			} else {
+				fetchErrs = append(fetchErrs, msg)
+			}
+			if len(priced) == 0 {
+				continue
+			}
+			asked = priced
+		} else {
+			h.deferUnasked(ctx, sweepAt, name, notIn(assets, asked))
+		}
 		h.recordAttempts(ctx, sweepAt, name, asked, results)
-		h.deferUnasked(ctx, sweepAt, name, notIn(assets, asked))
 
 		totalFetched += len(results)
 		for i := range results {
@@ -2488,6 +2516,16 @@ func notIn(assets, subset []*entity.Asset) []*entity.Asset {
 	}
 	_, out := partition(assets, func(a *entity.Asset) bool { return in[a.ID] })
 	return out
+}
+
+// pricedAmong returns the assets some result prices, in order.
+func pricedAmong(assets []*entity.Asset, results []entity.StoredPrice) []*entity.Asset {
+	got := make(map[string]bool, len(results))
+	for i := range results {
+		got[results[i].AssetID] = true
+	}
+	kept, _ := partition(assets, func(a *entity.Asset) bool { return got[a.ID] })
+	return kept
 }
 
 // recordAttempts marks what was asked of a source and what came back, so the

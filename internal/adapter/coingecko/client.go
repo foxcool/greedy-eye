@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/foxcool/greedy-eye/internal/spend"
 )
 
 // Client implements PriceProvider interface for CoinGecko
@@ -192,7 +194,7 @@ func (c *Client) fetchMarkets(ctx context.Context, assetIDs []string, currency s
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status %d from CoinGecko", resp.StatusCode)
+		return c.statusError(resp.StatusCode)
 	}
 
 	var items []coingeckoMarketItem
@@ -331,17 +333,23 @@ func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("token_price batch %d-%d: %w", i, end, err))
+			if spend.KeyRefused(err) {
+				// Every later batch would be refused the same way.
+				break
+			}
 			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
 			_ = resp.Body.Close()
-			errs = append(errs, fmt.Errorf("token_price batch %d-%d: unexpected status %d from CoinGecko", i, end, resp.StatusCode))
-			if backoffStatuses[resp.StatusCode] {
+			err := c.statusError(resp.StatusCode)
+			errs = append(errs, fmt.Errorf("token_price batch %d-%d: %w", i, end, err))
+			if backoffStatuses[resp.StatusCode] || spend.KeyRefused(err) {
 				// The budget is already spent: the transport has frozen this
 				// credential, so every remaining batch would sit out the freeze
 				// only to earn another 429 — twelve of them outlast the job
-				// timeout and take the whole sweep down with them.
+				// timeout and take the whole sweep down with them. A rejected
+				// key is refused the same way by every later batch.
 				break
 			}
 			continue
@@ -373,6 +381,16 @@ func (c *Client) GetTokenPricesByContract(ctx context.Context, platform string, 
 	}
 
 	return result, errors.Join(errs...)
+}
+
+// statusError describes a non-OK answer. A keyed request refused with 401 or
+// 403 wraps spend.ErrCredentialRejected, so a caller holding another key can
+// tell a dead key from an outage; without a key there is none to reject.
+func (c *Client) statusError(status int) error {
+	if c.apiKey != "" && spend.RejectsCredential(status) {
+		return fmt.Errorf("unexpected status %d from CoinGecko: %w", status, spend.ErrCredentialRejected)
+	}
+	return fmt.Errorf("unexpected status %d from CoinGecko", status)
 }
 
 // GetCurrentPrice retrieves current price for an asset.

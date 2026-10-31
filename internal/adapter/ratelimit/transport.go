@@ -27,6 +27,12 @@ const (
 	// transient. Retrying hourly against an exhausted plan is cheap; staying
 	// silent through a recovery is not.
 	maxEscalatedBackoff = 2 * time.Hour
+	// rejectedRetry is how long a key the provider refused (401/403) is
+	// reported unusable, so a sweep passes it over and its owner sees why.
+	// Hours, like maxEscalatedBackoff: a revoked key stays revoked, and the
+	// usual repair is a new key, which is a new bucket; this bounds only how
+	// long a refusal the provider took back keeps the key out of the sweep.
+	rejectedRetry = 6 * time.Hour
 )
 
 // backoffStatuses are the responses that mean "stop sending for a while".
@@ -47,6 +53,10 @@ var backoffStatuses = map[int]bool{
 type limitedTransport struct {
 	base   http.RoundTripper
 	bucket *bucket
+	// keyed is whether requests carry a key a 401 or 403 can be about. A
+	// keyless feed refusing an unnamed client (CBR answers 403 to Go's default
+	// user agent) is not refusing a credential.
+	keyed bool
 
 	// now is injectable so tests do not have to wait out a freeze.
 	now func() time.Time
@@ -105,6 +115,11 @@ func (t *limitedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		// successful response resets the run.
 		streak := t.bucket.noteBackoff(caller)
 		t.bucket.freezeUntil(t.clock().Add(escalate(retryAfter(resp), streak)))
+	} else if t.keyed && spend.RejectsCredential(resp.StatusCode) {
+		// Recorded, not enforced: the request path stays open, so a person
+		// checking whether a repaired key works gets an answer. Unattended work
+		// reads it through Budget.Unusable and passes the key over.
+		t.bucket.noteRejected(resp.StatusCode, t.clock().Add(rejectedRetry))
 	} else {
 		t.bucket.noteSuccess()
 	}

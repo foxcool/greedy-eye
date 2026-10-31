@@ -8,6 +8,7 @@ package spend
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"unicode/utf8"
 )
@@ -17,6 +18,26 @@ import (
 // waits, this cannot be retried into success before the period rolls over —
 // only another credential can carry the work.
 var ErrQuotaExhausted = errors.New("provider quota exhausted for the period")
+
+// ErrCredentialRejected is wrapped by an adapter whose provider refused the
+// credential itself (HTTP 401 or 403): a revoked or expired key. Like a spent
+// plan, retrying the same credential cannot help and another one may, so a
+// caller holding several keys moves to the next; any other failure says
+// nothing about the key and is the source's answer.
+var ErrCredentialRejected = errors.New("provider rejected the credential")
+
+// KeyRefused reports whether err is a refusal of the key itself — its plan
+// spent or the credential rejected — rather than of the request. Only such a
+// failure is worth another key's turn.
+func KeyRefused(err error) bool {
+	return errors.Is(err, ErrQuotaExhausted) || errors.Is(err, ErrCredentialRejected)
+}
+
+// RejectsCredential reports whether an HTTP status is a provider refusing the
+// credential a request carried.
+func RejectsCredential(status int) bool {
+	return status == http.StatusUnauthorized || status == http.StatusForbidden
+}
 
 // Class marks how a request behaves when the credential's plan volume is
 // nearly spent.
