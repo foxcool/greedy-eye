@@ -347,6 +347,55 @@ func TestSyncAccount_BrokerOneAccountFailingKeepsTheOthers(t *testing.T) {
 	assert.Contains(t, resp.Msg.Errors[0], "bad", "an error nobody can attribute to an account is not an error anybody can act on")
 }
 
+// TestSyncAccount_BrokerSkipsAChildSyncingElsewhere: the sweep syncs each
+// discovered account on its own, so the parent's claim does not cover them. A
+// child another sync holds is left to it and named; the rest still sync.
+func TestSyncAccount_BrokerSkipsAChildSyncingElsewhere(t *testing.T) {
+	parent := tokenAccount()
+	free := tokenAccount()
+	free.ID = "acct-free"
+	free.Name = "free"
+	free.Data = map[string]string{"provider": "tinvest", "api_key": "t", "broker_account_id": "2000000001"}
+	busy := tokenAccount()
+	busy.ID = "acct-busy"
+	busy.Name = "busy"
+	busy.Data = map[string]string{"provider": "tinvest", "api_key": "t", "broker_account_id": "2000000002"}
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(parent, nil)
+	s.On("ListAccounts", mock.Anything, mock.Anything).Return([]*entity.Account{parent, free, busy}, "", nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: testHoldingID}, nil)
+	_, err := s.ClaimAccountSync(context.Background(), busy.ID, syncTimeout)
+	require.NoError(t, err)
+
+	lister := &mockBrokerLister{refs: []entity.BrokerAccountRef{
+		{ID: "2000000001", Name: "one", Syncable: true, ReadOnly: true},
+		{ID: "2000000002", Name: "two", Syncable: true, ReadOnly: true},
+	}}
+	untouched := &mockBrokerSyncer{} // no expectations: a read of the busy child fails the test
+	syncers := &syncerPerAccount{byBrokerID: map[string]entity.BrokerSyncer{
+		"2000000001": brokerSyncerReturning(positionOf("GAZP", "BBG004730RP0", "90000000000")),
+		"2000000002": untouched,
+	}}
+
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).
+		WithBrokerSyncerSource(syncers).
+		WithBrokerAccountListerSource(&mockBrokerListerSource{lister: lister})
+
+	resp, err := h.SyncAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: testAccountID}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), resp.Msg.HoldingsUpserted, "the free account still synced")
+	require.Len(t, resp.Msg.Errors, 1)
+	assert.Contains(t, resp.Msg.Errors[0], "busy")
+	assert.Contains(t, resp.Msg.Errors[0], "already running")
+	untouched.AssertNotCalled(t, "SyncBroker", mock.Anything)
+}
+
 // TestSyncAccount_BrokerTokenReachingNothingSyncableSaysSo: an empty success
 // and a sync that did nothing look identical from outside. Only one of them is
 // the truth here.

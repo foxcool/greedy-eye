@@ -863,6 +863,20 @@ snapshot is not. Callers that are themselves long (the frontend's `syncAccount`)
 set a client timeout above the server's and do not auto-retry: a retried sync
 would point a second writer at the same rows.
 
+**One sync per account at a time.** The provider is read before the write
+transaction opens, so two overlapping syncs of one account both write and the
+last to commit wins, whether or not it read last: an older reading lands under a
+fresh `updated_at`, and a whole snapshot zeroes a position that arrived between
+the two reads. A sync therefore claims the account first (`account_sync_claims`,
+a lease with a holder token, taken before the provider read and released after
+pricing). A second caller — the hourly sweep, a retry after a hang-up, a repeated
+press of Sync — gets Connect `aborted` ("a sync of this account is already
+running"; HTTP 409 on the JSON transport) instead of a parallel run. The sweep
+skips such an account without counting it as failed or standing it down. A broker
+fan-out claims each discovered account it writes, and names one held elsewhere in
+`errors`. The lease outlives `syncTimeout`, so a live sync never loses it, and a
+crashed holder blocks the account for at most `syncClaimTTL`.
+
 **A snapshot removes, not only adds.** A sync used to write only the positions
 the provider returned, so one that stopped being returned — sold, moved out, or
 newly rejected by a spam filter — kept its last amount forever and read as a live

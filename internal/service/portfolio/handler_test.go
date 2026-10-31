@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,6 +29,37 @@ import (
 
 type mockStore struct {
 	mock.Mock
+
+	claimMu  sync.Mutex
+	claims   map[string]string
+	claimSeq int
+}
+
+// ClaimAccountSync and ReleaseAccountSync keep a real in-memory lease rather
+// than an expectation: a sync test that does not care gets its claim, and one
+// that runs two syncs at once sees the second refused, as the store would.
+func (m *mockStore) ClaimAccountSync(_ context.Context, accountID string, _ time.Duration) (string, error) {
+	m.claimMu.Lock()
+	defer m.claimMu.Unlock()
+	if _, held := m.claims[accountID]; held {
+		return "", nil
+	}
+	if m.claims == nil {
+		m.claims = map[string]string{}
+	}
+	m.claimSeq++
+	token := fmt.Sprintf("claim-%d", m.claimSeq)
+	m.claims[accountID] = token
+	return token, nil
+}
+
+func (m *mockStore) ReleaseAccountSync(_ context.Context, accountID, token string) error {
+	m.claimMu.Lock()
+	defer m.claimMu.Unlock()
+	if m.claims[accountID] == token {
+		delete(m.claims, accountID)
+	}
+	return nil
 }
 
 func (m *mockStore) CreatePortfolio(ctx context.Context, p *entity.Portfolio) (*entity.Portfolio, error) {

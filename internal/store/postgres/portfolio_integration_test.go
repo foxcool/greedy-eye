@@ -1873,3 +1873,104 @@ func TestUnsolicitedAssets(t *testing.T) {
 		// No live position: nothing to judge, so absent rather than false.
 	}, got)
 }
+
+// TestAccountSyncClaimAdmitsOneSyncAtATime: two syncs of one account each read
+// the provider and then write, and the one that commits last wins whether or
+// not it read last. The claim is what makes the second caller step aside, so
+// it has to hold against a racing claim, survive a stale holder's release, and
+// lapse when its holder never comes back.
+func TestAccountSyncClaimAdmitsOneSyncAtATime(t *testing.T) {
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	s := NewPortfolioStore(pool)
+	ctx := context.Background()
+
+	owner := createTestUser(t, users)
+	account := func(name string) *entity.Account {
+		a, err := s.CreateAccount(ctx, &entity.Account{UserID: owner.ID, Name: name, Type: entity.AccountTypeWallet})
+		require.NoError(t, err)
+		return a
+	}
+
+	t.Run("a held claim refuses a second one until released", func(t *testing.T) {
+		a := account("held")
+		first, err := s.ClaimAccountSync(ctx, a.ID, time.Minute)
+		require.NoError(t, err)
+		require.NotEmpty(t, first)
+
+		second, err := s.ClaimAccountSync(ctx, a.ID, time.Minute)
+		require.NoError(t, err)
+		assert.Empty(t, second)
+
+		require.NoError(t, s.ReleaseAccountSync(ctx, a.ID, uuid.NewString()))
+		again, err := s.ClaimAccountSync(ctx, a.ID, time.Minute)
+		require.NoError(t, err)
+		assert.Empty(t, again, "only the holder's token releases the claim")
+
+		require.NoError(t, s.ReleaseAccountSync(ctx, a.ID, first))
+		next, err := s.ClaimAccountSync(ctx, a.ID, time.Minute)
+		require.NoError(t, err)
+		assert.NotEmpty(t, next)
+		assert.NotEqual(t, first, next)
+	})
+
+	t.Run("claims are per account", func(t *testing.T) {
+		one, err := s.ClaimAccountSync(ctx, account("one").ID, time.Minute)
+		require.NoError(t, err)
+		other, err := s.ClaimAccountSync(ctx, account("other").ID, time.Minute)
+		require.NoError(t, err)
+		assert.NotEmpty(t, one)
+		assert.NotEmpty(t, other)
+	})
+
+	t.Run("an expired claim is taken over and its holder cannot release the new one", func(t *testing.T) {
+		a := account("crashed holder")
+		stale, err := s.ClaimAccountSync(ctx, a.ID, -time.Second)
+		require.NoError(t, err)
+		require.NotEmpty(t, stale)
+
+		fresh, err := s.ClaimAccountSync(ctx, a.ID, time.Minute)
+		require.NoError(t, err)
+		require.NotEmpty(t, fresh, "a lapsed claim does not block the account")
+
+		require.NoError(t, s.ReleaseAccountSync(ctx, a.ID, stale))
+		blocked, err := s.ClaimAccountSync(ctx, a.ID, time.Minute)
+		require.NoError(t, err)
+		assert.Empty(t, blocked, "the stale holder's release left the new claim in place")
+	})
+
+	t.Run("racing claims admit exactly one", func(t *testing.T) {
+		a := account("raced")
+		const racers = 8
+		tokens := make(chan string, racers)
+		start := make(chan struct{})
+		for range racers {
+			go func() {
+				<-start
+				tok, err := s.ClaimAccountSync(ctx, a.ID, time.Minute)
+				assert.NoError(t, err)
+				tokens <- tok
+			}()
+		}
+		close(start)
+		won := 0
+		for range racers {
+			if <-tokens != "" {
+				won++
+			}
+		}
+		assert.Equal(t, 1, won)
+	})
+
+	t.Run("deleting the account drops its claim", func(t *testing.T) {
+		a := account("deleted")
+		_, err := s.ClaimAccountSync(ctx, a.ID, time.Minute)
+		require.NoError(t, err)
+		require.NoError(t, s.DeleteAccount(ctx, a.ID))
+
+		var n int
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT count(*) FROM account_sync_claims WHERE account_id = $1`, a.ID).Scan(&n))
+		assert.Zero(t, n)
+	})
+}

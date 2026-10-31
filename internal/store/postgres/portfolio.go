@@ -1465,6 +1465,46 @@ func (s *PortfolioStore) ClearSyncDeferral(ctx context.Context, accountID string
 	return nil
 }
 
+// ClaimAccountSync takes the account's sync lease for ttl, unless a live one is
+// held. It returns the holder token, or "" when someone else holds the claim.
+//
+// One statement, so two callers cannot both see the lease free: the second
+// waits on the row the first wrote and re-checks the condition against it. The
+// expiry is the database's clock, the one every instance shares.
+func (s *PortfolioStore) ClaimAccountSync(ctx context.Context, accountID string, ttl time.Duration) (string, error) {
+	const query = `
+		INSERT INTO account_sync_claims (account_id, token, claimed_until)
+		VALUES ($1, $2, now() + make_interval(secs => $3::float8))
+		ON CONFLICT (account_id) DO UPDATE
+		SET token = EXCLUDED.token, claimed_until = EXCLUDED.claimed_until
+		WHERE account_sync_claims.claimed_until <= now()
+		RETURNING token`
+
+	token, err := uuid.NewV7()
+	if err != nil {
+		return "", fmt.Errorf("failed to claim account sync: %w", err)
+	}
+	var got string
+	err = s.pool.QueryRow(ctx, query, accountID, token.String(), ttl.Seconds()).Scan(&got)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to claim account sync: %w", err)
+	}
+	return got, nil
+}
+
+// ReleaseAccountSync ends the claim, if token still holds it. A claim that
+// expired and was taken over belongs to the new holder and stays.
+func (s *PortfolioStore) ReleaseAccountSync(ctx context.Context, accountID, token string) error {
+	if _, err := s.pool.Exec(ctx,
+		`DELETE FROM account_sync_claims WHERE account_id = $1 AND token = $2`, accountID, token); err != nil {
+		return fmt.Errorf("failed to release account sync: %w", err)
+	}
+	return nil
+}
+
 // prefixedAccountColumns qualifies the account column list with a table alias,
 // so a join can select it without ambiguity.
 func prefixedAccountColumns(alias string) string {

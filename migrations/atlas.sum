@@ -1,4 +1,4 @@
-h1:ByYaNCAQ6aXkMWplxuq84M4TKjRlYhfBPnR0Wir9Fts=
+h1:2Hkr9AVuxkR1H+TlJkeD9u9vNpZ6i6u7r/T7vTwmy24=
 20260902112348_baseline_v0_11_0.sql h1:KOXTm9nMdJzPUoDs7EVD51k9i5A9OzPpCLf5KDiL4p0=
 20260902112400_holdings_excluded_source.sql h1:D4LmiSSSygyvxLWoRqv/Xae3WZBzBQwBxehqIgKAChg=
 20260903032052_account_sync_attempts.sql h1:ThJ+BtI/cFTiqZ4nYtgDqIIbkIpTMMh4FcwyY3BuCKc=
@@ -9,3 +9,4 @@ h1:ByYaNCAQ6aXkMWplxuq84M4TKjRlYhfBPnR0Wir9Fts=
 20261008045851_account_disabled_at.sql h1:8pZIP0nNbRaFiETDyXTh9Orj6A64UyJ6C+M2779mI/I=
 20261029053530_sweep_unasked_deferral.sql h1:+KX3vUcVNxp5QLPymIb7wZhbJYGLJXVY47tWgOwTD88=
 20261031052038_users_email_nullable.sql h1:MMlu9dMK4/yWUyOFJAGf28SqHxJ5pzYO7oYDptJCKIM=
+20261031074225_account_sync_claims.sql h1:TwzaasR5rxSkhlK3ua1n+g5WlEEcUW91OL/KwijSmBU=
