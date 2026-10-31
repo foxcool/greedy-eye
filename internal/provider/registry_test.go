@@ -207,6 +207,23 @@ func TestKeylessMeansRegisteredByDefault(t *testing.T) {
 	}
 }
 
+// TestCoinGeckoIsKeylessByDefault: see KeylessPriceProviders for why; the key
+// stays optional.
+func TestCoinGeckoIsKeylessByDefault(t *testing.T) {
+	r := testRegistry()
+
+	assert.Contains(t, r.KeylessPriceProviders(), coingecko.ProviderName)
+	var found bool
+	for _, d := range r.Descriptors() {
+		if d.Slug == coingecko.ProviderName {
+			found = true
+			assert.True(t, d.Keyless)
+			assert.False(t, d.NeedsAPIKey, "a key raises the limits; it is not required")
+		}
+	}
+	assert.True(t, found)
+}
+
 // TestAccountBackedFactoriesReadTheirCredentials guards the wiring the move
 // could have broken silently: a factory that ignores the account it is handed
 // builds a client with no key, and the provider answers as if the account had

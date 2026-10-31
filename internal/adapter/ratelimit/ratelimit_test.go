@@ -88,6 +88,18 @@ func TestKeylessTierIsSeparate(t *testing.T) {
 		"keyless must be the slower tier")
 }
 
+// TestKeylessCoinGeckoStaysUnderThePublishedCeiling: the keyless tier is the
+// default source on a fresh instance and its quota is per IP, so pacing at the
+// ceiling itself leaves no room for any other client behind the same address.
+func TestKeylessCoinGeckoStaysUnderThePublishedCeiling(t *testing.T) {
+	const publishedPerMinute = 30
+
+	l := NewRegistry(nil).limitFor(Credential{Provider: "coingecko"})
+
+	assert.Less(t, l.RPS*60, float64(publishedPerMinute))
+	assert.Equal(t, 1, l.Burst, "a burst is what trips a per-minute meter")
+}
+
 func TestLimitResolution(t *testing.T) {
 	reg := NewRegistry(map[string]Limit{"subscan": {RPS: 0.5, Burst: 1}})
 

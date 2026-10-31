@@ -36,7 +36,7 @@ func describeAll() []catalog.Descriptor {
 			Title:       "CoinGecko",
 			Kinds:       []catalog.Kind{catalog.KindPrice},
 			NeedsAPIKey: false,
-			Keyless:     false,
+			Keyless:     true,
 		},
 		{
 			Slug:           binanceadapter.ProviderName,
