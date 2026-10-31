@@ -707,7 +707,7 @@ func TestLogSweepReport_SaysWhatItDoesNotKnow(t *testing.T) {
 	until := time.Date(2026, 9, 13, 23, 30, 0, 0, time.UTC)
 
 	h.LogSweepReport(SweepReport{
-		Stale: 12, Picked: 2, Deferred: 3, Synced: 2, Partial: 1,
+		Stale: 12, Picked: 3, Deferred: 3, Synced: 2, Partial: 1, Skipped: 1,
 		Notes: []SweepNote{
 			{AccountID: "acct-1", Name: "dot-controller", State: sweepPartial,
 				Reasons: []string{"hydration: subscan API status 404 for hydration"}},
@@ -717,8 +717,9 @@ func TestLogSweepReport_SaysWhatItDoesNotKnow(t *testing.T) {
 	}, 3*time.Second)
 
 	out := buf.String()
-	assert.Contains(t, out, "stale=12 picked=2 deferred=3",
+	assert.Contains(t, out, "stale=12 picked=3 deferred=3",
 		"the three numbers that describe the queue stand together")
+	assert.Contains(t, out, "skipped=1", "a picked account that did not sync is counted, so picked reconciles")
 	assert.Contains(t, out, `state=partial`)
 	assert.Contains(t, out, "hydration", "the chain that refused is named, though the unit is the account")
 	assert.Contains(t, out, `state=standing_down`)

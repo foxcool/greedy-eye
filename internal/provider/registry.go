@@ -413,8 +413,18 @@ func (r *Registry) tinvestClient(a *entity.Account) (*tinvestadapter.Client, err
 // at all: without the CBR rate a rouble-quoted instrument has a price and still
 // contributes nothing to a USD total, and a portfolio holding Russian shares
 // reads zero without MOEX. An account naming the same slug still wins.
+//
+// CoinGecko is here for the same reason: with no account a fresh instance would
+// price no crypto at all. Its credential is the empty one, so it meters on the
+// "coingecko:keyless" budget — a bucket no keyed account shares — and the
+// resolver offers it only for a slug no account serves, never as another key.
 func (r *Registry) KeylessPriceProviders() map[string]marketdata.PriceProvider {
+	coingeckoCred := ratelimit.Credential{Provider: coingecko.ProviderName}
 	return map[string]marketdata.PriceProvider{
+		coingecko.ProviderName: coingecko.NewProvider(coingecko.NewClient(coingecko.Config{
+			Transport: r.limits.Transport(coingeckoCred, nil),
+			Budget:    r.limits.Budget(coingeckoCred),
+		})),
 		cbradapter.ProviderName: cbradapter.NewProvider(cbradapter.NewClient(cbradapter.Config{
 			Transport: r.limits.Transport(ratelimit.Credential{Provider: cbradapter.ProviderName}, nil),
 		})),

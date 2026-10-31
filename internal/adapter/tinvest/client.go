@@ -104,13 +104,13 @@ type Client struct {
 	httpClient *http.Client
 }
 
-// ErrNoRootCA reports that the operator has not supplied the certificate
-// authority the API host's chain terminates in. It is a refusal to start, not a
-// warning: without it every request fails inside TLS, which surfaces as an
-// opaque handshake error at sweep time instead of a configuration problem at
-// boot.
+// ErrNoRootCA reports that the account has not supplied the certificate
+// authority the API host's chain terminates in. It is a refusal to build the
+// client, not a warning: without it every request fails inside TLS, which
+// surfaces as an opaque handshake error at sweep time instead of a configuration
+// problem naming the account.
 var ErrNoRootCA = errors.New(
-	"tinvest: no root CA configured (tinvest.rootCAFile): the API host's chain " +
+	"tinvest: no root CA on the account (data[root_ca]): the API host's chain " +
 		"terminates in a CA no standard trust store carries")
 
 // ErrBadBaseURL reports that the configured host is not a URL this client can

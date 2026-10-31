@@ -49,6 +49,13 @@ func TestNewClientRequiresRootCA(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoRootCA)
 }
 
+// The message is what an admin sees in the sweep report, so it must name the
+// field they can actually fill in: the account's root_ca.
+func TestErrNoRootCANamesTheAccountField(t *testing.T) {
+	assert.Contains(t, ErrNoRootCA.Error(), "root_ca")
+	assert.NotContains(t, ErrNoRootCA.Error(), "rootCAFile")
+}
+
 // TestBaseURLDefaultsToProduction: the field is optional, and an instance that
 // never sets it must keep talking to the broker exactly as before. This is the
 // path every existing account is on, so a regression here is silent everywhere.
