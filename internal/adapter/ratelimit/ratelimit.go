@@ -632,6 +632,7 @@ func (r *Registry) Transport(c Credential, base http.RoundTripper) http.RoundTri
 	return &limitedTransport{
 		base:   base,
 		bucket: r.bucket(c),
+		keyed:  c.APIKey != "",
 		now:    r.now,
 	}
 }
@@ -890,6 +891,12 @@ type bucket struct {
 	// provider-sized pause, not a burn, because the quota check reads spend
 	// that IS persisted and refuses before any request goes out.
 	streak int64
+	// rejectedUntil is how long the provider's last refusal of the key itself
+	// (rejectedStatus, a 401) keeps it unusable; see rejectedRetry.
+	// Not persisted, like streak: a restart asks the key again, which costs
+	// one refused request.
+	rejectedUntil  time.Time
+	rejectedStatus int
 }
 
 // window is spend within one calendar period.
@@ -1043,11 +1050,23 @@ func (b *bucket) noteBackoff(caller string) int64 {
 
 // noteSuccess ends a run of refusals. Any answer that is not a back-off counts,
 // including an error status: the provider talked to us, which is the thing a
-// back-off said it would not do.
+// back-off said it would not do. An answer that does not refuse the key also
+// ends a rejection: the provider took the key this time.
 func (b *bucket) noteSuccess() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.streak = 0
+	b.rejectedUntil = time.Time{}
+}
+
+// noteRejected records that the provider refused the key itself. It ends a run
+// of back-offs like any answer, and keeps the key unusable until `until`.
+func (b *bucket) noteRejected(status int, until time.Time) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.streak = 0
+	b.rejectedUntil = until
+	b.rejectedStatus = status
 }
 
 func (b *bucket) hasPending() bool {
@@ -1134,11 +1153,12 @@ func (b *bucket) freezeUntil(t time.Time) {
 // unusableFor reports why this credential cannot carry a request of the given
 // class right now, and when that ends. ok is false when it can.
 //
-// The two reasons are not the same kind of thing and the caller is told which.
+// The reasons are not the same kind of thing and the caller is told which.
 // A spent share ends on a calendar boundary and nothing before it will help; a
 // pause ends when it ends, and may end early on the next successful call from
-// another caller. Collapsing them into "unavailable" would hide the difference
-// between "come back next month" and "come back after lunch".
+// another caller; a rejected key waits for its owner. Collapsing them into
+// "unavailable" would hide the difference between "come back next month",
+// "come back after lunch" and "replace the key".
 func (b *bucket) unusableFor(class spend.Class, now time.Time) (string, time.Time, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -1154,6 +1174,11 @@ func (b *bucket) unusableFor(class spend.Class, now time.Time) (string, time.Tim
 			}
 		}
 	}
+	// First: of the three, only this one needs the key's owner to act.
+	if now.Before(b.rejectedUntil) {
+		return fmt.Sprintf("the provider rejected this credential (HTTP %d)", b.rejectedStatus), b.rejectedUntil, true
+	}
+
 	if !spentUntil.IsZero() {
 		return "this deployment's share of the plan is spent for the period", spentUntil, true
 	}

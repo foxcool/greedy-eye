@@ -32,6 +32,8 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+
+	"github.com/foxcool/greedy-eye/internal/spend"
 )
 
 // ProviderName is the canonical source identifier for T-Invest prices.
@@ -479,10 +481,15 @@ func (c *Client) post(ctx context.Context, path string, payload, out any) error 
 		// reach a log.
 		var e apiError
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		msg := fmt.Sprintf("unexpected status %d", resp.StatusCode)
 		if json.Unmarshal(raw, &e) == nil && e.Message != "" {
-			return fmt.Errorf("tinvest: %s: status %d: %s", path, resp.StatusCode, e.Message)
+			msg = fmt.Sprintf("status %d: %s", resp.StatusCode, e.Message)
 		}
-		return fmt.Errorf("tinvest: %s: unexpected status %d", path, resp.StatusCode)
+		if spend.RejectsCredential(resp.StatusCode) {
+			// Typed, so a caller holding another token can move on to it.
+			return fmt.Errorf("tinvest: %s: %s: %w", path, msg, spend.ErrCredentialRejected)
+		}
+		return fmt.Errorf("tinvest: %s: %s", path, msg)
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {

@@ -2573,6 +2573,292 @@ func TestFetchExternalPrices_TakeoverKeyReplacesDeferredCount(t *testing.T) {
 	assert.Empty(t, resp.Msg.DeferredAssets, "the key that answered left nothing over")
 }
 
+// partialProvider prices what it can and then fails, the way an adapter
+// returns the batches it got before its key was refused.
+type partialProvider struct {
+	fakePriceProvider
+	err error
+}
+
+func (p *partialProvider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]entity.StoredPrice, error) {
+	out, _ := p.fakePriceProvider.FetchPrices(ctx, assets)
+	return out, p.err
+}
+
+func idsOf(assets []*entity.Asset) []string {
+	out := make([]string, len(assets))
+	for i, a := range assets {
+		out[i] = a.ID
+	}
+	return out
+}
+
+// attemptsFor matches the attempt record of one source naming exactly these
+// priced assets and no miss.
+func attemptsFor(priced ...string) any {
+	return mock.MatchedBy(func(o RecordAttemptsOpts) bool {
+		return assert.ObjectsAreEqual(priced, o.Priced) && len(o.Missed) == 0
+	})
+}
+
+// storedIDs collects the asset ids of every CreatePrices call.
+func storedIDs(s *mockStore) []string {
+	var out []string
+	for _, c := range s.Calls {
+		if c.Method != "CreatePrices" {
+			continue
+		}
+		for _, p := range c.Arguments.Get(1).([]*entity.StoredPrice) {
+			out = append(out, p.AssetID)
+		}
+	}
+	return out
+}
+
+// TestFetchExternalPrices_PartialFetchBeforeRefusalIsKept: a key refused after
+// pricing part of its batch had those prices thrown away, and the next key
+// selected and paid for the same assets again. What the first key priced is
+// now kept and recorded, the next key is asked only for the rest, and nothing
+// is filed as a miss.
+func TestFetchExternalPrices_PartialFetchBeforeRefusalIsKept(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{testAsset("a1"), testAsset("a2"), testAsset("a3")}, nil)
+	s.On("RecordPriceAttempts", mock.Anything, attemptsFor("a1")).Return(nil).Once()
+	s.On("RecordPriceAttempts", mock.Anything, attemptsFor("a2", "a3")).Return(nil).Once()
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(3, nil)
+
+	first := &partialProvider{fakePriceProvider{prices: map[string]bool{"a1": true}}, errSpentMidFetch}
+	second := &fakePriceProvider{prices: map[string]bool{"a1": true, "a2": true, "a3": true}}
+	h := newHandler(s).WithProviderSource(keySource{"coingecko": {first, second}})
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+
+	require.Len(t, second.asked, 1)
+	assert.Equal(t, []string{"a2", "a3"}, idsOf(second.asked[0]), "the next key is asked only for the rest")
+	assert.ElementsMatch(t, []string{"a1", "a2", "a3"}, storedIDs(s), "every asset priced once")
+	assert.Equal(t, int32(3), resp.Msg.PricesFetched)
+	assert.Empty(t, resp.Msg.Errors)
+	s.AssertExpectations(t)
+}
+
+// TestFetchExternalPrices_LastKeyRefusedMidFetchKeepsItsPrices: with no key
+// behind it, the refused key's prices are still stored and the rest is
+// reported as unpriced rather than dropped with the batch.
+func TestFetchExternalPrices_LastKeyRefusedMidFetchKeepsItsPrices(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{testAsset("a1"), testAsset("a2"), testAsset("a3")}, nil)
+	s.On("RecordPriceAttempts", mock.Anything, attemptsFor("a1")).Return(nil).Once()
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+
+	only := &partialProvider{fakePriceProvider{prices: map[string]bool{"a1": true}}, errSpentMidFetch}
+	h := newHandler(s).WithProviderSource(keySource{"coingecko": {only}})
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"a1"}, storedIDs(s))
+	assert.Equal(t, int32(1), resp.Msg.PricesStored)
+	require.Len(t, resp.Msg.Errors, 1)
+	assert.Contains(t, resp.Msg.Errors[0], "quota exhausted")
+	assert.Contains(t, resp.Msg.Errors[0], "2 of 3 assets left unpriced")
+	s.AssertExpectations(t)
+}
+
+// A key refused mid-fetch with only spent keys behind it still keeps what it
+// priced, and the refusal names what is left.
+func TestFetchExternalPrices_PartialRefusalBeforeSpentKeysIsKept(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{testAsset("a1"), testAsset("a2")}, nil)
+	s.On("RecordPriceAttempts", mock.Anything, attemptsFor("a1")).Return(nil).Once()
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+
+	first := &partialProvider{fakePriceProvider{prices: map[string]bool{"a1": true}}, errSpentMidFetch}
+	spent := &stuckProvider{reason: "share spent"}
+	h := newHandler(s).WithProviderSource(keySource{"coingecko": {first, spent}})
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"a1"}, storedIDs(s))
+	require.Len(t, resp.Msg.Errors, 1)
+	assert.Contains(t, resp.Msg.Errors[0], "1 of 2 assets left unpriced")
+	assert.NotContains(t, resp.Msg.IdleSources, "coingecko", "a source that priced something was not idle")
+	s.AssertExpectations(t)
+}
+
+// A key that selects nothing after an earlier one priced part of the run does
+// not make the source idle: it contributed. The refusal still stands for what
+// the refused key left, since this key asked for none of it.
+func TestFetchExternalPrices_NothingLeftAfterRefusalIsNotIdle(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{testAsset("a1"), testAsset("a2")}, nil).Once()
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{}, nil)
+	s.On("SweepSchedule", mock.Anything, mock.Anything).Return([]*entity.SourceSchedule{{SourceID: "coingecko"}}, nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+
+	first := &partialProvider{fakePriceProvider{prices: map[string]bool{"a1": true}}, errSpentMidFetch}
+	second := &fakePriceProvider{}
+	h := newHandler(s).WithProviderSource(keySource{"coingecko": {first, second}})
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+
+	assert.Empty(t, second.asked)
+	assert.Equal(t, []string{"a1"}, storedIDs(s))
+	assert.Empty(t, resp.Msg.IdleSources)
+	require.Len(t, resp.Msg.Errors, 1, "what the refused key left is still reported")
+	assert.Contains(t, resp.Msg.Errors[0], "1 of 2 assets left unpriced")
+}
+
+// Whatever keeps the next key from asking for what a refused key left, the
+// refusal still answers for it: no path through the key loop may drop it.
+func TestFetchExternalPrices_RefusalSurvivesANextKeyThatAsksNothing(t *testing.T) {
+	cases := map[string]struct {
+		ctx      context.Context
+		ids      []string
+		first    PriceProvider
+		next     []*entity.Asset // the next key's selection
+		wantIdle bool
+	}{
+		"background work, next key selects nothing": {
+			ctx: backgroundCtx(), ids: []string{"a1", "a2", "a3"},
+			first: &partialProvider{fakePriceProvider{prices: map[string]bool{"a1": true}}, errSpentMidFetch},
+			next:  []*entity.Asset{},
+		},
+		"nothing priced, next key selects nothing": {
+			ctx:   syncContext(),
+			first: &fakePriceProvider{fetchError: errSpentMidFetch},
+			next:  []*entity.Asset{}, wantIdle: true,
+		},
+		"next key selects only what was already priced": {
+			ctx:   syncContext(),
+			first: &partialProvider{fakePriceProvider{prices: map[string]bool{"a1": true}}, errSpentMidFetch},
+			next:  []*entity.Asset{testAsset("a1")},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := &mockStore{}
+			expectBaseAsset(s)
+			expectExternalRefs(s)
+			s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+				Return([]*entity.Asset{testAsset("a1"), testAsset("a2"), testAsset("a3")}, nil).Once()
+			s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return(tc.next, nil)
+			s.On("SweepSchedule", mock.Anything, mock.Anything).Return([]*entity.SourceSchedule{{SourceID: "coingecko"}}, nil).Maybe()
+			s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil).Maybe()
+			s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil).Maybe()
+
+			second := &fakePriceProvider{}
+			h := newHandler(s).WithProviderSource(keySource{"coingecko": {tc.first, second}})
+			resp, err := h.FetchExternalPrices(tc.ctx, connect.NewRequest(
+				&apiv1.FetchExternalPricesRequest{AssetIds: tc.ids}))
+			require.NoError(t, err)
+
+			assert.Empty(t, second.asked)
+			require.Len(t, resp.Msg.Errors, 1)
+			assert.Contains(t, resp.Msg.Errors[0], "quota exhausted")
+			_, idle := resp.Msg.IdleSources["coingecko"]
+			assert.Equal(t, tc.wantIdle, idle)
+		})
+	}
+}
+
+// Background work naming its assets: what the refused key priced is fresh, so
+// the next key's selection no longer holds it, and it must not be counted as
+// left to the sweep.
+func TestFetchExternalPrices_PricedBeforeRefusalIsNotDeferred(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{testAsset("a1"), testAsset("a2"), testAsset("a3")}, nil).Once()
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{testAsset("a2"), testAsset("a3")}, nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(3, nil)
+
+	first := &partialProvider{fakePriceProvider{prices: map[string]bool{"a1": true}}, errSpentMidFetch}
+	second := &fakePriceProvider{prices: map[string]bool{"a2": true, "a3": true}}
+	h := newHandler(s).WithProviderSource(keySource{"coingecko": {first, second}})
+
+	resp, err := h.FetchExternalPrices(backgroundCtx(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a1", "a2", "a3"}}))
+	require.NoError(t, err)
+
+	assert.ElementsMatch(t, []string{"a1", "a2", "a3"}, storedIDs(s))
+	assert.Empty(t, resp.Msg.DeferredAssets)
+	assert.Empty(t, resp.Msg.IdleSources)
+}
+
+// errRejected fails the way a key does once its owner revoked it.
+var errRejected = fmt.Errorf("coingecko native lookup: unexpected status 401 from CoinGecko: %w", spend.ErrCredentialRejected)
+
+// TestFetchExternalPrices_RejectedKeyHandsTheSweepToTheNext: a revoked first
+// key ended the source for every run, and the account behind it never priced
+// anything. A key the provider refuses is now passed over like a spent one.
+func TestFetchExternalPrices_RejectedKeyHandsTheSweepToTheNext(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil)
+	s.On("RecordPriceAttempts", mock.Anything, attemptsFor("a1")).Return(nil).Once()
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+
+	revoked := &fakePriceProvider{fetchError: errRejected}
+	next := &fakePriceProvider{prices: map[string]bool{"a1": true}}
+	h := newHandler(s).WithProviderSource(keySource{"coingecko": {revoked, next}})
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+
+	require.Len(t, next.asked, 1, "the next key takes over in the same run")
+	assert.Equal(t, int32(1), resp.Msg.PricesFetched)
+	assert.Empty(t, resp.Msg.Errors)
+	s.AssertExpectations(t)
+}
+
+// TestFetchExternalPrices_OutageDoesNotBurnTheNextKey: a failure that says
+// nothing about the key (a 5xx, a timeout) is the source's answer for the run.
+// Asking every key would spend each one's allowance on the same outage.
+func TestFetchExternalPrices_OutageDoesNotBurnTheNextKey(t *testing.T) {
+	for name, outage := range map[string]error{
+		"5xx":     errors.New("coingecko native lookup: unexpected status 503 from CoinGecko"),
+		"timeout": fmt.Errorf("coingecko native lookup: do request: %w", context.DeadlineExceeded),
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := &mockStore{}
+			expectBaseAsset(s)
+			expectExternalRefs(s)
+			s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil)
+
+			first := &fakePriceProvider{fetchError: outage}
+			second := &fakePriceProvider{prices: map[string]bool{"a1": true}}
+			h := newHandler(s).WithProviderSource(keySource{"coingecko": {first, second}})
+
+			resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+			require.NoError(t, err)
+
+			assert.Empty(t, second.asked)
+			require.Len(t, resp.Msg.Errors, 1)
+			s.AssertNotCalled(t, "RecordPriceAttempts", mock.Anything, mock.Anything)
+		})
+	}
+}
+
 // TestGetSweepSchedule_NamesASkipOnlyWhenEveryKeyIsSpent: the schedule asks
 // what the sweep would do, and the sweep moves past a spent key.
 func TestGetSweepSchedule_NamesASkipOnlyWhenEveryKeyIsSpent(t *testing.T) {

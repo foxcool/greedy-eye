@@ -721,3 +721,53 @@ func TestBudgetHandleReportsUnusable(t *testing.T) {
 	_, unusable = nilBudget.Unusable()
 	assert.False(t, unusable, "no budget wired means nothing to report")
 }
+
+// TestRejectedKeyIsUnusableUntilItIsAnswered: a provider refusing the key
+// itself is a third reason a credential cannot carry work, and the one its
+// owner has to repair; before it was recorded, a revoked key read as healthy
+// for as long as it stayed revoked. One answer that is not a refusal clears it.
+func TestRejectedKeyIsUnusableUntilItIsAnswered(t *testing.T) {
+	var status atomic.Int32
+	status.Store(http.StatusUnauthorized)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(int(status.Load()))
+	}))
+	defer srv.Close()
+
+	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+	reg := NewRegistry(map[string]Limit{"test": {RPS: 1000, Burst: 10}}, WithClock(func() time.Time { return now }))
+	cred := Credential{Provider: "test", APIKey: "key"}
+	client := &http.Client{Transport: reg.Transport(cred, nil)}
+	get := func() {
+		t.Helper()
+		resp, err := client.Get(srv.URL) //nolint:noctx // fixed URL
+		require.NoError(t, err, "the refusal reaches the adapter as a response")
+		require.NoError(t, resp.Body.Close())
+	}
+
+	get()
+	reason, until, unusable := reg.Budget(cred).UnusableUntil()
+	require.True(t, unusable)
+	assert.Contains(t, reason, "rejected this credential")
+	assert.Contains(t, reason, "401")
+	assert.Equal(t, now.Add(rejectedRetry), until)
+
+	status.Store(http.StatusOK)
+	get()
+	_, unusable = reg.Budget(cred).Unusable()
+	assert.False(t, unusable, "an accepted request clears the rejection")
+
+	// A 403 is a host or firewall block, which every key meets alike.
+	status.Store(http.StatusForbidden)
+	get()
+	_, unusable = reg.Budget(cred).Unusable()
+	assert.False(t, unusable, "a block is not a dead key")
+
+	// No key, no credential to reject.
+	status.Store(http.StatusUnauthorized)
+	keyless := Credential{Provider: "test"}
+	client = &http.Client{Transport: reg.Transport(keyless, nil)}
+	get()
+	_, unusable = reg.Budget(keyless).Unusable()
+	assert.False(t, unusable)
+}
