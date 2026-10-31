@@ -11,7 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/provider"
+	"github.com/foxcool/greedy-eye/internal/service/credentials"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
 	"github.com/foxcool/greedy-eye/internal/store"
 	storecrypto "github.com/foxcool/greedy-eye/internal/store/crypto"
@@ -32,19 +35,23 @@ type unreadableFixture struct {
 	market     *entity.Account
 }
 
+// testEncryptor seals under a key made of b; two stores built from different
+// bytes cannot read each other's rows.
+func testEncryptor(t *testing.T, b byte) *storecrypto.Encryptor {
+	t.Helper()
+	e, err := storecrypto.NewEncryptor(bytes.Repeat([]byte{b}, 32))
+	require.NoError(t, err)
+	return e
+}
+
 func newUnreadableFixture(t *testing.T) *unreadableFixture {
 	t.Helper()
 	pool := getTestPool(t)
 	ctx := context.Background()
 	user := createTestUser(t, NewUserStore(pool))
 
-	encFor := func(b byte) *storecrypto.Encryptor {
-		e, err := storecrypto.NewEncryptor(bytes.Repeat([]byte{b}, 32))
-		require.NoError(t, err)
-		return e
-	}
-	s := NewPortfolioStore(pool, WithEncryptor(encFor(7)))
-	elsewhere := NewPortfolioStore(pool, WithEncryptor(encFor(9)))
+	s := NewPortfolioStore(pool, WithEncryptor(testEncryptor(t, 7)))
+	elsewhere := NewPortfolioStore(pool, WithEncryptor(testEncryptor(t, 9)))
 
 	create := func(st *PortfolioStore, a *entity.Account) *entity.Account {
 		a.UserID = user.ID
@@ -204,4 +211,84 @@ func TestUnreadableAccountLogLineNamesIDAndClassOnly(t *testing.T) {
 	for _, leak := range []string{"top-secret", "0xsealedaway", "0xcorrupt", "coingecko", "failed to", "cipher"} {
 		assert.NotContains(t, buf.String(), leak)
 	}
+}
+
+// TestUnreadableAccountIsNotACredentialHolder: the owner census decides whether
+// unattended work may use the sole operator's key. A user whose only account
+// with the capability cannot be read holds nothing that work could use, and
+// counting them would make one operator look like two and drop the provider.
+func TestUnreadableAccountIsNotACredentialHolder(t *testing.T) {
+	ctx := context.Background()
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	operator, other := createTestUser(t, users), createTestUser(t, users)
+
+	s := NewPortfolioStore(pool, WithEncryptor(testEncryptor(t, 7)))
+	elsewhere := NewPortfolioStore(pool, WithEncryptor(testEncryptor(t, 9)))
+	priceKey := func(userID string) *entity.Account {
+		return &entity.Account{
+			UserID: userID, Name: "coingecko", Type: entity.AccountTypeService,
+			Capabilities: []entity.AccountCapability{entity.CapabilityMarketData},
+			Data:         map[string]string{credentials.DataProviderKey: "coingecko", "api_key": "k"},
+		}
+	}
+	// The unreadable row first, so it sorts wherever a list starts.
+	_, err := elsewhere.CreateAccount(ctx, priceKey(other.ID))
+	require.NoError(t, err)
+	_, err = s.CreateAccount(ctx, priceKey(operator.ID))
+	require.NoError(t, err)
+
+	owners, err := s.ListCapabilityOwners(ctx, entity.CapabilityMarketData)
+	require.NoError(t, err)
+	assert.Equal(t, []string{operator.ID}, owners)
+
+	providers := provider.New(ratelimit.NewRegistry(nil))
+	resolver := credentials.NewResolver(credentials.Config{
+		Source:         s,
+		PriceProviders: providers.PriceProviders(),
+	})
+	prices, err := resolver.PriceProvidersFor(ctx, "")
+	require.NoError(t, err)
+	assert.Len(t, prices["coingecko"], 1, "the sole operator's key serves unattended work")
+
+	inv, err := resolver.Inventory(ctx)
+	require.NoError(t, err)
+	for _, sk := range inv.Skipped {
+		assert.NotEqual(t, entity.SkipOperators, sk.Kind, "one readable holder is one operator: %+v", sk)
+	}
+}
+
+// TestDueSyncCountLeavesOutUnreadableRows: the count is what the sweep would
+// take with no budget, and the sweep never takes a row it cannot read.
+func TestDueSyncCountLeavesOutUnreadableRows(t *testing.T) {
+	f := newUnreadableFixture(t)
+	now := time.Now()
+
+	n, err := f.store.CountDueSyncTargets(context.Background(), now.Add(-time.Hour), now)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n, "the two readable wallets, not the sealed-away and corrupt ones")
+}
+
+// TestCapabilityOwnersNamesEachHolderOnce: an owner with several readable
+// accounts is one holder, so a single operator with two keys is still one.
+func TestCapabilityOwnersNamesEachHolderOnce(t *testing.T) {
+	ctx := context.Background()
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	twoKeys, oneKey := createTestUser(t, users), createTestUser(t, users)
+
+	s := NewPortfolioStore(pool, WithEncryptor(testEncryptor(t, 7)))
+	for _, userID := range []string{twoKeys.ID, twoKeys.ID, oneKey.ID} {
+		_, err := s.CreateAccount(ctx, &entity.Account{
+			UserID: userID, Name: "price key", Type: entity.AccountTypeService,
+			Capabilities: []entity.AccountCapability{entity.CapabilityMarketData},
+			Data:         map[string]string{credentials.DataProviderKey: "coingecko", "api_key": "k"},
+		})
+		require.NoError(t, err)
+	}
+
+	owners, err := s.ListCapabilityOwners(ctx, entity.CapabilityMarketData)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{twoKeys.ID, oneKey.ID}, owners)
+	assert.Len(t, owners, 2)
 }

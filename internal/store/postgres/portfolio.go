@@ -1384,15 +1384,36 @@ func (s *PortfolioStore) RecordSyncMiss(ctx context.Context, accountID string, a
 // though that were how many were due — "due 2" with twelve waiting reads like a
 // quiet instance rather than a queue nobody is getting through. The number the
 // sweep can act on and the number that need acting on are different facts.
+//
+// Counted by decoding each row rather than count(*): ListStaleSyncTargets
+// skips a row it cannot read, and such a row never syncs, so a SQL count would
+// report it as waiting on every run.
+// shortcut: reads every due row, as ListStaleSyncTargets does; count in SQL
+// once readability is a column a query can ask about.
 func (s *PortfolioStore) CountDueSyncTargets(ctx context.Context, olderThan, now time.Time) (int, error) {
-	const query = `SELECT count(*)` + sweepableAccounts
+	query := `SELECT ` + prefixedAccountColumns("a") + sweepableAccounts
 
 	wallet, exchange, broker := sweepableTypes()
-	var n int
-	err := s.pool.QueryRow(ctx, query,
+	rows, err := s.pool.Query(ctx, query,
 		wallet, exchange, broker,
-		olderThan, now).Scan(&n)
+		olderThan, now)
 	if err != nil {
+		return 0, fmt.Errorf("failed to count due sync targets: %w", err)
+	}
+	defer rows.Close()
+
+	var n int
+	for rows.Next() {
+		_, err := s.scanAccount(rows)
+		if s.skipAndLogUnreadable(err) {
+			continue
+		}
+		if err != nil {
+			return 0, fmt.Errorf("failed to scan due sync target: %w", err)
+		}
+		n++
+	}
+	if err := rows.Err(); err != nil {
 		return 0, fmt.Errorf("failed to count due sync targets: %w", err)
 	}
 	return n, nil
@@ -1620,6 +1641,10 @@ func (s *PortfolioStore) ListUserAccountsByCapability(ctx context.Context, userI
 // credential does — a usable one: a person whose only key is disabled holds
 // nothing unattended work could use, and counting them would make a single
 // operator look like two and stop the fallback.
+//
+// For the same reason a holder is counted only through an account this
+// instance can read: the rows are decoded, not just counted, so an unreadable
+// one is skipped here as in every other list.
 func (s *PortfolioStore) ListCapabilityOwners(ctx context.Context, capability entity.AccountCapability) ([]string, error) {
 	if capability == "" {
 		return nil, fmt.Errorf("%w: capability is required", store.ErrInvalidArgument)
@@ -1629,11 +1654,11 @@ func (s *PortfolioStore) ListCapabilityOwners(ctx context.Context, capability en
 		return nil, fmt.Errorf("failed to marshal capability: %w", err)
 	}
 
-	rows, err := s.pool.Query(ctx, `
-		SELECT DISTINCT user_id
+	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
+		SELECT %s
 		FROM accounts
 		WHERE capabilities @> $1 AND user_id IS NOT NULL AND disabled_at IS NULL
-		ORDER BY user_id`, capJSON)
+		ORDER BY user_id, id`, accountColumns), capJSON)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list capability owners: %w", err)
 	}
@@ -1641,11 +1666,18 @@ func (s *PortfolioStore) ListCapabilityOwners(ctx context.Context, capability en
 
 	owners := []string{}
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		a, err := s.scanAccount(rows)
+		if s.skipAndLogUnreadable(err) {
+			continue
+		}
+		if err != nil {
 			return nil, fmt.Errorf("failed to scan capability owner: %w", err)
 		}
-		owners = append(owners, id)
+		// Ordered by owner, so an owner's accounts are adjacent.
+		if len(owners) > 0 && owners[len(owners)-1] == a.UserID {
+			continue
+		}
+		owners = append(owners, a.UserID)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to iterate capability owners: %w", err)
