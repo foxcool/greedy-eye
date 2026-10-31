@@ -100,6 +100,34 @@ type Account struct {
 	UpdatedAt  time.Time
 }
 
+// AccountReadFailure is the class of reason a stored account cannot be read.
+// It names the repair, never the content: the content is what could not be
+// read, and part of it may be a secret.
+type AccountReadFailure string
+
+const (
+	// ReadFailureNoKey: the data is sealed and this instance has no master key.
+	ReadFailureNoKey AccountReadFailure = "no_key"
+	// ReadFailureUndecryptable: no configured key opens the data, typically a
+	// key dropped before every row was rewrapped under its successor.
+	ReadFailureUndecryptable AccountReadFailure = "undecryptable"
+	// ReadFailureKeyConflict: a data key is stored both open and sealed.
+	ReadFailureKeyConflict AccountReadFailure = "key_conflict"
+	// ReadFailureCorrupt: a stored value does not parse.
+	ReadFailureCorrupt AccountReadFailure = "corrupt"
+)
+
+// UnreadableAccount is an account row whose open columns read but whose data
+// or capabilities do not. List queries leave it out rather than fail for
+// everyone; this is how its owner still sees it.
+type UnreadableAccount struct {
+	ID      string
+	UserID  string
+	Name    string
+	Type    AccountType
+	Failure AccountReadFailure
+}
+
 // Disabled reports whether the owner has stood the account down.
 //
 // It is not a capability (what the credential can do) and not a scope (who may

@@ -45,7 +45,12 @@ type Store interface {
 	// DeleteAccountWithHoldings removes the account and its holdings
 	// atomically. Transaction history is never removed this way.
 	DeleteAccountWithHoldings(ctx context.Context, id string) error
+	// ListAccounts and every other account list leave out a row that cannot be
+	// read; ListUnreadableAccounts is where the owner finds it.
 	ListAccounts(ctx context.Context, opts ListAccountsOpts) ([]*entity.Account, string, error)
+	// ListUnreadableAccounts returns the user's accounts whose stored data or
+	// capabilities cannot be read by this instance.
+	ListUnreadableAccounts(ctx context.Context, userID string) ([]*entity.UnreadableAccount, error)
 	// ListStaleSyncTargets returns syncable accounts whose balances were last
 	// confirmed before `olderThan`, stalest first, capped at `limit`. Freshness
 	// comes from the account's own holdings, so it cannot claim a sync that

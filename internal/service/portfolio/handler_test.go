@@ -193,6 +193,19 @@ func (m *mockStore) CountDueSyncTargets(ctx context.Context, olderThan, now time
 	return args.Int(0), args.Error(1)
 }
 
+// ListUnreadableAccounts is lenient: a store with nothing unreadable is the
+// case every test but the one about it describes.
+func (m *mockStore) ListUnreadableAccounts(ctx context.Context, userID string) ([]*entity.UnreadableAccount, error) {
+	if !m.expects("ListUnreadableAccounts") {
+		return nil, nil
+	}
+	args := m.Called(ctx, userID)
+	if v := args.Get(0); v != nil {
+		return v.([]*entity.UnreadableAccount), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockStore) ListSyncDeferrals(ctx context.Context, userID, accountID string) ([]*entity.SyncDeferral, error) {
 	args := m.Called(ctx, userID, accountID)
 	if v := args.Get(0); v != nil {
