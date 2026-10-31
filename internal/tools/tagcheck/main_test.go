@@ -20,6 +20,7 @@ func TestFileTags(t *testing.T) {
 		{"toolchain only", "//go:build linux && amd64 && go1.21 && cgo\n\npackage x\n", nil},
 		{"after license comment", "// Copyright\n\n//go:build smoke\n\npackage x\n", []string{"smoke"}},
 		{"after package clause is not a constraint", "package x\n\n//go:build smoke\n", nil},
+		{"flag-only tag the linter does not set", "//go:build race\n\npackage x\n", []string{"race"}},
 		{"no constraint", "package x\n", nil},
 	}
 	for _, c := range cases {

@@ -22,12 +22,14 @@ import (
 )
 
 // Tags the toolchain defines itself; they are never listed in build-tags.
+// race, msan, asan and purego are not here: the linter does not set them, so a
+// file behind one is unlinted and has to be listed.
 // shortcut: hand-kept lists; a GOOS/GOARCH added by a new Go release shows up
 // as a false alarm naming the tag, extend the lists then.
 var (
 	knownOS   = set("aix android darwin dragonfly freebsd hurd illumos ios js linux nacl netbsd openbsd plan9 solaris wasip1 windows zos unix")
 	knownArch = set("386 amd64 amd64p32 arm armbe arm64 arm64be loong64 mips mipsle mips64 mips64le mips64p32 mips64p32le ppc ppc64 ppc64le riscv riscv64 s390 s390x sparc sparc64 wasm")
-	knownMisc = set("cgo gc gccgo ignore race msan asan boringcrypto purego")
+	knownMisc = set("cgo gc gccgo ignore")
 )
 
 func set(s string) map[string]bool {
