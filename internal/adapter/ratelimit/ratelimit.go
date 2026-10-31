@@ -437,9 +437,12 @@ func (r *Registry) Transport(c Credential, base http.RoundTripper) http.RoundTri
 }
 
 // Remaining reports what is left of a credential's period allowance and when
-// the period ends. A sweep sizes its portion from this instead of a hardcoded
-// cap, so changing the plan on the account changes the budget with it.
-// ok is false when the plan meters only rate — there is nothing to divide.
+// the period ends. ok is false when the plan meters only rate — there is
+// nothing to divide.
+//
+// It presents c, like every Registry method taking a Credential, so c must be
+// the account as it stands now. A client keeps a Budget instead, whose queries
+// never present the snapshot it was built from.
 func (r *Registry) Remaining(c Credential) (requests int, periodEnd time.Time, ok bool) {
 	if r == nil {
 		return 0, time.Time{}, false
@@ -452,14 +455,22 @@ func (r *Registry) Remaining(c Credential) (requests int, periodEnd time.Time, o
 // work without being handed the registry and having to know which credential
 // it was built from.
 type Budget struct {
-	reg  *Registry
-	cred Credential
+	reg    *Registry
+	bucket *bucket
 }
 
 // Budget returns the handle for a credential. A nil Registry yields a handle
 // that reports no allowance, which callers read as "not metered by volume".
+//
+// Like Transport, the handle binds the credential's bucket once, here, and its
+// queries never present the credential again. A client built before an account
+// edit can outlive it inside a running sweep; presenting its snapshot would put
+// the old limit back on the live bucket.
 func (r *Registry) Budget(c Credential) *Budget {
-	return &Budget{reg: r, cred: c}
+	if r == nil {
+		return &Budget{}
+	}
+	return &Budget{reg: r, bucket: r.bucket(c)}
 }
 
 // Remaining reports the background allowance left in the period and when the
@@ -468,7 +479,7 @@ func (b *Budget) Remaining() (requests int, periodEnd time.Time, ok bool) {
 	if b == nil || b.reg == nil {
 		return 0, time.Time{}, false
 	}
-	return b.reg.Remaining(b.cred)
+	return b.bucket.remaining(b.reg.now())
 }
 
 // Unusable reports why this budget's credential cannot carry background work
@@ -477,10 +488,7 @@ func (b *Budget) Remaining() (requests int, periodEnd time.Time, ok bool) {
 // is recorded against the ASSET, so its own back-off grows because of an
 // allowance it has nothing to do with.
 func (b *Budget) Unusable() (string, bool) {
-	if b == nil || b.reg == nil {
-		return "", false
-	}
-	return b.reg.Unusable(b.cred)
+	return unusablePhrase(b.UnusableUntil())
 }
 
 // UnusableUntil reports the same as Unusable with the deadline as a value.
@@ -488,7 +496,7 @@ func (b *Budget) UnusableUntil() (string, time.Time, bool) {
 	if b == nil || b.reg == nil {
 		return "", time.Time{}, false
 	}
-	return b.reg.UnusableUntil(b.cred)
+	return b.bucket.unusableFor(spend.ClassBackground, b.reg.now())
 }
 
 // Snapshot reports spend per credential since the period began. This is the
@@ -878,20 +886,30 @@ func (b *bucket) snapshot() Usage {
 // remaining reports the background allowance left in the period: background
 // work is what sizes itself from this, and it may not spend the interactive
 // reserve. With several entries the tightest one answers, with its own period.
+//
+// Tightest is the least left per unit of time to the period's end, because a
+// caller divides the answer over that time. By raw balance, 80 left today would
+// beat 800 left this month on the 15th, though the month affords fewer an hour.
 func (b *bucket) remaining(now time.Time) (int, time.Time, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.rollPeriod(now)
 
 	left, end, ok := int64(0), time.Time{}, false
+	var pace float64
 	for _, e := range b.entries {
 		if e.Quota <= 0 {
 			continue
 		}
 		w := b.windows[e.Period]
 		l := max(ceiling(e, spend.ClassBackground)-w.requests, 0)
-		if !ok || l < left {
-			left, end, ok = l, periodEnd(w.start, e.Period), true
+		entryEnd := periodEnd(w.start, e.Period)
+		// rollPeriod keeps the end ahead of now; the floor only rules out a
+		// division by zero.
+		entryPace := float64(l) / float64(max(entryEnd.Sub(now), time.Nanosecond))
+		// An equal pace goes to the earlier end, so map order never decides.
+		if !ok || entryPace < pace || (entryPace == pace && entryEnd.Before(end)) {
+			left, end, pace, ok = l, entryEnd, entryPace, true
 		}
 	}
 	return int(left), end, ok
@@ -949,7 +967,11 @@ func (b *bucket) unusableFor(class spend.Class, now time.Time) (string, time.Tim
 // spent and another fine, and scanning them all cannot tell which one the
 // caller actually holds — the caller can, because it holds it.
 func (r *Registry) Unusable(c Credential) (string, bool) {
-	reason, until, unusable := r.UnusableUntil(c)
+	return unusablePhrase(r.UnusableUntil(c))
+}
+
+// unusablePhrase folds a reason and its deadline into one log-line phrase.
+func unusablePhrase(reason string, until time.Time, unusable bool) (string, bool) {
 	if !unusable {
 		return "", false
 	}

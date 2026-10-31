@@ -256,3 +256,91 @@ func TestPendingKeepsItsPeriodAcrossSwitch(t *testing.T) {
 		periodStart(now, QuotaDay):   1,
 	}, byPeriod)
 }
+
+// TestRetainedBudgetCannotUndoAnEdit: a client built before an account edit can
+// still be finishing a sweep when the edit lands. Asking its Budget must read
+// the live bucket, not put the old share back on it.
+func TestRetainedBudgetCannotUndoAnEdit(t *testing.T) {
+	srv, hits := countingServer(t)
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	reg := quotaRegistry(1000, func() time.Time { return now })
+	cred := Credential{Provider: "test", APIKey: "key", Account: "acc-1", Limit: Limit{Quota: 10, Period: QuotaMonth}}
+	old := reg.Budget(cred)
+	for range 6 {
+		require.NoError(t, send(t, reg, cred, srv.URL))
+	}
+
+	lowered := cred
+	lowered.Limit.Quota = 5
+	client := &http.Client{Transport: reg.Transport(lowered, nil)}
+
+	left, _, ok := old.Remaining()
+	require.True(t, ok)
+	assert.Zero(t, left, "6 spent is over the lowered share")
+	_, unusable := old.Unusable()
+	assert.True(t, unusable)
+	_, _, unusable = old.UnusableUntil()
+	assert.True(t, unusable)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, nil)
+	require.NoError(t, err)
+	_, err = client.Do(req)
+	require.ErrorIs(t, err, ErrQuotaExhausted, "the edit still holds after the old handle was asked")
+	assert.EqualValues(t, 6, hits.Load())
+}
+
+// TestRemainingAnswersWithTheTightestPace: a sweep divides what is left by the
+// time to the period's end, so the entry that affords the least per hour must
+// answer, not the one with the smallest raw balance. Background work gets
+// backgroundReserve (0.8) of a quota, so on July 15 at noon a daily 100 leaves
+// 80 for today, about 6.7 an hour, and a monthly 1000 leaves 800, about 2.
+func TestRemainingAnswersWithTheTightestPace(t *testing.T) {
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	monthEnd := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+
+	t.Run("smaller balance, faster pace", func(t *testing.T) {
+		reg := quotaRegistry(1000, func() time.Time { return now })
+		daily := Credential{Provider: "test", APIKey: "key", Account: "daily", Limit: Limit{Quota: 100, Period: QuotaDay}}
+		monthly := Credential{Provider: "test", APIKey: "key", Account: "monthly", Limit: Limit{Quota: 1000, Period: QuotaMonth}}
+		reg.Transport(daily, nil)
+		reg.Transport(monthly, nil)
+
+		left, end, ok := reg.Budget(daily).Remaining()
+		require.True(t, ok)
+		assert.Equal(t, 800, left)
+		assert.Equal(t, monthEnd, end)
+	})
+
+	t.Run("equal balances", func(t *testing.T) {
+		reg := quotaRegistry(1000, func() time.Time { return now })
+		daily := Credential{Provider: "test", APIKey: "key", Account: "daily", Limit: Limit{Quota: 100, Period: QuotaDay}}
+		monthly := Credential{Provider: "test", APIKey: "key", Account: "monthly", Limit: Limit{Quota: 100, Period: QuotaMonth}}
+		reg.Transport(daily, nil)
+		budget := reg.Budget(monthly)
+
+		// Entries live in a map; asking repeatedly is what exposes an answer
+		// that depends on iteration order.
+		for range 50 {
+			_, end, ok := budget.Remaining()
+			require.True(t, ok)
+			require.Equal(t, monthEnd, end, "80 over the month is the slower pace")
+		}
+	})
+
+	t.Run("equal pace", func(t *testing.T) {
+		reg := quotaRegistry(1000, func() time.Time { return now })
+		// 0.8 of 15 is 12 over the 12 hours of today, 0.8 of 495 is 396 over
+		// the 396 hours of the month: one request an hour either way.
+		daily := Credential{Provider: "test", APIKey: "key", Account: "daily", Limit: Limit{Quota: 15, Period: QuotaDay}}
+		monthly := Credential{Provider: "test", APIKey: "key", Account: "monthly", Limit: Limit{Quota: 495, Period: QuotaMonth}}
+		reg.Transport(daily, nil)
+		budget := reg.Budget(monthly)
+
+		for range 50 {
+			left, end, ok := budget.Remaining()
+			require.True(t, ok)
+			require.Equal(t, 12, left, "the earlier end answers")
+			require.Equal(t, time.Date(2026, 7, 16, 0, 0, 0, 0, time.UTC), end)
+		}
+	})
+}
