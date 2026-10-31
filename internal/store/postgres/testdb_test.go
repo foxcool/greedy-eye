@@ -43,14 +43,14 @@ func NewTestDB(ctx context.Context) (*TestDB, error) {
 
 	connStr, err := container.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
-		container.Terminate(ctx)
+		_ = container.Terminate(ctx)
 		return nil, fmt.Errorf("get connection string: %w", err)
 	}
 
 	// Find the project root (where schema.hcl is located).
 	projectRoot, err := findProjectRoot()
 	if err != nil {
-		container.Terminate(ctx)
+		_ = container.Terminate(ctx)
 		return nil, fmt.Errorf("find project root: %w", err)
 	}
 
@@ -58,13 +58,13 @@ func NewTestDB(ctx context.Context) (*TestDB, error) {
 	// migrations, not by applying schema.hcl. A migration that is wrong now
 	// fails here rather than on somebody's deploy.
 	if err := applyMigrations(ctx, projectRoot, connStr); err != nil {
-		container.Terminate(ctx)
+		_ = container.Terminate(ctx)
 		return nil, fmt.Errorf("apply migrations: %w", err)
 	}
 
 	pool, err := NewPool(ctx, connStr)
 	if err != nil {
-		container.Terminate(ctx)
+		_ = container.Terminate(ctx)
 		return nil, fmt.Errorf("create connection pool: %w", err)
 	}
 
@@ -81,7 +81,7 @@ func (db *TestDB) Close(ctx context.Context) {
 		db.Pool.Close()
 	}
 	if db.container != nil {
-		db.container.Terminate(ctx)
+		_ = db.container.Terminate(ctx)
 	}
 }
 
