@@ -411,7 +411,8 @@ graph TB
 
 **User provisioning** (`internal/middleware/user.go` + `postgres.UserStore`):
 - Users are provisioned lazily from `X-User-Id`/`X-User-Email`/`X-User-Roles` headers set by the
-  auth proxy (psina). Roles are per-request and never persisted (psina owns them). There is no
+  auth proxy (psina). A missing email is stored as NULL (`users.email` is UNIQUE; the entity reads it back as an
+  empty string), so users without an email do not collide. Roles are per-request and never persisted (psina owns them). There is no
   user-management Connect service: this instance stores a reference to a user, not a user.
 
 **External Adapters** (Integration Layer):

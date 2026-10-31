@@ -9,7 +9,7 @@ table "users" {
   }
   column "email" {
     type = character_varying
-    null = false
+    null = true
   }
   column "name" {
     type = character_varying
