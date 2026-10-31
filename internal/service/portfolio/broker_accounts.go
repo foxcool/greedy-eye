@@ -249,10 +249,32 @@ func (h *Handler) brokerAccountOf(ctx context.Context, parent *entity.Account, b
 	return account, nil
 }
 
+// refuseUnreadableBrokers fails while any of the user's broker accounts cannot
+// be read. Discovery and rotation decide by what the listing shows, and the
+// listing leaves an unreadable row out: discovery would create a second
+// account for its broker account, and rotation would leave it on the old
+// secret without naming it.
+func (h *Handler) refuseUnreadableBrokers(ctx context.Context, userID string) error {
+	unreadable, err := h.store.ListUnreadableAccounts(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, u := range unreadable {
+		if u.Type == entity.AccountTypeBroker {
+			return fmt.Errorf("%w: broker account %s cannot be read, so the user's broker accounts cannot be told apart",
+				store.ErrUnreadable, u.ID)
+		}
+	}
+	return nil
+}
+
 // brokerAccountsOf indexes the user's broker accounts of one provider by the
 // broker account each names. Accounts naming none are skipped: the credential
 // holder is one of them, and it is not a position-bearing account.
 func (h *Handler) brokerAccountsOf(ctx context.Context, userID, provider string) (map[string]*entity.Account, error) {
+	if err := h.refuseUnreadableBrokers(ctx, userID); err != nil {
+		return nil, err
+	}
 	opts := ListAccountsOpts{UserID: userID, Type: entity.AccountTypeBroker, PageSize: brokerAccountsPageSize}
 	byBrokerID := map[string]*entity.Account{}
 	for {
@@ -360,6 +382,9 @@ func (h *Handler) rotateCopiedSecrets(ctx context.Context, before *entity.Accoun
 	}
 	if len(changed) == 0 {
 		return nil, nil, nil
+	}
+	if err := h.refuseUnreadableBrokers(ctx, before.UserID); err != nil {
+		return nil, nil, err
 	}
 
 	provider := before.Data[providerDataKey]

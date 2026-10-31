@@ -2,6 +2,8 @@ package portfolio
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	pkgstore "github.com/foxcool/greedy-eye/internal/store"
 )
 
 type fakeSourceHealth struct {
@@ -389,6 +392,69 @@ func TestAccountHealthDisabledIsTheOwnersChoiceNotAFault(t *testing.T) {
 	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_OK,
 		worse(apiv1.HealthState_HEALTH_STATE_OK, apiv1.HealthState_HEALTH_STATE_DISABLED),
 		"worse ranks DISABLED below OK; only the sources_state fold lifts it")
+}
+
+// TestAccountHealthNamesAnUnreadableAccount: an account every list leaves out
+// because its stored data cannot be read is reported to its owner as unusable,
+// with the class of failure, rather than silently missing.
+func TestAccountHealthNamesAnUnreadableAccount(t *testing.T) {
+	store := newHealthStore()
+	store.On("ListAccounts", mock.Anything, mock.Anything).Return([]*entity.Account{
+		healthAccount("ok", entity.AccountTypeExchange),
+	}, "", nil)
+	store.On("ListUnreadableAccounts", mock.Anything, testUserID).Return([]*entity.UnreadableAccount{
+		{ID: "lost", UserID: testUserID, Name: "lost key", Type: entity.AccountTypeWallet, Failure: entity.ReadFailureUndecryptable},
+	}, nil)
+	store.On("ListSyncDeferrals", mock.Anything, testUserID, "").Return([]*entity.SyncDeferral(nil), nil)
+
+	resp, err := newHandler(store).GetAccountHealth(ctxWithUser(testUserID), connect.NewRequest(&apiv1.GetAccountHealthRequest{}))
+	require.NoError(t, err)
+
+	accounts := byAccount(resp.Msg)
+	require.Contains(t, accounts, "ok")
+	got := accounts["lost"]
+	require.NotNil(t, got, "the unreadable account must be reported, not missing")
+	assert.Equal(t, "lost key", got.AccountName)
+	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_UNUSABLE, got.State)
+	require.Len(t, got.Reasons, 1)
+	assert.Equal(t, apiv1.HealthReasonKind_HEALTH_REASON_KIND_UNREADABLE, got.Reasons[0].Kind)
+	assert.Contains(t, got.Reasons[0].Message, string(entity.ReadFailureUndecryptable))
+}
+
+// TestAccountHealthOfANamedUnreadableAccount: naming an unreadable account
+// reports it as the list does, for its owner only — its owner is read off the
+// owner's own list, since the row itself cannot be read.
+func TestAccountHealthOfANamedUnreadableAccount(t *testing.T) {
+	unreadableErr := fmt.Errorf("failed to get account: %w", pkgstore.ErrUnreadable)
+	lost := &entity.UnreadableAccount{ID: "lost", UserID: testUserID, Name: "lost key", Type: entity.AccountTypeWallet,
+		Failure: entity.ReadFailureKeyConflict}
+
+	store := newHealthStore()
+	store.On("GetAccount", mock.Anything, "lost").Return(nil, unreadableErr)
+	store.On("GetAccount", mock.Anything, "theirs").Return(nil, unreadableErr)
+	store.On("ListUnreadableAccounts", mock.Anything, testUserID).Return([]*entity.UnreadableAccount{lost}, nil)
+	store.On("ListSyncDeferrals", mock.Anything, testUserID, "lost").Return([]*entity.SyncDeferral(nil), nil)
+
+	resp, err := newHandler(store).GetAccountHealth(ctxWithUser(testUserID),
+		connect.NewRequest(&apiv1.GetAccountHealthRequest{AccountId: proto.String("lost")}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Accounts, 1)
+	assert.Equal(t, apiv1.HealthReasonKind_HEALTH_REASON_KIND_UNREADABLE, resp.Msg.Accounts[0].Reasons[0].Kind)
+	assert.Contains(t, resp.Msg.Accounts[0].Reasons[0].Message, string(entity.ReadFailureKeyConflict))
+
+	_, err = newHandler(store).GetAccountHealth(ctxWithUser(testUserID),
+		connect.NewRequest(&apiv1.GetAccountHealthRequest{AccountId: proto.String("theirs")}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err), "an unreadable account not on the caller's list is not theirs to diagnose")
+	assert.NotContains(t, err.Error(), "unreadable", "the read error is not the caller's to see")
+
+	failing := newHealthStore()
+	failing.On("GetAccount", mock.Anything, "lost").Return(nil, unreadableErr)
+	failing.On("ListUnreadableAccounts", mock.Anything, testUserID).Return(nil, errors.New("connection reset"))
+	_, err = newHandler(failing).GetAccountHealth(ctxWithUser(testUserID),
+		connect.NewRequest(&apiv1.GetAccountHealthRequest{AccountId: proto.String("lost")}))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "connection reset", "a failed lookup is reported, not read as somebody else's account")
 }
 
 // TestUnconfirmedReason: a row the latest snapshot did not write and did not

@@ -1366,6 +1366,16 @@ somebody chose, since that would report one currency's number under another curr
   reporting success. A Postgres advisory lock keeps the pass to one instance. Procedure in
   `docs/development.md`.
 
+  A row that cannot be read fails a read **by id**, and only that. Every list (the owner's
+  account list, the sweep's selection, the capability listings the credential resolver runs)
+  leaves it out with one log line naming the account id and the failure class (`no_key`,
+  `undecryptable`, `key_conflict`, `corrupt`), never its content, and `GetAccountHealth` reports
+  it to its owner as `UNREADABLE`. One such row used to fail those queries whole: the sweep
+  stopped for every user and no price provider resolved for anyone. Broker discovery and secret
+  rotation are the exception: they decide by what the list shows, so an unreadable broker account
+  stops them for its owner rather than read as absent (a duplicate account, a copy left on the
+  revoked secret).
+
   **Rejected**: re-encrypting lazily when a row is read under a stale key. It never converges —
   a row nobody reads is a row nobody rewrites — so it could not answer the only question an
   operator has ("is the old key still load bearing?"), and it turns every list into a burst of
