@@ -14,7 +14,6 @@ import (
 	"go/token"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -90,8 +89,8 @@ func fileTags(name string, src []byte) ([]string, error) {
 	return tags, nil
 }
 
-func configuredTags(path string) (map[string]bool, error) {
-	raw, err := os.ReadFile(path)
+func configuredTags(fsys fs.FS, path string) (map[string]bool, error) {
+	raw, err := fs.ReadFile(fsys, path)
 	if err != nil {
 		return nil, err
 	}
@@ -111,23 +110,23 @@ func configuredTags(path string) (map[string]bool, error) {
 }
 
 // missing maps each unlisted tag to the files that use it.
-func missing(root string, listed map[string]bool) (map[string][]string, error) {
+func missing(fsys fs.FS, listed map[string]bool) (map[string][]string, error) {
 	out := map[string][]string{}
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
 			// go tooling skips these too; .git and vendored code are not ours.
 			if n := d.Name(); n == ".git" || n == "vendor" || n == "node_modules" || n == "testdata" {
-				return filepath.SkipDir
+				return fs.SkipDir
 			}
 			return nil
 		}
 		if !strings.HasSuffix(p, ".go") {
 			return nil
 		}
-		src, err := os.ReadFile(p)
+		src, err := fs.ReadFile(fsys, p)
 		if err != nil {
 			return err
 		}
@@ -145,26 +144,30 @@ func missing(root string, listed map[string]bool) (map[string][]string, error) {
 	return out, err
 }
 
-func main() {
-	root, cfgPath := ".", ".golangci.yml"
-	if len(os.Args) > 1 {
-		root = os.Args[1]
-	}
-	if len(os.Args) > 2 {
-		cfgPath = os.Args[2]
-	}
-	listed, err := configuredTags(cfgPath)
+func main() { os.Exit(run()) }
+
+// run works from the module root, as make and CI call it. Reads go through an
+// os.Root, so a symlink in the tree cannot lead a read outside it.
+func run() int {
+	const cfgPath = ".golangci.yml"
+	root, err := os.OpenRoot(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "tagcheck:", err)
-		os.Exit(2)
+		return 2
 	}
-	miss, err := missing(root, listed)
+	defer func() { _ = root.Close() }()
+	listed, err := configuredTags(root.FS(), cfgPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "tagcheck:", err)
-		os.Exit(2)
+		return 2
+	}
+	miss, err := missing(root.FS(), listed)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "tagcheck:", err)
+		return 2
 	}
 	if len(miss) == 0 {
-		return
+		return 0
 	}
 	tags := make([]string, 0, len(miss))
 	for t := range miss {
@@ -177,5 +180,5 @@ func main() {
 			fmt.Fprintln(os.Stderr, "  ", f)
 		}
 	}
-	os.Exit(1)
+	return 1
 }

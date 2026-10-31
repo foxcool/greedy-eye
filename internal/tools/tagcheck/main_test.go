@@ -58,7 +58,7 @@ func TestMissing(t *testing.T) {
 	write("b/new_test.go", "//go:build newtag && linux\n\npackage b\n")
 	write("testdata/skip.go", "//go:build ignoredtag\n\npackage c\n")
 
-	got, err := missing(dir, map[string]bool{"integration": true})
+	got, err := missing(os.DirFS(dir), map[string]bool{"integration": true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestMissing(t *testing.T) {
 		t.Fatalf("got %v, want only newtag", got)
 	}
 
-	got, err = missing(dir, map[string]bool{"integration": true, "newtag": true})
+	got, err = missing(os.DirFS(dir), map[string]bool{"integration": true, "newtag": true})
 	if err != nil || len(got) != 0 {
 		t.Fatalf("got %v, %v; want none", got, err)
 	}
