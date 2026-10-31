@@ -2,8 +2,10 @@ package moralis
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -118,6 +120,42 @@ func TestMoralisClient_GetWalletTokenBalances_RepeatedCursorFails(t *testing.T) 
 	got, err := client.GetWalletTokenBalances(context.Background(), "eth", "0xabc")
 	assert.Nil(t, got)
 	assert.ErrorContains(t, err, "cursor repeated")
+}
+
+// A wallet whose cursor ends on the last allowed page is read whole; one whose
+// cursor goes on is an error, not a silently truncated list.
+func TestMoralisClient_GetWalletTokenBalances_PageCap(t *testing.T) {
+	serve := func(pages int32) (*Client, *atomic.Int32) {
+		var requests atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			n := requests.Add(1)
+			next := "null"
+			if n < pages {
+				next = fmt.Sprintf(`"c%d"`, n)
+			}
+			_, _ = fmt.Fprintf(w, `{"cursor":%s,"result":[{"token_address":"0x%x","symbol":"T","decimals":18,"balance":"1"}]}`, next, n)
+		}))
+		t.Cleanup(srv.Close)
+		client := NewClient(Config{APIKey: "k"})
+		client.baseURL = srv.URL + "/api"
+		return client, &requests
+	}
+
+	t.Run("ends on the last allowed page", func(t *testing.T) {
+		client, requests := serve(tokensMaxPages)
+		got, err := client.GetWalletTokenBalances(context.Background(), "eth", "0xabc")
+		require.NoError(t, err)
+		assert.Len(t, got, tokensMaxPages)
+		assert.EqualValues(t, tokensMaxPages, requests.Load())
+	})
+
+	t.Run("goes on past the last allowed page", func(t *testing.T) {
+		client, requests := serve(tokensMaxPages + 1)
+		got, err := client.GetWalletTokenBalances(context.Background(), "eth", "0xabc")
+		assert.Nil(t, got)
+		assert.ErrorContains(t, err, "exceeded")
+		assert.EqualValues(t, tokensMaxPages, requests.Load(), "no request past the cap")
+	})
 }
 
 // TestMoralisClient_PathSegmentsEscaped: address and chain come from account
