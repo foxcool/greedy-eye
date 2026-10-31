@@ -2766,6 +2766,85 @@ func TestFetchExternalPrices_UnconfiguredSourceSurvivesUnknownAssets(t *testing.
 	assert.Equal(t, map[string]string{"binance": "not_configured"}, resp.Msg.GetIdleSources())
 }
 
+// Named assets that resolve to nothing used to end the request with an empty
+// response, the same zero as a sweep with nothing to do. The ids are named so
+// the caller can tell a typo from "everything is current", and each configured
+// source says it had nothing to ask.
+func TestFetchExternalPrices_OnlyUnknownAssetIdsAreNamed(t *testing.T) {
+	s := &mockStore{}
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{}, "", nil)
+	p := &fakePriceProvider{}
+	h := newHandler(s).WithProvider("fake", p)
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"ghost-1", "ghost-2"}}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetErrors(), 1)
+	assert.Contains(t, resp.Msg.GetErrors()[0], "ghost-1")
+	assert.Contains(t, resp.Msg.GetErrors()[0], "ghost-2")
+	assert.Equal(t, map[string]string{"fake": "no_assets"}, resp.Msg.GetIdleSources())
+	assert.Zero(t, resp.Msg.GetPricesFetched())
+	assert.Empty(t, p.asked)
+}
+
+// A partly unknown list is priced for what exists and names the rest: dropping
+// the unknown ids silently would read as "all of them were priced".
+func TestFetchExternalPrices_KnownAndUnknownAssetIds(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, "", nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	p := &fakePriceProvider{prices: map[string]bool{"a1": true}}
+	h := newHandler(s).WithProvider("fake", p)
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a1", "ghost", "a1"}}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), resp.Msg.GetPricesFetched())
+	require.Len(t, resp.Msg.GetErrors(), 1)
+	assert.Contains(t, resp.Msg.GetErrors()[0], "ghost")
+	assert.NotContains(t, resp.Msg.GetErrors()[0], "a1", "a duplicate of a known id is not unknown")
+	assert.Empty(t, resp.Msg.GetIdleSources())
+}
+
+// A source the sweep skipped because its credential cannot carry work was
+// invisible: the request named it, it was configured, and the response said
+// nothing. The reason the source itself gave is the answer.
+func TestFetchExternalPrices_UnusableNamedSourceIsNamed(t *testing.T) {
+	s := &mockStore{}
+	p := &stuckProvider{reason: "share spent"}
+	h := newHandler(s).WithProvider("coingecko", p)
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{SourceIds: []string{"coingecko"}}))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"coingecko": "unusable: share spent"}, resp.Msg.GetIdleSources())
+	assert.Empty(t, p.asked)
+}
+
+// A later key that can carry the work is the source's answer; an earlier key
+// that cannot must not make the source read as idle.
+func TestFetchExternalPrices_UnusableKeyBeforeUsableKeyIsNotIdle(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	h := newHandler(s).WithProviderSource(keySource{"coingecko": {
+		&stuckProvider{reason: "share spent"},
+		&fakePriceProvider{prices: map[string]bool{"a1": true}},
+	}})
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{SourceIds: []string{"coingecko"}}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetIdleSources())
+	assert.Equal(t, int32(1), resp.Msg.GetPricesFetched())
+}
+
 // A sweep that found work reports no idle source at all — and pays nothing for
 // the explanation, which only the empty path asks for.
 func TestFetchExternalPrices_WorkingSweepReportsNoIdleSource(t *testing.T) {
