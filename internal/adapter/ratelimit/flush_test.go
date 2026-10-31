@@ -374,12 +374,13 @@ func TestStopDoesNotWaitOutAHungWrite(t *testing.T) {
 	assert.EqualValues(t, 1, held, "only the spend that never reached a write")
 }
 
-// racingStore writes everything, and runs during inside the first write: a
+// racingStore writes everything, calling during from inside the write: a
 // request that reserves while the final flush is in flight.
 type racingStore struct {
 	*fakeUsageStore
 	during func()
-	every  bool
+	// every keeps during for each write; otherwise it runs in the first only.
+	every bool
 }
 
 func (r *racingStore) AddUsage(ctx context.Context, deltas []Usage) error {
@@ -434,7 +435,7 @@ func TestStopLogsSpendThatNeverStopsArriving(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	require.Error(t, reg.Stop(ctx), "spend left unwritten is an error")
+	require.ErrorIs(t, reg.Stop(ctx), context.DeadlineExceeded, "spend left unwritten is an error")
 
 	written := storedRequests(store.fakeUsageStore)[fingerprint("key")+"/sweep"]
 	log := buf.String()
@@ -484,7 +485,7 @@ func TestShutdownDeadlineIsNotBlamedOnARow(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	require.Error(t, reg.Stop(ctx))
+	require.ErrorIs(t, reg.Stop(ctx), context.DeadlineExceeded)
 	assert.Equal(t, map[string]int64{"fp-good/sweep": 1}, storedRequests(store.fakeUsageStore))
 
 	var rejectedLines, lostLines []string

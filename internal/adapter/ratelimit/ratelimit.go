@@ -365,7 +365,9 @@ func (r *Registry) Stop(ctx context.Context) error {
 	case <-r.done:
 	case <-ctx.Done():
 		// A store that ignores cancellation keeps the write; its spend is
-		// in inflight, so the loss line still names it.
+		// in inflight, so the loss line still names it. Cancel first: a tick
+		// after the line must not write what it called lost.
+		r.cancelLoop()
 		r.logLost()
 		return ctx.Err()
 	}
@@ -523,8 +525,10 @@ func (r *Registry) Flush(ctx context.Context) error {
 }
 
 // settle ends the write in flight and hands what it could not write back for
-// the next flush, in one step: the loss line must see the spend in one place or
-// the other, never in both or neither.
+// the next flush, in one step, so a loss line drawn at any moment finds the
+// spend in one place or the other, never in both or neither. A write that
+// settles after Stop's loss line was drawn is past that line: nothing flushes
+// or reports again.
 func (r *Registry) settle(kept []Usage) {
 	r.mu.Lock()
 	r.inflight = nil
