@@ -118,7 +118,7 @@ config, not in user data.
 | `coingecko` | optional | `api_key`, `tier`, `pro` | The keyless tier accepts exactly one contract address per request and about 30 requests a minute. A free demo key raises this to batches of 30 and allows 10 000 calls a month. Name a paid plan with `tier: pro` — one name picks the API host, the auth header and the allowance, which have to agree. `pro: "true"` is the old spelling of the same thing and still works |
 | `binance` | required | `api_key`, `api_secret` | Also serves as an exchange syncer. Prices assets on the global `crypto` market, and only those **bound to a listed pair** in `asset_external_refs` (source `binance`, ref e.g. `BTCUSDT`). The binding is made by discovery during the sweep. Binance is never ambiguous on its own side, so a contest is always between two of *our* assets, and a token minted with a famous ticker would otherwise be handed the real coin's price. When two live assets claim a ticker on the same market, every claimant but the incumbent (the oldest one ever priced) is withheld from every source before any adapter sees it (ADR-006, price binding): it stays unpriced as `AMBIGUOUS_TICKER`, an existing binding is kept but not used, and it is resolved by quarantining the impostor, not by the adapter picking a winner. Each row carries the pair's **24h turnover in the quote asset** (`quoteVolume` from `/api/v3/ticker/24hr`), which is what ADR-009 measures a market by; a pair found trading that reports no turnover is published with an explicit zero, so a book nobody touched stays out of the total while the price stays in the catalogue |
 | `moex` | none | — | MOEX ISS. Prices assets whose `market` is `moex`: shares and exchange-traded funds from the ISS `shares` market, bonds from `bonds`. Quotes are in roubles, so the RUB/USD rate from `cbr` is what carries them into a USD total. Where a security trades on several boards, the one with the most turnover today wins; outside trading hours the previous close is used and dated to its own session, with no turnover attached. A bond quote is a percentage of nominal and is multiplied out; accrued interest is not included (`personal-b7l`). **Delisted securities get no price at all** — `is_traded=0` means ISS reports no current market, and a last trade from years ago is not a valuation |
-| `tinvest` | required | `api_key` | T-Invest broker API, account type `broker`. Prices assets whose `market` is `spbex` or `moex` — the SPB Exchange has no open endpoint of its own, and MOEX arrives as a second opinion alongside `moex` above. **Needs an operator-supplied trust anchor** (`tinvest.rootCAFile`): the API host's certificate chain terminates in a root no standard trust store carries, and without it every request fails inside TLS. See below. Identity is the FIGI, bound automatically into `asset_external_refs` when a ticker resolves to exactly one instrument on the venue — an ambiguous ticker is left unbound and unpriced rather than guessed. Each row carries the instrument's own currency, so a dollar-quoted foreign share and a rouble-quoted domestic one come out of one response correctly. An instrument that is not trading right now — halted, blocked, delisted — is published with an explicit **zero turnover**, which keeps it out of the total under ADR-009 while the number stays in the catalogue: the API reports no volume at all, and without that a frozen 2022 print would sail into the sum |
+| `tinvest` | required | `api_key` | T-Invest broker API, account type `broker`. Prices assets whose `market` is `spbex` or `moex` — the SPB Exchange has no open endpoint of its own, and MOEX arrives as a second opinion alongside `moex` above. **Needs a trust anchor on the account** (`root_ca` in `accounts.data`): the API host's certificate chain terminates in a root no standard trust store carries, and without it every request fails inside TLS. See below. Identity is the FIGI, bound automatically into `asset_external_refs` when a ticker resolves to exactly one instrument on the venue — an ambiguous ticker is left unbound and unpriced rather than guessed. Each row carries the instrument's own currency, so a dollar-quoted foreign share and a rouble-quoted domestic one come out of one response correctly. An instrument that is not trading right now — halted, blocked, delisted — is published with an explicit **zero turnover**, which keeps it out of the total under ADR-009 while the number stays in the catalogue: the API reports no volume at all, and without that a frozen 2022 print would sail into the sum |
 | `cbr` | none | — | Bank of Russia daily rates. Registered unconditionally, account or not, because nothing about it is per-user. Quotes every currency in the published set in USD, including the rouble, and prices only assets typed `forex` — a token that copied a currency's ticker gets no rate. Prices carry the set's own business day, not the fetch time: a Friday set read on Sunday is two days old and says so |
 
 ### The T-Invest trust anchor
@@ -133,12 +133,10 @@ Which certificate authorities a service accepts is a decision for whoever runs
 it, not one a source tree should make on their behalf — particularly a state
 authority in a project meant to be self-hosted anywhere.
 
-So an operator who wants this provider supplies it:
-
-```yaml
-tinvest:
-  rootcafile: /etc/greedy-eye/russian_trusted_root_ca.pem
-```
+So the person who adds a T-Invest account supplies it, as the PEM in the
+account's `root_ca` field (`accounts.data[root_ca]`, shown in the account form
+as "Root certificate (PEM)"). It sits beside the token it is used with, and
+there is no service-level config key for it.
 
 Published at `https://gu-st.ru/content/Other/doc/russian_trusted_root_ca.cer`.
 Verify before installing — the same root is presented by the API host itself,
@@ -151,19 +149,21 @@ SHA256 D2:6D:2D:02:31:B7:C3:9F:92:CC:73:85:12:BA:54:10:35:19:E4:40:5D:68:B5:BD:7
 The anchor is added to a pool for **this client only**: nothing else the service
 connects to will accept certificates from that authority.
 
-What happens when it is missing, in three cases that are deliberately different:
+What happens when it is missing:
 
-- **No path configured, no broker account.** Nothing happens. The service starts
-  and runs exactly as it does without this provider, which is the normal state
-  on every instance that does not use a Russian broker.
-- **No path configured, but a broker account exists.** The account stays where
-  its owner put it and simply produces no prices. Each sweep logs one warning
-  naming the provider, the account and the missing `tinvest.rootCAFile`. Every
-  other provider prices as usual — one unconfigured account is not allowed to
-  cost the portfolio its CoinGecko, MOEX and FX prices.
-- **A path is configured but unreadable.** The process refuses to start. This is
-  a typo in operator config, and the alternative is a TLS handshake error inside
-  a sweep hours later with nothing pointing back at the cause.
+- **No T-Invest account.** Nothing happens. The service starts and runs exactly
+  as it does without this provider, which is the normal state on every instance
+  that does not use a Russian broker.
+- **An account without `root_ca`.** Building that account's client fails with
+  `ErrNoRootCA`; the account produces no prices and is reported rather than
+  guessed around. Every other provider prices as usual — one unconfigured
+  account is not allowed to cost the portfolio its CoinGecko, MOEX and FX
+  prices. The process still starts.
+- **An account whose `base_url` is plain `http`.** No anchor is needed: there is
+  no certificate to verify. The account's token then travels as cleartext
+  (`Authorization: Bearer` on every request), so this is for a local replay
+  server with a test token only, never a real broker token. Only an admin can
+  set `base_url`.
 
 ## Broker accounts (`broker` + `portfolio_sync`)
 
@@ -379,6 +379,4 @@ provider that did not returns `Unimplemented: wallet sync not configured` —
 which is the signal that the `service` account is missing, has the wrong slug,
 or lacks `onchain_lookup`.
 
-Deprecated environment-variable credentials still work as a fallback and log a
-warning once per process per provider. Anything still relying on them should be
-migrated to an account.
+Credentials come from accounts only; no environment-variable fallback remains.

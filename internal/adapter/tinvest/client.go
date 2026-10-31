@@ -11,7 +11,7 @@
 // And its TLS chain does not verify against a standard trust store: the host
 // certificate is issued by the Russian Trusted Root CA, which no operating
 // system or Go distribution ships. That root is NOT vendored here. It is
-// supplied by whoever deploys the instance (config key tinvest.rootCAFile) and
+// supplied by whoever adds the account (accounts.data[root_ca]) and
 // trusted for this client alone — which trust anchors a service accepts is an
 // operator's decision, not a library's, and a state certificate authority
 // checked into a source tree would make it for everyone downstream.
@@ -76,7 +76,7 @@ type Config struct {
 	// BaseURL selects the host. Empty means the production gateway.
 	BaseURL string
 
-	// RootCAPEM is the PEM the operator supplies to verify the API host.
+	// RootCAPEM is the PEM the account holder supplies to verify the API host.
 	//
 	// Required unless Transport is set, and deliberately without a default: the
 	// certificate chain of *.tinkoff.ru terminates in the Russian Trusted Root

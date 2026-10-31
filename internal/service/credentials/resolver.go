@@ -102,7 +102,8 @@ type BrokerAccountListerFactory func(a *entity.Account) (entity.BrokerAccountLis
 // PriceProviderFactory builds a price provider from account credentials.
 type PriceProviderFactory func(a *entity.Account) (marketdata.PriceProvider, error)
 
-// Config wires a Resolver: per-provider factories plus env-configured fallbacks.
+// Config wires a Resolver: per-provider factories. Credentials come from
+// accounts only.
 type Config struct {
 	Source          AccountSource
 	WalletSyncers   map[string]WalletProvider        // keyed by provider slug
@@ -332,8 +333,8 @@ func (r *Resolver) clientFor(kind string, a *entity.Account, build func() (any, 
 
 // WalletSyncerFor resolves a wallet syncer for the user (onchain_lookup
 // capability) able to sync every chain in chains. An empty chains list means
-// auto-discovery, resolved by the address's shape. Returns the env-configured
-// syncer (possibly nil) when no account-based credentials match.
+// auto-discovery, resolved by the address's shape. Returns a keyless reader
+// (possibly nil) when no account-based credentials match.
 func (r *Resolver) WalletSyncerFor(ctx context.Context, userID, address string, chains []string) (entity.WalletSyncer, error) {
 	candidates, _, err := r.accountsFor(ctx, userID, entity.CapabilityOnchainLookup)
 	if err != nil {
