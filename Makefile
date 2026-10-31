@@ -8,7 +8,7 @@ COMPOSE_FILE=deploy/compose.yaml
 .PHONY: gen go-gen up debug down logs clean buf-gen docs-api \
         test test-unit test-integration test-smoke test-smoke-loopback schema-diff \
         migrate-apply migrate-diff migrate-status migrate-baseline migrate-drift \
-        lint fmt-check vet check
+        lint tag-check fmt-check vet check
 
 # Generate all code
 gen: buf-gen go-gen
@@ -138,12 +138,22 @@ fmt-check:
 	@out="$$(gofmt -l .)" || exit 1; if [ -n "$$out" ]; then echo "gofmt drift (run gofmt -w):"; echo "$$out"; exit 1; fi
 
 # Run golangci-lint via Docker (matches CI). Build tags come from .golangci.yml.
-# Modules live in a named volume, not the host GOMODCACHE: runs after the first
-# download nothing, and the container cannot write into the host's cache.
+# GOLANGCI_LINT_VERSION must move together with `version:` in the lint job of
+# .github/workflows/ci.yml, or make and CI lint with different rules.
+# Modules and golangci-lint's analysis cache live in named volumes, not the host
+# caches: runs after the first download and re-analyse nothing unchanged, and
+# the container cannot write into the host's caches.
+GOLANGCI_LINT_VERSION = v2.15.0
 LINT_MODCACHE ?= greedy-eye-lint-gomod
+LINT_CACHE ?= greedy-eye-lint-cache
 
-lint: fmt-check
-	docker run --rm -v $(PWD):/app -v $(LINT_MODCACHE):/go/pkg/mod -w /app golangci/golangci-lint:latest golangci-lint run -v
+# Fails when a //go:build tag is missing from run.build-tags in .golangci.yml:
+# files behind an unlisted tag are not linted, and the linter does not say so.
+tag-check:
+	go run ./internal/tools/tagcheck
+
+lint: fmt-check tag-check
+	docker run --rm -v $(PWD):/app -v $(LINT_MODCACHE):/go/pkg/mod -v $(LINT_CACHE):/root/.cache -w /app golangci/golangci-lint:$(GOLANGCI_LINT_VERSION) golangci-lint run -v
 
 # Pre-commit check: vet + lint + unit tests
 check: vet lint test-unit
