@@ -1520,6 +1520,7 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	// filtering in Go is both wasteful and lossy — the discarded page token used
 	// to cap the whole sweep at 500 assets.
 	var named []*entity.Asset
+	var unknownAssets string
 	if len(req.Msg.AssetIds) > 0 && backgroundIDs == nil {
 		var err error
 		named, _, err = h.store.ListAssets(ctx, ListAssetsOpts{
@@ -1529,13 +1530,32 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		if err != nil {
 			return nil, toConnectError(err)
 		}
+		// A typo'd or deleted id must not read as "priced, nothing to report":
+		// the caller named it, so the response names it back.
+		if unknown := unknownIDs(req.Msg.AssetIds, named); len(unknown) > 0 {
+			unknownAssets = "unknown asset_ids: " + strings.Join(unknown, ", ")
+		}
 		if len(named) == 0 {
-			return connect.NewResponse(&apiv1.FetchExternalPricesResponse{IdleSources: idleSources}), nil
+			// Falling through would select as an unattended sweep (named is
+			// nil), so the request ends here, saying what every source in
+			// scope did: nothing, because there was nothing to ask.
+			for id := range providers {
+				if len(req.Msg.SourceIds) == 0 || slices.Contains(req.Msg.SourceIds, id) {
+					idleSources[id] = string(outcomeNoAssets)
+				}
+			}
+			return connect.NewResponse(&apiv1.FetchExternalPricesResponse{
+				Errors:      []string{unknownAssets},
+				IdleSources: idleSources,
+			}), nil
 		}
 	}
 
 	var allPrices []*entity.StoredPrice
 	var fetchErrs []string
+	if unknownAssets != "" {
+		fetchErrs = append(fetchErrs, unknownAssets)
+	}
 	var totalFetched int
 	// Named assets background work left to the sweep, per source.
 	deferredAssets := map[string]int32{}
@@ -1595,6 +1615,12 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		if hp, ok := provider.(HealthReportingProvider); ok && named == nil {
 			if reason, unusable := hp.Unusable(); unusable {
 				h.log.Info("price sweep: provider skipped", "provider", name, "key", k.index, "reason", reason)
+				if k.last {
+					// Every key of the source was tried and none can carry work:
+					// that is the source's answer, and without it the source
+					// vanishes from the response like an unconfigured one did.
+					idleSources[name] = string(outcomeUnusable) + ": " + reason
+				}
 				if k.last && backgroundIDs != nil {
 					deferredAssets[name] = int32(len(backgroundIDs)) // #nosec G115 -- bounded by request size
 				}
@@ -1794,6 +1820,30 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 		DeferredAssets: deferredAssets,
 		CoveredAssets:  coveredAssets,
 	}), nil
+}
+
+// unknownIDs returns the requested ids no returned asset carries, once each and
+// in request order. The store matches ids as uuids, so an upper-case or
+// hyphenless spelling finds its asset; compared as text it would be reported
+// unknown while being priced.
+func unknownIDs(requested []string, found []*entity.Asset) []string {
+	canon := func(id string) string {
+		if u, err := uuid.Parse(id); err == nil {
+			return u.String()
+		}
+		return id
+	}
+	have := make(map[string]bool, len(found))
+	for _, a := range found {
+		have[canon(a.ID)] = true
+	}
+	var out []string
+	for _, id := range uniqueIDs(requested) {
+		if !have[canon(id)] {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // uniqueIDs drops repeats while keeping order, so that what is counted as
@@ -2067,6 +2117,13 @@ const (
 	// outcomeNotConfigured: the request named a source the caller has no
 	// provider for.
 	outcomeNotConfigured selectionOutcome = "not_configured"
+	// outcomeNoAssets: the request named assets and none of them exists, so
+	// there was nothing to ask any source.
+	outcomeNoAssets selectionOutcome = "no_assets"
+	// outcomeUnusable: the source is configured but its credential cannot carry
+	// work now. The response value is this prefix, ": " and the reason the
+	// source gave.
+	outcomeUnusable selectionOutcome = "unusable"
 )
 
 // soonestDue reports when this source's earliest deferred asset comes due, for

@@ -2550,7 +2550,9 @@ type FetchExternalPricesResponse struct {
 	// priced carries a ticker another live asset also claims), "covered" (every
 	// due asset already has a fresh traded quote from another source),
 	// "not_configured" (source_ids named it, but the caller has no such
-	// provider), "unknown".
+	// provider), "no_assets" (asset_ids named assets and none exists),
+	// "unusable: <reason>" (configured, but its credential cannot carry work
+	// now), "unknown".
 	//
 	// Without it, prices_fetched=0 is the only thing an unattended sweep can say,
 	// and it means both "everything is current" and "the whole catalogue is
