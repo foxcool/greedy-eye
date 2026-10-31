@@ -1741,6 +1741,8 @@ func TestSweepSchedule_MatchesSelection(t *testing.T) {
 		assert.False(t, got.SoonestDue.IsZero())
 		assert.True(t, got.SoonestDue.Before(now.Add(2*time.Hour)),
 			"soonest_due dates the back-off, not the unasked deferral a day out")
+		assert.WithinDuration(t, now.Add(24*time.Hour), got.SoonestReconsider, time.Second,
+			"the unasked deferral is dated on its own")
 	})
 
 	t.Run("a market the binding does not admit is neither selected nor counted", func(t *testing.T) {
@@ -1833,6 +1835,8 @@ func TestDeferUnaskedPricing(t *testing.T) {
 		got := sched[0]
 		assert.Equal(t, uint32(2), got.Unaskable)
 		assert.Zero(t, got.DueNow+got.Deferred+got.NeverAttempted)
+		assert.True(t, got.SoonestDue.IsZero(), "no back-off to date")
+		assert.WithinDuration(t, now.Add(day), got.SoonestReconsider, time.Second)
 	})
 
 	t.Run("a repeated sweep moves the deadline from its own start", func(t *testing.T) {

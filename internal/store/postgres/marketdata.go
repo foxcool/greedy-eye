@@ -295,7 +295,7 @@ func (s *MarketDataStore) findAssetBySymbol(ctx context.Context, symbol string, 
 		SELECT ` + assetColumns + `
 		FROM assets
 		WHERE symbol = $1` + typeFilter + `
-		ORDER BY (market LIKE 'onchain:%') ASC, created_at ASC
+		ORDER BY ` + onchainSQL("market") + ` ASC, created_at ASC
 		LIMIT 50`
 
 	rows, err := s.pool.Query(ctx, query, args...)
@@ -310,7 +310,7 @@ func (s *MarketDataStore) findAssetBySymbol(ctx context.Context, symbol string, 
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan asset: %w", err)
 		}
-		if strings.HasPrefix(asset.Market, onchainMarketPrefix) {
+		if strings.HasPrefix(asset.Market, entity.OnchainPrefix) {
 			isolated = append(isolated, asset)
 			continue
 		}
@@ -334,9 +334,13 @@ func (s *MarketDataStore) findAssetBySymbol(ctx context.Context, symbol string, 
 	}
 }
 
-// onchainMarketPrefix marks a market minted from a contract address rather than
-// assigned by an authority. See entity.ContractMarket.
-const onchainMarketPrefix = "onchain:"
+// onchainSQL is the SQL form of entity.IsContractMarket on a market column, and
+// of entity.ChainFromOnchainSource on a ref source column: both are the
+// entity.OnchainPrefix rule. The prefix is a constant with no LIKE wildcards,
+// so it is safe to inline.
+func onchainSQL(column string) string {
+	return "(" + column + " LIKE '" + entity.OnchainPrefix + "%')"
+}
 
 // FindAssetByIdentity looks up an asset by its exact composite identity
 // (symbol, market, type). Inputs are normalized the same way CreateAsset
@@ -740,7 +744,7 @@ func (s *MarketDataStore) FindTickerIncumbent(ctx context.Context, assetID strin
 		SELECT inc.id
 		FROM assets claim
 		JOIN asset_external_refs cr
-		  ON cr.asset_id = claim.id AND cr.source LIKE 'onchain:%'
+		  ON cr.asset_id = claim.id AND `+onchainSQL("cr.source")+`
 		JOIN asset_external_refs ir
 		  ON ir.source = cr.source AND lower(ir.ref) <> lower(cr.ref)
 		JOIN assets inc
@@ -1017,7 +1021,7 @@ func stalePricingWhere(opts marketdata.StalePricingOpts, scope pricingScope) (st
 		market := "lower(trim(a.market))"
 		admit := market + " = ANY(" + next(nonNil(b.Markets)) + ")"
 		if b.ContractMarkets {
-			admit = "(" + admit + " OR " + market + " LIKE 'onchain:%')"
+			admit = "(" + admit + " OR " + onchainSQL(market) + ")"
 		}
 		where = append(where, admit)
 	}
@@ -1125,18 +1129,19 @@ func (s *MarketDataStore) sourceSchedule(ctx context.Context, opts marketdata.St
 		       count(*) FILTER (WHERE held)                                           AS unaskable,
 		       min(next_attempt_at) FILTER (WHERE NOT held AND next_attempt_at > $2)  AS soonest_due,
 		       max(next_attempt_at) FILTER (WHERE NOT held AND next_attempt_at > $2)  AS latest_deferred,
+		       min(reconsider_at) FILTER (WHERE held)                                 AS soonest_reconsider,
 		       coalesce(max(misses), 0)                                               AS max_misses
 		FROM (
-			SELECT f.next_attempt_at, f.misses, ` + unaskedHeld + ` AS held
+			SELECT f.next_attempt_at, f.misses, u.reconsider_at, ` + unaskedHeld + ` AS held
 			FROM ` + stalePricingFrom + `
 			WHERE ` + where + `
 		) admitted`
 
 	sched := &entity.SourceSchedule{SourceID: opts.SourceID}
 	var due, deferred, never, unaskable, misses int64
-	var soonest, latest *time.Time
+	var soonest, latest, reconsider *time.Time
 	if err := s.pool.QueryRow(ctx, query, args...).Scan(
-		&due, &deferred, &never, &unaskable, &soonest, &latest, &misses); err != nil {
+		&due, &deferred, &never, &unaskable, &soonest, &latest, &reconsider, &misses); err != nil {
 		return nil, fmt.Errorf("failed to read sweep schedule: %w", err)
 	}
 	sched.DueNow = uint32(due)           // #nosec G115 -- bounded by the catalogue
@@ -1149,6 +1154,9 @@ func (s *MarketDataStore) sourceSchedule(ctx context.Context, opts marketdata.St
 	}
 	if latest != nil {
 		sched.LatestDeferred = *latest
+	}
+	if reconsider != nil {
+		sched.SoonestReconsider = *reconsider
 	}
 	return sched, nil
 }
@@ -1799,7 +1807,7 @@ func contestedWhere(verdicts string) string {
 		return fmt.Sprintf(`%[1]s.symbol = a.symbol AND %[1]s.market = a.market
 		    AND %[1]s.id <> a.id AND %[1]s.identity_verdict <> ALL(%[2]s)`, alias, verdicts)
 	}
-	return fmt.Sprintf(`(a.market NOT LIKE 'onchain:%%'
+	return fmt.Sprintf(`(NOT %[4]s
 		AND a.identity_verdict <> ALL(%[1]s)
 		AND EXISTS (SELECT 1 FROM assets b WHERE %[2]s)
 		AND NOT (
@@ -1808,7 +1816,7 @@ func contestedWhere(verdicts string) string {
 		        SELECT 1 FROM assets c WHERE %[3]s
 		          AND (c.created_at, c.id) < (a.created_at, a.id)
 		          AND EXISTS (SELECT 1 FROM prices pc WHERE pc.asset_id = c.id))))`,
-		verdicts, claimant("b"), claimant("c"))
+		verdicts, claimant("b"), claimant("c"), onchainSQL("a.market"))
 }
 
 // nonNil binds an absent verdict list as an empty array: a nil slice binds as

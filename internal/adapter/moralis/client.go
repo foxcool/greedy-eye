@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -70,29 +71,9 @@ type NFT struct {
 func NewClient(cfg Config) *Client {
 	return &Client{
 		apiKey:     cfg.APIKey,
-		baseURL:    "https://deep-index.moralis.io/api/v2",
+		baseURL:    "https://deep-index.moralis.io/api",
 		httpClient: &http.Client{Timeout: 30 * time.Second, Transport: cfg.Transport},
 	}
-}
-
-// doGetURL is like doGet but takes a full URL instead of a path suffix.
-func (c *Client) doGetURL(ctx context.Context, url string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("X-API-Key", c.apiKey)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("do request: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		_ = resp.Body.Close()
-		return nil, fmt.Errorf("moralis API status %d for %s", resp.StatusCode, url)
-	}
-	return resp, nil
 }
 
 // moralisActiveChain is one entry from the /api/v2.2/wallets/{address}/chains response.
@@ -119,9 +100,8 @@ func (c *Client) GetActiveChains(ctx context.Context, address string) ([]string,
 	for _, ch := range candidateChains {
 		params = append(params, "chains%5B%5D="+ch) // chains[]=<chain>
 	}
-	url := fmt.Sprintf("https://deep-index.moralis.io/api/v2.2/wallets/%s/chains?%s",
-		address, strings.Join(params, "&"))
-	resp, err := c.doGetURL(ctx, url)
+	resp, err := c.doGet(ctx, fmt.Sprintf("/v2.2/wallets/%s/chains?%s",
+		url.PathEscape(address), strings.Join(params, "&")))
 	if err != nil {
 		return nil, err
 	}
@@ -144,8 +124,8 @@ func (c *Client) GetActiveChains(ctx context.Context, address string) ([]string,
 	return chains, nil
 }
 
-// moralisERC20Token is the JSON shape from /v2/{address}/erc20 endpoint.
-type moralisERC20Token struct {
+// moralisToken is one entry of the v2.2 wallets/{address}/tokens result.
+type moralisToken struct {
 	TokenAddress     string `json:"token_address"`
 	Symbol           string `json:"symbol"`
 	Name             string `json:"name"`
@@ -154,6 +134,7 @@ type moralisERC20Token struct {
 	Thumbnail        string `json:"thumbnail"`
 	PossibleSpam     bool   `json:"possible_spam"`
 	VerifiedContract bool   `json:"verified_contract"`
+	NativeToken      bool   `json:"native_token"`
 }
 
 func (c *Client) doGet(ctx context.Context, path string) (*http.Response, error) {
@@ -175,29 +156,87 @@ func (c *Client) doGet(ctx context.Context, path string) (*http.Response, error)
 	return resp, nil
 }
 
-// GetWalletTokenBalances retrieves all ERC-20 token balances for a wallet.
+const (
+	tokensPageLimit = 100 // endpoint maximum; fewer pages per wallet
+	// tokensMaxPages bounds the cursor walk so a cursor that never ends cannot
+	// loop forever. Hitting it is an error, not a truncation: silently dropping
+	// the tail is the failure the cursor exists to prevent.
+	tokensMaxPages = 100
+)
+
+// GetWalletTokenBalances retrieves all ERC-20 token balances for a wallet,
+// following the v2.2 cursor until it is exhausted.
+//
+// The native coin is excluded (exclude_native): it is read by GetWalletBalance,
+// which the syncer already uses and which carries the native symbol/name the
+// token endpoint does not. Reading it from both would double-count it. The
+// native_token guard below covers a stub or API that ignores the parameter.
 func (c *Client) GetWalletTokenBalances(ctx context.Context, chain string, address string) ([]Balance, error) {
-	resp, err := c.doGet(ctx, fmt.Sprintf("/%s/erc20?chain=%s", address, chain))
+	var (
+		result []Balance
+		cursor string
+		seen   = map[string]bool{}
+	)
+	for page := 0; page < tokensMaxPages; page++ {
+		path := fmt.Sprintf("/v2.2/wallets/%s/tokens?chain=%s&limit=%d&exclude_native=true",
+			url.PathEscape(address), url.QueryEscape(chain), tokensPageLimit)
+		if cursor != "" {
+			path += "&cursor=" + url.QueryEscape(cursor)
+		}
+		tokens, next, err := c.getTokensPage(ctx, path)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range tokens {
+			if t.NativeToken {
+				continue
+			}
+			result = append(result, Balance{
+				TokenAddress:     t.TokenAddress,
+				Symbol:           t.Symbol,
+				Name:             t.Name,
+				Decimals:         t.Decimals,
+				Balance:          t.Balance,
+				Thumbnail:        t.Thumbnail,
+				PossibleSpam:     t.PossibleSpam,
+				VerifiedContract: t.VerifiedContract,
+			})
+		}
+		if next == "" {
+			if result == nil {
+				result = []Balance{}
+			}
+			return result, nil
+		}
+		if seen[next] {
+			return nil, fmt.Errorf("moralis tokens cursor repeated for %s", chain)
+		}
+		seen[next] = true
+		cursor = next
+	}
+	return nil, fmt.Errorf("moralis tokens exceeded %d pages for %s", tokensMaxPages, chain)
+}
+
+func (c *Client) getTokensPage(ctx context.Context, path string) ([]moralisToken, string, error) {
+	resp, err := c.doGet(ctx, path)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	var tokens []moralisERC20Token
-	if err := json.NewDecoder(resp.Body).Decode(&tokens); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	var body struct {
+		Result []moralisToken `json:"result"`
+		Cursor string         `json:"cursor"`
 	}
-
-	result := make([]Balance, 0, len(tokens))
-	for _, t := range tokens {
-		result = append(result, Balance(t))
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, "", fmt.Errorf("decode response: %w", err)
 	}
-	return result, nil
+	return body.Result, body.Cursor, nil
 }
 
 // GetWalletBalance retrieves native token (ETH) balance for a wallet.
 func (c *Client) GetWalletBalance(ctx context.Context, chain string, address string) (string, error) {
-	resp, err := c.doGet(ctx, fmt.Sprintf("/%s/balance?chain=%s", address, chain))
+	resp, err := c.doGet(ctx, fmt.Sprintf("/v2/%s/balance?chain=%s", url.PathEscape(address), url.QueryEscape(chain)))
 	if err != nil {
 		return "", err
 	}

@@ -411,7 +411,8 @@ graph TB
 
 **User provisioning** (`internal/middleware/user.go` + `postgres.UserStore`):
 - Users are provisioned lazily from `X-User-Id`/`X-User-Email`/`X-User-Roles` headers set by the
-  auth proxy (psina). Roles are per-request and never persisted (psina owns them). There is no
+  auth proxy (psina). A missing email is stored as NULL (`users.email` is UNIQUE; the entity reads it back as an
+  empty string), so users without an email do not collide. Roles are per-request and never persisted (psina owns them). There is no
   user-management Connect service: this instance stores a reference to a user, not a user.
 
 **External Adapters** (Integration Layer):
@@ -500,7 +501,9 @@ without linking them.
   stops re-asking. The streak is in memory and a restart clears it — the spend it protects is not.
   Built-in plans live in `defaultLimits`; the ACCOUNT overrides them field by field through
   `data.rps`/`.burst`/`.quota`/`.period`, because a plan belongs to the key rather than to the
-  service. Spend is persisted per period (`provider_usage`), so a restart does not hand the process
+  service. The limit is re-resolved each time a client is built, so an edit applies without a
+  restart; accounts sharing a key are all enforced (smallest share wins), and a key-less bucket
+  takes only the operator's limit — it is one per-IP budget for every user. Spend is persisted per period (`provider_usage`), so a restart does not hand the process
   a fresh month. Two instances on ONE key remain the sharp edge: they see each other's spend only
   through a shared database, and dev+prod do not have one — hence `quota` as this deployment's
   declared share of the plan.
@@ -1047,7 +1050,11 @@ Cron / API Client → AutomationService/ExecuteRule
   admin role and an explicit update mask. Every write to the asset catalogue is admin-only too —
   `UpdateAsset`, `DeleteAsset`, `SetAssetVerdict`, `Add`/`DeleteAssetRiskFlag`,
   `DeleteAssetExternalRef` — because an asset is one row shared by every user who holds it, so an
-  edit by one is an edit for all. Adding a row is gated the same way: `CreateAsset` is admin-only,
+  edit by one is an edit for all. Every direct price write is admin-only for the same reason
+  (`CreatePrice`, `CreatePrices`, `DeletePrice`, `DeletePrices`): a price row values every holder.
+  `FetchExternalPrices` also writes prices, but only what a provider reported, and only for the
+  sync or an admin — including the sync a non-admin starts on their own account.
+  Adding an asset row is gated the same way: `CreateAsset` is admin-only,
   and `FindOrCreateAsset` creates (or, in a dry run, plans to create) only for the in-process sync
   or an admin, so anyone else's manual import resolves existing rows only (`personal-a483`).
   The heuristic verdict on an existing row is re-scored and persisted only by the in-process
@@ -1785,12 +1792,17 @@ System Quality
 - Resolution Plan: weighted cost per call, and reading the provider's own remaining-budget headers
   where they exist (`X-MBX-USED-WEIGHT-*`).
 
-#### Debt 5: Catalogue mutations are not role-gated
+#### Debt 5: No per-asset RBAC on the shared catalogue
 
-- Description: `assets` and `prices` are a shared catalogue that any authenticated user can
-  mutate. With a single user this is harmless; it does not survive a second one.
-- Impact: Blocks multi-user operation.
-- Resolution Plan: RBAC on catalogue mutations; user-scoped assets stay private.
+- Description: Every write to `assets` and `prices` is role-gated (§8.1): admin-only, with the
+  in-process sync additionally admitted where it reports what a provider said. What is missing is
+  anything finer than the admin role — there is no per-asset ownership or delegation, so a user
+  cannot be allowed to edit one asset (for instance one only they hold) without being admin.
+- Impact: With more than one user, fixing a catalogue row for a non-admin means asking an admin.
+  Not a security hole: a non-admin cannot edit the catalogue directly; prices reach it only
+  through the sync, as a provider reported them.
+- Resolution Plan: per-asset RBAC; user-scoped assets stay private. Done when a non-admin can
+  edit an asset they are granted, and still cannot edit one they are not.
 
 #### Debt 6: No upgrade path for an instance that already has data
 

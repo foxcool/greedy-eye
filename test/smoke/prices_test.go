@@ -48,6 +48,9 @@ func TestFetchExternalPrices_Keyless(t *testing.T) {
 		AssetIds:  []string{eurID},
 	}))
 	require.NoError(t, err)
+	if errs := fetchResp.Msg.GetErrors(); providerOutageOnly(cbradapter.ProviderName, errs) {
+		t.Skipf("cbr.ru is down, nothing of ours to check: %v", errs)
+	}
 	assert.Empty(t, fetchResp.Msg.GetErrors(), "expected no fetch errors")
 	assert.Greater(t, fetchResp.Msg.GetPricesFetched(), int32(0), "expected at least one price fetched")
 	assert.Greater(t, fetchResp.Msg.GetPricesStored(), int32(0), "expected at least one price stored")

@@ -29,6 +29,11 @@ func NewUserStore(pool *pgxpool.Pool) *UserStore {
 }
 
 // GetOrCreate returns an existing user by id or creates a new one using email as the name default.
+//
+// An empty email is stored as NULL: users.email is UNIQUE, so a second
+// email-less user would collide on the empty string but not on NULL.
+// entity.User.Email stays a plain string — every read maps NULL back to empty
+// with COALESCE, so no caller has to know about the distinction.
 func (s *UserStore) GetOrCreate(ctx context.Context, id string, email string) (*entity.User, error) {
 	if !isValidUUID(id) {
 		return nil, fmt.Errorf("%w: invalid user ID format", store.ErrInvalidArgument)
@@ -36,7 +41,7 @@ func (s *UserStore) GetOrCreate(ctx context.Context, id string, email string) (*
 
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO users (id, email, name, preferences, created_at, updated_at)
-		VALUES ($1, $2, $2, '{}', NOW(), NOW())
+		VALUES ($1, NULLIF($2::varchar, ''), $2, '{}', NOW(), NOW())
 		ON CONFLICT (id) DO NOTHING`,
 		id, email,
 	)
@@ -46,7 +51,7 @@ func (s *UserStore) GetOrCreate(ctx context.Context, id string, email string) (*
 
 	var u entity.User
 	err = s.pool.QueryRow(ctx, `
-		SELECT id, email, name, preferences, created_at, updated_at
+		SELECT id, COALESCE(email, ''), name, preferences, created_at, updated_at
 		FROM users WHERE id = $1`, id,
 	).Scan(&u.ID, &u.Email, &u.Name, &u.Preferences, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
@@ -109,7 +114,7 @@ func (s *UserStore) GetUser(ctx context.Context, id string) (*entity.User, error
 
 	var u entity.User
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, email, name, preferences, created_at, updated_at
+		SELECT id, COALESCE(email, ''), name, preferences, created_at, updated_at
 		FROM users WHERE id = $1`, id,
 	).Scan(&u.ID, &u.Email, &u.Name, &u.Preferences, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
@@ -129,7 +134,7 @@ func (s *UserStore) GetUserByEmail(ctx context.Context, email string) (*entity.U
 
 	var u entity.User
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, email, name, preferences, created_at, updated_at
+		SELECT id, COALESCE(email, ''), name, preferences, created_at, updated_at
 		FROM users WHERE email = $1`, email,
 	).Scan(&u.ID, &u.Email, &u.Name, &u.Preferences, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
@@ -157,7 +162,7 @@ func (s *UserStore) UpdateUser(ctx context.Context, u *entity.User, fields []str
 	for _, field := range fields {
 		switch field {
 		case "email":
-			setClauses = append(setClauses, fmt.Sprintf("email = $%d", argIdx))
+			setClauses = append(setClauses, fmt.Sprintf("email = NULLIF($%d::varchar, '')", argIdx))
 			args = append(args, u.Email)
 			argIdx++
 		case "name":
@@ -174,7 +179,7 @@ func (s *UserStore) UpdateUser(ctx context.Context, u *entity.User, fields []str
 	query := fmt.Sprintf(`
 		UPDATE users SET %s
 		WHERE id = $1
-		RETURNING id, email, name, preferences, created_at, updated_at`,
+		RETURNING id, COALESCE(email, ''), name, preferences, created_at, updated_at`,
 		strings.Join(setClauses, ", "))
 
 	var result entity.User
@@ -242,7 +247,7 @@ func (s *UserStore) ListUsers(ctx context.Context, opts userservice.ListUsersOpt
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, email, name, preferences, created_at, updated_at
+		SELECT id, COALESCE(email, ''), name, preferences, created_at, updated_at
 		FROM users %s ORDER BY id LIMIT $%d`,
 		whereClause, argIdx)
 	args = append(args, limit+1)

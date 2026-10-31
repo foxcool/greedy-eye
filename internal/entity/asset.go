@@ -147,15 +147,18 @@ const (
 // OnchainSource builds the external-ref source namespace for a chain's
 // contract/mint space, keeping the same address on two chains distinct.
 func OnchainSource(chain string) string {
-	return onchainPrefix + strings.ToLower(strings.TrimSpace(chain))
+	return OnchainPrefix + strings.ToLower(strings.TrimSpace(chain))
 }
 
-const onchainPrefix = "onchain:"
+// OnchainPrefix starts both an on-chain ref source ("onchain:<chain>") and a
+// contract market ("onchain:<chain>/<address>"). It is the one spelling of the
+// rule; the store builds its SQL predicates from it.
+const OnchainPrefix = "onchain:"
 
 // ChainFromOnchainSource extracts the chain from an "onchain:<chain>" ref
 // source; ok is false for any other namespace (coingecko, broker ID spaces).
 func ChainFromOnchainSource(source string) (chain string, ok bool) {
-	chain, ok = strings.CutPrefix(strings.ToLower(strings.TrimSpace(source)), onchainPrefix)
+	chain, ok = strings.CutPrefix(strings.ToLower(strings.TrimSpace(source)), OnchainPrefix)
 	return chain, ok && chain != ""
 }
 
@@ -178,7 +181,7 @@ func ContractMarket(chain, address string) string {
 // stands for a token nobody has vouched for — fine as an identity for a holding,
 // never acceptable as a quote currency, which every valuation resolves against.
 func IsContractMarket(market string) bool {
-	return strings.HasPrefix(NormalizeMarket(market), onchainPrefix)
+	return strings.HasPrefix(NormalizeMarket(market), OnchainPrefix)
 }
 
 // IsListedVenue reports whether a market names an exchange that publishes its

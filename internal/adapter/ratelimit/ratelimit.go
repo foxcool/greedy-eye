@@ -82,9 +82,9 @@ type Credential struct {
 	// APIKey is the secret itself; only its fingerprint is ever retained.
 	APIKey string
 	// Tier names the plan, matching the suffix in defaultLimits ("demo",
-	// "pro"). Empty means infer it: keyless without a key, the provider's
-	// free keyed plan with one. Accounts carry it in data["tier"], so a plan
-	// change is a settings edit rather than a release.
+	// "pro"). Empty means the provider's free keyed plan. Accounts carry it in
+	// data["tier"], so a plan change is a settings edit rather than a release.
+	// Ignored without a key, like Limit: see limitFor.
 	Tier string
 	// Limit overrides the plan the tier resolves to, field by field; a zero
 	// field means "leave the plan's value alone".
@@ -96,17 +96,18 @@ type Credential struct {
 	// assuming it owns the whole plan — which is how CoinGecko's month ran out
 	// on 2026-08-11 with both instances still reporting room.
 	Limit Limit
+	// Account names who presented Tier and Limit, so each account sharing a key
+	// keeps its own entry on the bucket (see Registry.bucket). Empty for
+	// credentials the deployment builds itself.
+	Account string
 }
 
 // tier resolves the plan name used to look up a limit.
 func (c Credential) tier() string {
-	if c.Tier != "" {
-		return c.Tier
-	}
 	if c.APIKey == "" {
 		return keylessTier
 	}
-	return ""
+	return c.Tier
 }
 
 // defaultLimits are deliberately below each provider's published ceiling.
@@ -249,7 +250,9 @@ type Registry struct {
 	buckets map[string]*bucket
 	// loaded is spend read back from the store at start, applied to buckets
 	// as they are created. Buckets are made lazily on first use, so the
-	// restored counters cannot be pushed into them up front.
+	// restored counters cannot be pushed into them up front. Both the day and
+	// the month are loaded whatever the plans say: a bucket counts both (see
+	// bucket.windows).
 	loaded map[string]Usage
 	// unflushed is spend a failed write handed back, for the next flush.
 	unflushed []Usage
@@ -434,9 +437,12 @@ func (r *Registry) Transport(c Credential, base http.RoundTripper) http.RoundTri
 }
 
 // Remaining reports what is left of a credential's period allowance and when
-// the period ends. A sweep sizes its portion from this instead of a hardcoded
-// cap, so changing the plan on the account changes the budget with it.
-// ok is false when the plan meters only rate — there is nothing to divide.
+// the period ends. ok is false when the plan meters only rate — there is
+// nothing to divide.
+//
+// It presents c, like every Registry method taking a Credential, so c must be
+// the account as it stands now. A client keeps a Budget instead, whose queries
+// never present the snapshot it was built from.
 func (r *Registry) Remaining(c Credential) (requests int, periodEnd time.Time, ok bool) {
 	if r == nil {
 		return 0, time.Time{}, false
@@ -449,14 +455,22 @@ func (r *Registry) Remaining(c Credential) (requests int, periodEnd time.Time, o
 // work without being handed the registry and having to know which credential
 // it was built from.
 type Budget struct {
-	reg  *Registry
-	cred Credential
+	reg    *Registry
+	bucket *bucket
 }
 
 // Budget returns the handle for a credential. A nil Registry yields a handle
 // that reports no allowance, which callers read as "not metered by volume".
+//
+// Like Transport, the handle binds the credential's bucket once, here, and its
+// queries never present the credential again. A client built before an account
+// edit can outlive it inside a running sweep; presenting its snapshot would put
+// the old limit back on the live bucket.
 func (r *Registry) Budget(c Credential) *Budget {
-	return &Budget{reg: r, cred: c}
+	if r == nil {
+		return &Budget{}
+	}
+	return &Budget{reg: r, bucket: r.bucket(c)}
 }
 
 // Remaining reports the background allowance left in the period and when the
@@ -465,7 +479,7 @@ func (b *Budget) Remaining() (requests int, periodEnd time.Time, ok bool) {
 	if b == nil || b.reg == nil {
 		return 0, time.Time{}, false
 	}
-	return b.reg.Remaining(b.cred)
+	return b.bucket.remaining(b.reg.now())
 }
 
 // Unusable reports why this budget's credential cannot carry background work
@@ -474,10 +488,7 @@ func (b *Budget) Remaining() (requests int, periodEnd time.Time, ok bool) {
 // is recorded against the ASSET, so its own back-off grows because of an
 // allowance it has nothing to do with.
 func (b *Budget) Unusable() (string, bool) {
-	if b == nil || b.reg == nil {
-		return "", false
-	}
-	return b.reg.Unusable(b.cred)
+	return unusablePhrase(b.UnusableUntil())
 }
 
 // UnusableUntil reports the same as Unusable with the deadline as a value.
@@ -485,7 +496,7 @@ func (b *Budget) UnusableUntil() (string, time.Time, bool) {
 	if b == nil || b.reg == nil {
 		return "", time.Time{}, false
 	}
-	return b.reg.UnusableUntil(b.cred)
+	return b.bucket.unusableFor(spend.ClassBackground, b.reg.now())
 }
 
 // Snapshot reports spend per credential since the period began. This is the
@@ -506,30 +517,53 @@ func (r *Registry) Snapshot() []Usage {
 }
 
 // bucket returns the shared budget for one credential, creating it on first
-// use. Different keys on one provider get different buckets, which is correct:
-// providers meter per key, and the keyless tier meters per IP.
+// use, and records the limit this credential presents on it.
+//
+// The key is provider and key fingerprint — what the provider meters and what
+// provider_usage persists — not the tier: a plan change is a new ceiling on
+// the same spend, not a fresh budget. The limit is resolved on every call, so
+// an account edited while the process runs reaches the next client built from
+// it.
+//
+// Several accounts may carry one key with different tiers and shares. Each
+// keeps its own entry and the bucket enforces all of them at once: the
+// slowest rate paces the key, and every quota holds in its own window. So the
+// smallest share wins, whichever account is presented and in whatever order.
+// Without a key there is one entry, the deployment's (see limitFor).
 func (r *Registry) bucket(c Credential) *bucket {
 	fp := fingerprint(c.APIKey)
-	key := c.Provider + "/" + fp + "/" + c.tier()
+	key := c.Provider + "/" + fp
+	who := c.Account
+	if c.APIKey == "" {
+		who = ""
+	}
+	limit := r.limitFor(c)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if b, ok := r.buckets[key]; ok {
+	b, ok := r.buckets[key]
+	if !ok {
+		b = newBucket(c.Provider, fp, who, limit, r.now())
+		b.restore(func(start time.Time) (Usage, bool) {
+			u, ok := r.loaded[usageKey(c.Provider, fp, start)]
+			return u, ok
+		})
+		r.buckets[key] = b
 		return b
 	}
-
-	limit := r.limitFor(c)
-	b := newBucket(c.Provider, fp, limit, periodStart(r.now(), limit.Period))
-	if u, ok := r.loaded[usageKey(c.Provider, fp, b.periodStart)]; ok {
-		b.restore(u)
-	}
-	r.buckets[key] = b
+	b.setEntry(who, limit)
 	return b
 }
 
 // limitFor resolves the limit for a credential: the plan tier decides, and an
 // operator override adjusts it field by field.
+//
+// Without a key the credential's own Tier and Limit are ignored. Every
+// key-less client of a provider shares one per-IP bucket, user accounts
+// included, so honouring an account's numbers there would let any user raise
+// or lower the budget the whole deployment runs on. Only the operator decides
+// it, through the built-in table and overrides.
 //
 // Field by field, not wholesale, because the two dimensions belong to different
 // people. Rate is a property of this deployment — providers meter it per IP as
@@ -555,6 +589,9 @@ func (r *Registry) limitFor(c Credential) Limit {
 
 	if o, ok := r.overrides[c.Provider]; ok {
 		applyOverride(&limit, o)
+	}
+	if c.APIKey == "" {
+		return limit
 	}
 	// The credential's own override wins last: it is the most specific thing
 	// anyone said about this key.
@@ -621,24 +658,29 @@ func fingerprint(apiKey string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// bucket is one credential's budget: a token bucket for rate, a counter for
+// bucket is one credential's budget: a token bucket for rate, counters for
 // period volume, plus a freeze deadline set when the provider tells us to back
 // off.
 type bucket struct {
 	limiter  *rate.Limiter
-	limit    Limit
 	provider string
 	fp       string
 
-	mu          sync.Mutex
+	mu sync.Mutex
+	// entries is the limit each account presented for this key, by account.
+	// All of them are enforced at once; see Registry.bucket.
+	entries     map[string]Limit
 	frozenUntil time.Time
-	periodStart time.Time
-	// requests and backoffs count the whole period, including spend restored
-	// from the store; pending holds only what the store has not seen yet, per
-	// caller.
-	requests int64
-	backoffs int64
-	pending  map[string]*Usage
+	// windows count the key's spend per calendar period, including spend
+	// restored from the store. Every window counts every request, whichever
+	// period the current entries name: an entry switching from month to day
+	// must find today's spend already counted, not start over from what Start
+	// loaded. QuotaNone never rolls; it is what a rate-only key reports.
+	windows map[QuotaPeriod]*window
+	// pending holds only what the store has not seen yet, per period and
+	// caller. The period is the one the spend was reserved in: a rollover or a
+	// switch before the next flush must not move it to the new window.
+	pending map[pendingKey]*Usage
 	// streak is how many refusals have arrived with no success between them.
 	// It sizes the escalating pause and is deliberately NOT persisted: the
 	// stored counters add rather than set (so a reset cannot be expressed) and
@@ -650,73 +692,138 @@ type bucket struct {
 	streak int64
 }
 
-func newBucket(provider, fp string, l Limit, start time.Time) *bucket {
-	burst := max(l.Burst, 1)
-	return &bucket{
-		limiter:     rate.NewLimiter(rate.Limit(l.RPS), burst),
-		limit:       l,
-		provider:    provider,
-		fp:          fp,
-		periodStart: start,
-	}
+// window is spend within one calendar period.
+type window struct {
+	start              time.Time
+	requests, backoffs int64
 }
 
-// restore seeds the counters with spend already recorded for this period.
-func (b *bucket) restore(u Usage) {
+type pendingKey struct {
+	start  time.Time
+	caller string
+}
+
+func newBucket(provider, fp, who string, l Limit, now time.Time) *bucket {
+	b := &bucket{
+		limiter:  rate.NewLimiter(rate.Limit(l.RPS), max(l.Burst, 1)),
+		provider: provider,
+		fp:       fp,
+		entries:  map[string]Limit{who: l},
+		windows:  make(map[QuotaPeriod]*window),
+	}
+	for _, p := range []QuotaPeriod{QuotaNone, QuotaDay, QuotaMonth} {
+		b.windows[p] = &window{start: periodStart(now, p)}
+	}
+	return b
+}
+
+// restore seeds the counters with spend already recorded for their periods.
+func (b *bucket) restore(loaded func(start time.Time) (Usage, bool)) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.requests = u.Requests
-	b.backoffs = u.Backoffs
+	for _, p := range []QuotaPeriod{QuotaDay, QuotaMonth} {
+		w := b.windows[p]
+		if u, ok := loaded(w.start); ok {
+			w.requests, w.backoffs = u.Requests, u.Backoffs
+		}
+	}
 }
 
-// rollPeriod resets the counters when now falls in a later period. Callers must
+// setEntry records the limit one account presents and re-paces the key to the
+// slowest rate among all entries. Spend is untouched: a new ceiling does not
+// change what the key has already used.
+func (b *bucket) setEntry(who string, l Limit) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if old, ok := b.entries[who]; ok && old == l {
+		return
+	}
+	b.entries[who] = l
+
+	rps, burst := l.RPS, l.Burst
+	for _, e := range b.entries {
+		rps = min(rps, e.RPS)
+		burst = min(burst, e.Burst)
+	}
+	if b.limiter.Limit() != rate.Limit(rps) {
+		b.limiter.SetLimit(rate.Limit(rps))
+	}
+	if burst = max(burst, 1); b.limiter.Burst() != burst {
+		b.limiter.SetBurst(burst)
+	}
+}
+
+// storage is the window new spend is persisted under. One window only, so the
+// store never counts a request twice: the month when any entry meters the
+// month (the day can be read back from it only on the first), else the day,
+// else none. Callers must hold b.mu.
+func (b *bucket) storage() *window {
+	p := QuotaNone
+	for _, e := range b.entries {
+		switch {
+		case e.Quota <= 0:
+		case e.Period == QuotaMonth:
+			p = QuotaMonth
+		case e.Period == QuotaDay && p == QuotaNone:
+			p = QuotaDay
+		}
+	}
+	return b.windows[p]
+}
+
+// rollPeriod resets each window whose period now lies behind. Callers must
 // hold b.mu.
 func (b *bucket) rollPeriod(now time.Time) {
-	if b.limit.Period == QuotaNone {
-		return
+	for p, w := range b.windows {
+		start := periodStart(now, p)
+		if start.Equal(w.start) {
+			continue
+		}
+		*w = window{start: start}
 	}
-	start := periodStart(now, b.limit.Period)
-	if start.Equal(b.periodStart) {
-		return
-	}
-	b.periodStart = start
-	b.requests = 0
-	b.backoffs = 0
 }
 
-// reserve accounts for one request, or refuses it when the credential's
-// allowance for its class is spent. It is called before the request goes out:
-// a request that fails in transit may still have been metered by the provider,
-// so the conservative direction is to count it.
+// ceiling is how much of an entry's quota a request of this class may reach.
+func ceiling(l Limit, class spend.Class) int64 {
+	if class == spend.ClassBackground {
+		return int64(float64(l.Quota) * backgroundReserve)
+	}
+	return int64(l.Quota)
+}
+
+// reserve accounts for one request, or refuses it when any entry's allowance
+// for its class is spent. It is called before the request goes out: a request
+// that fails in transit may still have been metered by the provider, so the
+// conservative direction is to count it.
 func (b *bucket) reserve(class spend.Class, caller string, now time.Time) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.rollPeriod(now)
 
-	if b.limit.Quota > 0 {
-		ceiling := b.limit.Quota
-		if class == spend.ClassBackground {
-			ceiling = int(float64(b.limit.Quota) * backgroundReserve)
-		}
-		if b.requests >= int64(ceiling) {
+	for _, e := range b.entries {
+		if e.Quota > 0 && b.windows[e.Period].requests >= ceiling(e, class) {
 			return ErrQuotaExhausted
 		}
 	}
 
-	b.requests++
+	for _, w := range b.windows {
+		w.requests++
+	}
 	b.pendingFor(caller).Requests++
 	return nil
 }
 
-// pendingFor returns the unflushed spend of one caller. Callers must hold b.mu.
+// pendingFor returns the unflushed spend of one caller in the current storage
+// window. Callers must hold b.mu.
 func (b *bucket) pendingFor(caller string) *Usage {
 	if b.pending == nil {
-		b.pending = make(map[string]*Usage)
+		b.pending = make(map[pendingKey]*Usage)
 	}
-	u, ok := b.pending[caller]
+	k := pendingKey{start: b.storage().start, caller: caller}
+	u, ok := b.pending[k]
 	if !ok {
-		u = &Usage{Caller: caller}
-		b.pending[caller] = u
+		u = &Usage{PeriodStart: k.start, Caller: caller}
+		b.pending[k] = u
 	}
 	return u
 }
@@ -726,7 +833,9 @@ func (b *bucket) pendingFor(caller string) *Usage {
 func (b *bucket) noteBackoff(caller string) int64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.backoffs++
+	for _, w := range b.windows {
+		w.backoffs++
+	}
 	b.pendingFor(caller).Backoffs++
 	b.streak++
 	return b.streak
@@ -751,7 +860,7 @@ func (b *bucket) takePending() []Usage {
 		out = append(out, Usage{
 			Provider:    b.provider,
 			Fingerprint: b.fp,
-			PeriodStart: b.periodStart,
+			PeriodStart: u.PeriodStart,
 			Caller:      u.Caller,
 			Requests:    u.Requests,
 			Backoffs:    u.Backoffs,
@@ -764,29 +873,46 @@ func (b *bucket) takePending() []Usage {
 func (b *bucket) snapshot() Usage {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	w := b.storage()
 	return Usage{
 		Provider:    b.provider,
 		Fingerprint: b.fp,
-		PeriodStart: b.periodStart,
-		Requests:    b.requests,
-		Backoffs:    b.backoffs,
+		PeriodStart: w.start,
+		Requests:    w.requests,
+		Backoffs:    w.backoffs,
 	}
 }
 
 // remaining reports the background allowance left in the period: background
 // work is what sizes itself from this, and it may not spend the interactive
-// reserve.
+// reserve. With several entries the tightest one answers, with its own period.
+//
+// Tightest is the least left per unit of time to the period's end, because a
+// caller divides the answer over that time. By raw balance, 80 left today would
+// beat 800 left this month on the 15th, though the month affords fewer an hour.
 func (b *bucket) remaining(now time.Time) (int, time.Time, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.limit.Quota == 0 {
-		return 0, time.Time{}, false
-	}
 	b.rollPeriod(now)
 
-	ceiling := int64(float64(b.limit.Quota) * backgroundReserve)
-	left := max(ceiling-b.requests, 0)
-	return int(left), periodEnd(b.periodStart, b.limit.Period), true
+	left, end, ok := int64(0), time.Time{}, false
+	var pace float64
+	for _, e := range b.entries {
+		if e.Quota <= 0 {
+			continue
+		}
+		w := b.windows[e.Period]
+		l := max(ceiling(e, spend.ClassBackground)-w.requests, 0)
+		entryEnd := periodEnd(w.start, e.Period)
+		// rollPeriod keeps the end ahead of now; the floor only rules out a
+		// division by zero.
+		entryPace := float64(l) / float64(max(entryEnd.Sub(now), time.Nanosecond))
+		// An equal pace goes to the earlier end, so map order never decides.
+		if !ok || entryPace < pace || (entryPace == pace && entryEnd.Before(end)) {
+			left, end, pace, ok = l, entryEnd, entryPace, true
+		}
+	}
+	return int(left), end, ok
 }
 
 // freezeUntil pushes the deadline out, never in: a later 429 while a freeze is
@@ -812,15 +938,18 @@ func (b *bucket) unusableFor(class spend.Class, now time.Time) (string, time.Tim
 	defer b.mu.Unlock()
 	b.rollPeriod(now)
 
-	if b.limit.Quota > 0 {
-		ceiling := b.limit.Quota
-		if class == spend.ClassBackground {
-			ceiling = int(float64(b.limit.Quota) * backgroundReserve)
+	// Spent under several entries, the key is usable again only once every
+	// spent window has reset.
+	var spentUntil time.Time
+	for _, e := range b.entries {
+		if w := b.windows[e.Period]; e.Quota > 0 && w.requests >= ceiling(e, class) {
+			if end := periodEnd(w.start, e.Period); end.After(spentUntil) {
+				spentUntil = end
+			}
 		}
-		if b.requests >= int64(ceiling) {
-			end := periodEnd(b.periodStart, b.limit.Period)
-			return "this deployment's share of the plan is spent for the period", end, true
-		}
+	}
+	if !spentUntil.IsZero() {
+		return "this deployment's share of the plan is spent for the period", spentUntil, true
 	}
 
 	if now.Before(b.frozenUntil) {
@@ -838,7 +967,11 @@ func (b *bucket) unusableFor(class spend.Class, now time.Time) (string, time.Tim
 // spent and another fine, and scanning them all cannot tell which one the
 // caller actually holds — the caller can, because it holds it.
 func (r *Registry) Unusable(c Credential) (string, bool) {
-	reason, until, unusable := r.UnusableUntil(c)
+	return unusablePhrase(r.UnusableUntil(c))
+}
+
+// unusablePhrase folds a reason and its deadline into one log-line phrase.
+func unusablePhrase(reason string, until time.Time, unusable bool) (string, bool) {
 	if !unusable {
 		return "", false
 	}

@@ -80,3 +80,29 @@ func TestAccountCredCarriesTierAndLimit(t *testing.T) {
 	c = accountCred("coingecko", providerAccount(map[string]string{"api_key": "k", "pro": "true"}))
 	assert.Equal(t, "pro", c.Tier)
 }
+
+// TestAccountsOnOneKeyKeepTheirOwnShares: two accounts carrying one key are two
+// entries on its bucket, so presenting the wider one last does not lift the
+// narrower one's share.
+func TestAccountsOnOneKeyKeepTheirOwnShares(t *testing.T) {
+	limits := ratelimit.NewRegistry(nil)
+	narrow := &entity.Account{ID: "narrow", Data: map[string]string{"api_key": "CG-x", "quota": "5", "period": "month"}}
+	wide := &entity.Account{ID: "wide", Data: map[string]string{"api_key": "CG-x", "quota": "100", "period": "month"}}
+
+	limits.Transport(accountCred("coingecko", narrow), nil)
+	left, _, ok := limits.Remaining(accountCred("coingecko", wide))
+	assert.True(t, ok)
+	assert.Equal(t, 4, left, "the background share of the narrower quota")
+}
+
+// TestKeylessAccountCannotSetTheSharedBudget: a user's cbr account has no key,
+// so it draws on the deployment's per-IP budget, and its own numbers are not
+// the deployment's to take.
+func TestKeylessAccountCannotSetTheSharedBudget(t *testing.T) {
+	limits := ratelimit.NewRegistry(nil)
+	user := &entity.Account{ID: "user-acc", Data: map[string]string{"rps": "100", "burst": "50", "quota": "1", "period": "day"}}
+
+	limits.Transport(accountCred("cbr", user), nil)
+	_, _, metered := limits.Remaining(ratelimit.Credential{Provider: "cbr"})
+	assert.False(t, metered, "the user's quota must not reach the shared bucket")
+}

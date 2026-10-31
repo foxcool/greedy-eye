@@ -148,7 +148,7 @@ func getConfig() (*Config, error) {
 		fmt.Println(f.FlagUsages())
 		os.Exit(0)
 	}
-	f.String("c", "", "Path to config file")
+	f.StringP("c", "c", "", "Path to config file")
 	err = f.Parse(os.Args[1:])
 	if err != nil {
 		return nil, fmt.Errorf("can't parse command line arguments: %w", err)
