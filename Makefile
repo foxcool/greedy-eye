@@ -8,7 +8,7 @@ COMPOSE_FILE=deploy/compose.yaml
 .PHONY: gen go-gen up debug down logs clean buf-gen docs-api \
         test test-unit test-integration test-smoke test-smoke-loopback schema-diff \
         migrate-apply migrate-diff migrate-status migrate-baseline migrate-drift \
-        lint vet check
+        lint fmt-check vet check
 
 # Generate all code
 gen: buf-gen go-gen
@@ -132,8 +132,13 @@ schema-diff: migrate-drift
 vet:
 	go vet ./...
 
+# gofmt ignores build tags, unlike golangci-lint, so this also covers the
+# integration and smoke files that the linter's formatter never loads.
+fmt-check:
+	@out="$$(gofmt -l .)"; if [ -n "$$out" ]; then echo "gofmt drift (run gofmt -w):"; echo "$$out"; exit 1; fi
+
 # Run golangci-lint via Docker (matches CI)
-lint:
+lint: fmt-check
 	docker run --rm -v $(PWD):/app -w /app golangci/golangci-lint:latest golangci-lint run -v
 
 # Pre-commit check: vet + lint + unit tests

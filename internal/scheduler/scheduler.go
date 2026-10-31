@@ -98,8 +98,8 @@ type ruleEntry struct {
 
 // Scheduler owns the cron instance and its jobs.
 type Scheduler struct {
-	cfg    Config
-	cron   *cron.Cron
+	cfg       Config
+	cron      *cron.Cron
 	rules     RuleStore
 	exec      RuleExecutor
 	prices    PriceFetcher
