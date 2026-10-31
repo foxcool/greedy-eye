@@ -1177,6 +1177,49 @@ func TestFindOrCreateAsset_BindsRefOnCreate(t *testing.T) {
 	s.AssertExpectations(t)
 }
 
+// TestFindOrCreateAsset_ContractTagFollowsEntityRule: the "contract:" tag is
+// what admits an asset to the contract price path, so it must be written for
+// exactly the sources marketForContract isolates (entity.ChainFromOnchainSource),
+// however the source is spelled, and for no other.
+func TestFindOrCreateAsset_ContractTagFollowsEntityRule(t *testing.T) {
+	cases := []struct {
+		name    string
+		source  string
+		wantTag bool
+	}{
+		{"canonical", "onchain:eth", true},
+		{"mixed case", "OnChain:ETH", true},
+		{"chainless", "onchain:", false},
+		{"other namespace", "coingecko", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &mockStore{}
+			s.On("FindAssetIDByExternalRef", mock.Anything, tc.source, "0xCAFE").Return("", store.ErrNotFound)
+			s.On("FindAssetByIdentity", mock.Anything, "TKN", mock.Anything, entity.AssetTypeCryptocurrency).
+				Return(nil, store.ErrNotFound)
+			var created *entity.Asset
+			s.On("CreateAsset", mock.Anything, mock.MatchedBy(func(a *entity.Asset) bool {
+				created = a
+				return true
+			})).Return(testAsset("id-7"), nil)
+			s.On("CreateAssetExternalRef", mock.Anything, mock.Anything).Return(&entity.AssetExternalRef{}, nil)
+			expectVerdict(s)
+			h := newHandler(s)
+
+			source, ref := tc.source, "0xCAFE"
+			_, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+				Symbol:            "TKN",
+				ExternalRefSource: &source,
+				ExternalRef:       &ref,
+			}))
+			require.NoError(t, err)
+			require.NotNil(t, created)
+			assert.Equal(t, tc.wantTag, slices.Contains(created.Tags, "contract:0xCAFE"))
+		})
+	}
+}
+
 // TestFindOrCreateAsset_UnlistedContractDoesNotClaimTicker is the regression for
 // personal-c3b: a counterfeit carrying a well-known ticker must not resolve to
 // the genuine asset. Its contract is listed nowhere, so it gets an asset of its
@@ -2764,6 +2807,128 @@ func TestFetchExternalPrices_UnconfiguredSourceSurvivesUnknownAssets(t *testing.
 		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"missing"}, SourceIds: []string{"binance"}}))
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{"binance": "not_configured"}, resp.Msg.GetIdleSources())
+}
+
+// Named assets that resolve to nothing used to end the request with an empty
+// response, the same zero as a sweep with nothing to do. The ids are named so
+// the caller can tell a typo from "everything is current", and each configured
+// source says it had nothing to ask.
+func TestFetchExternalPrices_OnlyUnknownAssetIdsAreNamed(t *testing.T) {
+	s := &mockStore{}
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{}, "", nil)
+	p := &fakePriceProvider{}
+	h := newHandler(s).WithProvider("fake", p)
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"ghost-1", "ghost-2"}}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetErrors(), 1)
+	assert.Contains(t, resp.Msg.GetErrors()[0], "ghost-1")
+	assert.Contains(t, resp.Msg.GetErrors()[0], "ghost-2")
+	assert.Equal(t, map[string]string{"fake": "no_assets"}, resp.Msg.GetIdleSources())
+	assert.Zero(t, resp.Msg.GetPricesFetched())
+	assert.Empty(t, p.asked)
+}
+
+// A partly unknown list is priced for what exists and names the rest: dropping
+// the unknown ids silently would read as "all of them were priced".
+func TestFetchExternalPrices_KnownAndUnknownAssetIds(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, "", nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	p := &fakePriceProvider{prices: map[string]bool{"a1": true}}
+	h := newHandler(s).WithProvider("fake", p)
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a1", "ghost", "a1"}}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), resp.Msg.GetPricesFetched())
+	require.Len(t, resp.Msg.GetErrors(), 1)
+	assert.Contains(t, resp.Msg.GetErrors()[0], "ghost")
+	assert.NotContains(t, resp.Msg.GetErrors()[0], "a1", "a duplicate of a known id is not unknown")
+	assert.Empty(t, resp.Msg.GetIdleSources())
+}
+
+// The store matches ids as uuids, so a request may spell a known id in upper
+// case or without hyphens; that asset is priced and must not be called unknown.
+func TestFetchExternalPrices_NonCanonicalKnownIdIsNotUnknown(t *testing.T) {
+	const id = "550e8400-e29b-41d4-a716-446655440000"
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset(id)}, "", nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	h := newHandler(s).WithProvider("fake", &fakePriceProvider{prices: map[string]bool{id: true}})
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"550E8400-E29B-41D4-A716-446655440000", "550e8400e29b41d4a716446655440000"}}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetErrors())
+}
+
+// no_assets is said only by the sources the request is about.
+func TestFetchExternalPrices_UnknownAssetsOnlyIdleTheNamedSources(t *testing.T) {
+	s := &mockStore{}
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{}, "", nil)
+	h := newHandler(s).WithProvider("fake", &fakePriceProvider{}).WithProvider("other", &fakePriceProvider{})
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"ghost"}, SourceIds: []string{"fake"}}))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"fake": "no_assets"}, resp.Msg.GetIdleSources())
+}
+
+// Background work names its assets too; an unusable source is both idle (the
+// source cannot work) and has everything named left to the sweep.
+func TestFetchExternalPrices_BackgroundUnusableSourceIsIdleAndDeferred(t *testing.T) {
+	s := &mockStore{}
+	h := newHandler(s).WithProvider("coingecko", &stuckProvider{reason: "share spent"})
+
+	resp, err := h.FetchExternalPrices(backgroundCtx(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a1", "a2"}}))
+	require.NoError(t, err)
+	assert.Equal(t, "unusable: share spent", resp.Msg.GetIdleSources()["coingecko"])
+	assert.Equal(t, int32(2), resp.Msg.GetDeferredAssets()["coingecko"])
+}
+
+// A source the sweep skipped because its credential cannot carry work was
+// invisible: the request named it, it was configured, and the response said
+// nothing. The reason the source itself gave is the answer.
+func TestFetchExternalPrices_UnusableNamedSourceIsNamed(t *testing.T) {
+	s := &mockStore{}
+	p := &stuckProvider{reason: "share spent"}
+	h := newHandler(s).WithProvider("coingecko", p)
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{SourceIds: []string{"coingecko"}}))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"coingecko": "unusable: share spent"}, resp.Msg.GetIdleSources())
+	assert.Empty(t, p.asked)
+}
+
+// A later key that can carry the work is the source's answer; an earlier key
+// that cannot must not make the source read as idle.
+func TestFetchExternalPrices_UnusableKeyBeforeUsableKeyIsNotIdle(t *testing.T) {
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	h := newHandler(s).WithProviderSource(keySource{"coingecko": {
+		&stuckProvider{reason: "share spent"},
+		&fakePriceProvider{prices: map[string]bool{"a1": true}},
+	}})
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{SourceIds: []string{"coingecko"}}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetIdleSources())
+	assert.Equal(t, int32(1), resp.Msg.GetPricesFetched())
 }
 
 // A sweep that found work reports no idle source at all — and pays nothing for

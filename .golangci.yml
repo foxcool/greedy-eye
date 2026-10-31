@@ -1,5 +1,13 @@
 version: "2"
 
+run:
+  # Every //go:build tag used in the repo, so tagged files are linted by
+  # make lint and by CI alike. Add a new tag here when a file introduces one.
+  build-tags:
+    - integration
+    - smoke
+    - eval
+
 formatters:
   enable:
     - gofmt
