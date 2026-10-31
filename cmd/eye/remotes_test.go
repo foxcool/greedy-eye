@@ -97,6 +97,8 @@ func TestValidateRemotes(t *testing.T) {
 		{name: "empty url", config: withToken(map[string]string{"settings": ""}), wantErr: "remotes.settings: want http://"},
 		{name: "no scheme", config: withToken(map[string]string{"settings": "b:8080"}), wantErr: "remotes.settings: want http://"},
 		{name: "tls", config: withToken(map[string]string{"settings": "https://b:8443"}), wantErr: "remotes.settings: want http://"},
+		{name: "userinfo", config: withToken(map[string]string{"settings": "https://user:hunter2@b:8443"}), wantErr: "remotes.settings: want http://"},
+		{name: "unparseable userinfo", config: withToken(map[string]string{"settings": "http://user:hunter2@b:port"}), wantErr: "remotes.settings: want http://"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -107,8 +109,22 @@ func TestValidateRemotes(t *testing.T) {
 			}
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantErr)
+			assert.NotContains(t, err.Error(), "hunter2")
 		})
 	}
+}
+
+// A remote URL may carry userinfo; the startup log must not.
+func TestLogRemotesRedactsUserinfo(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+
+	logRemotes(&Config{Remotes: map[string]string{
+		"settings":   "http://user:hunter2@b:8080",
+		"marketdata": "http://user:hunter2@b:port",
+	}}, log)
+	assert.Contains(t, buf.String(), "b:8080")
+	assert.NotContains(t, buf.String(), "hunter2")
 }
 
 // Loopback is announced at startup as a test-stand mode; without it nothing warns.

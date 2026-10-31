@@ -41,7 +41,7 @@ func validateRemotes(config *Config) error {
 		// Only cleartext h2c is spoken; anything else would pass start and
 		// fail every call.
 		if u, err := url.Parse(config.Remotes[domain]); err != nil || u.Scheme != "http" || u.Host == "" {
-			return fmt.Errorf("remotes.%s: want http://host:port, got %q", domain, config.Remotes[domain])
+			return fmt.Errorf("remotes.%s: want http://host:port, got %q", domain, redactURL(config.Remotes[domain]))
 		}
 		for _, svc := range config.Services {
 			if svc.Type == domain && !config.Loopback {
@@ -114,6 +114,17 @@ func holdingProvenance(r *remotes, local marketdata.HoldingProvenance) marketdat
 		})
 }
 
+// redactURL hides the password of a configured URL before it reaches a log or
+// an error. A string url.Parse rejects cannot be redacted reliably, so it is
+// not shown at all.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "<unparseable url>"
+	}
+	return u.Redacted()
+}
+
 // logRemotes says once at startup which domains this process reaches over
 // the network, so a split deployment answering from the wrong side is
 // visible before its numbers are.
@@ -123,7 +134,7 @@ func logRemotes(config *Config, log *slog.Logger) {
 	}
 	for _, domain := range serviceTypes {
 		if url, ok := config.Remotes[domain]; ok {
-			log.Info("domain is remote", slog.String("domain", domain), slog.String("url", url))
+			log.Info("domain is remote", slog.String("domain", domain), slog.String("url", redactURL(url)))
 		} else {
 			log.Info("domain is local", slog.String("domain", domain))
 		}
