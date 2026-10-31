@@ -971,6 +971,10 @@ enum HealthReasonKind {
   // withheld their removal because something it could not read may be them.
   // failures counts them; since is the oldest confirmation among them.
   HEALTH_REASON_KIND_UNCONFIRMED_POSITIONS = 8;
+  // The account's stored settings cannot be read by this instance: a key it
+  // was sealed with is gone, or a value is corrupt. Nothing syncs it or takes
+  // it as a provider; the message names the class, never the content.
+  HEALTH_REASON_KIND_UNREADABLE = 9;
 }
 
 // HealthReason is one thing wrong, as a phrase the server wrote and the fields

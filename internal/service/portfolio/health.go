@@ -52,6 +52,7 @@ func (h *Handler) GetAccountHealth(
 
 	ownerID := user.ID
 	var accounts []*entity.Account
+	var unreadable []*entity.UnreadableAccount
 	if id := req.Msg.GetAccountId(); id != "" {
 		a, err := h.ownedAccount(ctx, id)
 		if err != nil {
@@ -62,6 +63,9 @@ func (h *Handler) GetAccountHealth(
 	} else {
 		var err error
 		if accounts, err = h.allAccountsOf(ctx, ownerID); err != nil {
+			return nil, toConnectError(err)
+		}
+		if unreadable, err = h.store.ListUnreadableAccounts(ctx, ownerID); err != nil {
 			return nil, toConnectError(err)
 		}
 	}
@@ -91,6 +95,9 @@ func (h *Handler) GetAccountHealth(
 			return nil, toConnectError(err)
 		}
 		resp.Accounts = append(resp.Accounts, ah)
+	}
+	for _, u := range unreadable {
+		resp.Accounts = append(resp.Accounts, unreadableHealth(u))
 	}
 
 	if report != nil {
@@ -172,6 +179,22 @@ func (h *Handler) accountHealth(
 		State:       worse(state, worstState(sync)),
 		Reasons:     append(reasons, sync...),
 	}, nil
+}
+
+// unreadableHealth reports an account every list leaves out: without it the
+// owner's account would just be missing, with nothing to say why. Nothing else
+// is diagnosed, since nothing runs on it.
+func unreadableHealth(u *entity.UnreadableAccount) *apiv1.AccountHealth {
+	return &apiv1.AccountHealth{
+		AccountId:   u.ID,
+		AccountName: u.Name,
+		State:       apiv1.HealthState_HEALTH_STATE_UNUSABLE,
+		Reasons: []*apiv1.HealthReason{{
+			Kind: apiv1.HealthReasonKind_HEALTH_REASON_KIND_UNREADABLE,
+			Message: fmt.Sprintf("its stored settings cannot be read (%s): nothing syncs this account or takes it as a provider "+
+				"until the key it was sealed with is configured again or its settings are re-entered", u.Failure),
+		}},
+	}
 }
 
 // allAccountsOf reads every account the user owns, across pages.

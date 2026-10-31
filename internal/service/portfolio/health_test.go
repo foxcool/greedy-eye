@@ -391,6 +391,33 @@ func TestAccountHealthDisabledIsTheOwnersChoiceNotAFault(t *testing.T) {
 		"worse ranks DISABLED below OK; only the sources_state fold lifts it")
 }
 
+// TestAccountHealthNamesAnUnreadableAccount: an account every list leaves out
+// because its stored data cannot be read is reported to its owner as unusable,
+// with the class of failure, rather than silently missing.
+func TestAccountHealthNamesAnUnreadableAccount(t *testing.T) {
+	store := newHealthStore()
+	store.On("ListAccounts", mock.Anything, mock.Anything).Return([]*entity.Account{
+		healthAccount("ok", entity.AccountTypeExchange),
+	}, "", nil)
+	store.On("ListUnreadableAccounts", mock.Anything, testUserID).Return([]*entity.UnreadableAccount{
+		{ID: "lost", UserID: testUserID, Name: "lost key", Type: entity.AccountTypeWallet, Failure: entity.ReadFailureUndecryptable},
+	}, nil)
+	store.On("ListSyncDeferrals", mock.Anything, testUserID, "").Return([]*entity.SyncDeferral(nil), nil)
+
+	resp, err := newHandler(store).GetAccountHealth(ctxWithUser(testUserID), connect.NewRequest(&apiv1.GetAccountHealthRequest{}))
+	require.NoError(t, err)
+
+	accounts := byAccount(resp.Msg)
+	require.Contains(t, accounts, "ok")
+	got := accounts["lost"]
+	require.NotNil(t, got, "the unreadable account must be reported, not missing")
+	assert.Equal(t, "lost key", got.AccountName)
+	assert.Equal(t, apiv1.HealthState_HEALTH_STATE_UNUSABLE, got.State)
+	require.Len(t, got.Reasons, 1)
+	assert.Equal(t, apiv1.HealthReasonKind_HEALTH_REASON_KIND_UNREADABLE, got.Reasons[0].Kind)
+	assert.Contains(t, got.Reasons[0].Message, string(entity.ReadFailureUndecryptable))
+}
+
 // TestUnconfirmedReason: a row the latest snapshot did not write and did not
 // zero keeps its last amount silently. darkfox.eth carried a sold WBTC that
 // way for weeks; the account looked healthy throughout.

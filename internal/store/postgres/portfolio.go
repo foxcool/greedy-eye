@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"slices"
 	"strings"
@@ -29,6 +30,8 @@ type PortfolioStore struct {
 	// rewrapRead, when set, runs between the rewrap pass reading every row and
 	// writing them back — the window a concurrent update lands in. Tests only.
 	rewrapRead func()
+	// log names the rows a list leaves out (skipUnreadable).
+	log *slog.Logger
 }
 
 // Compile-time interface implementation check.
@@ -43,7 +46,7 @@ func WithEncryptor(e *storecrypto.Encryptor) PortfolioStoreOption {
 }
 
 func NewPortfolioStore(pool *pgxpool.Pool, opts ...PortfolioStoreOption) *PortfolioStore {
-	s := &PortfolioStore{pool: pool}
+	s := &PortfolioStore{pool: pool, log: slog.Default()}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -448,7 +451,7 @@ func (s *PortfolioStore) marshalAccountData(accountID string, data map[string]st
 func (s *PortfolioStore) unmarshalAccountData(accountID string, raw []byte) (map[string]string, error) {
 	var m map[string]string
 	if err := json.Unmarshal(raw, &m); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal data: %w", err)
+		return nil, readFailure(entity.ReadFailureCorrupt, fmt.Errorf("failed to unmarshal data: %w", err))
 	}
 	// The envelope check is what keeps this from claiming a legacy plaintext
 	// row whose owner once stored their own value under "sealed": read as
@@ -462,15 +465,15 @@ func (s *PortfolioStore) unmarshalAccountData(accountID string, raw []byte) (map
 		return m, nil // legacy plaintext row
 	}
 	if s.encryptor == nil {
-		return nil, fmt.Errorf("account %s data is encrypted but no master key is configured", accountID)
+		return nil, readFailure(entity.ReadFailureNoKey, fmt.Errorf("account %s data is encrypted but no master key is configured", accountID))
 	}
 	plain, err := s.encryptor.Decrypt(accountID, sealed)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt data for account %s: %w", accountID, err)
+		return nil, readFailure(entity.ReadFailureUndecryptable, fmt.Errorf("failed to decrypt data for account %s: %w", accountID, err))
 	}
 	var data map[string]string
 	if err := json.Unmarshal(plain, &data); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal decrypted data: %w", err)
+		return nil, readFailure(entity.ReadFailureCorrupt, fmt.Errorf("failed to unmarshal decrypted data: %w", err))
 	}
 	return data, nil
 }
@@ -479,15 +482,15 @@ func (s *PortfolioStore) unmarshalAccountData(accountID string, raw []byte) (map
 // secrets.
 func (s *PortfolioStore) openSealedData(accountID string, stored map[string]string, sealed string) (map[string]string, error) {
 	if s.encryptor == nil {
-		return nil, fmt.Errorf("account %s data is encrypted but no master key is configured", accountID)
+		return nil, readFailure(entity.ReadFailureNoKey, fmt.Errorf("account %s data is encrypted but no master key is configured", accountID))
 	}
 	plain, err := s.encryptor.Decrypt(accountID, sealed)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt data for account %s: %w", accountID, err)
+		return nil, readFailure(entity.ReadFailureUndecryptable, fmt.Errorf("failed to decrypt data for account %s: %w", accountID, err))
 	}
 	var secrets map[string]string
 	if err := json.Unmarshal(plain, &secrets); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal decrypted data: %w", err)
+		return nil, readFailure(entity.ReadFailureCorrupt, fmt.Errorf("failed to unmarshal decrypted data: %w", err))
 	}
 
 	data := make(map[string]string, len(stored)-1+len(secrets))
@@ -502,7 +505,7 @@ func (s *PortfolioStore) openSealedData(accountID string, stored map[string]stri
 		// one the account is meant to use — for base_url that is where the
 		// credential gets sent.
 		if _, dup := data[k]; dup {
-			return nil, fmt.Errorf("account %s data carries %q both open and sealed", accountID, k)
+			return nil, readFailure(entity.ReadFailureKeyConflict, fmt.Errorf("account %s data carries %q both open and sealed", accountID, k))
 		}
 		data[k] = v
 	}
@@ -685,7 +688,47 @@ func (s *PortfolioStore) RewrapAccountData(ctx context.Context) (RewrapResult, e
 	return res, nil
 }
 
-// scanAccount reads one account row in accountColumns order.
+// accountReadError tags a failure to read stored account data with its class.
+// The class is what a list may log: the error text can quote decrypted bytes.
+type accountReadError struct {
+	failure entity.AccountReadFailure
+	err     error
+}
+
+func (e *accountReadError) Error() string { return e.err.Error() }
+func (e *accountReadError) Unwrap() error { return e.err }
+
+func readFailure(f entity.AccountReadFailure, err error) error {
+	return &accountReadError{failure: f, err: err}
+}
+
+// unreadableAccountError is a row whose open columns scanned but whose data or
+// capabilities did not. A read by id returns it as an error; a list leaves the
+// row out (skipUnreadable), because one bad row failing a query over every
+// user's accounts stops the sweep and the price registry for all of them.
+type unreadableAccountError struct {
+	account entity.UnreadableAccount
+	err     error
+}
+
+func (e *unreadableAccountError) Error() string { return e.err.Error() }
+func (e *unreadableAccountError) Unwrap() error { return e.err }
+
+// skipUnreadable reports whether a list should leave out the row scanAccount
+// failed with, logging it by id and class only.
+func (s *PortfolioStore) skipUnreadable(err error) bool {
+	var u *unreadableAccountError
+	if !errors.As(err, &u) {
+		return false
+	}
+	s.log.Warn("account left out of a list: its stored data cannot be read",
+		slog.String("account_id", u.account.ID), slog.String("failure", string(u.account.Failure)))
+	return true
+}
+
+// scanAccount reads one account row in accountColumns order. A row that scans
+// but whose data or capabilities cannot be read fails with
+// *unreadableAccountError.
 func (s *PortfolioStore) scanAccount(row interface{ Scan(dest ...any) error }) (*entity.Account, error) {
 	var a entity.Account
 	var description *string
@@ -718,14 +761,24 @@ func (s *PortfolioStore) scanAccount(row interface{ Scan(dest ...any) error }) (
 		a.PortfolioID = *portfolioID
 	}
 	a.Type = stringToAccountType(typeStr)
+	unreadable := func(err error) error {
+		failure := entity.ReadFailureCorrupt
+		if re := (*accountReadError)(nil); errors.As(err, &re) {
+			failure = re.failure
+		}
+		return &unreadableAccountError{
+			account: entity.UnreadableAccount{ID: a.ID, UserID: a.UserID, Name: a.Name, Type: a.Type, Failure: failure},
+			err:     err,
+		}
+	}
 	if a.Data, err = s.unmarshalAccountData(a.ID, dataJSON); err != nil {
-		return nil, err
+		return nil, unreadable(err)
 	}
 	if err := json.Unmarshal(capabilitiesJSON, &a.Capabilities); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal capabilities: %w", err)
+		return nil, unreadable(fmt.Errorf("failed to unmarshal capabilities: %w", err))
 	}
 	if err := json.Unmarshal(systemScopesJSON, &a.SystemScopes); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal system_scopes: %w", err)
+		return nil, unreadable(fmt.Errorf("failed to unmarshal system_scopes: %w", err))
 	}
 
 	return &a, nil
@@ -1035,7 +1088,6 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 		if err == nil && isValidUUID(string(decoded)) {
 			whereClauses = append(whereClauses, fmt.Sprintf("id > $%d", argIdx))
 			args = append(args, string(decoded))
-			argIdx++
 		}
 	}
 
@@ -1044,14 +1096,17 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 		whereClause = "WHERE " + strings.Join(whereClauses, " AND ")
 	}
 
+	// No SQL LIMIT: a row left out must not cost the page a slot, or a page of
+	// them comes back empty and the callers' "empty page ends it" guard stops
+	// the walk early.
+	// shortcut: reads the rest of the filter after the page fills; refetch by
+	// keyset instead if one owner's account count grows large.
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM accounts
 		%s
-		ORDER BY id
-		LIMIT $%d`,
-		accountColumns, whereClause, argIdx)
-	args = append(args, limit+1)
+		ORDER BY id`,
+		accountColumns, whereClause)
 
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -1060,12 +1115,18 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 	defer rows.Close()
 
 	accounts := make([]*entity.Account, 0, limit)
-	for rows.Next() {
+	for len(accounts) <= limit && rows.Next() {
 		a, err := s.scanAccount(rows)
+		if s.skipUnreadable(err) {
+			continue
+		}
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to scan account: %w", err)
 		}
 		accounts = append(accounts, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("failed to iterate accounts: %w", err)
 	}
 
 	var nextPageToken string
@@ -1149,23 +1210,29 @@ func (s *PortfolioStore) ListStaleSyncTargets(ctx context.Context, olderThan, no
 		return nil, fmt.Errorf("%w: limit must be positive", store.ErrInvalidArgument)
 	}
 
+	// No SQL LIMIT, for the reason ListAccounts gives: here an unreadable row
+	// never syncs, stays the stalest, and would hold a slot of every run.
+	// shortcut: reads every due account; page by staleness instead if the due
+	// set grows large.
 	query := fmt.Sprintf(`
 		SELECT %s%s
-		ORDER BY h.synced_at ASC NULLS FIRST, a.id
-		LIMIT $6`, prefixedAccountColumns("a"), sweepableAccounts)
+		ORDER BY h.synced_at ASC NULLS FIRST, a.id`, prefixedAccountColumns("a"), sweepableAccounts)
 
 	wallet, exchange, broker := sweepableTypes()
 	rows, err := s.pool.Query(ctx, query,
 		wallet, exchange, broker,
-		olderThan, now, limit)
+		olderThan, now)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list stale sync targets: %w", err)
 	}
 	defer rows.Close()
 
 	accounts := make([]*entity.Account, 0, limit)
-	for rows.Next() {
+	for len(accounts) < limit && rows.Next() {
 		a, err := s.scanAccount(rows)
+		if s.skipUnreadable(err) {
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan stale sync target: %w", err)
 		}
@@ -1610,13 +1677,52 @@ func (s *PortfolioStore) listAccountsByCapabilityColumn(ctx context.Context, col
 	accounts := []*entity.Account{}
 	for rows.Next() {
 		a, err := s.scanAccount(rows)
+		if s.skipUnreadable(err) {
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan account: %w", err)
 		}
 		accounts = append(accounts, a)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate accounts by capability: %w", err)
+	}
 
 	return accounts, nil
+}
+
+// ListUnreadableAccounts returns the user's accounts the lists leave out.
+func (s *PortfolioStore) ListUnreadableAccounts(ctx context.Context, userID string) ([]*entity.UnreadableAccount, error) {
+	if userID == "" {
+		return nil, fmt.Errorf("%w: user_id is required", store.ErrInvalidArgument)
+	}
+	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
+		SELECT %s
+		FROM accounts
+		WHERE user_id = $1
+		ORDER BY id`, accountColumns), userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list accounts for readability: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*entity.UnreadableAccount
+	for rows.Next() {
+		_, err := s.scanAccount(rows)
+		var u *unreadableAccountError
+		if errors.As(err, &u) {
+			out = append(out, &u.account)
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan account: %w", err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate accounts for readability: %w", err)
+	}
+	return out, nil
 }
 
 // --- Holding methods ---
