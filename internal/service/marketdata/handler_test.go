@@ -1077,6 +1077,76 @@ func TestFindOrCreateAsset_BindsRefOnIdentityMatch(t *testing.T) {
 	s.AssertExpectations(t)
 }
 
+// TestFindOrCreateAsset_DryRunDoesNotBindRef: a dry run is a plan with no
+// writes, so a ref that resolves an existing asset by identity is reported, not
+// bound. The mock has no CreateAssetExternalRef expectation: a call panics.
+func TestFindOrCreateAsset_DryRunDoesNotBindRef(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetIDByExternalRef", mock.Anything, "onchain:bsc", "0xBEEF").Return("", store.ErrNotFound)
+	s.On("FindAssetByIdentity", mock.Anything, "USDC", "crypto", entity.AssetTypeCryptocurrency).
+		Return(testAsset("id-1"), nil)
+	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-1"}).Return(nil, nil)
+	resolver := &fakeContractResolver{listed: map[string]listing{"bsc/0xbeef": listedAs("USDC")}}
+	h := newHandler(s).WithProvider("coingecko", resolver)
+
+	source, ref := "onchain:bsc", "0xBEEF"
+	resp, err := h.FindOrCreateAsset(adminContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol:            "USDC",
+		ExternalRefSource: &source,
+		ExternalRef:       &ref,
+		DryRun:            true,
+	}))
+	require.NoError(t, err)
+	assert.False(t, resp.Msg.Created)
+	assert.Equal(t, "id-1", resp.Msg.Asset.Id)
+	s.AssertNotCalled(t, "CreateAssetExternalRef", mock.Anything, mock.Anything)
+	s.AssertNotCalled(t, "SetAssetVerdict", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestFindOrCreateAsset_RefToMissingAssetFallsThrough: a ref whose asset is gone
+// is no identity, so resolution continues by symbol.
+func TestFindOrCreateAsset_RefToMissingAssetFallsThrough(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetIDByExternalRef", mock.Anything, "coingecko", "usd-coin").Return("id-gone", nil)
+	s.On("GetAsset", mock.Anything, "id-gone").Return(nil, store.ErrNotFound)
+	s.On("FindAssetByIdentity", mock.Anything, "USDC", "crypto", entity.AssetTypeCryptocurrency).
+		Return(testAsset("id-1"), nil)
+	s.On("CreateAssetExternalRef", mock.Anything, mock.Anything).Return(nil, store.ErrConstraint)
+	expectVerdict(s)
+	h := newHandler(s)
+
+	source, ref := "coingecko", "usd-coin"
+	resp, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol:            "USDC",
+		ExternalRefSource: &source,
+		ExternalRef:       &ref,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "id-1", resp.Msg.Asset.Id)
+}
+
+// TestFindOrCreateAsset_RefLookupErrorIsReturned: a bound ref IS the identity.
+// Falling through to the symbol on a transient read error would land the
+// position on whatever row the symbol names, e.g. the global one instead of the
+// contract's own.
+func TestFindOrCreateAsset_RefLookupErrorIsReturned(t *testing.T) {
+	s := &mockStore{}
+	s.On("FindAssetIDByExternalRef", mock.Anything, "onchain:eth", "0xCAFE").Return("id-9", nil)
+	s.On("GetAsset", mock.Anything, "id-9").Return(nil, errors.New("connection reset"))
+	h := newHandler(s)
+
+	source, ref := "onchain:eth", "0xCAFE"
+	_, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+		Symbol:            "USDT",
+		ExternalRefSource: &source,
+		ExternalRef:       &ref,
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInternal, connect.CodeOf(err))
+	s.AssertNotCalled(t, "FindAssetByIdentity", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	s.AssertNotCalled(t, "CreateAssetExternalRef", mock.Anything, mock.Anything)
+}
+
 // TestFindOrCreateAsset_BindsRefOnCreate: a brand-new confirmed contract creates
 // the asset in the global market and binds the ref to it.
 func TestFindOrCreateAsset_BindsRefOnCreate(t *testing.T) {
