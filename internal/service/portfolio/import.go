@@ -234,14 +234,25 @@ func (h *Handler) importOnePosition(
 	}
 
 	if existing == nil {
-		created, err := h.store.CreateHolding(ctx, &entity.Holding{
-			AssetID:     assetID,
-			AccountID:   account.ID,
-			PortfolioID: account.PortfolioID, // inherit the account default, like sync does
-			Amount:      raw,
-			Decimals:    decimals,
-			Source:      entity.SourceLLMImport,
-			ImportID:    importID,
+		// The account's portfolio is read in the write's own transaction, like
+		// sync does: account was read before the batch, and a move since then
+		// would leave this holding behind (see HoldingWriter.LockAccountPortfolio).
+		var created *entity.Holding
+		err := h.store.InHoldingsTx(ctx, func(w HoldingWriter) error {
+			portfolioID, err := w.LockAccountPortfolio(ctx, account.ID)
+			if err != nil {
+				return err
+			}
+			created, err = w.CreateHolding(ctx, &entity.Holding{
+				AssetID:     assetID,
+				AccountID:   account.ID,
+				PortfolioID: portfolioID,
+				Amount:      raw,
+				Decimals:    decimals,
+				Source:      entity.SourceLLMImport,
+				ImportID:    importID,
+			})
+			return err
 		})
 		if err != nil {
 			return fail(fmt.Errorf("create holding: %w", err))

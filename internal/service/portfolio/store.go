@@ -11,6 +11,13 @@ import (
 // the whole set can be handed to one transaction: a sync rewrites a snapshot,
 // and half a snapshot is not a smaller truth, it is a wrong one.
 type HoldingWriter interface {
+	// LockAccountPortfolio returns the account's portfolio and holds it until
+	// the transaction ends: a move of the account waits for this write, and
+	// this read waits for a move in flight. A new holding stamped with an
+	// account's portfolio takes the value from here, never from a read made
+	// before the transaction — that one can be a move out of date, and the
+	// holding would stay behind in the portfolio the account left.
+	LockAccountPortfolio(ctx context.Context, accountID string) (string, error)
 	CreateHolding(ctx context.Context, h *entity.Holding) (*entity.Holding, error)
 	UpdateHolding(ctx context.Context, h *entity.Holding, fields []string) (*entity.Holding, error)
 }

@@ -33,6 +33,9 @@ type mockStore struct {
 	claimMu  sync.Mutex
 	claims   map[string]string
 	claimSeq int
+
+	// lockErr, when set, is what LockAccountPortfolio answers.
+	lockErr error
 }
 
 // ClaimAccountSync and ReleaseAccountSync keep a real in-memory lease rather
@@ -278,6 +281,29 @@ func (m *mockStore) ListHoldings(ctx context.Context, opts ListHoldingsOpts) ([]
 // aborts the set.
 func (m *mockStore) InHoldingsTx(_ context.Context, fn func(HoldingWriter) error) error {
 	return fn(m)
+}
+
+// LockAccountPortfolio answers from the GetAccount expectation the test set for
+// the handler's own read, so the snapshot stamps the same portfolio. An account
+// the test never stubbed (a broker sub-account created mid-sync) has none.
+func (m *mockStore) LockAccountPortfolio(ctx context.Context, accountID string) (string, error) {
+	if m.lockErr != nil {
+		return "", m.lockErr
+	}
+	for _, c := range m.ExpectedCalls {
+		if c.Method != "GetAccount" {
+			continue
+		}
+		if _, diffs := c.Arguments.Diff([]any{ctx, accountID}); diffs != 0 {
+			continue
+		}
+		a, err := m.GetAccount(ctx, accountID)
+		if err != nil || a == nil {
+			return "", err
+		}
+		return a.PortfolioID, nil
+	}
+	return "", nil
 }
 
 func (m *mockStore) CreateTransaction(ctx context.Context, t *entity.Transaction) (*entity.Transaction, error) {

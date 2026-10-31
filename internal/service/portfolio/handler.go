@@ -2474,18 +2474,17 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 	// collected into syncErrors: the account keeps the snapshot it had, which
 	// is coherent, rather than a mix of two syncs.
 	plan := writePlan{
-		order:              order,
-		byPosition:         byPosition,
-		holdingByPosition:  holdingByPosition,
-		legacyByAsset:      legacyByAsset,
-		existing:           existingHoldings,
-		zeroVanished:       complete,
-		confirmedZero:      confirmedZero,
-		failedChains:       scope.chains,
-		withheld:           withheld,
-		partial:            len(scope.chains) > 0 || len(scope.refused) > 0,
-		accountID:          account.ID,
-		defaultPortfolioID: account.PortfolioID,
+		order:             order,
+		byPosition:        byPosition,
+		holdingByPosition: holdingByPosition,
+		legacyByAsset:     legacyByAsset,
+		existing:          existingHoldings,
+		zeroVanished:      complete,
+		confirmedZero:     confirmedZero,
+		failedChains:      scope.chains,
+		withheld:          withheld,
+		partial:           len(scope.chains) > 0 || len(scope.refused) > 0,
+		accountID:         account.ID,
 	}
 	result := syncResult{assetsUpserted: assetsUpserted, skipped: skipped, syncErrors: syncErrors}
 	var released int32
@@ -2608,9 +2607,8 @@ type writePlan struct {
 	withheld     map[assetChain]bool
 	// partial says some failure was scoped. A row with no chain cannot be
 	// matched to a failed chain or a refused contract, so it is withheld then.
-	partial            bool
-	accountID          string
-	defaultPortfolioID string
+	partial   bool
+	accountID string
 }
 
 // writtenSnapshot is what one transactional write of a snapshot produced.
@@ -2641,6 +2639,13 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 	refreshed := make(map[string]struct{}, len(plan.existing))
 	// One instant per snapshot: it is one observation of the account.
 	syncedAt := time.Now()
+
+	// First, so a concurrent move of the account and this snapshot serialize
+	// before any holding is written (see HoldingWriter.LockAccountPortfolio).
+	portfolioID, err := w.LockAccountPortfolio(ctx, plan.accountID)
+	if err != nil {
+		return writtenSnapshot{}, err
+	}
 
 	for _, key := range plan.order {
 		entry := plan.byPosition[key]
@@ -2699,7 +2704,7 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 			}
 			refreshed[existing.ID] = struct{}{}
 		} else {
-			// Create new holding; inherit account's default portfolio if configured.
+			// Create new holding in the account's portfolio as of this transaction.
 			// A scam/impersonation verdict on the asset excludes the new holding
 			// from the sums; the position still syncs (no frozen holding), it is
 			// just quarantined. An existing holding's excluded flag is left alone
@@ -2707,7 +2712,7 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 			_, err := w.CreateHolding(ctx, &entity.Holding{
 				AssetID:     assetID,
 				AccountID:   plan.accountID,
-				PortfolioID: plan.defaultPortfolioID,
+				PortfolioID: portfolioID,
 				Amount:      amount,
 				Decimals:    decimals,
 				Chain:       key.chain,
