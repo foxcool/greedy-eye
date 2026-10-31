@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"runtime"
 	"strings"
@@ -205,7 +206,7 @@ func TestPoisonedRowDoesNotBlockTheRest(t *testing.T) {
 	require.Error(t, reg.Flush(ctx), "the unwritable row is still reported")
 	assert.Equal(t, map[string]int64{fingerprint("key-good") + "/sweep": 1}, storedRequests(store.fakeUsageStore))
 
-	// Later spend rides no failing statement.
+	// The kept row keeps failing its batch; later spend lands anyway.
 	require.NoError(t, good.reserve(spend.ClassInteractive, "sweep", now))
 	require.Error(t, reg.Flush(ctx))
 	assert.Equal(t, map[string]int64{fingerprint("key-good") + "/sweep": 2}, storedRequests(store.fakeUsageStore))
@@ -213,6 +214,7 @@ func TestPoisonedRowDoesNotBlockTheRest(t *testing.T) {
 	// The loss is named, not just counted: provider, key, period, amount.
 	log := buf.String()
 	assert.Contains(t, log, "level=ERROR")
+	assert.Contains(t, log, "provider=test")
 	assert.Contains(t, log, fingerprint("key-bad"))
 	assert.Contains(t, log, "2026-07-01")
 	assert.Contains(t, log, "requests=2")
@@ -286,6 +288,15 @@ func TestStopLogsWhatItCouldNotWrite(t *testing.T) {
 		require.NoError(t, b.reserve(spend.ClassInteractive, "sweep", now))
 	}
 	require.NoError(t, b.reserve(spend.ClassInteractive, "guard", now))
+	// Spend that arrives during the last attempt is lost too, and counted.
+	late := 0
+	var spendLate func()
+	spendLate = func() {
+		late++
+		require.NoError(t, b.reserve(spend.ClassInteractive, "late", now))
+		store.during = spendLate
+	}
+	store.during = spendLate
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
@@ -294,6 +305,6 @@ func TestStopLogsWhatItCouldNotWrite(t *testing.T) {
 	log := buf.String()
 	assert.Equal(t, 1, strings.Count(log, "lost"), "reported once, not per attempt")
 	assert.Contains(t, log, "level=ERROR")
-	assert.Contains(t, log, "requests=4")
+	assert.Contains(t, log, fmt.Sprintf("requests=%d", 4+late), "spend reserved during the last attempt is counted")
 	assert.Contains(t, log, fingerprint("key"))
 }

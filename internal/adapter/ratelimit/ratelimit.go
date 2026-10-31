@@ -324,8 +324,7 @@ func (r *Registry) Start(ctx context.Context) error {
 	return nil
 }
 
-// finalFlushBackoff is the first pause between the retries Stop makes; it
-// doubles up to finalFlushBackoffMax.
+// Stop's retry pauses: the first one, doubling up to the second.
 const (
 	finalFlushBackoff    = 200 * time.Millisecond
 	finalFlushBackoffMax = 2 * time.Second
@@ -334,7 +333,8 @@ const (
 // Stop ends the flush loop and writes what is still pending. Nothing ticks
 // after the process exits, so a failed final write is retried with backoff until
 // ctx ends; spend still unwritten then is logged once with its amount, since
-// that line is all that remains of it.
+// that line is all that remains of it. ctx must carry a deadline: without one a
+// store that never recovers holds the shutdown forever.
 func (r *Registry) Stop(ctx context.Context) error {
 	if r == nil || r.stop == nil {
 		return nil
@@ -361,10 +361,16 @@ func (r *Registry) Stop(ctx context.Context) error {
 	}
 }
 
-// logLost reports the spend the store never accepted.
+// logLost reports the spend the store never accepted: what failed writes handed
+// back, and what was reserved since the last attempt.
 func (r *Registry) logLost() {
 	r.mu.Lock()
-	lost := mergeUsage(r.unflushed)
+	lost := r.unflushed
+	for _, b := range r.buckets {
+		lost = append(lost, b.takePending()...)
+	}
+	lost = mergeUsage(lost)
+	r.unflushed = lost
 	r.mu.Unlock()
 
 	var requests, backoffs int64
