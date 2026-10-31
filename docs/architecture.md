@@ -1033,7 +1033,9 @@ Cron / API Client → AutomationService/ExecuteRule
   admin role and an explicit update mask. Every write to the asset catalogue is admin-only too —
   `UpdateAsset`, `DeleteAsset`, `SetAssetVerdict`, `Add`/`DeleteAssetRiskFlag`,
   `DeleteAssetExternalRef` — because an asset is one row shared by every user who holds it, so an
-  edit by one is an edit for all. Adding a row is gated the same way: `CreateAsset` is admin-only,
+  edit by one is an edit for all. Every price write is admin-only for the same reason
+  (`CreatePrice`, `CreatePrices`, `DeletePrice`, `DeletePrices`): a price row values every holder.
+  Adding an asset row is gated the same way: `CreateAsset` is admin-only,
   and `FindOrCreateAsset` creates (or, in a dry run, plans to create) only for the in-process sync
   or an admin, so anyone else's manual import resolves existing rows only (`personal-a483`).
   The heuristic verdict on an existing row is re-scored and persisted only by the in-process
@@ -1771,12 +1773,16 @@ System Quality
 - Resolution Plan: weighted cost per call, and reading the provider's own remaining-budget headers
   where they exist (`X-MBX-USED-WEIGHT-*`).
 
-#### Debt 5: Catalogue mutations are not role-gated
+#### Debt 5: No per-asset RBAC on the shared catalogue
 
-- Description: `assets` and `prices` are a shared catalogue that any authenticated user can
-  mutate. With a single user this is harmless; it does not survive a second one.
-- Impact: Blocks multi-user operation.
-- Resolution Plan: RBAC on catalogue mutations; user-scoped assets stay private.
+- Description: Every write to `assets` and `prices` is role-gated (§8.1): admin-only, with the
+  in-process sync additionally admitted where it reports what a provider said. What is missing is
+  anything finer than the admin role — there is no per-asset ownership or delegation, so a user
+  cannot be allowed to edit one asset (for instance one only they hold) without being admin.
+- Impact: With more than one user, fixing a catalogue row for a non-admin means asking an admin.
+  Not a security hole: nothing is writable by a non-admin.
+- Resolution Plan: per-asset RBAC; user-scoped assets stay private. Done when a non-admin can
+  edit an asset they are granted, and still cannot edit one they are not.
 
 #### Debt 6: No upgrade path for an instance that already has data
 
