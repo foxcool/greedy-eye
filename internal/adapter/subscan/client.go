@@ -91,6 +91,12 @@ type Account struct {
 	Reserved  decimal.Decimal
 	Bonded    decimal.Decimal
 	Unbonding decimal.Decimal
+	// PartitionUnreadable is true when one of Reserved, Bonded or Unbonding was
+	// present but unparsable. It reads as zero in the field, and a zero there is
+	// "nothing frozen" — a claim about spendable money made out of a string
+	// nobody could read — so splitLiquidity must not partition on it. Negative
+	// form so that an Account built without it keeps today's meaning.
+	PartitionUnreadable bool
 
 	// Tokens are the non-native holdings reported beside the chain's own coin.
 	// Empty on a relay chain, which carries nothing else.
@@ -364,17 +370,31 @@ func (c *Client) GetAccount(ctx context.Context, chain, address string) (Account
 		symbol = net.symbol
 	}
 
+	// Subsets of Balance; a malformed one must not fail an otherwise valid sync,
+	// but it is named and it withholds the partition (see PartitionUnreadable).
+	var unreadable bool
+	subset := func(field, raw string) decimal.Decimal {
+		d, err := parseAmount(chain, "native "+field, raw)
+		if err != nil {
+			unreadable = true
+			skipped = append(skipped, err.Error()+"; its liquidity is left unstated")
+		}
+		return d
+	}
+	reserved := subset("reserved", native.Reserved)
+	bonded := subset("bonded", native.Bonded)
+	unbonding := subset("unbonding", native.Unbonding)
+
 	return Account{
-		Balance:  balance,
-		Decimals: native.Decimals,
-		Symbol:   symbol,
-		// Subsets of Balance; a malformed one must not fail an otherwise
-		// valid sync, so these degrade to zero.
-		Reserved:  optionalAmount(native.Reserved),
-		Bonded:    optionalAmount(native.Bonded),
-		Unbonding: optionalAmount(native.Unbonding),
-		Tokens:    tokens,
-		Skipped:   skipped,
+		Balance:             balance,
+		Decimals:            native.Decimals,
+		Symbol:              symbol,
+		Reserved:            reserved,
+		Bonded:              bonded,
+		Unbonding:           unbonding,
+		PartitionUnreadable: unreadable,
+		Tokens:              tokens,
+		Skipped:             skipped,
 	}, nil
 }
 
@@ -392,15 +412,4 @@ func parseAmount(chain, field, s string) (decimal.Decimal, error) {
 		return decimal.Zero, fmt.Errorf("subscan %s: unparsable %s %q", chain, field, s)
 	}
 	return d, nil
-}
-
-// optionalAmount reads a field kept only for observability. These never reach
-// the holding, so a malformed one degrades to zero rather than failing a sync
-// whose balance parsed fine.
-func optionalAmount(s string) decimal.Decimal {
-	d, err := decimal.NewFromString(s)
-	if err != nil {
-		return decimal.Zero
-	}
-	return d
 }

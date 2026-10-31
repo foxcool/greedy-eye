@@ -787,3 +787,55 @@ func TestSyncWallet_ADeadChainIsAChainError(t *testing.T) {
 	_, err = dead.SyncWallet(context.Background(), "addr", []string{"nosuchchain"})
 	assert.Contains(t, entity.FailedChains(err), "nosuchchain", "a chain with no reader here is unread whole")
 }
+
+// TestSyncWallet_AnUnreadableNativeFieldIsNotAZeroField: reserved, bonded and
+// unbonding feed splitLiquidity, so a value nobody could parse must not be read
+// as "nothing frozen". Bonded is the worst case — it would move a staked
+// position into liquid — but each field is named, with its raw value, and the
+// position stays whole and unclassified.
+func TestSyncWallet_AnUnreadableNativeFieldIsNotAZeroField(t *testing.T) {
+	for _, field := range []string{"reserved", "bonded", "unbonding"} {
+		t.Run(field, func(t *testing.T) {
+			fields := map[string]string{"reserved": "0", "bonded": "600000000000", "unbonding": "0"}
+			fields[field] = "not-a-number"
+			syncer := newTestSyncer(t, respondJSON(fmt.Sprintf(`{
+				"code": 0, "message": "Success",
+				"data": {"native": [{
+					"symbol": "DOT", "unique_id": "DOT", "decimals": 10,
+					"balance": "1000000000000",
+					"reserved": %q, "bonded": %q, "unbonding": %q
+				}]}
+			}`, fields["reserved"], fields["bonded"], fields["unbonding"])))
+
+			balances, err := syncer.SyncWallet(context.Background(), "16RUKR", []string{"polkadot"})
+			require.ErrorContains(t, err, "polkadot")
+			require.ErrorContains(t, err, field)
+			require.ErrorContains(t, err, `"not-a-number"`)
+			require.Len(t, balances, 1, "the position is reported; only its partition is withheld")
+			assert.Equal(t, "1000000000000", balances[0].Amount)
+			assert.Equal(t, entity.LiquidityUnknown, balances[0].Liquidity)
+		})
+	}
+}
+
+// TestSyncWallet_AnAbsentNativeFieldIsAZeroField is the other side of that line:
+// Subscan omits a component an account does not use, so empty is a silent zero
+// and the split still happens.
+func TestSyncWallet_AnAbsentNativeFieldIsAZeroField(t *testing.T) {
+	syncer := newTestSyncer(t, respondJSON(`{
+		"code": 0, "message": "Success",
+		"data": {"native": [{
+			"symbol": "DOT", "unique_id": "DOT", "decimals": 10,
+			"balance": "1000000000000",
+			"bonded": "600000000000"
+		}]}
+	}`))
+
+	balances, err := syncer.SyncWallet(context.Background(), "16RUKR", []string{"polkadot"})
+	require.NoError(t, err)
+	require.Len(t, balances, 2)
+	assert.Equal(t, entity.LiquidityLiquid, balances[0].Liquidity)
+	assert.Equal(t, "400000000000", balances[0].Amount)
+	assert.Equal(t, entity.LiquidityStaked, balances[1].Liquidity)
+	assert.Equal(t, "600000000000", balances[1].Amount)
+}
