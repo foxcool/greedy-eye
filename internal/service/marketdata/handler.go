@@ -2019,8 +2019,9 @@ const (
 )
 
 // soonestDue reports when this source's earliest deferred asset comes due, for
-// the log line that says how long a frozen queue stays frozen. Zero when
-// unknown — a log line is not worth failing a sweep over.
+// the log line that says how long a frozen queue stays frozen: the nearer of a
+// back-off ending and an unasked deferral ending. Zero when unknown — a log
+// line is not worth failing a sweep over.
 func (h *Handler) soonestDue(ctx context.Context, sourceID string, p PriceProvider) time.Time {
 	now := time.Now()
 	scheds, err := h.store.SweepSchedule(ctx, SweepScheduleOpts{
@@ -2029,7 +2030,11 @@ func (h *Handler) soonestDue(ctx context.Context, sourceID string, p PriceProvid
 	if err != nil || len(scheds) == 0 {
 		return time.Time{}
 	}
-	return scheds[0].SoonestDue
+	due, reconsider := scheds[0].SoonestDue, scheds[0].SoonestReconsider
+	if due.IsZero() || (!reconsider.IsZero() && reconsider.Before(due)) {
+		return reconsider
+	}
+	return due
 }
 
 // explainEmptySelection asks the attempt log why a selection came back empty.
@@ -2041,7 +2046,9 @@ func (h *Handler) explainEmptySelection(ctx context.Context, population StalePri
 	if err != nil || len(scheds) == 0 {
 		return outcomeUnknown
 	}
-	if scheds[0].Deferred > 0 {
+	// Unaskable counts too: an unasked deferral postpones an asset as surely as
+	// a back-off does, and the schedule keeps the two in separate counts.
+	if scheds[0].Deferred+scheds[0].Unaskable > 0 {
 		return outcomeAllDeferred
 	}
 	return outcomeNothingDue
