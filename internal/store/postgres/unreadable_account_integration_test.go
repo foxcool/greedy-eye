@@ -232,7 +232,6 @@ func TestUnreadableAccountIsNotACredentialHolder(t *testing.T) {
 			Data:         map[string]string{credentials.DataProviderKey: "coingecko", "api_key": "k"},
 		}
 	}
-	// The unreadable row first, so it sorts wherever a list starts.
 	_, err := elsewhere.CreateAccount(ctx, priceKey(other.ID))
 	require.NoError(t, err)
 	_, err = s.CreateAccount(ctx, priceKey(operator.ID))

@@ -1645,6 +1645,8 @@ func (s *PortfolioStore) ListUserAccountsByCapability(ctx context.Context, userI
 // For the same reason a holder is counted only through an account this
 // instance can read: the rows are decoded, not just counted, so an unreadable
 // one is skipped here as in every other list.
+// shortcut: decodes every capable row to read its owner; count in SQL once
+// readability is a column a query can ask about.
 func (s *PortfolioStore) ListCapabilityOwners(ctx context.Context, capability entity.AccountCapability) ([]string, error) {
 	if capability == "" {
 		return nil, fmt.Errorf("%w: capability is required", store.ErrInvalidArgument)
