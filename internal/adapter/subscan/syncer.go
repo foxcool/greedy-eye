@@ -164,7 +164,7 @@ func splitLiquidity(a Account, row func(decimal.Decimal, entity.Liquidity) entit
 	total := a.Total()
 	unclassified := []entity.WalletBalance{row(total, entity.LiquidityUnknown)}
 
-	if !a.Reserved.IsZero() && !a.Reserved.Equal(a.Bonded) {
+	if a.PartitionUnreadable || (!a.Reserved.IsZero() && !a.Reserved.Equal(a.Bonded)) {
 		return unclassified
 	}
 
