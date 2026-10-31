@@ -1105,7 +1105,7 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 	// them comes back empty and the callers' "empty page ends it" guard stops
 	// the walk early.
 	// shortcut: reads the rest of the filter after the page fills; refetch by
-	// keyset instead if one owner's account count grows large.
+	// keyset instead if one owner's account count grows large (personal-f762).
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM accounts
@@ -1219,7 +1219,7 @@ func (s *PortfolioStore) ListStaleSyncTargets(ctx context.Context, olderThan, no
 	// No SQL LIMIT, for the reason ListAccounts gives: here an unreadable row
 	// never syncs, stays the stalest, and would hold a slot of every run.
 	// shortcut: reads every due account; page by staleness instead if the due
-	// set grows large.
+	// set grows large (personal-f762).
 	query := fmt.Sprintf(`
 		SELECT %s%s
 		ORDER BY h.synced_at ASC NULLS FIRST, a.id`, prefixedAccountColumns("a"), sweepableAccounts)
@@ -1389,7 +1389,7 @@ func (s *PortfolioStore) RecordSyncMiss(ctx context.Context, accountID string, a
 // skips a row it cannot read, and such a row never syncs, so a SQL count would
 // report it as waiting on every run.
 // shortcut: reads every due row, as ListStaleSyncTargets does; count in SQL
-// once readability is a column a query can ask about.
+// once readability is a column a query can ask about (personal-f762).
 func (s *PortfolioStore) CountDueSyncTargets(ctx context.Context, olderThan, now time.Time) (int, error) {
 	query := `SELECT ` + prefixedAccountColumns("a") + sweepableAccounts
 
@@ -1646,7 +1646,7 @@ func (s *PortfolioStore) ListUserAccountsByCapability(ctx context.Context, userI
 // instance can read: the rows are decoded, not just counted, so an unreadable
 // one is skipped here as in every other list.
 // shortcut: decodes every capable row to read its owner; count in SQL once
-// readability is a column a query can ask about.
+// readability is a column a query can ask about (personal-f762).
 func (s *PortfolioStore) ListCapabilityOwners(ctx context.Context, capability entity.AccountCapability) ([]string, error) {
 	if capability == "" {
 		return nil, fmt.Errorf("%w: capability is required", store.ErrInvalidArgument)
