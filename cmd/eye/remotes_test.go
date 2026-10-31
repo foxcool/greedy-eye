@@ -99,6 +99,9 @@ func TestValidateRemotes(t *testing.T) {
 		{name: "tls", config: withToken(map[string]string{"settings": "https://b:8443"}), wantErr: "remotes.settings: want http://"},
 		{name: "userinfo", config: withToken(map[string]string{"settings": "https://user:hunter2@b:8443"}), wantErr: "remotes.settings: want http://"},
 		{name: "unparseable userinfo", config: withToken(map[string]string{"settings": "http://user:hunter2@b:port"}), wantErr: "remotes.settings: want http://"},
+		{name: "userinfo without slashes", config: withToken(map[string]string{"settings": "http:user:hunter2@b:8080"}), wantErr: "remotes.settings: want http://"},
+		{name: "userinfo with one slash", config: withToken(map[string]string{"settings": "http:/user:hunter2@b:8080"}), wantErr: "remotes.settings: want http://"},
+		{name: "userinfo without scheme", config: withToken(map[string]string{"settings": "user:hunter2@b:8080"}), wantErr: "remotes.settings: want http://"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

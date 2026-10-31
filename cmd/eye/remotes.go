@@ -115,12 +115,13 @@ func holdingProvenance(r *remotes, local marketdata.HoldingProvenance) marketdat
 }
 
 // redactURL hides the password of a configured URL before it reaches a log or
-// an error. A string url.Parse rejects cannot be redacted reliably, so it is
-// not shown at all.
+// an error. Redacted masks only a parsed userinfo; without a host, url.Parse
+// leaves credentials in Opaque or Path ("http:user:pw@b"), so such a string is
+// not shown at all, like one url.Parse rejects.
 func redactURL(raw string) string {
 	u, err := url.Parse(raw)
-	if err != nil {
-		return "<unparseable url>"
+	if err != nil || u.Host == "" {
+		return "<malformed url>"
 	}
 	return u.Redacted()
 }
