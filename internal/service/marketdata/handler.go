@@ -1823,15 +1823,23 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 }
 
 // unknownIDs returns the requested ids no returned asset carries, once each and
-// in request order.
+// in request order. The store matches ids as uuids, so an upper-case or
+// hyphenless spelling finds its asset; compared as text it would be reported
+// unknown while being priced.
 func unknownIDs(requested []string, found []*entity.Asset) []string {
+	canon := func(id string) string {
+		if u, err := uuid.Parse(id); err == nil {
+			return u.String()
+		}
+		return id
+	}
 	have := make(map[string]bool, len(found))
 	for _, a := range found {
-		have[a.ID] = true
+		have[canon(a.ID)] = true
 	}
 	var out []string
 	for _, id := range uniqueIDs(requested) {
-		if !have[id] {
+		if !have[canon(id)] {
 			out = append(out, id)
 		}
 	}
@@ -2113,7 +2121,8 @@ const (
 	// there was nothing to ask any source.
 	outcomeNoAssets selectionOutcome = "no_assets"
 	// outcomeUnusable: the source is configured but its credential cannot carry
-	// work now. The value is "unusable: <reason the source gave>".
+	// work now. The response value is this prefix, ": " and the reason the
+	// source gave.
 	outcomeUnusable selectionOutcome = "unusable"
 )
 

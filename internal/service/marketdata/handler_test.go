@@ -2809,6 +2809,49 @@ func TestFetchExternalPrices_KnownAndUnknownAssetIds(t *testing.T) {
 	assert.Empty(t, resp.Msg.GetIdleSources())
 }
 
+// The store matches ids as uuids, so a request may spell a known id in upper
+// case or without hyphens; that asset is priced and must not be called unknown.
+func TestFetchExternalPrices_NonCanonicalKnownIdIsNotUnknown(t *testing.T) {
+	const id = "550e8400-e29b-41d4-a716-446655440000"
+	s := &mockStore{}
+	expectBaseAsset(s)
+	expectExternalRefs(s)
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset(id)}, "", nil)
+	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	h := newHandler(s).WithProvider("fake", &fakePriceProvider{prices: map[string]bool{id: true}})
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"550E8400-E29B-41D4-A716-446655440000", "550e8400e29b41d4a716446655440000"}}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetErrors())
+}
+
+// no_assets is said only by the sources the request is about.
+func TestFetchExternalPrices_UnknownAssetsOnlyIdleTheNamedSources(t *testing.T) {
+	s := &mockStore{}
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{}, "", nil)
+	h := newHandler(s).WithProvider("fake", &fakePriceProvider{}).WithProvider("other", &fakePriceProvider{})
+
+	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"ghost"}, SourceIds: []string{"fake"}}))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"fake": "no_assets"}, resp.Msg.GetIdleSources())
+}
+
+// Background work names its assets too; an unusable source is both idle (the
+// source cannot work) and has everything named left to the sweep.
+func TestFetchExternalPrices_BackgroundUnusableSourceIsIdleAndDeferred(t *testing.T) {
+	s := &mockStore{}
+	h := newHandler(s).WithProvider("coingecko", &stuckProvider{reason: "share spent"})
+
+	resp, err := h.FetchExternalPrices(backgroundCtx(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a1", "a2"}}))
+	require.NoError(t, err)
+	assert.Equal(t, "unusable: share spent", resp.Msg.GetIdleSources()["coingecko"])
+	assert.Equal(t, int32(2), resp.Msg.GetDeferredAssets()["coingecko"])
+}
+
 // A source the sweep skipped because its credential cannot carry work was
 // invisible: the request named it, it was configured, and the response said
 // nothing. The reason the source itself gave is the answer.
