@@ -2,6 +2,7 @@ package portfolio
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -115,6 +116,80 @@ func TestUpdateAccount_ManualCannotBeDisabled(t *testing.T) {
 			s.AssertNotCalled(t, "ClearSyncDeferrals", mock.Anything, mock.Anything, mock.Anything)
 		})
 	}
+}
+
+// TestUpdateAccount_RequestRefusedForItsFieldsKeepsTheDeferral: a disable that
+// the same request's other fields get refused changes nothing — the sweep's
+// schedule for the account included.
+func TestUpdateAccount_RequestRefusedForItsFieldsKeepsTheDeferral(t *testing.T) {
+	otherPortfolio := "01926d35-6a1e-7005-8005-0000000000aa"
+	cases := map[string]struct {
+		account *apiv1.Account
+		paths   []string
+		code    connect.Code
+	}{
+		"operator data key by a non-admin": {
+			account: &apiv1.Account{Data: map[string]string{"base_url": "http://10.0.0.1"}},
+			paths:   []string{"data"}, code: connect.CodePermissionDenied,
+		},
+		"misspelled data key": {
+			account: &apiv1.Account{Data: map[string]string{"chains": "eth"}},
+			paths:   []string{"data"}, code: connect.CodeInvalidArgument,
+		},
+		"masked value with nothing stored": {
+			account: &apiv1.Account{Data: map[string]string{"api_key": maskPrefix + "1234"}},
+			paths:   []string{"data"}, code: connect.CodeInvalidArgument,
+		},
+		"capabilities the type does not allow": {
+			account: &apiv1.Account{Capabilities: []string{string(entity.CapabilityOnchainLookup)}, Data: map[string]string{}},
+			paths:   []string{"capabilities", "data"}, code: connect.CodeInvalidArgument,
+		},
+		"capabilities the type does not allow, data not in the mask": {
+			account: &apiv1.Account{Capabilities: []string{string(entity.CapabilityOnchainLookup)}},
+			paths:   []string{"capabilities"}, code: connect.CodeInvalidArgument,
+		},
+		"portfolio of another user": {
+			account: &apiv1.Account{PortfolioId: &otherPortfolio},
+			paths:   []string{"portfolio_id"}, code: connect.CodeNotFound,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := &mockStore{}
+			s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+			foreign := testPortfolio(otherPortfolio)
+			foreign.UserID = "someone-else"
+			s.On("GetPortfolio", mock.Anything, otherPortfolio).Return(foreign, nil)
+			// Answered so that a call — the order this test guards against —
+			// is reported by the assertions below instead of as a panic.
+			s.On("ClearSyncDeferrals", mock.Anything, mock.Anything, mock.Anything).Return(1, nil).Maybe()
+			s.On("UpdateAccount", mock.Anything, mock.Anything, mock.Anything).
+				Return((*entity.Account)(nil), errors.New("the store refuses it too")).Maybe()
+
+			req := disableRequest(true, tc.paths...)
+			tc.account.Id, tc.account.Disabled = testAccountID, true
+			req.Msg.Account = tc.account
+
+			_, err := newHandler(s).UpdateAccount(ctxWithUser(testUserID), req)
+			require.Error(t, err)
+			assert.Equal(t, tc.code, connect.CodeOf(err), err.Error())
+			s.AssertNotCalled(t, "ClearSyncDeferrals", mock.Anything, mock.Anything, mock.Anything)
+			s.AssertNotCalled(t, "UpdateAccount", mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
+}
+
+// TestUpdateAccount_DeferralNotClearedIsNotSaved: the stand-down is reported as
+// failed, not written over a deferral it could not clear.
+func TestUpdateAccount_DeferralNotClearedIsNotSaved(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	s.On("ClearSyncDeferrals", mock.Anything, testUserID, []string{testAccountID}).
+		Return(0, errors.New("connection reset")).Once()
+
+	_, err := newHandler(s).UpdateAccount(ctxWithUser(testUserID), disableRequest(true))
+	require.Error(t, err)
+	s.AssertNotCalled(t, "UpdateAccount", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // TestUpdateAccount_OtherFieldsLeaveTheFlagAlone: a save that does not name

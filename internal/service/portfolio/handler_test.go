@@ -33,6 +33,9 @@ type mockStore struct {
 	claimMu  sync.Mutex
 	claims   map[string]string
 	claimSeq int
+
+	// lockErr, when set, is what LockAccountPortfolio answers.
+	lockErr error
 }
 
 // ClaimAccountSync and ReleaseAccountSync keep a real in-memory lease rather
@@ -291,6 +294,29 @@ func (m *mockStore) ListHoldings(ctx context.Context, opts ListHoldingsOpts) ([]
 // aborts the set.
 func (m *mockStore) InHoldingsTx(_ context.Context, fn func(HoldingWriter) error) error {
 	return fn(m)
+}
+
+// LockAccountPortfolio answers with the account the test's GetAccount
+// expectation returns, without recording a call, so the snapshot stamps the
+// portfolio the handler read. An account the test never stubbed (a broker
+// sub-account created mid-sync) is in none.
+func (m *mockStore) LockAccountPortfolio(ctx context.Context, accountID string) (string, error) {
+	if m.lockErr != nil {
+		return "", m.lockErr
+	}
+	for _, c := range m.ExpectedCalls {
+		if c.Method != "GetAccount" {
+			continue
+		}
+		if _, diffs := c.Arguments.Diff([]any{ctx, accountID}); diffs != 0 {
+			continue
+		}
+		if a, ok := c.ReturnArguments.Get(0).(*entity.Account); ok && a != nil {
+			return a.PortfolioID, nil
+		}
+		return "", c.ReturnArguments.Error(1)
+	}
+	return "", nil
 }
 
 func (m *mockStore) CreateTransaction(ctx context.Context, t *entity.Transaction) (*entity.Transaction, error) {
@@ -757,9 +783,13 @@ func TestUpdateAccount_SystemScopesRequireAdmin(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 
+	// A scope must be among the capabilities, which the handler now checks
+	// before writing as the store always did.
+	scoped := testAccount(testAccountID)
+	scoped.Capabilities = []entity.AccountCapability{entity.CapabilityMarketData}
 	s := &mockStore{}
-	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
-	s.On("UpdateAccount", mock.Anything, mock.Anything, []string{"system_scopes"}).Return(testAccount(testAccountID), nil)
+	s.On("GetAccount", mock.Anything, testAccountID).Return(scoped, nil)
+	s.On("UpdateAccount", mock.Anything, mock.Anything, []string{"system_scopes"}).Return(scoped, nil)
 	h = newHandler(s)
 	_, err = h.UpdateAccount(ctxWithAdmin(testUserID), req)
 	require.NoError(t, err)
