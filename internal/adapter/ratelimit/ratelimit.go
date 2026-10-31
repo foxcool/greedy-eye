@@ -143,11 +143,12 @@ var defaultLimits = map[string]Limit{
 	"blockchair:" + keylessTier: {RPS: 0.2, Burst: 1},
 
 	// CoinGecko: ~30 calls/min keyless (shared per IP, in practice less),
-	// 30-500/min on demo and paid tiers. The demo plan also caps volume at
-	// 10k calls a month, which is the limit that actually bit: the sweep
+	// 30-500/min on demo and paid tiers. Keyless is paced at 24/min, 20% under
+	// the ceiling, because that quota is the address's and not ours alone.
+	// The demo plan also caps volume at 10k calls a month, which is the limit that actually bit: the sweep
 	// stayed under the rate ceiling and still ran the month dry in a week.
 	"coingecko":                {RPS: 1.6, Burst: 1, Quota: 10000, Period: QuotaMonth},
-	"coingecko:" + keylessTier: {RPS: 0.5, Burst: 1},
+	"coingecko:" + keylessTier: {RPS: 0.4, Burst: 1},
 	"coingecko:pro":            {RPS: 8, Burst: 2, Quota: 500000, Period: QuotaMonth},
 
 	// Alchemy meters compute units, not requests: 30M CU/month on the free
