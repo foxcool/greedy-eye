@@ -23,6 +23,7 @@ func accountCred(provider string, a *entity.Account) ratelimit.Credential {
 		APIKey:   a.Data["api_key"],
 		Tier:     tier,
 		Limit:    accountLimit(a),
+		Account:  a.ID,
 	}
 }
 

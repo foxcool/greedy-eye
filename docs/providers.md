@@ -283,13 +283,14 @@ Which limit applies comes from the account's `data.tier`, next to the key:
 data:
   provider: coingecko
   api_key: CG-...
-  tier: pro        # omit for the provider's free plan; "keyless" without a key
+  tier: pro        # omit for the provider's free plan
 ```
 
-Leaving `tier` empty infers it — keyless with no `api_key`, the free keyed plan
-with one. Moving to a paid plan is therefore a settings edit, not a release,
-and the numbers behind each tier stay in code where they can carry the
-reasoning that produced them.
+Leaving `tier` empty means the free keyed plan. Moving to a paid plan is
+therefore a settings edit, not a release, and the numbers behind each tier stay
+in code where they can carry the reasoning that produced them. An edit reaches
+the running process with the next sync; spend so far is kept, because the
+provider meters the key, not the plan.
 
 A custom request budget lives on the account too, beside the key it belongs to:
 
@@ -309,6 +310,14 @@ naming a burst does not silently zero the rate. A field that cannot be read is
 dropped with a warning rather than refusing to start: this arrives from the
 database while the process runs, and a mistyped number in a form must not take
 the service down.
+
+Without an `api_key`, `tier` and these fields are ignored. Every key-less client
+of a provider draws on one per-IP budget for the whole deployment, so only the
+operator sets it (`defaultLimits` and its overrides); a user's account must not.
+
+Several accounts carrying the same key each keep their own `tier` and fields,
+and all of them hold at once: the slowest rate paces the key and every `quota`
+counts in its own `period`. The smallest share wins.
 
 ### Sharing one plan between deployments
 

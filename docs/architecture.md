@@ -500,7 +500,9 @@ without linking them.
   stops re-asking. The streak is in memory and a restart clears it — the spend it protects is not.
   Built-in plans live in `defaultLimits`; the ACCOUNT overrides them field by field through
   `data.rps`/`.burst`/`.quota`/`.period`, because a plan belongs to the key rather than to the
-  service. Spend is persisted per period (`provider_usage`), so a restart does not hand the process
+  service. The limit is re-resolved each time a client is built, so an edit applies without a
+  restart; accounts sharing a key are all enforced (smallest share wins), and a key-less bucket
+  takes only the operator's limit — it is one per-IP budget for every user. Spend is persisted per period (`provider_usage`), so a restart does not hand the process
   a fresh month. Two instances on ONE key remain the sharp edge: they see each other's spend only
   through a shared database, and dev+prod do not have one — hence `quota` as this deployment's
   declared share of the plan.
