@@ -828,6 +828,17 @@ func (s *PortfolioStore) GetAccount(ctx context.Context, id string) (*entity.Acc
 	return a, nil
 }
 
+// UpdateAccount writes the masked fields of the account. A move to another
+// portfolio carries the holdings stamped with the portfolio it leaves, in the
+// same transaction as the row.
+//
+// Sync and import stamp the account's portfolio on every holding they write,
+// and valuation reads COALESCE(h.portfolio_id, a.portfolio_id), so a stamped
+// holding does not follow its account by itself: left behind, one account's
+// money is counted in two portfolios. A holding stamped with any other
+// portfolio was put there by its owner and stays; an unstamped one already
+// follows the account. Both writes land or neither does — a half move is the
+// same split.
 func (s *PortfolioStore) UpdateAccount(ctx context.Context, a *entity.Account, fields []string) (*entity.Account, error) {
 	if a == nil || a.ID == "" {
 		return nil, fmt.Errorf("%w: account with ID is required", store.ErrInvalidArgument)
@@ -927,7 +938,28 @@ func (s *PortfolioStore) UpdateAccount(ctx context.Context, a *entity.Account, f
 		WHERE id = $1`,
 		strings.Join(setClauses, ", "))
 
-	result, err := s.pool.Exec(ctx, query, args...)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // no-op once committed
+
+	// Read under the row lock: a concurrent move must not change the portfolio
+	// being left between this read and the holdings selected by it. NO KEY:
+	// no stronger than the UPDATE below takes, so a sync inserting holdings
+	// (FK KEY SHARE on this row) is not made to wait on the read.
+	var left *string
+	if slices.Contains(fields, "portfolio_id") {
+		err := tx.QueryRow(ctx, "SELECT portfolio_id FROM accounts WHERE id = $1 FOR NO KEY UPDATE", a.ID).Scan(&left)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: account with ID %s", store.ErrNotFound, a.ID)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to read account portfolio: %w", err)
+		}
+	}
+
+	result, err := tx.Exec(ctx, query, args...)
 	if err != nil {
 		if taken := s.brokerAccountTaken(ctx, err, a); taken != nil {
 			return nil, taken
@@ -937,6 +969,20 @@ func (s *PortfolioStore) UpdateAccount(ctx context.Context, a *entity.Account, f
 
 	if result.RowsAffected() == 0 {
 		return nil, fmt.Errorf("%w: account with ID %s", store.ErrNotFound, a.ID)
+	}
+
+	if left != nil && *left != a.PortfolioID {
+		if _, err := tx.Exec(ctx, `
+			UPDATE holdings
+			SET portfolio_id = $2, updated_at = NOW()
+			WHERE account_id = $1 AND portfolio_id = $3`,
+			a.ID, nullableString(a.PortfolioID), *left); err != nil {
+			return nil, fmt.Errorf("failed to move holdings with the account: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
 	}
 
 	return s.GetAccount(ctx, a.ID)
