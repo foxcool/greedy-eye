@@ -1094,9 +1094,10 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 	}
 
 	account := accountFromProto(req.Msg.Account)
-	// Every check that can refuse the request for what it asks runs before the
-	// first write, so such a refusal changes nothing — the sweep's schedule
-	// included. What fails after this point is a write, not a verdict.
+	// Every check the handler can make runs before the first write, so a
+	// request refused here changes nothing — the sweep's schedule included.
+	// Two refusals still come later: a failed secret rotation, and the store's
+	// broker-identity index, which answers only as the row is written.
 	var flagMoves bool
 	if slices.Contains(fields, "disabled") || slices.Contains(fields, "type") {
 		if flagMoves, err = checkStandDown(existing, account, fields); err != nil {

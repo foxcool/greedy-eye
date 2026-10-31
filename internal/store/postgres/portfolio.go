@@ -946,8 +946,8 @@ func (s *PortfolioStore) UpdateAccount(ctx context.Context, a *entity.Account, f
 
 	// Read under the row lock: a concurrent move must not change the portfolio
 	// being left between this read and the holdings selected by it. NO KEY:
-	// the lock the UPDATE below takes anyway, so a sync inserting holdings
-	// (FK KEY SHARE on this row) is not made to wait on it.
+	// no stronger than the UPDATE below takes, so a sync inserting holdings
+	// (FK KEY SHARE on this row) is not made to wait on the read.
 	var left *string
 	if slices.Contains(fields, "portfolio_id") {
 		err := tx.QueryRow(ctx, "SELECT portfolio_id FROM accounts WHERE id = $1 FOR NO KEY UPDATE", a.ID).Scan(&left)

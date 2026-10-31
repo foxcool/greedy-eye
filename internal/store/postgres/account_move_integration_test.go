@@ -156,13 +156,9 @@ func failWritesOf(t *testing.T, table, column, id string, atCommit bool) {
 	t.Helper()
 	ctx := context.Background()
 	name := "fail_" + table + "_" + uuid.NewString()[:8]
-	when := "BEFORE UPDATE ON " + table
+	constraint, when := "", "BEFORE UPDATE ON "+table
 	if atCommit {
-		when = "AFTER UPDATE ON " + table + " DEFERRABLE INITIALLY DEFERRED"
-	}
-	constraint := ""
-	if atCommit {
-		constraint = "CONSTRAINT"
+		constraint, when = "CONSTRAINT", "AFTER UPDATE ON "+table+" DEFERRABLE INITIALLY DEFERRED"
 	}
 	_, err := testDB.Pool.Exec(ctx, fmt.Sprintf(`
 		CREATE FUNCTION %[1]s() RETURNS trigger LANGUAGE plpgsql AS $$
