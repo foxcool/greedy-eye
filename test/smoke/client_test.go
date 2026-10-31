@@ -55,13 +55,6 @@ func newPortfolioClient(userID string) apiv1connect.PortfolioServiceClient {
 	)
 }
 
-func newAutomationClient(userID string) apiv1connect.AutomationServiceClient {
-	return apiv1connect.NewAutomationServiceClient(
-		http.DefaultClient, serverURL,
-		connect.WithInterceptors(userHeaders(userID)),
-	)
-}
-
 // userHeaders returns an interceptor that sets X-User-Id and X-User-Email.
 // Email is derived from the user ID to satisfy the unique constraint on users.email.
 func userHeaders(userID string) headerInterceptor {
