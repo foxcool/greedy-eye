@@ -13,6 +13,7 @@ import (
 
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
+	"github.com/foxcool/greedy-eye/internal/store"
 	storecrypto "github.com/foxcool/greedy-eye/internal/store/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -147,9 +148,9 @@ func TestUnreadableAccountRowDegradesPerRow(t *testing.T) {
 
 	t.Run("reading the row by id still fails", func(t *testing.T) {
 		_, err := f.store.GetAccount(ctx, f.sealedAway.ID)
-		require.Error(t, err)
+		require.ErrorIs(t, err, store.ErrUnreadable)
 		_, err = f.store.GetAccount(ctx, f.corrupt.ID)
-		require.Error(t, err)
+		require.ErrorIs(t, err, store.ErrUnreadable)
 	})
 }
 
@@ -187,8 +188,10 @@ func TestUnreadableAccountLogLineNamesIDAndClassOnly(t *testing.T) {
 	_, _, err := f.store.ListAccounts(context.Background(), portfolio.ListAccountsOpts{UserID: f.user.ID, PageSize: 100})
 	require.NoError(t, err)
 
+	raws := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	require.Len(t, raws, 3, "one line per unreadable row: %s", buf.String())
 	lines := map[string]map[string]any{}
-	for _, raw := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+	for _, raw := range raws {
 		var line map[string]any
 		require.NoError(t, json.Unmarshal([]byte(raw), &line))
 		id, _ := line["account_id"].(string)

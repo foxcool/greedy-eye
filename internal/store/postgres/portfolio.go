@@ -30,7 +30,7 @@ type PortfolioStore struct {
 	// rewrapRead, when set, runs between the rewrap pass reading every row and
 	// writing them back — the window a concurrent update lands in. Tests only.
 	rewrapRead func()
-	// log names the rows a list leaves out (skipUnreadable).
+	// log names the rows a list leaves out (skipAndLogUnreadable).
 	log *slog.Logger
 }
 
@@ -704,7 +704,7 @@ func readFailure(f entity.AccountReadFailure, err error) error {
 
 // unreadableAccountError is a row whose open columns scanned but whose data or
 // capabilities did not. A read by id returns it as an error; a list leaves the
-// row out (skipUnreadable), because one bad row failing a query over every
+// row out (skipAndLogUnreadable), because one bad row failing a query over every
 // user's accounts stops the sweep and the price registry for all of them.
 type unreadableAccountError struct {
 	account entity.UnreadableAccount
@@ -712,11 +712,13 @@ type unreadableAccountError struct {
 }
 
 func (e *unreadableAccountError) Error() string { return e.err.Error() }
-func (e *unreadableAccountError) Unwrap() error { return e.err }
+func (e *unreadableAccountError) Unwrap() []error {
+	return []error{store.ErrUnreadable, e.err}
+}
 
-// skipUnreadable reports whether a list should leave out the row scanAccount
-// failed with, logging it by id and class only.
-func (s *PortfolioStore) skipUnreadable(err error) bool {
+// skipAndLogUnreadable reports whether a list should leave out the row
+// scanAccount failed with, and if so logs it by id and class only.
+func (s *PortfolioStore) skipAndLogUnreadable(err error) bool {
 	var u *unreadableAccountError
 	if !errors.As(err, &u) {
 		return false
@@ -762,8 +764,9 @@ func (s *PortfolioStore) scanAccount(row interface{ Scan(dest ...any) error }) (
 	}
 	a.Type = stringToAccountType(typeStr)
 	unreadable := func(err error) error {
-		failure := entity.ReadFailureCorrupt
-		if re := (*accountReadError)(nil); errors.As(err, &re) {
+		var failure entity.AccountReadFailure
+		var re *accountReadError
+		if errors.As(err, &re) {
 			failure = re.failure
 		}
 		return &unreadableAccountError{
@@ -775,10 +778,10 @@ func (s *PortfolioStore) scanAccount(row interface{ Scan(dest ...any) error }) (
 		return nil, unreadable(err)
 	}
 	if err := json.Unmarshal(capabilitiesJSON, &a.Capabilities); err != nil {
-		return nil, unreadable(fmt.Errorf("failed to unmarshal capabilities: %w", err))
+		return nil, unreadable(readFailure(entity.ReadFailureCorrupt, fmt.Errorf("failed to unmarshal capabilities: %w", err)))
 	}
 	if err := json.Unmarshal(systemScopesJSON, &a.SystemScopes); err != nil {
-		return nil, unreadable(fmt.Errorf("failed to unmarshal system_scopes: %w", err))
+		return nil, unreadable(readFailure(entity.ReadFailureCorrupt, fmt.Errorf("failed to unmarshal system_scopes: %w", err)))
 	}
 
 	return &a, nil
@@ -1114,10 +1117,11 @@ func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAc
 	}
 	defer rows.Close()
 
+	// One readable row past the page says whether there is a next one.
 	accounts := make([]*entity.Account, 0, limit)
 	for len(accounts) <= limit && rows.Next() {
 		a, err := s.scanAccount(rows)
-		if s.skipUnreadable(err) {
+		if s.skipAndLogUnreadable(err) {
 			continue
 		}
 		if err != nil {
@@ -1230,7 +1234,7 @@ func (s *PortfolioStore) ListStaleSyncTargets(ctx context.Context, olderThan, no
 	accounts := make([]*entity.Account, 0, limit)
 	for len(accounts) < limit && rows.Next() {
 		a, err := s.scanAccount(rows)
-		if s.skipUnreadable(err) {
+		if s.skipAndLogUnreadable(err) {
 			continue
 		}
 		if err != nil {
@@ -1677,7 +1681,7 @@ func (s *PortfolioStore) listAccountsByCapabilityColumn(ctx context.Context, col
 	accounts := []*entity.Account{}
 	for rows.Next() {
 		a, err := s.scanAccount(rows)
-		if s.skipUnreadable(err) {
+		if s.skipAndLogUnreadable(err) {
 			continue
 		}
 		if err != nil {

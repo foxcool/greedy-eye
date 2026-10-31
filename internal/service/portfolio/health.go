@@ -13,6 +13,7 @@ import (
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
+	"github.com/foxcool/greedy-eye/internal/store"
 )
 
 // healthAccountsPageSize bounds one page of the account listing behind a
@@ -55,11 +56,19 @@ func (h *Handler) GetAccountHealth(
 	var unreadable []*entity.UnreadableAccount
 	if id := req.Msg.GetAccountId(); id != "" {
 		a, err := h.ownedAccount(ctx, id)
-		if err != nil {
+		switch {
+		case errors.Is(err, store.ErrUnreadable):
+			u, found := h.callersUnreadable(ctx, user.ID, id)
+			if !found {
+				return nil, err
+			}
+			unreadable = []*entity.UnreadableAccount{u}
+		case err != nil:
 			return nil, err
+		default:
+			ownerID = a.UserID
+			accounts = []*entity.Account{a}
 		}
-		ownerID = a.UserID
-		accounts = []*entity.Account{a}
 	} else {
 		var err error
 		if accounts, err = h.allAccountsOf(ctx, ownerID); err != nil {
@@ -192,9 +201,24 @@ func unreadableHealth(u *entity.UnreadableAccount) *apiv1.AccountHealth {
 		Reasons: []*apiv1.HealthReason{{
 			Kind: apiv1.HealthReasonKind_HEALTH_REASON_KIND_UNREADABLE,
 			Message: fmt.Sprintf("its stored settings cannot be read (%s): nothing syncs this account or takes it as a provider "+
-				"until the key it was sealed with is configured again or its settings are re-entered", u.Failure),
+				"until an operator restores the key it was sealed with or repairs the stored row", u.Failure),
 		}},
 	}
+}
+
+// callersUnreadable finds an unreadable account among the caller's own: its
+// data cannot be read, so ownership is read off the owner's list instead.
+func (h *Handler) callersUnreadable(ctx context.Context, userID, id string) (*entity.UnreadableAccount, bool) {
+	all, err := h.store.ListUnreadableAccounts(ctx, userID)
+	if err != nil {
+		return nil, false
+	}
+	for _, u := range all {
+		if u.ID == id {
+			return u, true
+		}
+	}
+	return nil, false
 }
 
 // allAccountsOf reads every account the user owns, across pages.

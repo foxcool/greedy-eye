@@ -761,3 +761,42 @@ func TestSyncAccount_BrokerFanOutSkipsADisabledAccount(t *testing.T) {
 	s.AssertNotCalled(t, "CreateHolding", mock.Anything, mock.Anything)
 	s.AssertNotCalled(t, "CreateAccount", mock.Anything, mock.Anything)
 }
+
+// TestBrokerWorkRefusesWhileABrokerAccountIsUnreadable: the account listing
+// leaves an unreadable row out, so discovery would take its broker account for
+// missing and create a second one, and rotation would leave it on the old
+// secret without naming it. Both stop instead.
+func TestBrokerWorkRefusesWhileABrokerAccountIsUnreadable(t *testing.T) {
+	lost := &entity.UnreadableAccount{ID: "019a0000-0000-7000-8000-0000000000ff", UserID: testUserID,
+		Type: entity.AccountTypeBroker, Failure: entity.ReadFailureUndecryptable}
+
+	t.Run("discovery", func(t *testing.T) {
+		s := &mockStore{}
+		s.On("ListUnreadableAccounts", mock.Anything, testUserID).Return([]*entity.UnreadableAccount{lost}, nil)
+		_, err := newHandler(s).brokerAccountsOf(context.Background(), testUserID, "tinvest")
+		require.ErrorIs(t, err, store.ErrUnreadable)
+		assert.Contains(t, err.Error(), lost.ID)
+		s.AssertNotCalled(t, "ListAccounts", mock.Anything, mock.Anything)
+	})
+
+	t.Run("rotation", func(t *testing.T) {
+		parent := tokenAccount()
+		s := &mockStore{}
+		s.On("GetAccount", mock.Anything, testAccountID).Return(parent, nil)
+		s.On("ListUnreadableAccounts", mock.Anything, testUserID).Return([]*entity.UnreadableAccount{lost}, nil)
+		_, err := newHandler(s).UpdateAccount(ctxWithUser(testUserID), rotateTokenRequest("t-new"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), lost.ID)
+		s.AssertNotCalled(t, "UpdateAccount", mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("an unreadable account of another type does not stop it", func(t *testing.T) {
+		wallet := *lost
+		wallet.Type = entity.AccountTypeWallet
+		s := &mockStore{}
+		s.On("ListUnreadableAccounts", mock.Anything, testUserID).Return([]*entity.UnreadableAccount{&wallet}, nil)
+		s.On("ListAccounts", mock.Anything, mock.Anything).Return([]*entity.Account(nil), "", nil)
+		_, err := newHandler(s).brokerAccountsOf(context.Background(), testUserID, "tinvest")
+		require.NoError(t, err)
+	})
+}
