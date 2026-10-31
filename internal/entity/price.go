@@ -158,6 +158,11 @@ type SourceSchedule struct {
 	// nothing is deferred — which is not the same as "due now", and callers
 	// must not render it as a date.
 	SoonestDue time.Time
+	// SoonestReconsider is when the earliest unaskable asset is reconsidered.
+	// Kept apart from SoonestDue: that one dates a back-off, this one a binding
+	// to wait for, and the schedule RPC reports only the first. Zero when
+	// nothing is unaskable.
+	SoonestReconsider time.Time
 	// LatestDeferred is the far end of the queue. A week out is the signature of
 	// assets that have hit the back-off ceiling rather than drifted toward it.
 	LatestDeferred time.Time

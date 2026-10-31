@@ -2671,6 +2671,54 @@ func TestFetchExternalPrices_AllDeferredIsNamed(t *testing.T) {
 	assert.Equal(t, "all_deferred", resp.Msg.GetIdleSources()["fake"])
 }
 
+// An asset the sweep selected and could not ask about sits in price_unasked_
+// deferrals, which the schedule counts as unaskable and not as deferred. A source
+// whose whole population is in that state is postponed all the same, and used to
+// read as "nothing due".
+func TestFetchExternalPrices_AllUnaskedIsAllDeferred(t *testing.T) {
+	s := &mockStore{}
+	expectExternalRefs(s)
+	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+		Return([]*entity.Asset{}, nil)
+	s.On("SweepSchedule", mock.Anything, mock.Anything).
+		Return([]*entity.SourceSchedule{{SourceID: "fake", Unaskable: 4}}, nil)
+
+	h := newHandler(s).WithProvider("fake", &fakePriceProvider{})
+
+	resp, err := h.FetchExternalPrices(syncContext(),
+		connect.NewRequest(&apiv1.FetchExternalPricesRequest{}))
+	require.NoError(t, err)
+	assert.Equal(t, "all_deferred", resp.Msg.GetIdleSources()["fake"])
+}
+
+// The deadline a frozen queue logs is the nearest of the two clocks that hold
+// it: a back-off and an unasked deferral each end on their own date.
+func TestSoonestDue_TakesTheNearerOfBackoffAndUnaskedDeferral(t *testing.T) {
+	backoff := time.Now().Add(3 * time.Hour)
+	reconsider := time.Now().Add(20 * time.Hour)
+
+	tests := []struct {
+		name  string
+		sched entity.SourceSchedule
+		want  time.Time
+	}{
+		{"only a back-off", entity.SourceSchedule{SoonestDue: backoff}, backoff},
+		{"only an unasked deferral", entity.SourceSchedule{SoonestReconsider: reconsider}, reconsider},
+		{"the back-off ends first", entity.SourceSchedule{SoonestDue: backoff, SoonestReconsider: reconsider}, backoff},
+		{"the deferral ends first", entity.SourceSchedule{SoonestDue: reconsider, SoonestReconsider: backoff}, backoff},
+		{"neither", entity.SourceSchedule{}, time.Time{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &mockStore{}
+			s.On("SweepSchedule", mock.Anything, mock.Anything).
+				Return([]*entity.SourceSchedule{&tt.sched}, nil)
+			got := newHandler(s).soonestDue(context.Background(), "fake", &fakePriceProvider{})
+			assert.True(t, tt.want.Equal(got), "want %v, got %v", tt.want, got)
+		})
+	}
+}
+
 // The reassuring case has to stay distinguishable from the two above, or the
 // field is just noise: nothing deferred means nothing was due.
 func TestFetchExternalPrices_NothingDueIsNamed(t *testing.T) {
@@ -2979,7 +3027,9 @@ func TestFetchExternalPrices_UnaskedAssetsAreNotRecordedAsMisses(t *testing.T) {
 	expectBaseAsset(s)
 
 	covered := &entity.Asset{ID: "asset-covered", Symbol: "BTC", Market: entity.MarketCrypto}
-	foreign := &entity.Asset{ID: "asset-foreign", Symbol: "SBER", Market: "moex"}
+	// On an admitted market, so only Asked can drop it: a market testBinding
+	// does not admit never reaches Asked.
+	foreign := &entity.Asset{ID: "asset-foreign", Symbol: "SBER", Market: entity.MarketCrypto}
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
 		Return([]*entity.Asset{covered, foreign}, nil)
 	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil).Maybe()
@@ -2987,6 +3037,12 @@ func TestFetchExternalPrices_UnaskedAssetsAreNotRecordedAsMisses(t *testing.T) {
 	var recorded RecordAttemptsOpts
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) { recorded = args.Get(1).(RecordAttemptsOpts) }).
+		Return(nil)
+	var deferred []string
+	s.On("DeferUnaskedPricing", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			deferred = append(deferred, args.Get(1).(DeferUnaskedOpts).AssetIDs...)
+		}).
 		Return(nil)
 
 	provider := &selectiveProvider{
@@ -3002,6 +3058,8 @@ func TestFetchExternalPrices_UnaskedAssetsAreNotRecordedAsMisses(t *testing.T) {
 	assert.Equal(t, []string{"asset-covered"}, recorded.Priced)
 	assert.Empty(t, recorded.Missed,
 		"an asset this provider never requested must not carry its silence")
+	assert.Equal(t, []string{"asset-foreign"}, deferred,
+		"Asked is what dropped it: deferred for the day instead")
 }
 
 // An attempt stamped after the fetch came due seconds after the next hourly

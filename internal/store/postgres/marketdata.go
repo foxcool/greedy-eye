@@ -1129,18 +1129,19 @@ func (s *MarketDataStore) sourceSchedule(ctx context.Context, opts marketdata.St
 		       count(*) FILTER (WHERE held)                                           AS unaskable,
 		       min(next_attempt_at) FILTER (WHERE NOT held AND next_attempt_at > $2)  AS soonest_due,
 		       max(next_attempt_at) FILTER (WHERE NOT held AND next_attempt_at > $2)  AS latest_deferred,
+		       min(reconsider_at) FILTER (WHERE held)                                 AS soonest_reconsider,
 		       coalesce(max(misses), 0)                                               AS max_misses
 		FROM (
-			SELECT f.next_attempt_at, f.misses, ` + unaskedHeld + ` AS held
+			SELECT f.next_attempt_at, f.misses, u.reconsider_at, ` + unaskedHeld + ` AS held
 			FROM ` + stalePricingFrom + `
 			WHERE ` + where + `
 		) admitted`
 
 	sched := &entity.SourceSchedule{SourceID: opts.SourceID}
 	var due, deferred, never, unaskable, misses int64
-	var soonest, latest *time.Time
+	var soonest, latest, reconsider *time.Time
 	if err := s.pool.QueryRow(ctx, query, args...).Scan(
-		&due, &deferred, &never, &unaskable, &soonest, &latest, &misses); err != nil {
+		&due, &deferred, &never, &unaskable, &soonest, &latest, &reconsider, &misses); err != nil {
 		return nil, fmt.Errorf("failed to read sweep schedule: %w", err)
 	}
 	sched.DueNow = uint32(due)           // #nosec G115 -- bounded by the catalogue
@@ -1153,6 +1154,9 @@ func (s *MarketDataStore) sourceSchedule(ctx context.Context, opts marketdata.St
 	}
 	if latest != nil {
 		sched.LatestDeferred = *latest
+	}
+	if reconsider != nil {
+		sched.SoonestReconsider = *reconsider
 	}
 	return sched, nil
 }
