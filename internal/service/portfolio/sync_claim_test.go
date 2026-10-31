@@ -242,7 +242,7 @@ func TestWritesStopWhenTheAccountPortfolioCannotBeLocked(t *testing.T) {
 		s.lockErr = store.ErrNotFound
 
 		_, err := h.SyncAccount(ctxWithUser(testUserID), syncReq())
-		require.Error(t, err)
+		require.ErrorIs(t, err, store.ErrNotFound)
 		assert.Empty(t, written())
 	})
 	t.Run("import", func(t *testing.T) {

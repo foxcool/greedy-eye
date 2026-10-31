@@ -842,8 +842,7 @@ func (s *PortfolioStore) GetAccount(ctx context.Context, id string) (*entity.Acc
 // money is counted in two portfolios. A holding stamped with any other
 // portfolio was put there by its owner and stays; an unstamped one already
 // follows the account. Both writes land or neither does — a half move is the
-// same split. A sync or import racing the move is serialized with it by the
-// row lock (see the read below), so its new holdings land on the right side.
+// same split. A racing sync or import: see HoldingWriter.LockAccountPortfolio.
 func (s *PortfolioStore) UpdateAccount(ctx context.Context, a *entity.Account, fields []string) (*entity.Account, error) {
 	if a == nil || a.ID == "" {
 		return nil, fmt.Errorf("%w: account with ID is required", store.ErrInvalidArgument)
@@ -951,11 +950,8 @@ func (s *PortfolioStore) UpdateAccount(ctx context.Context, a *entity.Account, f
 
 	// Read under the row lock: a concurrent move must not change the portfolio
 	// being left between this read and the holdings selected by it. NO KEY:
-	// no stronger than the UPDATE below takes, so a plain holdings insert (FK
-	// KEY SHARE on this row) is not made to wait. A sync or import write holds
-	// FOR SHARE instead (holdingTx.LockAccountPortfolio), which does conflict:
-	// either it commits first and the holdings UPDATE below, a new statement,
-	// sees its rows, or it waits and reads the portfolio this move wrote.
+	// no stronger than the UPDATE below takes, so a plain holdings insert is
+	// not made to wait; a sync or import write is (HoldingWriter.LockAccountPortfolio).
 	var left *string
 	if slices.Contains(fields, "portfolio_id") {
 		err := tx.QueryRow(ctx, "SELECT portfolio_id FROM accounts WHERE id = $1 FOR NO KEY UPDATE", a.ID).Scan(&left)
@@ -1048,6 +1044,12 @@ func (s *PortfolioStore) DeleteAccountWithHoldings(ctx context.Context, id strin
 	}
 	defer func() { _ = tx.Rollback(ctx) }() // no-op once committed
 
+	// The account row before its holdings, the order a sync or import write
+	// takes them (HoldingWriter.LockAccountPortfolio); the reverse deadlocks
+	// with a sync that updates a holding this delete has already locked.
+	if _, err := tx.Exec(ctx, "SELECT 1 FROM accounts WHERE id = $1 FOR UPDATE", id); err != nil {
+		return fmt.Errorf("lock account: %w", err)
+	}
 	if _, err := tx.Exec(ctx, "DELETE FROM holdings WHERE account_id = $1", id); err != nil {
 		return fmt.Errorf("delete holdings: %w", err)
 	}
@@ -1696,9 +1698,6 @@ type holdingTx struct{ tx pgx.Tx }
 
 var _ portfolio.HoldingWriter = (*holdingTx)(nil)
 
-// LockAccountPortfolio reads under FOR SHARE, which conflicts with the FOR NO
-// KEY UPDATE a move takes (see UpdateAccount); the foreign-key check of the
-// holdings insert alone takes KEY SHARE, which does not.
 func (t *holdingTx) LockAccountPortfolio(ctx context.Context, accountID string) (string, error) {
 	var portfolioID *string
 	err := t.tx.QueryRow(ctx, "SELECT portfolio_id FROM accounts WHERE id = $1 FOR SHARE", accountID).Scan(&portfolioID)

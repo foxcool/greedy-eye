@@ -2640,8 +2640,7 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 	// One instant per snapshot: it is one observation of the account.
 	syncedAt := time.Now()
 
-	// First, so a concurrent move of the account and this snapshot serialize
-	// before any holding is written (see HoldingWriter.LockAccountPortfolio).
+	// First: see HoldingWriter.LockAccountPortfolio.
 	portfolioID, err := w.LockAccountPortfolio(ctx, plan.accountID)
 	if err != nil {
 		return writtenSnapshot{}, err

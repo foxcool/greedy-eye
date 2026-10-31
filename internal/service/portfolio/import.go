@@ -234,9 +234,8 @@ func (h *Handler) importOnePosition(
 	}
 
 	if existing == nil {
-		// The account's portfolio is read in the write's own transaction, like
-		// sync does: account was read before the batch, and a move since then
-		// would leave this holding behind (see HoldingWriter.LockAccountPortfolio).
+		// Not account.PortfolioID, read before the batch: see
+		// HoldingWriter.LockAccountPortfolio.
 		var created *entity.Holding
 		err := h.store.InHoldingsTx(ctx, func(w HoldingWriter) error {
 			portfolioID, err := w.LockAccountPortfolio(ctx, account.ID)

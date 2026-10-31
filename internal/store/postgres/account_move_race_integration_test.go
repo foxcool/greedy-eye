@@ -15,6 +15,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
 	"github.com/foxcool/greedy-eye/internal/store"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,6 +24,9 @@ import (
 // raceTimeout bounds every wait in these tests, so a lock that never frees
 // fails the test instead of hanging the suite.
 const raceTimeout = 15 * time.Second
+
+// lockPoll is how often waitOnLockOrDone looks at pg_stat_activity.
+const lockPoll = 10 * time.Millisecond
 
 // parkingSyncer reports one balance. When parked is set it signals there,
 // after the sync has already read the account, and waits for release.
@@ -65,22 +69,40 @@ func (m *cashMD) GetAsset(ctx context.Context, req *connect.Request[apiv1.GetAss
 	return m.MarketDataClient.GetAsset(ctx, req)
 }
 
-// pausingStore holds the sync's snapshot transaction open after every write
-// in it ran: the window a concurrent move lands in.
+// pausingStore holds the sync's snapshot transaction open: after every write
+// in it ran (written/commit), or right after it locked the account
+// (locked/resume). Nil channels skip that pause.
 type pausingStore struct {
 	*PortfolioStore
 	written, commit chan struct{}
+	locked, resume  chan struct{}
 }
 
 func (s *pausingStore) InHoldingsTx(ctx context.Context, fn func(portfolio.HoldingWriter) error) error {
 	return s.PortfolioStore.InHoldingsTx(ctx, func(w portfolio.HoldingWriter) error {
-		if err := fn(w); err != nil {
+		if err := fn(lockPausingWriter{HoldingWriter: w, s: s}); err != nil {
 			return err
 		}
-		close(s.written)
-		<-s.commit
+		if s.written != nil {
+			close(s.written)
+			<-s.commit
+		}
 		return nil
 	})
+}
+
+type lockPausingWriter struct {
+	portfolio.HoldingWriter
+	s *pausingStore
+}
+
+func (w lockPausingWriter) LockAccountPortfolio(ctx context.Context, accountID string) (string, error) {
+	id, err := w.HoldingWriter.LockAccountPortfolio(ctx, accountID)
+	if w.s.locked != nil {
+		close(w.s.locked)
+		<-w.s.resume
+	}
+	return id, err
 }
 
 func newRaceAccount(t *testing.T, f *moveFixture, typ entity.AccountType) *entity.Account {
@@ -118,7 +140,7 @@ func waitOnLockOrDone(t *testing.T, done <-chan struct{}) {
 		if waiting > 0 {
 			return
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(lockPoll)
 	}
 	t.Fatal("neither finished nor waited on a lock")
 }
@@ -132,15 +154,23 @@ func waitFor(t *testing.T, ch <-chan struct{}, what string) {
 	}
 }
 
-func (f *moveFixture) moveAsync(acct *entity.Account, s *PortfolioStore) (<-chan struct{}, *error) {
-	done := make(chan struct{})
-	var err error
+// async runs fn in a goroutine; done closes once err holds its result.
+func async(fn func() error) (done <-chan struct{}, err func() error) {
+	ch := make(chan struct{})
+	var result error
 	go func() {
-		defer close(done)
-		_, err = s.UpdateAccount(context.Background(),
-			&entity.Account{ID: acct.ID, PortfolioID: f.b.ID}, []string{"portfolio_id"})
+		defer close(ch)
+		result = fn()
 	}()
-	return done, &err
+	return ch, func() error { <-ch; return result }
+}
+
+func (f *moveFixture) moveAsync(acct *entity.Account, s *PortfolioStore) (<-chan struct{}, func() error) {
+	return async(func() error {
+		_, err := s.UpdateAccount(context.Background(),
+			&entity.Account{ID: acct.ID, PortfolioID: f.b.ID}, []string{"portfolio_id"})
+		return err
+	})
 }
 
 func (f *moveFixture) onlyHolding(t *testing.T, acct *entity.Account) *entity.Holding {
@@ -184,7 +214,7 @@ func TestSyncAfterAMoveLandsInTheNewPortfolio(t *testing.T) {
 	close(commit)
 	waitFor(t, moveDone, "the move")
 	waitFor(t, syncDone, "the sync")
-	require.NoError(t, *moveErr)
+	require.NoError(t, moveErr())
 	require.NoError(t, syncErr)
 
 	assert.Equal(t, f.b.ID, f.onlyHolding(t, acct).PortfolioID, "the sync's holding follows the account it wrote for")
@@ -218,7 +248,7 @@ func TestMoveDuringASyncCarriesTheSyncsHoldings(t *testing.T) {
 	waitFor(t, syncDone, "the sync")
 	waitFor(t, moveDone, "the move")
 	require.NoError(t, syncErr)
-	require.NoError(t, *moveErr)
+	require.NoError(t, moveErr())
 
 	assert.Equal(t, f.b.ID, f.onlyHolding(t, acct).PortfolioID, "the move carried the sync's holding")
 }
@@ -260,7 +290,7 @@ func TestImportAfterAMoveLandsInTheNewPortfolio(t *testing.T) {
 	close(commit)
 	waitFor(t, moveDone, "the move")
 	waitFor(t, importDone, "the import")
-	require.NoError(t, *moveErr)
+	require.NoError(t, moveErr())
 	require.NoError(t, importErr)
 	require.Equal(t, int32(1), resp.Msg.Created, "%v", resp.Msg.Items)
 
@@ -292,7 +322,7 @@ func TestUpdateAccountDuplicateBrokerIdentityOnOnePoolConnection(t *testing.T) {
 	other, err := s.CreateAccount(context.Background(), broker("888"))
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), raceTimeout)
 	defer cancel()
 	_, err = s.UpdateAccount(ctx, &entity.Account{
 		ID: other.ID, Data: map[string]string{"provider": "tinvest", "broker_account_id": "777"},
@@ -314,7 +344,7 @@ func TestLockAccountPortfolio(t *testing.T) {
 	}{
 		{"in a portfolio", f.account.ID, f.a.ID, nil},
 		{"in none", unplaced.ID, "", nil},
-		{"gone", "01926d35-6a1e-7008-8008-0000000000ff", "", store.ErrNotFound},
+		{"gone", uuid.NewString(), "", store.ErrNotFound}, // a well-formed id no row has
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var got string
@@ -331,4 +361,46 @@ func TestLockAccountPortfolio(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 		})
 	}
+}
+
+// TestDeleteDuringASyncDoesNotDeadlock: the sync has locked the account and
+// is about to update the holding it wrote before; the owner deletes the
+// account. Both must finish — the delete after the sync — instead of each
+// waiting on a lock the other holds until Postgres aborts one of them.
+func TestDeleteDuringASyncDoesNotDeadlock(t *testing.T) {
+	f := newMoveFixture(t)
+	acct := newRaceAccount(t, f, entity.AccountTypeWallet)
+	ctx := middleware.ContextWithUser(context.Background(), f.user)
+	md := f.cashMD()
+
+	// The first sync writes the holding the second one will update.
+	_, err := portfolio.NewHandler(f.store, slog.New(slog.DiscardHandler)).
+		WithMarketDataClient(md).WithWalletSyncer(&parkingSyncer{}).
+		SyncAccount(ctx, connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: acct.ID}))
+	require.NoError(t, err)
+	f.onlyHolding(t, acct)
+
+	ps := &pausingStore{PortfolioStore: f.store, locked: make(chan struct{}), resume: make(chan struct{})}
+	h := portfolio.NewHandler(ps, slog.New(slog.DiscardHandler)).
+		WithMarketDataClient(md).WithWalletSyncer(&parkingSyncer{})
+	syncDone, syncErr := async(func() error {
+		ctx, cancel := context.WithTimeout(ctx, raceTimeout)
+		defer cancel()
+		_, err := h.SyncAccount(ctx, connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: acct.ID}))
+		return err
+	})
+	waitFor(t, ps.locked, "the sync to lock the account")
+
+	deleteDone, deleteErr := async(func() error {
+		return f.store.DeleteAccountWithHoldings(context.Background(), acct.ID)
+	})
+	waitOnLockOrDone(t, deleteDone)
+	close(ps.resume)
+	waitFor(t, syncDone, "the sync")
+	waitFor(t, deleteDone, "the delete")
+	require.NoError(t, syncErr())
+	require.NoError(t, deleteErr())
+
+	_, err = f.store.GetAccount(context.Background(), acct.ID)
+	require.ErrorIs(t, err, store.ErrNotFound)
 }

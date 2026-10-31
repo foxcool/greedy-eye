@@ -283,9 +283,10 @@ func (m *mockStore) InHoldingsTx(_ context.Context, fn func(HoldingWriter) error
 	return fn(m)
 }
 
-// LockAccountPortfolio answers from the GetAccount expectation the test set for
-// the handler's own read, so the snapshot stamps the same portfolio. An account
-// the test never stubbed (a broker sub-account created mid-sync) has none.
+// LockAccountPortfolio answers with the account the test's GetAccount
+// expectation returns, without recording a call, so the snapshot stamps the
+// portfolio the handler read. An account the test never stubbed (a broker
+// sub-account created mid-sync) is in none.
 func (m *mockStore) LockAccountPortfolio(ctx context.Context, accountID string) (string, error) {
 	if m.lockErr != nil {
 		return "", m.lockErr
@@ -297,11 +298,10 @@ func (m *mockStore) LockAccountPortfolio(ctx context.Context, accountID string) 
 		if _, diffs := c.Arguments.Diff([]any{ctx, accountID}); diffs != 0 {
 			continue
 		}
-		a, err := m.GetAccount(ctx, accountID)
-		if err != nil || a == nil {
-			return "", err
+		if a, ok := c.ReturnArguments.Get(0).(*entity.Account); ok && a != nil {
+			return a.PortfolioID, nil
 		}
-		return a.PortfolioID, nil
+		return "", c.ReturnArguments.Error(1)
 	}
 	return "", nil
 }
