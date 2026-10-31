@@ -38,11 +38,11 @@ func TestHandlesAddress(t *testing.T) {
 func TestWalletSyncer_TokenBalances_CarriesSpamSignals(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[
+		_, _ = w.Write([]byte(`{"cursor":null,"result":[
 			{"token_address":"0xc944e90c64b2c07662a292be6244bdf05cda44a7","symbol":"GRT","name":"Graph Token","decimals":18,"balance":"1000","possible_spam":false,"verified_contract":true},
 			{"token_address":"0xdeadbeef00000000000000000000000000000000","symbol":"SCAM","name":"Spam airdrop","decimals":6,"balance":"1","possible_spam":true,"verified_contract":false},
 			{"token_address":"0x7f1ffe630000000000000000000000000000000","symbol":"USDT","name":"Fake USDT (unverified, not flagged as spam)","decimals":6,"balance":"4129545600000","possible_spam":false,"verified_contract":false}
-		]`))
+		]}`))
 	}))
 	defer srv.Close()
 

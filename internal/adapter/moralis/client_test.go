@@ -2,9 +2,14 @@ package moralis
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMoralisClient_GetWalletBalance(t *testing.T) {
@@ -70,4 +75,112 @@ func TestMoralisClient_ValidateAddress(t *testing.T) {
 		assert.False(t, valid)
 		assert.ErrorContains(t, err, "not implemented")
 	})
+}
+
+func TestMoralisClient_GetWalletTokenBalances_FollowsCursor(t *testing.T) {
+	var queries []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/v2.2/wallets/0xabc/tokens", r.URL.Path)
+		queries = append(queries, r.URL.RawQuery)
+		switch r.URL.Query().Get("cursor") {
+		case "":
+			_, _ = w.Write([]byte(`{"cursor":"next page+1","result":[
+				{"token_address":"0x01","symbol":"A","decimals":18,"balance":"1"},
+				{"token_address":"","symbol":"ETH","decimals":18,"balance":"9","native_token":true}]}`))
+		case "next page+1":
+			_, _ = w.Write([]byte(`{"cursor":null,"result":[{"token_address":"0x02","symbol":"B","decimals":6,"balance":"2"}]}`))
+		default:
+			http.Error(w, "bad cursor", http.StatusBadRequest)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient(Config{APIKey: "k"})
+	client.baseURL = srv.URL + "/api"
+
+	got, err := client.GetWalletTokenBalances(context.Background(), "eth", "0xabc")
+	require.NoError(t, err)
+	require.Len(t, got, 2, "tokens from both pages, native entry skipped")
+	assert.Equal(t, "A", got[0].Symbol)
+	assert.Equal(t, "B", got[1].Symbol)
+	require.Len(t, queries, 2)
+	assert.Contains(t, queries[0], "chain=eth")
+	assert.Contains(t, queries[0], "exclude_native=true")
+}
+
+func TestMoralisClient_GetWalletTokenBalances_RepeatedCursorFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"cursor":"same","result":[]}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient(Config{APIKey: "k"})
+	client.baseURL = srv.URL + "/api"
+
+	got, err := client.GetWalletTokenBalances(context.Background(), "eth", "0xabc")
+	assert.Nil(t, got)
+	assert.ErrorContains(t, err, "cursor repeated")
+}
+
+// A wallet whose cursor ends on the last allowed page is read whole; one whose
+// cursor goes on is an error, not a silently truncated list.
+func TestMoralisClient_GetWalletTokenBalances_PageCap(t *testing.T) {
+	serve := func(pages int32) (*Client, *atomic.Int32) {
+		var requests atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			n := requests.Add(1)
+			next := "null"
+			if n < pages {
+				next = fmt.Sprintf(`"c%d"`, n)
+			}
+			_, _ = fmt.Fprintf(w, `{"cursor":%s,"result":[{"token_address":"0x%x","symbol":"T","decimals":18,"balance":"1"}]}`, next, n)
+		}))
+		t.Cleanup(srv.Close)
+		client := NewClient(Config{APIKey: "k"})
+		client.baseURL = srv.URL + "/api"
+		return client, &requests
+	}
+
+	t.Run("ends on the last allowed page", func(t *testing.T) {
+		client, requests := serve(tokensMaxPages)
+		got, err := client.GetWalletTokenBalances(context.Background(), "eth", "0xabc")
+		require.NoError(t, err)
+		assert.Len(t, got, tokensMaxPages)
+		assert.EqualValues(t, tokensMaxPages, requests.Load())
+	})
+
+	t.Run("goes on past the last allowed page", func(t *testing.T) {
+		client, requests := serve(tokensMaxPages + 1)
+		got, err := client.GetWalletTokenBalances(context.Background(), "eth", "0xabc")
+		assert.Nil(t, got)
+		assert.ErrorContains(t, err, "exceeded")
+		assert.EqualValues(t, tokensMaxPages, requests.Load(), "no request past the cap")
+	})
+}
+
+// TestMoralisClient_PathSegmentsEscaped: address and chain come from account
+// data; a "/" or "?" must not rewrite the request path or query.
+func TestMoralisClient_PathSegmentsEscaped(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.EscapedPath())
+		_, _ = w.Write([]byte(`{"result":[],"balance":"0","active_chains":[]}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient(Config{APIKey: "k"})
+	client.baseURL = srv.URL + "/api"
+	const evil = "0xa/../b?c#d"
+
+	_, err := client.GetWalletTokenBalances(context.Background(), "eth", evil)
+	require.NoError(t, err)
+	_, err = client.GetWalletBalance(context.Background(), "eth", evil)
+	require.NoError(t, err)
+	_, err = client.GetActiveChains(context.Background(), evil)
+	require.NoError(t, err)
+
+	require.Len(t, paths, 3)
+	assert.Equal(t, "/api/v2.2/wallets/0xa%2F..%2Fb%3Fc%23d/tokens", paths[0])
+	assert.Equal(t, "/api/v2/0xa%2F..%2Fb%3Fc%23d/balance", paths[1])
+	assert.Equal(t, "/api/v2.2/wallets/0xa%2F..%2Fb%3Fc%23d/chains", paths[2])
 }
