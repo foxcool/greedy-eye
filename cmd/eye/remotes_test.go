@@ -101,6 +101,8 @@ func TestValidateRemotes(t *testing.T) {
 		{name: "unparseable userinfo", config: withToken(map[string]string{"settings": "http://user:hunter2@b:port"}), wantErr: "remotes.settings: want http://"},
 		{name: "userinfo without slashes", config: withToken(map[string]string{"settings": "http:user:hunter2@b:8080"}), wantErr: "remotes.settings: want http://"},
 		{name: "userinfo with one slash", config: withToken(map[string]string{"settings": "http:/user:hunter2@b:8080"}), wantErr: "remotes.settings: want http://"},
+		{name: "http userinfo", config: withToken(map[string]string{"settings": "http://user:hunter2@b:8080"}), wantErr: "remotes.settings: must not carry credentials"},
+		{name: "http username only", config: withToken(map[string]string{"settings": "http://hunter2@b:8080"}), wantErr: "remotes.settings: must not carry credentials"},
 		{name: "userinfo without scheme", config: withToken(map[string]string{"settings": "user:hunter2@b:8080"}), wantErr: "remotes.settings: want http://"},
 	}
 	for _, tc := range cases {

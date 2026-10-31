@@ -1177,6 +1177,49 @@ func TestFindOrCreateAsset_BindsRefOnCreate(t *testing.T) {
 	s.AssertExpectations(t)
 }
 
+// TestFindOrCreateAsset_ContractTagFollowsEntityRule: the "contract:" tag is
+// what admits an asset to the contract price path, so it must be written for
+// exactly the sources marketForContract isolates (entity.ChainFromOnchainSource),
+// however the source is spelled, and for no other.
+func TestFindOrCreateAsset_ContractTagFollowsEntityRule(t *testing.T) {
+	cases := []struct {
+		name    string
+		source  string
+		wantTag bool
+	}{
+		{"canonical", "onchain:eth", true},
+		{"mixed case", "OnChain:ETH", true},
+		{"chainless", "onchain:", false},
+		{"other namespace", "coingecko", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &mockStore{}
+			s.On("FindAssetIDByExternalRef", mock.Anything, tc.source, "0xCAFE").Return("", store.ErrNotFound)
+			s.On("FindAssetByIdentity", mock.Anything, "TKN", mock.Anything, entity.AssetTypeCryptocurrency).
+				Return(nil, store.ErrNotFound)
+			var created *entity.Asset
+			s.On("CreateAsset", mock.Anything, mock.MatchedBy(func(a *entity.Asset) bool {
+				created = a
+				return true
+			})).Return(testAsset("id-7"), nil)
+			s.On("CreateAssetExternalRef", mock.Anything, mock.Anything).Return(&entity.AssetExternalRef{}, nil)
+			expectVerdict(s)
+			h := newHandler(s)
+
+			source, ref := tc.source, "0xCAFE"
+			_, err := h.FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+				Symbol:            "TKN",
+				ExternalRefSource: &source,
+				ExternalRef:       &ref,
+			}))
+			require.NoError(t, err)
+			require.NotNil(t, created)
+			assert.Equal(t, tc.wantTag, slices.Contains(created.Tags, "contract:0xCAFE"))
+		})
+	}
+}
+
 // TestFindOrCreateAsset_UnlistedContractDoesNotClaimTicker is the regression for
 // personal-c3b: a counterfeit carrying a well-known ticker must not resolve to
 // the genuine asset. Its contract is listed nowhere, so it gets an asset of its

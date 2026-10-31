@@ -104,12 +104,15 @@ provider" stops meaning "the new provider is used" (`personal-1y6i`,
 |---|---|---|
 | `provider` | all | The slug from the table above. Nothing resolves without it |
 | `api_key` | alchemy, moralis, subscan, tonapi, helius, blockchair | Write-only; responses return it masked as `••••` plus the last four characters. Echoing the mask back preserves the stored value |
-Endpoints are not configurable per account. `accounts.data` is user-supplied,
-and a client whose base URL came from it would make the server issue requests
-to whatever address its caller named — cloud metadata, loopback, anything
-inside the trust boundary — with the response leaking back through sync error
-strings. Pointing an adapter at a self-hosted instance belongs in operator
-config, not in user data.
+
+Endpoints are not user-configurable. `accounts.data` is user-supplied, and a
+client whose base URL came from it would make the server issue requests to
+whatever address its caller named — cloud metadata, loopback, anything inside
+the trust boundary — with the response leaking back through sync error strings.
+The one exception is the optional per-account `base_url` (`tinvest`, `gateio`):
+it lives in `accounts.data` but only an admin may set or change it, and a user
+may keep the value an admin set or drop it. Pointing an adapter at any other
+host is not available.
 
 ## Market data providers (`service`, `exchange` or `broker` + `market_data`)
 
