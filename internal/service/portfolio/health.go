@@ -58,8 +58,8 @@ func (h *Handler) GetAccountHealth(
 		a, err := h.ownedAccount(ctx, id)
 		switch {
 		case errors.Is(err, store.ErrUnreadable):
-			u, found := h.callersUnreadable(ctx, user.ID, id)
-			if !found {
+			u, err := h.callersUnreadable(ctx, user.ID, id)
+			if err != nil {
 				return nil, err
 			}
 			unreadable = []*entity.UnreadableAccount{u}
@@ -208,17 +208,19 @@ func unreadableHealth(u *entity.UnreadableAccount) *apiv1.AccountHealth {
 
 // callersUnreadable finds an unreadable account among the caller's own: its
 // data cannot be read, so ownership is read off the owner's list instead.
-func (h *Handler) callersUnreadable(ctx context.Context, userID, id string) (*entity.UnreadableAccount, bool) {
+// Anyone else's is NotFound, as a readable one is through EnsureOwner: the read
+// error would confirm the id exists, and its text may quote decrypted bytes.
+func (h *Handler) callersUnreadable(ctx context.Context, userID, id string) (*entity.UnreadableAccount, error) {
 	all, err := h.store.ListUnreadableAccounts(ctx, userID)
 	if err != nil {
-		return nil, false
+		return nil, toConnectError(err)
 	}
 	for _, u := range all {
 		if u.ID == id {
-			return u, true
+			return u, nil
 		}
 	}
-	return nil, false
+	return nil, connect.NewError(connect.CodeNotFound, errors.New("account not found"))
 }
 
 // allAccountsOf reads every account the user owns, across pages.

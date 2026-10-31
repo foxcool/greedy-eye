@@ -2,6 +2,7 @@ package portfolio
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -443,7 +444,17 @@ func TestAccountHealthOfANamedUnreadableAccount(t *testing.T) {
 
 	_, err = newHandler(store).GetAccountHealth(ctxWithUser(testUserID),
 		connect.NewRequest(&apiv1.GetAccountHealthRequest{AccountId: proto.String("theirs")}))
-	require.Error(t, err, "an unreadable account not on the caller's list is not theirs to diagnose")
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err), "an unreadable account not on the caller's list is not theirs to diagnose")
+	assert.NotContains(t, err.Error(), "unreadable", "the read error is not the caller's to see")
+
+	failing := newHealthStore()
+	failing.On("GetAccount", mock.Anything, "lost").Return(nil, unreadableErr)
+	failing.On("ListUnreadableAccounts", mock.Anything, testUserID).Return(nil, errors.New("connection reset"))
+	_, err = newHandler(failing).GetAccountHealth(ctxWithUser(testUserID),
+		connect.NewRequest(&apiv1.GetAccountHealthRequest{AccountId: proto.String("lost")}))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "connection reset", "a failed lookup is reported, not read as somebody else's account")
 }
 
 // TestUnconfirmedReason: a row the latest snapshot did not write and did not

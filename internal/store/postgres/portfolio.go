@@ -764,7 +764,9 @@ func (s *PortfolioStore) scanAccount(row interface{ Scan(dest ...any) error }) (
 	}
 	a.Type = stringToAccountType(typeStr)
 	unreadable := func(err error) error {
-		var failure entity.AccountReadFailure
+		// Every read failure is tagged; corrupt only guards a future untagged
+		// one from reaching the log as an empty class.
+		failure := entity.ReadFailureCorrupt
 		var re *accountReadError
 		if errors.As(err, &re) {
 			failure = re.failure
