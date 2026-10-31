@@ -42,6 +42,11 @@ func validateRemotes(config *Config) error {
 		// fail every call.
 		if u, err := url.Parse(config.Remotes[domain]); err != nil || u.Scheme != "http" || u.Host == "" {
 			return fmt.Errorf("remotes.%s: want http://host:port, got %q", domain, redactURL(config.Remotes[domain]))
+		} else if u.User != nil {
+			// The client would send the userinfo as basic auth to a sibling
+			// that never asked for it; calls are authenticated by the service
+			// token. Not echoed: the value is a credential.
+			return fmt.Errorf("remotes.%s: must not carry credentials, authentication is security.serviceToken", domain)
 		}
 		for _, svc := range config.Services {
 			if svc.Type == domain && !config.Loopback {

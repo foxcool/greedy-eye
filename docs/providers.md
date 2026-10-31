@@ -104,18 +104,21 @@ provider" stops meaning "the new provider is used" (`personal-1y6i`,
 |---|---|---|
 | `provider` | all | The slug from the table above. Nothing resolves without it |
 | `api_key` | alchemy, moralis, subscan, tonapi, helius, blockchair | Write-only; responses return it masked as `••••` plus the last four characters. Echoing the mask back preserves the stored value |
-Endpoints are not configurable per account. `accounts.data` is user-supplied,
-and a client whose base URL came from it would make the server issue requests
-to whatever address its caller named — cloud metadata, loopback, anything
-inside the trust boundary — with the response leaking back through sync error
-strings. Pointing an adapter at a self-hosted instance belongs in operator
-config, not in user data.
+
+Endpoints are not user-configurable. `accounts.data` is user-supplied, and a
+client whose base URL came from it would make the server issue requests to
+whatever address its caller named — cloud metadata, loopback, anything inside
+the trust boundary — with the response leaking back through sync error strings.
+The one exception is the optional per-account `base_url` (`tinvest`, `gateio`):
+it lives in `accounts.data` but only an admin may set or change it, and a user
+may keep the value an admin set or drop it. Pointing an adapter at any other
+host is not available.
 
 ## Market data providers (`service`, `exchange` or `broker` + `market_data`)
 
 | `provider` | Key | `data` fields | Notes |
 |---|---|---|---|
-| `coingecko` | optional | `api_key`, `tier`, `pro` | The keyless tier accepts exactly one contract address per request and about 30 requests a minute. A free demo key raises this to batches of 30 and allows 10 000 calls a month. Name a paid plan with `tier: pro` — one name picks the API host, the auth header and the allowance, which have to agree. `pro: "true"` is the old spelling of the same thing and still works |
+| `coingecko` | optional | `api_key`, `tier`, `pro` | Registered keyless by default, so a fresh instance prices crypto with no account; an account with a key replaces it, and the keyless client is never a spare behind that key. It is paced on its own budget, 24 requests a minute, no quota. The keyless tier accepts exactly one contract address per request and about 30 requests a minute. A free demo key raises this to batches of 30 and allows 10 000 calls a month. Name a paid plan with `tier: pro` — one name picks the API host, the auth header and the allowance, which have to agree. `pro: "true"` is the old spelling of the same thing and still works |
 | `binance` | required | `api_key`, `api_secret` | Also serves as an exchange syncer. Prices assets on the global `crypto` market, and only those **bound to a listed pair** in `asset_external_refs` (source `binance`, ref e.g. `BTCUSDT`). The binding is made by discovery during the sweep. Binance is never ambiguous on its own side, so a contest is always between two of *our* assets, and a token minted with a famous ticker would otherwise be handed the real coin's price. When two live assets claim a ticker on the same market, every claimant but the incumbent (the oldest one ever priced) is withheld from every source before any adapter sees it (ADR-006, price binding): it stays unpriced as `AMBIGUOUS_TICKER`, an existing binding is kept but not used, and it is resolved by quarantining the impostor, not by the adapter picking a winner. Each row carries the pair's **24h turnover in the quote asset** (`quoteVolume` from `/api/v3/ticker/24hr`), which is what ADR-009 measures a market by; a pair found trading that reports no turnover is published with an explicit zero, so a book nobody touched stays out of the total while the price stays in the catalogue |
 | `moex` | none | — | MOEX ISS. Prices assets whose `market` is `moex`: shares and exchange-traded funds from the ISS `shares` market, bonds from `bonds`. Quotes are in roubles, so the RUB/USD rate from `cbr` is what carries them into a USD total. Where a security trades on several boards, the one with the most turnover today wins; outside trading hours the previous close is used and dated to its own session, with no turnover attached. A bond quote is a percentage of nominal and is multiplied out; accrued interest is not included (`personal-b7l`). **Delisted securities get no price at all** — `is_traded=0` means ISS reports no current market, and a last trade from years ago is not a valuation |
 | `tinvest` | required | `api_key` | T-Invest broker API, account type `broker`. Prices assets whose `market` is `spbex` or `moex` — the SPB Exchange has no open endpoint of its own, and MOEX arrives as a second opinion alongside `moex` above. **Needs a trust anchor on the account** (`root_ca` in `accounts.data`): the API host's certificate chain terminates in a root no standard trust store carries, and without it every request fails inside TLS. See below. Identity is the FIGI, bound automatically into `asset_external_refs` when a ticker resolves to exactly one instrument on the venue — an ambiguous ticker is left unbound and unpriced rather than guessed. Each row carries the instrument's own currency, so a dollar-quoted foreign share and a rouble-quoted domestic one come out of one response correctly. An instrument that is not trading right now — halted, blocked, delisted — is published with an explicit **zero turnover**, which keeps it out of the total under ADR-009 while the number stays in the catalogue: the API reports no volume at all, and without that a frozen 2022 print would sail into the sum |

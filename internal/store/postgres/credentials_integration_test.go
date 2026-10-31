@@ -7,9 +7,11 @@ import (
 	"testing"
 
 	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
+	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/provider"
 	"github.com/foxcool/greedy-eye/internal/provider/catalog"
 	"github.com/foxcool/greedy-eye/internal/service/credentials"
+	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -66,6 +68,46 @@ func TestFreshDatabaseResolvesKeylessSources(t *testing.T) {
 		origins[p.Provider] = p.String()
 	}
 	assert.Equal(t, "price=keyless", origins["cbr"])
+	assert.Equal(t, "price=keyless", origins["coingecko"])
 	assert.Equal(t, "wallet=keyless", origins["blockchair"])
 	assert.Empty(t, inv.Skipped)
+}
+
+// TestKeylessCoinGeckoPricesAFreshDatabaseAndYieldsToAKey: with no account the
+// sweep's crypto source is the keyless client alone; once a CoinGecko account
+// with a key exists, only that key serves the slug.
+func TestKeylessCoinGeckoPricesAFreshDatabaseAndYieldsToAKey(t *testing.T) {
+	ctx := context.Background()
+	pool := getTestPool(t)
+	user := createTestUser(t, NewUserStore(pool))
+	store := NewPortfolioStore(pool)
+
+	providers := provider.New(ratelimit.NewRegistry(nil))
+	keylessSet := providers.KeylessPriceProviders()
+	resolver := credentials.NewResolver(credentials.Config{
+		Source:                store,
+		PriceProviders:        providers.PriceProviders(),
+		KeylessPriceProviders: keylessSet,
+	})
+
+	prices, err := resolver.PriceProvidersFor(ctx, "")
+	require.NoError(t, err)
+	keyless := keylessSet["coingecko"]
+	require.NotNil(t, keyless)
+	assert.Equal(t, []marketdata.PriceProvider{keyless}, prices["coingecko"])
+
+	_, err = store.CreateAccount(ctx, &entity.Account{
+		UserID:       user.ID,
+		Name:         "coingecko",
+		Type:         entity.AccountTypeService,
+		Capabilities: []entity.AccountCapability{entity.CapabilityMarketData},
+		SystemScopes: []entity.AccountCapability{entity.CapabilityMarketData},
+		Data:         map[string]string{credentials.DataProviderKey: "coingecko", "api_key": "demo-key"},
+	})
+	require.NoError(t, err)
+
+	prices, err = resolver.PriceProvidersFor(ctx, "")
+	require.NoError(t, err)
+	require.Len(t, prices["coingecko"], 1, "the keyed client alone serves the slug")
+	assert.NotSame(t, keyless, prices["coingecko"][0])
 }

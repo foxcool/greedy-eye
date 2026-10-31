@@ -611,6 +611,23 @@ func (h *Handler) unitPrice(ctx context.Context, assetID, quoteAssetID string) (
 	return pricing{unit: best.Unit, outcome: quoting.Priced, quotedAt: pricefresh.QuotedAt(best.Row)}, nil
 }
 
+// maxDivisorScale bounds the power of ten a holding is divided by. Real scales
+// sum to a few dozen; decimal.Div materialises 10^n, so an unbounded exponent
+// is a stall, not just a wrong number, and clamping to MaxInt32 would not help.
+const maxDivisorScale = 1000
+
+// divisorScale adds two decimals in int64 so the sum cannot wrap, and reports
+// false when the result is not a scale worth valuing at. Unlike entity.DecI32
+// (a clamp, fine for Shift, which only moves an exponent) a clamp is not enough
+// here: Div materialises the power of ten.
+func divisorScale(a, b uint32) (int32, bool) {
+	sum := int64(a) + int64(b)
+	if sum > maxDivisorScale {
+		return 0, false
+	}
+	return int32(sum), true // #nosec G115 -- bounded by maxDivisorScale
+}
+
 // GetPortfolioPerformance calculates return over a time range using stored price history.
 // If no `from` is set, defaults to 30 days ago. Requires marketStore.
 func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Request[apiv1.GetPortfolioPerformanceRequest]) (*connect.Response[apiv1.PortfolioPerformanceResponse], error) {
@@ -665,7 +682,12 @@ func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Requ
 			continue
 		}
 
-		divisorCurrent := decimal.New(1, entity.DecI32(hld.Decimals)+entity.DecI32(latestPrice.Decimals))
+		scaleCurrent, ok := divisorScale(hld.Decimals, latestPrice.Decimals)
+		if !ok {
+			h.log.Warn("skip holding with out-of-range decimals", "asset_id", hld.AssetID, "holding_decimals", hld.Decimals, "price_decimals", latestPrice.Decimals)
+			continue
+		}
+		divisorCurrent := decimal.New(1, scaleCurrent)
 		holdingCurrent := hld.Amount.
 			Mul(latestLast).
 			Div(divisorCurrent)
@@ -695,7 +717,13 @@ func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Requ
 			continue
 		}
 
-		divisorFrom := decimal.New(1, entity.DecI32(hld.Decimals)+entity.DecI32(fromPrice.Decimals))
+		scaleFrom, ok := divisorScale(hld.Decimals, fromPrice.Decimals)
+		if !ok {
+			h.log.Warn("historical price decimals out of range; baseline set to current value", "asset_id", hld.AssetID, "holding_decimals", hld.Decimals, "price_decimals", fromPrice.Decimals)
+			fromValue = fromValue.Add(holdingCurrent)
+			continue
+		}
+		divisorFrom := decimal.New(1, scaleFrom)
 		holdingFrom := hld.Amount.
 			Mul(fromLast).
 			Div(divisorFrom)
@@ -2418,11 +2446,19 @@ func (h *Handler) upsertSyncedBalances(ctx context.Context, account *entity.Acco
 	// where "gone" and "not answered" are impossible to tell apart, and reading
 	// it as an emptied account would wipe the whole snapshot in one sync. Say so
 	// instead: the rows survive, and the caller learns why they were left alone.
+	//
+	// An empty snapshot has two causes with the same remedy for the rows and
+	// different ones for the operator: the provider returned nothing, or all it
+	// returned was unidentifiable and counted in skipped. The message names which.
 	if complete && len(order) == 0 {
 		if untouched := countSyncWritten(existingHoldings); untouched > 0 {
 			complete = false
+			cause := "provider returned no positions"
+			if skipped > 0 {
+				cause = fmt.Sprintf("provider returned no identifiable positions (%d skipped as unidentifiable)", skipped)
+			}
 			syncErrors = append(syncErrors, fmt.Sprintf(
-				"provider returned no positions: %d synced holding(s) left untouched rather than zeroed", untouched))
+				"%s: %d synced holding(s) left untouched rather than zeroed", cause, untouched))
 		}
 	}
 

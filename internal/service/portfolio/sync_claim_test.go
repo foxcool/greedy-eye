@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/shopspring/decimal"
@@ -180,4 +181,51 @@ func TestSyncDueAccounts_SkipsAnAccountSyncingElsewhere(t *testing.T) {
 	assert.Empty(t, report.Notes)
 	assert.Empty(t, written())
 	s.AssertNotCalled(t, "RecordSyncMiss", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestSyncDueAccounts_EveryPickedAccountIsAccountedFor: an account the sweep
+// picked and then did not sync — its claim was held, or its owner disabled it
+// in between — used to land in picked and in no other number, so the line read
+// "picked 3, synced 1" with two accounts unexplained. Partial is a subset of
+// synced, not a fourth bucket.
+func TestSyncDueAccounts_EveryPickedAccountIsAccountedFor(t *testing.T) {
+	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	synced := sweepAccount("acct-synced", testUserID, "synced")
+	claimed := sweepAccount("acct-claimed", testUserID, "claimed")
+	disabledAt := now.Add(-time.Minute)
+	// The sweep listed the account enabled; by the time it syncs, the owner has
+	// disabled it.
+	listed := sweepAccount("acct-disabled", testUserID, "disabled")
+	afterDisable := sweepAccount("acct-disabled", testUserID, "disabled")
+	afterDisable.DisabledAt = &disabledAt
+
+	s := &mockStore{}
+	s.On("ListStaleSyncTargets", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return([]*entity.Account{synced, claimed, listed}, nil).Once()
+	s.On("GetAccount", mock.Anything, "acct-synced").Return(synced, nil)
+	s.On("GetAccount", mock.Anything, "acct-claimed").Return(claimed, nil)
+	s.On("GetAccount", mock.Anything, "acct-disabled").Return(afterDisable, nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: "h-dai"}, nil)
+
+	_, err := s.ClaimAccountSync(context.Background(), "acct-claimed", syncTimeout)
+	require.NoError(t, err)
+
+	ws := &mockWalletSyncer{}
+	ws.On("SyncWallet", mock.Anything, mock.Anything, mock.Anything).Return([]entity.WalletBalance{
+		{Symbol: "DAI", Amount: "100", Decimals: 18, ContractAddress: "0xdai", Chain: "eth"},
+	}, nil)
+	md := &mockMDClient{autoAsset: true}
+	md.On("FetchExternalPrices", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FetchExternalPricesResponse{}), nil)
+
+	h := newHandler(s).WithMarketDataClient(md).WithWalletSyncer(ws)
+	report, err := h.SyncDueAccounts(context.Background(), SweepOpts{Now: now})
+	require.NoError(t, err)
+
+	assert.Equal(t, 3, report.Picked)
+	assert.Equal(t, 1, report.Synced)
+	assert.Zero(t, report.Failed)
+	assert.Equal(t, 2, report.Skipped, "the held claim and the mid-sweep disable are named, not lost")
+	assert.Equal(t, report.Picked, report.Synced+report.Failed+report.Skipped)
 }
