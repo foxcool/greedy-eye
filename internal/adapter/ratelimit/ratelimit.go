@@ -19,6 +19,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -323,7 +324,17 @@ func (r *Registry) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop ends the flush loop and writes what is still pending.
+// finalFlushBackoff is the first pause between the retries Stop makes; it
+// doubles up to finalFlushBackoffMax.
+const (
+	finalFlushBackoff    = 200 * time.Millisecond
+	finalFlushBackoffMax = 2 * time.Second
+)
+
+// Stop ends the flush loop and writes what is still pending. Nothing ticks
+// after the process exits, so a failed final write is retried with backoff until
+// ctx ends; spend still unwritten then is logged once with its amount, since
+// that line is all that remains of it.
 func (r *Registry) Stop(ctx context.Context) error {
 	if r == nil || r.stop == nil {
 		return nil
@@ -331,7 +342,42 @@ func (r *Registry) Stop(ctx context.Context) error {
 	close(r.stop)
 	<-r.done
 	r.stop = nil
-	return r.Flush(ctx)
+
+	wait := finalFlushBackoff
+	for {
+		err := r.Flush(ctx)
+		if err == nil {
+			return nil
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			r.logLost()
+			return err
+		case <-timer.C:
+		}
+		wait = min(wait*2, finalFlushBackoffMax)
+	}
+}
+
+// logLost reports the spend the store never accepted.
+func (r *Registry) logLost() {
+	r.mu.Lock()
+	lost := mergeUsage(r.unflushed)
+	r.mu.Unlock()
+
+	var requests, backoffs int64
+	rows := make([]string, 0, len(lost))
+	for _, u := range lost {
+		requests += u.Requests
+		backoffs += u.Backoffs
+		rows = append(rows, fmt.Sprintf("%s/%s/%s/%q:+%d", u.Provider, u.Fingerprint,
+			u.PeriodStart.UTC().Format(time.RFC3339), u.Caller, u.Requests))
+	}
+	r.log.Error("Provider usage lost: the store did not accept it before shutdown",
+		slog.Int64("requests", requests), slog.Int64("backoffs", backoffs),
+		slog.Any("rows", rows))
 }
 
 func (r *Registry) flushLoop(ctx context.Context) {
@@ -385,13 +431,74 @@ func (r *Registry) Flush(ctx context.Context) error {
 	if len(deltas) == 0 {
 		return nil
 	}
-	if err := r.usage.AddUsage(ctx, deltas); err != nil {
-		r.mu.Lock()
-		r.unflushed = append(r.unflushed, deltas...)
-		r.mu.Unlock()
+	err := r.usage.AddUsage(ctx, deltas)
+	if err == nil {
+		return nil
+	}
+	if len(deltas) == 1 || ctx.Err() != nil {
+		r.keep(deltas)
 		return err
 	}
-	return nil
+	return r.isolate(ctx, deltas, err)
+}
+
+// keep hands deltas back for the next flush.
+func (r *Registry) keep(deltas []Usage) {
+	r.mu.Lock()
+	r.unflushed = append(r.unflushed, deltas...)
+	r.mu.Unlock()
+}
+
+// isolate retries a failed batch row by row. A row the store rejects for good
+// would otherwise sit in every later statement and stop all spend from landing.
+// Each row is its own atomic write, so nothing is applied twice.
+//
+// A row is blamed only when another one landed in the same pass: the store is
+// then known to work, and the failure is the row's. When nothing lands the store
+// is down, which one error for the batch says better than one per row. Failed
+// rows are kept, never dropped: an under-reported period is the failure this
+// package exists to prevent, and merging keeps what is held to one row per key.
+func (r *Registry) isolate(ctx context.Context, deltas []Usage, batchErr error) error {
+	type rejected struct {
+		delta Usage
+		err   error
+	}
+	var (
+		landed  int
+		bad     []rejected
+		kept    []Usage
+		rowErrs []error
+	)
+	for i, d := range deltas {
+		if err := ctx.Err(); err != nil {
+			kept = append(kept, deltas[i:]...)
+			rowErrs = append(rowErrs, err)
+			break
+		}
+		if err := r.usage.AddUsage(ctx, []Usage{d}); err != nil {
+			bad = append(bad, rejected{d, err})
+			kept = append(kept, d)
+			rowErrs = append(rowErrs, err)
+			continue
+		}
+		landed++
+	}
+	r.keep(kept)
+
+	if landed == 0 {
+		return batchErr
+	}
+	for _, b := range bad {
+		r.log.Error("Provider usage row could not be written, keeping it",
+			slog.String("provider", b.delta.Provider),
+			slog.String("key_fingerprint", b.delta.Fingerprint),
+			slog.String("period_start", b.delta.PeriodStart.UTC().Format(time.RFC3339)),
+			slog.String("caller", b.delta.Caller),
+			slog.Int64("requests", b.delta.Requests),
+			slog.Int64("backoffs", b.delta.Backoffs),
+			slog.Any("error", b.err))
+	}
+	return errors.Join(rowErrs...)
 }
 
 // mergeUsage sums deltas that land on the same stored row, keeping first-seen
