@@ -378,11 +378,11 @@ func (r *Registry) Stop(ctx context.Context) error {
 				return nil
 			}
 			// Spend reserved while that write was in flight.
-			if err = ctx.Err(); err == nil {
+			if ctx.Err() == nil {
 				continue
 			}
 			r.logLost()
-			return err
+			return ctx.Err()
 		}
 		timer := time.NewTimer(wait)
 		select {
@@ -401,16 +401,18 @@ func (r *Registry) Stop(ctx context.Context) error {
 // much is unsure), and what was reserved since the last attempt.
 func (r *Registry) logLost() {
 	r.mu.Lock()
-	lost := append(r.unflushed, r.inflight...)
+	unwritten := r.unflushed
+	for _, b := range r.buckets {
+		unwritten = append(unwritten, b.takePending()...)
+	}
+	r.unflushed = mergeUsage(unwritten)
+	// The write in flight still owns its spend (settle files it), so it is
+	// reported here but not handed back: a late settle would hold it twice.
+	lost := mergeUsage(append(append([]Usage(nil), r.unflushed...), r.inflight...))
 	var inflight int64
 	for _, u := range r.inflight {
 		inflight += u.Requests
 	}
-	for _, b := range r.buckets {
-		lost = append(lost, b.takePending()...)
-	}
-	lost = mergeUsage(lost)
-	r.unflushed = lost
 	r.mu.Unlock()
 
 	var requests, backoffs int64
@@ -442,8 +444,8 @@ func (r *Registry) hasPending() bool {
 	return false
 }
 
-// stop is passed, not read from r: Stop clears r.stop while the loop may
-// still be finishing a write.
+// flushLoop is handed stop rather than reading r.stop: Stop clears r.stop
+// while the loop may still be finishing a write.
 func (r *Registry) flushLoop(ctx context.Context, stop <-chan struct{}) {
 	defer close(r.done)
 	ticker := time.NewTicker(r.flushEvery)
@@ -458,6 +460,11 @@ func (r *Registry) flushLoop(ctx context.Context, stop <-chan struct{}) {
 			// writes what is pending, under a context of its own.
 			return
 		case <-ticker.C:
+			// select picks at random among ready cases: a tick queued behind a
+			// write that outlived Stop must not write what Stop reported lost.
+			if ctx.Err() != nil {
+				return
+			}
 			r.flushOnce(ctx)
 		}
 	}

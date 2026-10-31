@@ -331,7 +331,9 @@ func TestStopDoesNotWaitOutAHungWrite(t *testing.T) {
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	store := &hungStore{fakeUsageStore: &fakeUsageStore{},
 		entered: make(chan struct{}), release: make(chan struct{})}
-	defer close(store.release)
+	var released sync.Once
+	release := func() { released.Do(func() { close(store.release) }) }
+	defer release()
 	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
 	reg.flushEvery = time.Millisecond
 	var buf syncBuffer
@@ -350,14 +352,26 @@ func TestStopDoesNotWaitOutAHungWrite(t *testing.T) {
 	go func() { stopped <- reg.Stop(ctx) }()
 	select {
 	case err := <-stopped:
-		require.Error(t, err)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
 	case <-time.After(2 * time.Second):
 		t.Fatal("Stop waited for the hung periodic write past its deadline")
 	}
 
 	log := buf.String()
 	assert.Equal(t, 1, strings.Count(log, "lost"))
-	assert.Contains(t, log, "requests=4", "the hung write's spend and what came after it")
+	assert.Contains(t, log, " requests=4 ", "the hung write's spend and what came after it")
+	assert.Contains(t, log, " in_flight=3 ", "the part that may yet land is told apart")
+
+	// The write lands after all: its spend must not also wait in unflushed.
+	release()
+	<-reg.done
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	var held int64
+	for _, u := range reg.unflushed {
+		held += u.Requests
+	}
+	assert.EqualValues(t, 1, held, "only the spend that never reached a write")
 }
 
 // racingStore writes everything, and runs during inside the first write: a
@@ -425,7 +439,7 @@ func TestStopLogsSpendThatNeverStopsArriving(t *testing.T) {
 	written := storedRequests(store.fakeUsageStore)[fingerprint("key")+"/sweep"]
 	log := buf.String()
 	assert.Equal(t, 1, strings.Count(log, "lost"))
-	assert.Contains(t, log, fmt.Sprintf("requests=%d", reserved-written),
+	assert.Contains(t, log, fmt.Sprintf(" requests=%d ", reserved-written),
 		"written plus logged is everything reserved")
 }
 
@@ -489,7 +503,7 @@ func TestShutdownDeadlineIsNotBlamedOnARow(t *testing.T) {
 		assert.NotContains(t, line, "fp-untried")
 	}
 	require.Len(t, lostLines, 1)
-	assert.Contains(t, lostLines[0], "requests=14", "rejected, cut off and untried rows are all unwritten")
+	assert.Contains(t, lostLines[0], " requests=14 ", "rejected, cut off and untried rows are all unwritten")
 	assert.Contains(t, lostLines[0], "fp-slow")
 	assert.Contains(t, lostLines[0], "fp-untried")
 }
