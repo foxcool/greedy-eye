@@ -731,8 +731,11 @@ func TestFetchPricesRefusalInALaterBatchIsReported(t *testing.T) {
 	assert.Equal(t, "asset-AAPL", prices[0].AssetID)
 }
 
-// A revoked token is the provider refusing the credential, which a caller with
-// another token acts on; it must be told apart from any other failure.
+// A revoked token (401) is the provider refusing the credential, which a
+// caller with another token acts on; it must be told apart from any other
+// failure. A 403 is not read as a dead token here either: spend.RejectsCredential
+// keeps one rule for every provider, and its cost for this broker is in the
+// change's notes.
 func TestFetchPricesRejectedTokenIsTyped(t *testing.T) {
 	for status, rejected := range map[int]bool{http.StatusUnauthorized: true, http.StatusForbidden: false} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
@@ -746,7 +749,7 @@ func TestFetchPricesRejectedTokenIsTyped(t *testing.T) {
 
 			_, err = NewProvider(c).FetchPrices(context.Background(), pricedAAPLThenMore())
 			require.Error(t, err)
-			assert.Equal(t, rejected, errors.Is(err, spend.ErrCredentialRejected))
+			assert.Equal(t, rejected, errors.Is(err, spend.ErrCredentialRejected), "status %d", status)
 		})
 	}
 }

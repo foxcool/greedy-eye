@@ -715,20 +715,21 @@ undo the binding (`DeleteAssetExternalRef`).
   ordered list per slug — own accounts, then shared, then the sole operator's; copies of one
   `api_key` count once — and the sweep walks it: a key whose credential reports itself unusable is
   passed before anything is selected for it, and a fetch the provider refuses for the key itself
-  (`spend.KeyRefused`: `spend.ErrQuotaExhausted`, or `spend.ErrCredentialRejected` for a 401; a 403 is how CoinGecko and Binance
-  answer an IP or firewall block every key meets alike, so it counts as an outage)
-  hands the rest to the next key. Adapters return such a refusal with what earlier batches
-  already priced; those prices are stored and recorded as priced, nothing is recorded against the
-  rest, and the next key is asked only for the rest. With no key left the partial prices are still
-  stored and the error names how many assets went unpriced. Any other failure (a 5xx, a timeout) is
-  the source's answer for the run: an outage refuses every key alike, and asking each would spend
-  every allowance on it. Before this the registry was one client per slug, so a second CoinGecko
-  account was dropped as "shadowed" while the first ran dry; and until the 401 hand-over a
-  revoked first key ended the source every run while health read OK. The rate limiter keeps a
-  keyed credential's 401 on its bucket for `rejectedRetry` (cleared by any answer that is neither
-  a refusal of the key nor a back-off, which says nothing about the key), so `Budget.Unusable` reports `the provider rejected this credential (HTTP 401)`: the
-  sweep passes the key over, `idle_sources` reads `unusable: <that reason>` when it was the last
-  key, and `GetAccountHealth` names it on the account that holds it. A credential-free source
+  (`spend.KeyRefused`: `spend.ErrQuotaExhausted`, or `spend.ErrCredentialRejected` for a 401)
+  hands the rest to the next key. A 403 is not a dead key: CoinGecko and Binance answer an IP or
+  firewall block with it, which every key meets alike. Adapters return a refusal with what earlier
+  batches already priced; those prices are stored and recorded as priced, nothing is recorded
+  against the rest, and the next key is asked only for the rest. The refusal stays in `errors`,
+  naming how many assets it left unpriced, unless a later key of the source completes a fetch.
+  Any other failure (a 5xx, a timeout) is the source's answer for the run: an outage refuses every
+  key alike, and asking each would spend every allowance on it. Before this the registry was one
+  client per slug, so a second CoinGecko account was dropped as "shadowed" while the first ran
+  dry; and until the 401 hand-over a revoked first key ended the source every run while health
+  read OK. The rate limiter keeps a keyed credential's 401 on its bucket for `rejectedRetry`
+  (cleared by any answer that is neither a refusal of the key nor a back-off, which says nothing
+  about the key), so `Budget.Unusable` reports `the provider rejected this credential (HTTP 401)`:
+  the sweep passes the key over, `idle_sources` reads `unusable: <that reason>` when it was the
+  last key, and `GetAccountHealth` names it on the account that holds it. A credential-free source
   stands in only for a slug no account serves: queued behind an account it would bypass that
   account's own limit. `GetAccountHealth` reports a source as one entry, `UNUSABLE` only when
   every key is.

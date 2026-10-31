@@ -417,10 +417,10 @@ func TestFetchPrices_RejectedKeyIsTyped(t *testing.T) {
 	require.ErrorIs(t, err, spend.ErrCredentialRejected, "contract batch")
 
 	for _, status := range []int{http.StatusForbidden, http.StatusInternalServerError} {
-		p := serveProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+		other := serveProvider(t, func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(status)
 		})
-		_, err := p.FetchPrices(context.Background(), []*entity.Asset{
+		_, err := other.FetchPrices(context.Background(), []*entity.Asset{
 			{ID: "btc", Symbol: "BTC", Market: entity.MarketCrypto},
 		})
 		require.Error(t, err)

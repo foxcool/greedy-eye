@@ -1592,8 +1592,11 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	// are passed over: an outage would refuse every key alike, and asking each
 	// would spend every allowance on it.
 	answered := map[string]bool{}
-	// A key refused mid-fetch, kept until a later key answers: if none can, the
-	// refusal is the source's answer, as it is with a single key.
+	// A key refused mid-fetch, kept until a later key of the source completes
+	// a fetch: whatever stops that from happening (no usable key, nothing
+	// selected, a failure of its own), the refusal is still the source's answer
+	// for what the refused key left, as it is with a single key. Reported after
+	// the loop, so no path through it can drop it.
 	refusedMidFetch := map[string]string{}
 	// What keys refused mid-fetch priced before the refusal. Their prices are
 	// kept, and a later key is asked only for the rest.
@@ -1630,18 +1633,11 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 				if left := len(backgroundIDs) - len(pricedEarlier); k.last && backgroundIDs != nil && left > 0 {
 					deferredAssets[name] = int32(left) // #nosec G115 -- bounded by request size
 				}
-				if msg := refusedMidFetch[name]; k.last && msg != "" {
-					fetchErrs = append(fetchErrs, msg)
-				}
 				continue
 			}
 		}
 		answered[name] = true
-		// A previous key's counts describe work it never finished. Its refusal
-		// is kept aside: if this key asks nothing, it is still the source's
-		// answer for what the refused key left.
-		pendingRefusal := refusedMidFetch[name]
-		delete(refusedMidFetch, name)
+		// A previous key's counts describe work it never finished.
 		delete(deferredAssets, name)
 		delete(coveredAssets, name)
 
@@ -1694,17 +1690,12 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 				"provider", name, "reason", string(outcome), "soonest_due", deferredUntil)
 			if len(pricedEarlier) == 0 {
 				idleSources[name] = string(outcome)
-			} else if pendingRefusal != "" {
-				fetchErrs = append(fetchErrs, pendingRefusal)
 			}
 			continue
 		}
 		if len(pricedEarlier) > 0 {
 			// Priced by a key refused mid-fetch; asking again would pay twice.
 			if assets = notIn(assets, pricedEarlier); len(assets) == 0 {
-				if pendingRefusal != "" {
-					fetchErrs = append(fetchErrs, pendingRefusal)
-				}
 				continue
 			}
 		}
@@ -1812,6 +1803,8 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			}
 			asked = priced
 		} else {
+			// This key asked for what the refused one left.
+			delete(refusedMidFetch, name)
 			h.deferUnasked(ctx, sweepAt, name, notIn(assets, asked))
 		}
 		h.recordAttempts(ctx, sweepAt, name, asked, results)
@@ -1835,6 +1828,10 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 			results[i].BaseAssetID = baseID
 			allPrices = append(allPrices, &results[i])
 		}
+	}
+
+	for _, name := range slices.Sorted(maps.Keys(refusedMidFetch)) {
+		fetchErrs = append(fetchErrs, refusedMidFetch[name])
 	}
 
 	var stored int

@@ -2724,6 +2724,59 @@ func TestFetchExternalPrices_NothingLeftAfterRefusalIsNotIdle(t *testing.T) {
 	assert.Contains(t, resp.Msg.Errors[0], "1 of 2 assets left unpriced")
 }
 
+// Whatever keeps the next key from asking for what a refused key left, the
+// refusal still answers for it: no path through the key loop may drop it.
+func TestFetchExternalPrices_RefusalSurvivesANextKeyThatAsksNothing(t *testing.T) {
+	cases := map[string]struct {
+		ctx      context.Context
+		ids      []string
+		first    PriceProvider
+		next     []*entity.Asset // the next key's selection
+		wantIdle bool
+	}{
+		"background work, next key selects nothing": {
+			ctx: backgroundCtx(), ids: []string{"a1", "a2", "a3"},
+			first: &partialProvider{fakePriceProvider{prices: map[string]bool{"a1": true}}, errSpentMidFetch},
+			next:  []*entity.Asset{},
+		},
+		"nothing priced, next key selects nothing": {
+			ctx:   syncContext(),
+			first: &fakePriceProvider{fetchError: errSpentMidFetch},
+			next:  []*entity.Asset{}, wantIdle: true,
+		},
+		"next key selects only what was already priced": {
+			ctx:   syncContext(),
+			first: &partialProvider{fakePriceProvider{prices: map[string]bool{"a1": true}}, errSpentMidFetch},
+			next:  []*entity.Asset{testAsset("a1")},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := &mockStore{}
+			expectBaseAsset(s)
+			expectExternalRefs(s)
+			s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
+				Return([]*entity.Asset{testAsset("a1"), testAsset("a2"), testAsset("a3")}, nil).Once()
+			s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return(tc.next, nil)
+			s.On("SweepSchedule", mock.Anything, mock.Anything).Return([]*entity.SourceSchedule{{SourceID: "coingecko"}}, nil).Maybe()
+			s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil).Maybe()
+			s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil).Maybe()
+
+			second := &fakePriceProvider{}
+			h := newHandler(s).WithProviderSource(keySource{"coingecko": {tc.first, second}})
+			resp, err := h.FetchExternalPrices(tc.ctx, connect.NewRequest(
+				&apiv1.FetchExternalPricesRequest{AssetIds: tc.ids}))
+			require.NoError(t, err)
+
+			assert.Empty(t, second.asked)
+			require.Len(t, resp.Msg.Errors, 1)
+			assert.Contains(t, resp.Msg.Errors[0], "quota exhausted")
+			_, idle := resp.Msg.IdleSources["coingecko"]
+			assert.Equal(t, tc.wantIdle, idle)
+		})
+	}
+}
+
 // Background work naming its assets: what the refused key priced is fresh, so
 // the next key's selection no longer holds it, and it must not be counted as
 // left to the sweep.
