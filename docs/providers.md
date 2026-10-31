@@ -160,7 +160,10 @@ What happens when it is missing:
   account is not allowed to cost the portfolio its CoinGecko, MOEX and FX
   prices. The process still starts.
 - **An account whose `base_url` is plain `http`.** No anchor is needed: there is
-  no certificate to verify.
+  no certificate to verify. The account's token then travels as cleartext
+  (`Authorization: Bearer` on every request), so this is for a local replay
+  server with a test token only, never a real broker token. Only an admin can
+  set `base_url`.
 
 ## Broker accounts (`broker` + `portfolio_sync`)
 

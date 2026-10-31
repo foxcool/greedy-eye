@@ -1033,8 +1033,10 @@ Cron / API Client → AutomationService/ExecuteRule
   admin role and an explicit update mask. Every write to the asset catalogue is admin-only too —
   `UpdateAsset`, `DeleteAsset`, `SetAssetVerdict`, `Add`/`DeleteAssetRiskFlag`,
   `DeleteAssetExternalRef` — because an asset is one row shared by every user who holds it, so an
-  edit by one is an edit for all. Every price write is admin-only for the same reason
+  edit by one is an edit for all. Every direct price write is admin-only for the same reason
   (`CreatePrice`, `CreatePrices`, `DeletePrice`, `DeletePrices`): a price row values every holder.
+  `FetchExternalPrices` also writes prices, but only what a provider reported, and only for the
+  sync or an admin — including the sync a non-admin starts on their own account.
   Adding an asset row is gated the same way: `CreateAsset` is admin-only,
   and `FindOrCreateAsset` creates (or, in a dry run, plans to create) only for the in-process sync
   or an admin, so anyone else's manual import resolves existing rows only (`personal-a483`).
@@ -1780,7 +1782,8 @@ System Quality
   anything finer than the admin role — there is no per-asset ownership or delegation, so a user
   cannot be allowed to edit one asset (for instance one only they hold) without being admin.
 - Impact: With more than one user, fixing a catalogue row for a non-admin means asking an admin.
-  Not a security hole: nothing is writable by a non-admin.
+  Not a security hole: a non-admin cannot edit the catalogue directly; prices reach it only
+  through the sync, as a provider reported them.
 - Resolution Plan: per-asset RBAC; user-scoped assets stay private. Done when a non-admin can
   edit an asset they are granted, and still cannot edit one they are not.
 
