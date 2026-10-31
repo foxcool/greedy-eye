@@ -863,7 +863,7 @@ func (h *Handler) applyAssetPlan(ctx context.Context, p assetPlan, req *apiv1.Fi
 	// presence still says "created from a contract", which is what admits the
 	// asset to the contract price path; clients also show it when no refs load.
 	tags := []string{}
-	if hasRef && strings.HasPrefix(p.refSource, "onchain:") {
+	if _, onchain := entity.ChainFromOnchainSource(p.refSource); hasRef && onchain {
 		tags = append(tags, "contract:"+p.ref)
 	}
 	created, err := h.store.CreateAsset(ctx, &entity.Asset{
