@@ -145,6 +145,15 @@ func waitOnLockOrDone(t *testing.T, done <-chan struct{}) {
 	t.Fatal("neither finished nor waited on a lock")
 }
 
+func requireStillRunning(t *testing.T, done <-chan struct{}, msg string) {
+	t.Helper()
+	select {
+	case <-done:
+		t.Fatal(msg)
+	default:
+	}
+}
+
 func waitFor(t *testing.T, ch <-chan struct{}, what string) {
 	t.Helper()
 	select {
@@ -154,19 +163,20 @@ func waitFor(t *testing.T, ch <-chan struct{}, what string) {
 	}
 }
 
-// async runs fn in a goroutine; done closes once err holds its result.
-func async(fn func() error) (done <-chan struct{}, err func() error) {
+// goResult runs fn in a goroutine. done is for select; result blocks until
+// fn returned and gives its error.
+func goResult(fn func() error) (done <-chan struct{}, result func() error) {
 	ch := make(chan struct{})
-	var result error
+	var err error
 	go func() {
 		defer close(ch)
-		result = fn()
+		err = fn()
 	}()
-	return ch, func() error { <-ch; return result }
+	return ch, func() error { <-ch; return err }
 }
 
 func (f *moveFixture) moveAsync(acct *entity.Account, s *PortfolioStore) (<-chan struct{}, func() error) {
-	return async(func() error {
+	return goResult(func() error {
 		_, err := s.UpdateAccount(context.Background(),
 			&entity.Account{ID: acct.ID, PortfolioID: f.b.ID}, []string{"portfolio_id"})
 		return err
@@ -244,6 +254,7 @@ func TestMoveDuringASyncCarriesTheSyncsHoldings(t *testing.T) {
 
 	moveDone, moveErr := f.moveAsync(acct, f.store)
 	waitOnLockOrDone(t, moveDone)
+	requireStillRunning(t, moveDone, "the move waits for the sync's account lock")
 	close(ps.commit)
 	waitFor(t, syncDone, "the sync")
 	waitFor(t, moveDone, "the move")
@@ -383,7 +394,7 @@ func TestDeleteDuringASyncDoesNotDeadlock(t *testing.T) {
 	ps := &pausingStore{PortfolioStore: f.store, locked: make(chan struct{}), resume: make(chan struct{})}
 	h := portfolio.NewHandler(ps, slog.New(slog.DiscardHandler)).
 		WithMarketDataClient(md).WithWalletSyncer(&parkingSyncer{})
-	syncDone, syncErr := async(func() error {
+	syncDone, syncErr := goResult(func() error {
 		ctx, cancel := context.WithTimeout(ctx, raceTimeout)
 		defer cancel()
 		_, err := h.SyncAccount(ctx, connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: acct.ID}))
@@ -391,10 +402,11 @@ func TestDeleteDuringASyncDoesNotDeadlock(t *testing.T) {
 	})
 	waitFor(t, ps.locked, "the sync to lock the account")
 
-	deleteDone, deleteErr := async(func() error {
+	deleteDone, deleteErr := goResult(func() error {
 		return f.store.DeleteAccountWithHoldings(context.Background(), acct.ID)
 	})
 	waitOnLockOrDone(t, deleteDone)
+	requireStillRunning(t, deleteDone, "the delete waits for the sync's account lock")
 	close(ps.resume)
 	waitFor(t, syncDone, "the sync")
 	waitFor(t, deleteDone, "the delete")

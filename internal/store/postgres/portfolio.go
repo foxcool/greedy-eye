@@ -950,8 +950,7 @@ func (s *PortfolioStore) UpdateAccount(ctx context.Context, a *entity.Account, f
 
 	// Read under the row lock: a concurrent move must not change the portfolio
 	// being left between this read and the holdings selected by it. NO KEY:
-	// no stronger than the UPDATE below takes, so a plain holdings insert is
-	// not made to wait; a sync or import write is (HoldingWriter.LockAccountPortfolio).
+	// no stronger than the UPDATE below takes; see HoldingWriter.LockAccountPortfolio.
 	var left *string
 	if slices.Contains(fields, "portfolio_id") {
 		err := tx.QueryRow(ctx, "SELECT portfolio_id FROM accounts WHERE id = $1 FOR NO KEY UPDATE", a.ID).Scan(&left)
@@ -1698,6 +1697,7 @@ type holdingTx struct{ tx pgx.Tx }
 
 var _ portfolio.HoldingWriter = (*holdingTx)(nil)
 
+// LockAccountPortfolio: FOR SHARE, see HoldingWriter.LockAccountPortfolio.
 func (t *holdingTx) LockAccountPortfolio(ctx context.Context, accountID string) (string, error) {
 	var portfolioID *string
 	err := t.tx.QueryRow(ctx, "SELECT portfolio_id FROM accounts WHERE id = $1 FOR SHARE", accountID).Scan(&portfolioID)
