@@ -221,7 +221,7 @@ func TestFreezeBlocksUntilDeadline(t *testing.T) {
 // one must not release the brake early.
 func TestFreezeNeverShortens(t *testing.T) {
 	now := time.Now()
-	b := newBucket("test", "keyless", Limit{RPS: 1, Burst: 1}, time.Time{})
+	b := newBucket("test", "keyless", "", Limit{RPS: 1, Burst: 1}, time.Time{})
 
 	b.freezeUntil(now.Add(time.Hour))
 	b.freezeUntil(now.Add(time.Minute))
@@ -504,10 +504,10 @@ func TestTierSelectsLimit(t *testing.T) {
 	assert.Equal(t, QuotaMonth, demo.Period)
 	assert.Greater(t, pro.Quota, demo.Quota)
 
-	assert.NotSame(t,
+	assert.Same(t,
 		reg.bucket(Credential{Provider: "coingecko", APIKey: "key"}),
 		reg.bucket(Credential{Provider: "coingecko", APIKey: "key", Tier: "pro"}),
-		"a tier change is a different budget")
+		"a tier change is a new ceiling on the same key's spend")
 }
 
 // TestQuotaRefusalReachesCaller: an exhausted quota surfaces as an error rather
