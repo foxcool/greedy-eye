@@ -81,6 +81,12 @@ type Store interface {
 	// reports how many owed anything.
 	ClearSyncDeferrals(ctx context.Context, userID string, accountIDs []string) (int, error)
 
+	// ClaimAccountSync takes the account's sync lease for ttl and returns its
+	// token, or "" when a live claim is held by someone else.
+	ClaimAccountSync(ctx context.Context, accountID string, ttl time.Duration) (string, error)
+	// ReleaseAccountSync ends the claim if token still holds it.
+	ReleaseAccountSync(ctx context.Context, accountID, token string) error
+
 	// Holdings
 	CreateHolding(ctx context.Context, h *entity.Holding) (*entity.Holding, error)
 	GetHolding(ctx context.Context, id string) (*entity.Holding, error)

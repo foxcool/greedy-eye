@@ -810,6 +810,44 @@ table "account_sync_attempts" {
   }
 }
 
+# The one sync allowed to run on an account right now.
+#
+# A sync reads the provider and then rewrites the account's holdings in a
+# separate transaction, so two overlapping syncs both write, and the one that
+# commits last wins whether or not it read last: an older reading lands with a
+# fresh updated_at. The claim spans the read AND the write; a second caller is
+# refused instead of racing. A lease rather than a lock: it outlives a crashed
+# holder by at most claimed_until, and holds no connection or transaction open
+# across a provider call.
+table "account_sync_claims" {
+  schema = schema.public
+
+  column "account_id" {
+    type = uuid
+    null = false
+  }
+  # Identifies the holder, so only it can release the claim.
+  column "token" {
+    type = uuid
+    null = false
+  }
+  column "claimed_until" {
+    type = timestamptz
+    null = false
+  }
+
+  primary_key {
+    columns = [column.account_id]
+  }
+
+  foreign_key "account_sync_claims_accounts" {
+    columns     = [column.account_id]
+    ref_columns = [table.accounts.column.id]
+    on_update   = NO_ACTION
+    on_delete   = CASCADE
+  }
+}
+
 # Chains of a wallet account that failed whole on consecutive syncs.
 #
 # account_sync_attempts watches the ACCOUNT, and an account whose other chains

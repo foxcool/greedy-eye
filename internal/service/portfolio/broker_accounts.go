@@ -87,7 +87,15 @@ func (h *Handler) syncBrokerAccounts(ctx context.Context, parent *entity.Account
 			// would make SyncAccount's refusal a door with a way round.
 			continue
 		}
+		// Each child is swept on its own too, so the parent's claim does not
+		// cover its holdings.
+		release, err := h.claimSync(ctx, account)
+		if err != nil {
+			out.errors = append(out.errors, fmt.Sprintf("%s: %s", account.Name, err.Error()))
+			continue
+		}
 		one, err := h.syncOneAccount(ctx, account)
+		release()
 		if err != nil {
 			// Each account is its own call to the broker, so one failing says
 			// nothing about the others — the edge the design named: "падение

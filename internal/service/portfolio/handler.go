@@ -1200,6 +1200,10 @@ func (h *Handler) standDown(ctx context.Context, existing, account *entity.Accou
 // down, so the sweep can tell a decision from a failure.
 var errAccountDisabled = errors.New("disabled by its owner")
 
+// errSyncInProgress marks a sync refused because another one holds the
+// account; see claimSync.
+var errSyncInProgress = errors.New("a sync of this account is already running")
+
 // operatorDataKeys are accounts.data keys only an admin may set or change.
 //
 // base_url sends an account's requests to a host of the caller's choosing,
@@ -1671,6 +1675,46 @@ func (h *Handler) assetsMatching(ctx context.Context, ref string) ([]*apiv1.Asse
 // because what it exists to stop is a provider retry storm, not a slow sync.
 const syncTimeout = 3 * time.Minute
 
+// syncClaimTTL is how long a sync's claim on its account lives. It has to
+// outlast syncTimeout, which bounds the holder, so a live sync never loses its
+// claim; past it, a holder that crashed stops blocking the account.
+const syncClaimTTL = syncTimeout + time.Minute
+
+// claimReleaseTimeout bounds handing the claim back, which runs after the sync
+// whatever its deadline did.
+const claimReleaseTimeout = 10 * time.Second
+
+// claimSync makes this the only sync running on the account until release is
+// called.
+//
+// A sync reads the provider, then rewrites holdings in a separate transaction.
+// Two overlapping syncs of one account both write, and whichever commits last
+// wins, not whichever read last: an older reading lands under a fresh
+// updated_at, and a complete snapshot zeroes a position that arrived between
+// the two reads. The claim is taken before the read so the whole span is one
+// sync's. A second caller is refused with Aborted rather than queued: the sync
+// already running is about to land the same thing.
+func (h *Handler) claimSync(ctx context.Context, account *entity.Account) (release func(), err error) {
+	token, err := h.store.ClaimAccountSync(ctx, account.ID, syncClaimTTL)
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+	if token == "" {
+		return nil, connect.NewError(connect.CodeAborted,
+			fmt.Errorf("account %q: %w; try again when it finishes", account.Name, errSyncInProgress))
+	}
+	return func() {
+		// The sync's own deadline may be what ended it, so the release gets a
+		// fresh one. If it fails anyway, the claim lapses at its TTL.
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), claimReleaseTimeout)
+		defer cancel()
+		if err := h.store.ReleaseAccountSync(rctx, account.ID, token); err != nil {
+			h.log.Warn("cannot release the account's sync claim",
+				"account_id", account.ID, "error", err)
+		}
+	}, nil
+}
+
 // SyncAccount fetches external holdings for a wallet, exchange or broker
 // account and upserts assets+holdings.
 func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.SyncAccountRequest]) (*connect.Response[apiv1.SyncAccountResponse], error) {
@@ -1695,6 +1739,12 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	// syncTimeout: a client hanging up must not tear a write in progress.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), syncTimeout)
 	defer cancel()
+
+	release, err := h.claimSync(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	// A broker account carrying only a token is not one account, it is the key
 	// to several. It syncs them all rather than refusing: the ids are the

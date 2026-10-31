@@ -282,6 +282,11 @@ func (h *Handler) sweepAccount(ctx context.Context, acct *entity.Account, report
 		// would file a schedule for an account the sweep no longer takes.
 		return
 	}
+	if errors.Is(err, errSyncInProgress) {
+		// Another sync holds the account and is about to land what this one
+		// would. Neither a failure nor a miss to back off from.
+		return
+	}
 	if err != nil {
 		report.Failed++
 		report.note(acct, sweepFailed, []string{err.Error()}, h.deferAccount(ctx, acct, now))
