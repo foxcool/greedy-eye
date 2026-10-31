@@ -247,6 +247,8 @@ type Registry struct {
 	usage     UsageStore
 	now       func() time.Time
 	log       *slog.Logger
+	// flushEvery is flushInterval; tests shorten it to catch a flush in flight.
+	flushEvery time.Duration
 
 	mu      sync.Mutex
 	buckets map[string]*bucket
@@ -258,9 +260,16 @@ type Registry struct {
 	loaded map[string]Usage
 	// unflushed is spend a failed write handed back, for the next flush.
 	unflushed []Usage
+	// inflight is what the running write took and has not settled. A write
+	// can hang past Stop's deadline, and the loss line must still name it.
+	inflight []Usage
 
-	stop chan struct{}
-	done chan struct{}
+	// flushing admits one write at a time, so inflight is one write's.
+	flushing chan struct{}
+
+	stop       chan struct{}
+	done       chan struct{}
+	cancelLoop context.CancelFunc
 }
 
 // Option configures a Registry.
@@ -282,11 +291,13 @@ func WithClock(now func() time.Time) Option {
 // dial a provider down (or up, on a paid plan) without a rebuild.
 func NewRegistry(overrides map[string]Limit, opts ...Option) *Registry {
 	r := &Registry{
-		overrides: overrides,
-		now:       time.Now,
-		log:       slog.Default(),
-		buckets:   make(map[string]*bucket),
-		loaded:    make(map[string]Usage),
+		overrides:  overrides,
+		now:        time.Now,
+		log:        slog.Default(),
+		flushEvery: flushInterval,
+		flushing:   make(chan struct{}, 1),
+		buckets:    make(map[string]*bucket),
+		loaded:     make(map[string]Usage),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -320,8 +331,11 @@ func (r *Registry) Start(ctx context.Context) error {
 	r.stop = make(chan struct{})
 	r.done = make(chan struct{})
 	// ctx is the process lifetime, not the startup load's: the flush loop
-	// outlives this call and each flush takes its own timeout from it.
-	go r.flushLoop(ctx)
+	// outlives this call and each flush takes its own timeout from it. Stop
+	// cancels it to hold a write in flight to Stop's own deadline.
+	loopCtx, cancel := context.WithCancel(ctx)
+	r.cancelLoop = cancel
+	go r.flushLoop(loopCtx, r.stop)
 	return nil
 }
 
@@ -332,23 +346,43 @@ const (
 )
 
 // Stop ends the flush loop and writes what is still pending. Nothing ticks
-// after the process exits, so a failed final write is retried with backoff until
-// ctx ends; spend still unwritten then is logged once with its amount, since
-// that line is all that remains of it. ctx must carry a deadline: without one a
-// store that never recovers holds the shutdown forever.
+// after the process exits, so a failed final write is retried with backoff, and
+// spend reserved while a write was in flight is written after it, until ctx
+// ends; spend still unwritten then is logged once with its amount, since that
+// line is all that remains of it. A periodic write in flight is held to ctx's
+// deadline too. ctx must carry a deadline: without one a store that never
+// recovers holds the shutdown forever.
 func (r *Registry) Stop(ctx context.Context) error {
 	if r == nil || r.stop == nil {
 		return nil
 	}
 	close(r.stop)
-	<-r.done
 	r.stop = nil
+	defer r.cancelLoop()
+	unbind := context.AfterFunc(ctx, r.cancelLoop)
+	defer unbind()
+	select {
+	case <-r.done:
+	case <-ctx.Done():
+		// A store that ignores cancellation keeps the write; its spend is
+		// in inflight, so the loss line still names it.
+		r.logLost()
+		return ctx.Err()
+	}
 
 	wait := finalFlushBackoff
 	for {
 		err := r.Flush(ctx)
 		if err == nil {
-			return nil
+			if !r.hasPending() {
+				return nil
+			}
+			// Spend reserved while that write was in flight.
+			if err = ctx.Err(); err == nil {
+				continue
+			}
+			r.logLost()
+			return err
 		}
 		timer := time.NewTimer(wait)
 		select {
@@ -363,10 +397,15 @@ func (r *Registry) Stop(ctx context.Context) error {
 }
 
 // logLost reports the spend the store never accepted: what failed writes handed
-// back, and what was reserved since the last attempt.
+// back, what a write still in flight carries (it may yet land: in_flight says how
+// much is unsure), and what was reserved since the last attempt.
 func (r *Registry) logLost() {
 	r.mu.Lock()
-	lost := r.unflushed
+	lost := append(r.unflushed, r.inflight...)
+	var inflight int64
+	for _, u := range r.inflight {
+		inflight += u.Requests
+	}
 	for _, b := range r.buckets {
 		lost = append(lost, b.takePending()...)
 	}
@@ -384,17 +423,35 @@ func (r *Registry) logLost() {
 	}
 	r.log.Error("Provider usage lost: the store did not accept it before shutdown",
 		slog.Int64("requests", requests), slog.Int64("backoffs", backoffs),
-		slog.Any("rows", rows))
+		slog.Int64("in_flight", inflight), slog.Any("rows", rows))
 }
 
-func (r *Registry) flushLoop(ctx context.Context) {
+// hasPending reports spend not yet written: reserved since the last flush, or
+// handed back by a failed one.
+func (r *Registry) hasPending() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.unflushed) > 0 {
+		return true
+	}
+	for _, b := range r.buckets {
+		if b.hasPending() {
+			return true
+		}
+	}
+	return false
+}
+
+// stop is passed, not read from r: Stop clears r.stop while the loop may
+// still be finishing a write.
+func (r *Registry) flushLoop(ctx context.Context, stop <-chan struct{}) {
 	defer close(r.done)
-	ticker := time.NewTicker(flushInterval)
+	ticker := time.NewTicker(r.flushEvery)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-r.stop:
+		case <-stop:
 			return
 		case <-ctx.Done():
 			// The lifetime this registry was started for is over. Stop still
@@ -424,35 +481,47 @@ func (r *Registry) Flush(ctx context.Context) error {
 		return nil
 	}
 
+	select {
+	case r.flushing <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-r.flushing }()
+
 	r.mu.Lock()
 	deltas := r.unflushed
 	r.unflushed = nil
 	for _, b := range r.buckets {
 		deltas = append(deltas, b.takePending()...)
 	}
-	r.mu.Unlock()
-
 	// A retried delta and new spend of the same caller must be one row: an
 	// upsert that touches a row twice in one statement is refused.
 	deltas = mergeUsage(deltas)
+	r.inflight = deltas
+	r.mu.Unlock()
+
 	if len(deltas) == 0 {
 		return nil
 	}
 	err := r.usage.AddUsage(ctx, deltas)
 	if err == nil {
+		r.settle(nil)
 		return nil
 	}
 	if len(deltas) == 1 || ctx.Err() != nil {
-		r.keep(deltas)
+		r.settle(deltas)
 		return err
 	}
 	return r.isolate(ctx, deltas, err)
 }
 
-// keep hands deltas back for the next flush.
-func (r *Registry) keep(deltas []Usage) {
+// settle ends the write in flight and hands what it could not write back for
+// the next flush, in one step: the loss line must see the spend in one place or
+// the other, never in both or neither.
+func (r *Registry) settle(kept []Usage) {
 	r.mu.Lock()
-	r.unflushed = append(r.unflushed, deltas...)
+	r.inflight = nil
+	r.unflushed = append(r.unflushed, kept...)
 	r.mu.Unlock()
 }
 
@@ -477,20 +546,26 @@ func (r *Registry) isolate(ctx context.Context, deltas []Usage, batchErr error) 
 		rowErrs []error
 	)
 	for i, d := range deltas {
-		if err := ctx.Err(); err != nil {
-			kept = append(kept, deltas[i:]...)
-			rowErrs = append(rowErrs, err)
-			break
+		err := ctx.Err()
+		if err == nil {
+			if err = r.usage.AddUsage(ctx, []Usage{d}); err == nil {
+				landed++
+				continue
+			}
+			if ctx.Err() == nil {
+				bad = append(bad, rejected{d, err})
+				kept = append(kept, d)
+				rowErrs = append(rowErrs, err)
+				continue
+			}
 		}
-		if err := r.usage.AddUsage(ctx, []Usage{d}); err != nil {
-			bad = append(bad, rejected{d, err})
-			kept = append(kept, d)
-			rowErrs = append(rowErrs, err)
-			continue
-		}
-		landed++
+		// Out of time, which is not the row's fault: it and the rows never
+		// tried are kept unblamed, for the next flush or Stop's loss line.
+		kept = append(kept, deltas[i:]...)
+		rowErrs = append(rowErrs, err)
+		break
 	}
-	r.keep(kept)
+	r.settle(kept)
 
 	if landed == 0 {
 		return batchErr
@@ -962,6 +1037,12 @@ func (b *bucket) noteSuccess() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.streak = 0
+}
+
+func (b *bucket) hasPending() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.pending) > 0
 }
 
 // takePending returns and clears the spend the store has not seen, one delta
