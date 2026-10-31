@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -38,6 +40,10 @@ func (f *failingUsageStore) setFailing(v bool) {
 func (f *failingUsageStore) AddUsage(ctx context.Context, deltas []Usage) error {
 	f.mu.Lock()
 	failing, during := f.failing, f.during
+	if failing {
+		// Once per flush in flight, however many writes the flush splits into.
+		f.during = nil
+	}
 	f.mu.Unlock()
 	if failing {
 		if during != nil {
@@ -164,4 +170,141 @@ func TestFlushRetryUnderConcurrentSpend(t *testing.T) {
 	require.NoError(t, reg.Flush(ctx))
 	assert.Equal(t, map[string]int64{fingerprint("key") + "/sweep": workers * perWorker},
 		storedRequests(store.fakeUsageStore))
+}
+
+// poisonedStore rejects, atomically, every statement that carries a row of the
+// poisoned key: the way a row the database refuses for good fails its batch.
+type poisonedStore struct {
+	*fakeUsageStore
+	poisoned string
+}
+
+func (p *poisonedStore) AddUsage(ctx context.Context, deltas []Usage) error {
+	for _, d := range deltas {
+		if d.Fingerprint == p.poisoned {
+			return errors.New("row rejected")
+		}
+	}
+	return p.fakeUsageStore.AddUsage(ctx, deltas)
+}
+
+// TestPoisonedRowDoesNotBlockTheRest: one delta the store can never write must
+// not hold the rest of the spend hostage in the statement it keeps failing.
+func TestPoisonedRowDoesNotBlockTheRest(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	store := &poisonedStore{fakeUsageStore: &fakeUsageStore{}, poisoned: fingerprint("key-bad")}
+	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
+	var buf bytes.Buffer
+	reg.log = slog.New(slog.NewTextHandler(&buf, nil))
+	bad := reg.bucket(Credential{Provider: "test", APIKey: "key-bad"})
+	good := reg.bucket(Credential{Provider: "test", APIKey: "key-good"})
+
+	require.NoError(t, bad.reserve(spend.ClassInteractive, "sweep", now))
+	require.NoError(t, bad.reserve(spend.ClassInteractive, "sweep", now))
+	require.NoError(t, good.reserve(spend.ClassInteractive, "sweep", now))
+	require.Error(t, reg.Flush(ctx), "the unwritable row is still reported")
+	assert.Equal(t, map[string]int64{fingerprint("key-good") + "/sweep": 1}, storedRequests(store.fakeUsageStore))
+
+	// The kept row keeps failing its batch; later spend lands anyway.
+	require.NoError(t, good.reserve(spend.ClassInteractive, "sweep", now))
+	require.Error(t, reg.Flush(ctx))
+	assert.Equal(t, map[string]int64{fingerprint("key-good") + "/sweep": 2}, storedRequests(store.fakeUsageStore))
+
+	// The loss is named, not just counted: provider, key, period, amount.
+	log := buf.String()
+	assert.Contains(t, log, "level=ERROR")
+	assert.Contains(t, log, "provider=test")
+	assert.Contains(t, log, fingerprint("key-bad"))
+	assert.Contains(t, log, "2026-07-01")
+	assert.Contains(t, log, "requests=2")
+	assert.NotContains(t, log, "key-bad", "the key itself is never logged")
+
+	// Held, not dropped: whoever fixes the row gets the spend.
+	store.poisoned = ""
+	require.NoError(t, reg.Flush(ctx))
+	assert.EqualValues(t, 2, storedRequests(store.fakeUsageStore)[fingerprint("key-bad")+"/sweep"])
+}
+
+// TestStoreOutageIsNotBlamedOnRows: when nothing lands, the store is down, not
+// the rows, and per-row errors would only multiply the log.
+func TestStoreOutageIsNotBlamedOnRows(t *testing.T) {
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	store := &failingUsageStore{fakeUsageStore: &fakeUsageStore{}, failing: true}
+	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
+	var buf bytes.Buffer
+	reg.log = slog.New(slog.NewTextHandler(&buf, nil))
+	for _, k := range []string{"a", "b", "c"} {
+		require.NoError(t, reg.bucket(Credential{Provider: "test", APIKey: k}).
+			reserve(spend.ClassInteractive, "sweep", now))
+	}
+	require.ErrorIs(t, reg.Flush(context.Background()), errStoreDown)
+	assert.Empty(t, buf.String())
+}
+
+// flakyStore fails its first n writes, then behaves.
+type flakyStore struct {
+	*fakeUsageStore
+	failures int
+}
+
+func (f *flakyStore) AddUsage(ctx context.Context, deltas []Usage) error {
+	if f.failures > 0 {
+		f.failures--
+		return errStoreDown
+	}
+	return f.fakeUsageStore.AddUsage(ctx, deltas)
+}
+
+// TestStopRetriesTheFinalFlush: the process is about to exit, so there is no
+// next tick to carry the spend a failed last write held.
+func TestStopRetriesTheFinalFlush(t *testing.T) {
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	store := &flakyStore{fakeUsageStore: &fakeUsageStore{}, failures: 2}
+	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
+	require.NoError(t, reg.Start(context.Background()))
+	for range 3 {
+		require.NoError(t, reg.bucket(Credential{Provider: "test", APIKey: "key"}).
+			reserve(spend.ClassInteractive, "sweep", now))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, reg.Stop(ctx))
+	assert.Equal(t, map[string]int64{fingerprint("key") + "/sweep": 3}, storedRequests(store.fakeUsageStore))
+}
+
+// TestStopLogsWhatItCouldNotWrite: when the deadline ends the retries, the spend
+// that never reached the store is reported once, with its amount.
+func TestStopLogsWhatItCouldNotWrite(t *testing.T) {
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	store := &failingUsageStore{fakeUsageStore: &fakeUsageStore{}, failing: true}
+	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
+	var buf bytes.Buffer
+	reg.log = slog.New(slog.NewTextHandler(&buf, nil))
+	require.NoError(t, reg.Start(context.Background()))
+	b := reg.bucket(Credential{Provider: "test", APIKey: "key"})
+	for range 3 {
+		require.NoError(t, b.reserve(spend.ClassInteractive, "sweep", now))
+	}
+	require.NoError(t, b.reserve(spend.ClassInteractive, "guard", now))
+	// Spend that arrives during the last attempt is lost too, and counted.
+	late := 0
+	var spendLate func()
+	spendLate = func() {
+		late++
+		require.NoError(t, b.reserve(spend.ClassInteractive, "late", now))
+		store.during = spendLate
+	}
+	store.during = spendLate
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, reg.Stop(ctx), errStoreDown)
+
+	log := buf.String()
+	assert.Equal(t, 1, strings.Count(log, "lost"), "reported once, not per attempt")
+	assert.Contains(t, log, "level=ERROR")
+	assert.Contains(t, log, fmt.Sprintf("requests=%d", 4+late), "spend reserved during the last attempt is counted")
+	assert.Contains(t, log, fingerprint("key"))
 }
