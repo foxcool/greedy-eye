@@ -37,6 +37,39 @@ func (h *Handler) ruleEngine(rule *entity.Rule) (execution.Engine, error) {
 	return eng, nil
 }
 
+// validateConfiguration refuses a configuration the rule's engine could not
+// run: unparseable, or naming an account the caller cannot read or that sits
+// outside the rule's portfolio. A rule type without an engine is stored as
+// is; it cannot run until one exists.
+func (h *Handler) validateConfiguration(ctx context.Context, rule *entity.Rule) error {
+	eng, ok := h.engines.Lookup(rule.RuleType)
+	if !ok {
+		return nil
+	}
+	inputs, err := eng.Inputs(rule)
+	if err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("configuration: %w", err))
+	}
+	if h.pClient == nil {
+		return connect.NewError(connect.CodeUnimplemented, errors.New("account lookup not configured"))
+	}
+	acct, err := h.pClient.GetAccount(ctx, connect.NewRequest(&apiv1.GetAccountRequest{Id: inputs.AccountID}))
+	switch connect.CodeOf(err) {
+	case connect.CodeNotFound, connect.CodePermissionDenied, connect.CodeInvalidArgument:
+		// Not found and not yours read the same, so the answer does not tell
+		// one from the other.
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("configuration: account %s not found", inputs.AccountID))
+	}
+	if err != nil {
+		return err
+	}
+	if acct.Msg.GetPortfolioId() != rule.PortfolioID {
+		return connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("configuration: account %s is not in portfolio %s", inputs.AccountID, rule.PortfolioID))
+	}
+	return nil
+}
+
 // prepare builds the snapshot and plans. Its error is the reason a run
 // failed, recorded on the execution rather than returned to the caller.
 func (h *Handler) prepare(ctx context.Context, eng execution.Engine, rule *entity.Rule) (prepared, error) {

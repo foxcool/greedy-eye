@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"connectrpc.com/connect"
@@ -76,6 +77,9 @@ func (h *Handler) CreateRule(ctx context.Context, req *connect.Request[apiv1.Cre
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	r.UserID = user.ID
+	if err := h.validateConfiguration(ctx, r); err != nil {
+		return nil, err
+	}
 
 	created, err := h.store.CreateRule(ctx, r)
 	if err != nil {
@@ -123,7 +127,8 @@ func (h *Handler) UpdateRule(ctx context.Context, req *connect.Request[apiv1.Upd
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rule with ID is required"))
 	}
 
-	if _, err := h.ownedRule(ctx, req.Msg.Rule.Id); err != nil {
+	existing, err := h.ownedRule(ctx, req.Msg.Rule.Id)
+	if err != nil {
 		return nil, err
 	}
 
@@ -135,6 +140,15 @@ func (h *Handler) UpdateRule(ctx context.Context, req *connect.Request[apiv1.Upd
 	r, err := ruleFromProto(req.Msg.Rule)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	// The store never changes a rule's type or portfolio, so the new
+	// configuration is judged against the stored ones.
+	if len(fields) == 0 || slices.Contains(fields, "configuration") {
+		merged := *existing
+		merged.Configuration = r.Configuration
+		if err := h.validateConfiguration(ctx, &merged); err != nil {
+			return nil, err
+		}
 	}
 
 	updated, err := h.store.UpdateRule(ctx, r, fields)

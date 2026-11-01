@@ -2,6 +2,7 @@ package automation
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -15,12 +16,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
 	testExecID  = "0190a3a0-0000-7000-8000-000000000001"
-	testAccount = "acct-1"
+	testAccount = "0190a3a0-0000-7000-8000-00000000000a"
+	testBase    = "0190a3a0-0000-7000-8000-00000000000b"
+	testQuote   = "0190a3a0-0000-7000-8000-00000000000c"
 )
 
 // fakePortfolio is an in-memory portfolio service for one manual account.
@@ -173,4 +178,158 @@ func TestExecuteRule_NoVenueForAccountType_Failed(t *testing.T) {
 	assert.Equal(t, apiv1.ExecutionStatus_EXECUTION_STATUS_FAILED, resp.Msg.Execution.Status)
 	assert.Contains(t, final.ErrorMessage, "no venue for account type")
 	assert.Contains(t, string(final.ExecutionSummary), `"state":"rejected"`)
+}
+
+// --- DCA ---
+
+func dcaConfig(t *testing.T, cfg map[string]any) *structpb.Struct {
+	t.Helper()
+	s, err := structpb.NewStruct(cfg)
+	require.NoError(t, err)
+	return s
+}
+
+func validDCA() map[string]any {
+	return map[string]any{
+		"account_id":     testAccount,
+		"asset_id":       testBase,
+		"quote_asset_id": testQuote,
+		"quote_amount":   "100",
+	}
+}
+
+func dcaHandler(s Store, pc *fakePortfolio, md *fakeMD) *Handler {
+	return newHandler(s).
+		WithEngines(execution.NewEngines(execution.DCA{})).
+		WithPortfolioClient(pc).
+		WithMarketDataClient(md)
+}
+
+func TestCreateRule_DCAConfigurationValidated(t *testing.T) {
+	with := func(key string, value any) map[string]any {
+		cfg := validDCA()
+		if value == nil {
+			delete(cfg, key)
+		} else {
+			cfg[key] = value
+		}
+		return cfg
+	}
+	tests := []struct {
+		name        string
+		cfg         map[string]any
+		portfolioID string
+	}{
+		{"empty asset_id", with("asset_id", ""), "p-1"},
+		{"zero quote_amount", with("quote_amount", "0"), "p-1"},
+		{"negative quote_amount", with("quote_amount", "-1"), "p-1"},
+		{"quote_amount not a number", with("quote_amount", "ten"), "p-1"},
+		{"missing account_id", with("account_id", nil), "p-1"},
+		{"unknown account", with("account_id", "0190a3a0-0000-7000-8000-0000000000ff"), "p-1"},
+		{"account outside the rule's portfolio", validDCA(), "p-other"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &mockStore{}
+			h := dcaHandler(s, &fakePortfolio{portfolioID: tc.portfolioID}, &fakeMD{})
+			_, err := h.CreateRule(ownerCtx(), connect.NewRequest(&apiv1.CreateRuleRequest{Rule: &apiv1.Rule{
+				Name: "dca", RuleType: execution.DCAType, PortfolioId: "p-1", Configuration: dcaConfig(t, tc.cfg),
+			}}))
+			require.Error(t, err)
+			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), err.Error())
+			s.AssertNotCalled(t, "CreateRule", mock.Anything, mock.Anything)
+		})
+	}
+
+	t.Run("valid", func(t *testing.T) {
+		s := &mockStore{}
+		s.On("CreateRule", mock.Anything, mock.Anything).Return(fakeRule(execution.DCAType), nil)
+		h := dcaHandler(s, &fakePortfolio{portfolioID: "p-1"}, &fakeMD{})
+		_, err := h.CreateRule(ownerCtx(), connect.NewRequest(&apiv1.CreateRuleRequest{Rule: &apiv1.Rule{
+			Name: "dca", RuleType: execution.DCAType, PortfolioId: "p-1", Configuration: dcaConfig(t, validDCA()),
+		}}))
+		require.NoError(t, err)
+	})
+}
+
+func TestUpdateRule_DCAConfigurationValidated(t *testing.T) {
+	bad := validDCA()
+	bad["quote_amount"] = "0"
+	for _, tc := range []struct {
+		name string
+		mask []string
+	}{
+		{"full update", nil},
+		{"configuration in mask", []string{"name", "configuration"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &mockStore{}
+			s.On("GetRule", mock.Anything, "r-1").Return(fakeRule(execution.DCAType), nil)
+			h := dcaHandler(s, &fakePortfolio{portfolioID: "p-1"}, &fakeMD{})
+			req := &apiv1.UpdateRuleRequest{Rule: &apiv1.Rule{Id: "r-1", Name: "dca", Configuration: dcaConfig(t, bad)}}
+			if tc.mask != nil {
+				req.UpdateMask = &fieldmaskpb.FieldMask{Paths: tc.mask}
+			}
+			_, err := h.UpdateRule(ownerCtx(), connect.NewRequest(req))
+			require.Error(t, err)
+			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+			s.AssertNotCalled(t, "UpdateRule", mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
+
+	t.Run("mask without configuration is not judged", func(t *testing.T) {
+		s := &mockStore{}
+		s.On("GetRule", mock.Anything, "r-1").Return(fakeRule(execution.DCAType), nil)
+		s.On("UpdateRule", mock.Anything, mock.Anything, []string{"name"}).Return(fakeRule(execution.DCAType), nil)
+		h := dcaHandler(s, &fakePortfolio{portfolioID: "p-1"}, &fakeMD{})
+		_, err := h.UpdateRule(ownerCtx(), connect.NewRequest(&apiv1.UpdateRuleRequest{
+			Rule:       &apiv1.Rule{Id: "r-1", Name: "renamed"},
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"name"}},
+		}))
+		require.NoError(t, err)
+	})
+}
+
+func storedDCARule(t *testing.T) *entity.Rule {
+	t.Helper()
+	raw, err := json.Marshal(validDCA())
+	require.NoError(t, err)
+	r := fakeRule(execution.DCAType)
+	r.Configuration = raw
+	return r
+}
+
+func TestSimulateRule_DCA(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetRule", mock.Anything, "r-1").Return(storedDCARule(t), nil)
+	pc := &fakePortfolio{portfolioID: "p-1", accountType: apiv1.AccountType_ACCOUNT_TYPE_MANUAL, holdings: []*apiv1.Holding{
+		{Id: "h-q", AssetId: testQuote, AccountId: testAccount, Amount: "25000", Decimals: 2}, // 250.00
+	}}
+	md := &fakeMD{price: &apiv1.Price{Last: "4000000", Decimals: 2, Timestamp: timestamppb.New(time.Now().Add(-time.Minute))}} // 40000.00
+	h := dcaHandler(s, pc, md)
+
+	resp, err := h.SimulateRule(ownerCtx(), connect.NewRequest(&apiv1.SimulateRuleRequest{RuleId: "r-1"}))
+	require.NoError(t, err)
+	require.True(t, resp.Msg.Success, resp.Msg.ErrorMessage)
+	dca := resp.Msg.Result.GetDca()
+	require.NotNil(t, dca)
+	assert.Equal(t, 100.0, dca.DcaAmount)
+	assert.Equal(t, testBase, dca.TargetAssetId)
+	assert.Equal(t, 40000.0, dca.EstimatedPrice)
+	assert.Equal(t, 0.0025, dca.EstimatedPurchaseAmount)
+	assert.Equal(t, 250.0, dca.AvailableBalance)
+	assert.True(t, dca.SufficientFunds)
+	assert.Zero(t, dca.EstimatedFee)
+}
+
+func TestSimulateRule_DCAStalePrice(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetRule", mock.Anything, "r-1").Return(storedDCARule(t), nil)
+	md := &fakeMD{price: &apiv1.Price{Last: "4000000", Decimals: 2, Timestamp: timestamppb.New(time.Now().Add(-2 * time.Hour))}}
+	h := dcaHandler(s, &fakePortfolio{portfolioID: "p-1"}, md)
+
+	resp, err := h.SimulateRule(ownerCtx(), connect.NewRequest(&apiv1.SimulateRuleRequest{RuleId: "r-1"}))
+	require.NoError(t, err)
+	assert.False(t, resp.Msg.Success)
+	assert.Contains(t, resp.Msg.ErrorMessage, "old")
 }

@@ -7,7 +7,28 @@ import (
 	"time"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/shopspring/decimal"
 )
+
+// defaultDecimals is the storage scale of a holding a fill creates. Assets
+// carry no scale of their own; ImportPositions defaults to the same.
+const defaultDecimals = 8
+
+// baseDecimals is the scale a fill of assetID is kept at: its holding's,
+// else the default.
+func baseDecimals(snap Snapshot, assetID string) uint32 {
+	if h, found, _ := snap.Holding(assetID); found {
+		return h.Decimals
+	}
+	return defaultDecimals
+}
+
+// baseBought is what a buy's quote amount gets at its price, rounded down to
+// decimals: a fill never credits more than was paid for.
+func baseBought(t Trade, decimals uint32) decimal.Decimal {
+	q, _ := t.QuoteAmount.QuoRem(t.Price, int32(decimals)) // #nosec G115 -- decimals is a small storage scale
+	return q
+}
 
 // TradeState is where a trade is in its life. Waiting states arrive with the
 // first venue that answers later than Submit returns.
