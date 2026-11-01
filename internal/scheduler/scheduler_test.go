@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -340,4 +341,21 @@ func TestStart_BalanceSyncNeedsBothCronAndSweeper(t *testing.T) {
 func TestNew_InvalidBalanceSyncCron(t *testing.T) {
 	_, err := New(Config{BalanceSyncCron: "not a cron"}, &mockRuleStore{}, &fakeExecutor{}, &fakeFetcher{}, nil, testLogger())
 	assert.Error(t, err)
+}
+
+// A rule whose type has no engine is a known gap, not a failure to page on:
+// it is logged at info like a paused or deleted rule.
+func TestRunRule_UnimplementedIsExpected(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	exec := &fakeExecutor{err: connect.NewError(connect.CodeUnimplemented, errors.New("no engine for rule type"))}
+	s, err := New(Config{}, &mockRuleStore{}, exec, &fakeFetcher{}, nil, log)
+	require.NoError(t, err)
+
+	s.runRule("rule-1", "user-1")
+
+	out := buf.String()
+	assert.Contains(t, out, "level=INFO")
+	assert.Contains(t, out, "code=unimplemented")
+	assert.NotContains(t, out, "level=ERROR")
 }

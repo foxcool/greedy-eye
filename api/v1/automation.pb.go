@@ -890,118 +890,6 @@ func (x *ExecuteRuleResponse) GetExecution() *RuleExecution {
 	return nil
 }
 
-type ExecuteRuleAsyncRequest struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	RuleId           string                 `protobuf:"bytes,1,opt,name=rule_id,json=ruleId,proto3" json:"rule_id,omitempty"`
-	DryRun           bool                   `protobuf:"varint,2,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
-	ExecutionContext *string                `protobuf:"bytes,3,opt,name=execution_context,json=executionContext,proto3,oneof" json:"execution_context,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
-}
-
-func (x *ExecuteRuleAsyncRequest) Reset() {
-	*x = ExecuteRuleAsyncRequest{}
-	mi := &file_v1_automation_proto_msgTypes[11]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ExecuteRuleAsyncRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ExecuteRuleAsyncRequest) ProtoMessage() {}
-
-func (x *ExecuteRuleAsyncRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[11]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ExecuteRuleAsyncRequest.ProtoReflect.Descriptor instead.
-func (*ExecuteRuleAsyncRequest) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{11}
-}
-
-func (x *ExecuteRuleAsyncRequest) GetRuleId() string {
-	if x != nil {
-		return x.RuleId
-	}
-	return ""
-}
-
-func (x *ExecuteRuleAsyncRequest) GetDryRun() bool {
-	if x != nil {
-		return x.DryRun
-	}
-	return false
-}
-
-func (x *ExecuteRuleAsyncRequest) GetExecutionContext() string {
-	if x != nil && x.ExecutionContext != nil {
-		return *x.ExecutionContext
-	}
-	return ""
-}
-
-type ExecuteRuleAsyncResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ExecutionId   string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
-	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ExecuteRuleAsyncResponse) Reset() {
-	*x = ExecuteRuleAsyncResponse{}
-	mi := &file_v1_automation_proto_msgTypes[12]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ExecuteRuleAsyncResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ExecuteRuleAsyncResponse) ProtoMessage() {}
-
-func (x *ExecuteRuleAsyncResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[12]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ExecuteRuleAsyncResponse.ProtoReflect.Descriptor instead.
-func (*ExecuteRuleAsyncResponse) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{12}
-}
-
-func (x *ExecuteRuleAsyncResponse) GetExecutionId() string {
-	if x != nil {
-		return x.ExecutionId
-	}
-	return ""
-}
-
-func (x *ExecuteRuleAsyncResponse) GetStatus() string {
-	if x != nil {
-		return x.Status
-	}
-	return ""
-}
-
 type CancelRuleExecutionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ExecutionId   string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
@@ -1012,7 +900,7 @@ type CancelRuleExecutionRequest struct {
 
 func (x *CancelRuleExecutionRequest) Reset() {
 	*x = CancelRuleExecutionRequest{}
-	mi := &file_v1_automation_proto_msgTypes[13]
+	mi := &file_v1_automation_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1024,7 +912,7 @@ func (x *CancelRuleExecutionRequest) String() string {
 func (*CancelRuleExecutionRequest) ProtoMessage() {}
 
 func (x *CancelRuleExecutionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[13]
+	mi := &file_v1_automation_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1037,7 +925,7 @@ func (x *CancelRuleExecutionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelRuleExecutionRequest.ProtoReflect.Descriptor instead.
 func (*CancelRuleExecutionRequest) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{13}
+	return file_v1_automation_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *CancelRuleExecutionRequest) GetExecutionId() string {
@@ -1063,7 +951,7 @@ type ValidateRuleRequest struct {
 
 func (x *ValidateRuleRequest) Reset() {
 	*x = ValidateRuleRequest{}
-	mi := &file_v1_automation_proto_msgTypes[14]
+	mi := &file_v1_automation_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1075,7 +963,7 @@ func (x *ValidateRuleRequest) String() string {
 func (*ValidateRuleRequest) ProtoMessage() {}
 
 func (x *ValidateRuleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[14]
+	mi := &file_v1_automation_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1088,7 +976,7 @@ func (x *ValidateRuleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateRuleRequest.ProtoReflect.Descriptor instead.
 func (*ValidateRuleRequest) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{14}
+	return file_v1_automation_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ValidateRuleRequest) GetRule() *Rule {
@@ -1109,7 +997,7 @@ type ValidateRuleResponse struct {
 
 func (x *ValidateRuleResponse) Reset() {
 	*x = ValidateRuleResponse{}
-	mi := &file_v1_automation_proto_msgTypes[15]
+	mi := &file_v1_automation_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1121,7 +1009,7 @@ func (x *ValidateRuleResponse) String() string {
 func (*ValidateRuleResponse) ProtoMessage() {}
 
 func (x *ValidateRuleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[15]
+	mi := &file_v1_automation_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1134,7 +1022,7 @@ func (x *ValidateRuleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateRuleResponse.ProtoReflect.Descriptor instead.
 func (*ValidateRuleResponse) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{15}
+	return file_v1_automation_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ValidateRuleResponse) GetValid() bool {
@@ -1169,7 +1057,7 @@ type SimulateRuleRequest struct {
 
 func (x *SimulateRuleRequest) Reset() {
 	*x = SimulateRuleRequest{}
-	mi := &file_v1_automation_proto_msgTypes[16]
+	mi := &file_v1_automation_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1181,7 +1069,7 @@ func (x *SimulateRuleRequest) String() string {
 func (*SimulateRuleRequest) ProtoMessage() {}
 
 func (x *SimulateRuleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[16]
+	mi := &file_v1_automation_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1194,7 +1082,7 @@ func (x *SimulateRuleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SimulateRuleRequest.ProtoReflect.Descriptor instead.
 func (*SimulateRuleRequest) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{16}
+	return file_v1_automation_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *SimulateRuleRequest) GetRuleId() string {
@@ -1230,7 +1118,7 @@ type SimulateRuleResponse struct {
 
 func (x *SimulateRuleResponse) Reset() {
 	*x = SimulateRuleResponse{}
-	mi := &file_v1_automation_proto_msgTypes[17]
+	mi := &file_v1_automation_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1242,7 +1130,7 @@ func (x *SimulateRuleResponse) String() string {
 func (*SimulateRuleResponse) ProtoMessage() {}
 
 func (x *SimulateRuleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[17]
+	mi := &file_v1_automation_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1255,7 +1143,7 @@ func (x *SimulateRuleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SimulateRuleResponse.ProtoReflect.Descriptor instead.
 func (*SimulateRuleResponse) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{17}
+	return file_v1_automation_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *SimulateRuleResponse) GetSuccess() bool {
@@ -1304,7 +1192,7 @@ type SimulationResult struct {
 
 func (x *SimulationResult) Reset() {
 	*x = SimulationResult{}
-	mi := &file_v1_automation_proto_msgTypes[18]
+	mi := &file_v1_automation_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1316,7 +1204,7 @@ func (x *SimulationResult) String() string {
 func (*SimulationResult) ProtoMessage() {}
 
 func (x *SimulationResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[18]
+	mi := &file_v1_automation_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1329,7 +1217,7 @@ func (x *SimulationResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SimulationResult.ProtoReflect.Descriptor instead.
 func (*SimulationResult) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{18}
+	return file_v1_automation_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *SimulationResult) GetEstimatedCost() float64 {
@@ -1437,7 +1325,7 @@ type RebalancingSimulation struct {
 
 func (x *RebalancingSimulation) Reset() {
 	*x = RebalancingSimulation{}
-	mi := &file_v1_automation_proto_msgTypes[19]
+	mi := &file_v1_automation_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1449,7 +1337,7 @@ func (x *RebalancingSimulation) String() string {
 func (*RebalancingSimulation) ProtoMessage() {}
 
 func (x *RebalancingSimulation) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[19]
+	mi := &file_v1_automation_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1462,7 +1350,7 @@ func (x *RebalancingSimulation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RebalancingSimulation.ProtoReflect.Descriptor instead.
 func (*RebalancingSimulation) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{19}
+	return file_v1_automation_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RebalancingSimulation) GetCurrentTotalValue() float64 {
@@ -1513,7 +1401,7 @@ type AssetAllocation struct {
 
 func (x *AssetAllocation) Reset() {
 	*x = AssetAllocation{}
-	mi := &file_v1_automation_proto_msgTypes[20]
+	mi := &file_v1_automation_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1525,7 +1413,7 @@ func (x *AssetAllocation) String() string {
 func (*AssetAllocation) ProtoMessage() {}
 
 func (x *AssetAllocation) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[20]
+	mi := &file_v1_automation_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1538,7 +1426,7 @@ func (x *AssetAllocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssetAllocation.ProtoReflect.Descriptor instead.
 func (*AssetAllocation) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{20}
+	return file_v1_automation_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *AssetAllocation) GetAssetId() string {
@@ -1589,7 +1477,7 @@ type PlannedTrade struct {
 
 func (x *PlannedTrade) Reset() {
 	*x = PlannedTrade{}
-	mi := &file_v1_automation_proto_msgTypes[21]
+	mi := &file_v1_automation_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1601,7 +1489,7 @@ func (x *PlannedTrade) String() string {
 func (*PlannedTrade) ProtoMessage() {}
 
 func (x *PlannedTrade) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[21]
+	mi := &file_v1_automation_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1614,7 +1502,7 @@ func (x *PlannedTrade) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlannedTrade.ProtoReflect.Descriptor instead.
 func (*PlannedTrade) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{21}
+	return file_v1_automation_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *PlannedTrade) GetAssetId() string {
@@ -1664,7 +1552,7 @@ type WithdrawalSimulation struct {
 
 func (x *WithdrawalSimulation) Reset() {
 	*x = WithdrawalSimulation{}
-	mi := &file_v1_automation_proto_msgTypes[22]
+	mi := &file_v1_automation_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1676,7 +1564,7 @@ func (x *WithdrawalSimulation) String() string {
 func (*WithdrawalSimulation) ProtoMessage() {}
 
 func (x *WithdrawalSimulation) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[22]
+	mi := &file_v1_automation_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1689,7 +1577,7 @@ func (x *WithdrawalSimulation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WithdrawalSimulation.ProtoReflect.Descriptor instead.
 func (*WithdrawalSimulation) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{22}
+	return file_v1_automation_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *WithdrawalSimulation) GetAvailableBalance() float64 {
@@ -1732,7 +1620,7 @@ type AssetWithdrawalPlan struct {
 
 func (x *AssetWithdrawalPlan) Reset() {
 	*x = AssetWithdrawalPlan{}
-	mi := &file_v1_automation_proto_msgTypes[23]
+	mi := &file_v1_automation_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1744,7 +1632,7 @@ func (x *AssetWithdrawalPlan) String() string {
 func (*AssetWithdrawalPlan) ProtoMessage() {}
 
 func (x *AssetWithdrawalPlan) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[23]
+	mi := &file_v1_automation_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1757,7 +1645,7 @@ func (x *AssetWithdrawalPlan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssetWithdrawalPlan.ProtoReflect.Descriptor instead.
 func (*AssetWithdrawalPlan) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{23}
+	return file_v1_automation_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *AssetWithdrawalPlan) GetAssetId() string {
@@ -1801,7 +1689,7 @@ type StopLossSimulation struct {
 
 func (x *StopLossSimulation) Reset() {
 	*x = StopLossSimulation{}
-	mi := &file_v1_automation_proto_msgTypes[24]
+	mi := &file_v1_automation_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1813,7 +1701,7 @@ func (x *StopLossSimulation) String() string {
 func (*StopLossSimulation) ProtoMessage() {}
 
 func (x *StopLossSimulation) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[24]
+	mi := &file_v1_automation_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1826,7 +1714,7 @@ func (x *StopLossSimulation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopLossSimulation.ProtoReflect.Descriptor instead.
 func (*StopLossSimulation) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{24}
+	return file_v1_automation_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *StopLossSimulation) GetCurrentPortfolioValue() float64 {
@@ -1876,7 +1764,7 @@ type AssetStopLoss struct {
 
 func (x *AssetStopLoss) Reset() {
 	*x = AssetStopLoss{}
-	mi := &file_v1_automation_proto_msgTypes[25]
+	mi := &file_v1_automation_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1888,7 +1776,7 @@ func (x *AssetStopLoss) String() string {
 func (*AssetStopLoss) ProtoMessage() {}
 
 func (x *AssetStopLoss) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[25]
+	mi := &file_v1_automation_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1901,7 +1789,7 @@ func (x *AssetStopLoss) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssetStopLoss.ProtoReflect.Descriptor instead.
 func (*AssetStopLoss) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{25}
+	return file_v1_automation_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *AssetStopLoss) GetAssetId() string {
@@ -1947,7 +1835,7 @@ type DCASimulation struct {
 
 func (x *DCASimulation) Reset() {
 	*x = DCASimulation{}
-	mi := &file_v1_automation_proto_msgTypes[26]
+	mi := &file_v1_automation_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1959,7 +1847,7 @@ func (x *DCASimulation) String() string {
 func (*DCASimulation) ProtoMessage() {}
 
 func (x *DCASimulation) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[26]
+	mi := &file_v1_automation_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1972,7 +1860,7 @@ func (x *DCASimulation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DCASimulation.ProtoReflect.Descriptor instead.
 func (*DCASimulation) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{26}
+	return file_v1_automation_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *DCASimulation) GetAvailableBalance() float64 {
@@ -2033,7 +1921,7 @@ type EnableRuleRequest struct {
 
 func (x *EnableRuleRequest) Reset() {
 	*x = EnableRuleRequest{}
-	mi := &file_v1_automation_proto_msgTypes[27]
+	mi := &file_v1_automation_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2045,7 +1933,7 @@ func (x *EnableRuleRequest) String() string {
 func (*EnableRuleRequest) ProtoMessage() {}
 
 func (x *EnableRuleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[27]
+	mi := &file_v1_automation_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2058,7 +1946,7 @@ func (x *EnableRuleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnableRuleRequest.ProtoReflect.Descriptor instead.
 func (*EnableRuleRequest) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{27}
+	return file_v1_automation_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *EnableRuleRequest) GetRuleId() string {
@@ -2077,7 +1965,7 @@ type DisableRuleRequest struct {
 
 func (x *DisableRuleRequest) Reset() {
 	*x = DisableRuleRequest{}
-	mi := &file_v1_automation_proto_msgTypes[28]
+	mi := &file_v1_automation_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2089,7 +1977,7 @@ func (x *DisableRuleRequest) String() string {
 func (*DisableRuleRequest) ProtoMessage() {}
 
 func (x *DisableRuleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[28]
+	mi := &file_v1_automation_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2102,7 +1990,7 @@ func (x *DisableRuleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisableRuleRequest.ProtoReflect.Descriptor instead.
 func (*DisableRuleRequest) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{28}
+	return file_v1_automation_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *DisableRuleRequest) GetRuleId() string {
@@ -2122,7 +2010,7 @@ type PauseRuleRequest struct {
 
 func (x *PauseRuleRequest) Reset() {
 	*x = PauseRuleRequest{}
-	mi := &file_v1_automation_proto_msgTypes[29]
+	mi := &file_v1_automation_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2134,7 +2022,7 @@ func (x *PauseRuleRequest) String() string {
 func (*PauseRuleRequest) ProtoMessage() {}
 
 func (x *PauseRuleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[29]
+	mi := &file_v1_automation_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2147,7 +2035,7 @@ func (x *PauseRuleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PauseRuleRequest.ProtoReflect.Descriptor instead.
 func (*PauseRuleRequest) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{29}
+	return file_v1_automation_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *PauseRuleRequest) GetRuleId() string {
@@ -2173,7 +2061,7 @@ type ResumeRuleRequest struct {
 
 func (x *ResumeRuleRequest) Reset() {
 	*x = ResumeRuleRequest{}
-	mi := &file_v1_automation_proto_msgTypes[30]
+	mi := &file_v1_automation_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2185,7 +2073,7 @@ func (x *ResumeRuleRequest) String() string {
 func (*ResumeRuleRequest) ProtoMessage() {}
 
 func (x *ResumeRuleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[30]
+	mi := &file_v1_automation_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2198,7 +2086,7 @@ func (x *ResumeRuleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeRuleRequest.ProtoReflect.Descriptor instead.
 func (*ResumeRuleRequest) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{30}
+	return file_v1_automation_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ResumeRuleRequest) GetRuleId() string {
@@ -2217,7 +2105,7 @@ type CreateRuleExecutionRequest struct {
 
 func (x *CreateRuleExecutionRequest) Reset() {
 	*x = CreateRuleExecutionRequest{}
-	mi := &file_v1_automation_proto_msgTypes[31]
+	mi := &file_v1_automation_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2229,7 +2117,7 @@ func (x *CreateRuleExecutionRequest) String() string {
 func (*CreateRuleExecutionRequest) ProtoMessage() {}
 
 func (x *CreateRuleExecutionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[31]
+	mi := &file_v1_automation_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2242,7 +2130,7 @@ func (x *CreateRuleExecutionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateRuleExecutionRequest.ProtoReflect.Descriptor instead.
 func (*CreateRuleExecutionRequest) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{31}
+	return file_v1_automation_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *CreateRuleExecutionRequest) GetRuleExecution() *RuleExecution {
@@ -2261,7 +2149,7 @@ type GetRuleExecutionRequest struct {
 
 func (x *GetRuleExecutionRequest) Reset() {
 	*x = GetRuleExecutionRequest{}
-	mi := &file_v1_automation_proto_msgTypes[32]
+	mi := &file_v1_automation_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2273,7 +2161,7 @@ func (x *GetRuleExecutionRequest) String() string {
 func (*GetRuleExecutionRequest) ProtoMessage() {}
 
 func (x *GetRuleExecutionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[32]
+	mi := &file_v1_automation_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2286,7 +2174,7 @@ func (x *GetRuleExecutionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRuleExecutionRequest.ProtoReflect.Descriptor instead.
 func (*GetRuleExecutionRequest) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{32}
+	return file_v1_automation_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *GetRuleExecutionRequest) GetId() string {
@@ -2306,7 +2194,7 @@ type UpdateRuleExecutionRequest struct {
 
 func (x *UpdateRuleExecutionRequest) Reset() {
 	*x = UpdateRuleExecutionRequest{}
-	mi := &file_v1_automation_proto_msgTypes[33]
+	mi := &file_v1_automation_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2318,7 +2206,7 @@ func (x *UpdateRuleExecutionRequest) String() string {
 func (*UpdateRuleExecutionRequest) ProtoMessage() {}
 
 func (x *UpdateRuleExecutionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[33]
+	mi := &file_v1_automation_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2331,7 +2219,7 @@ func (x *UpdateRuleExecutionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateRuleExecutionRequest.ProtoReflect.Descriptor instead.
 func (*UpdateRuleExecutionRequest) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{33}
+	return file_v1_automation_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *UpdateRuleExecutionRequest) GetRuleExecution() *RuleExecution {
@@ -2364,7 +2252,7 @@ type ListRuleExecutionsRequest struct {
 
 func (x *ListRuleExecutionsRequest) Reset() {
 	*x = ListRuleExecutionsRequest{}
-	mi := &file_v1_automation_proto_msgTypes[34]
+	mi := &file_v1_automation_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2376,7 +2264,7 @@ func (x *ListRuleExecutionsRequest) String() string {
 func (*ListRuleExecutionsRequest) ProtoMessage() {}
 
 func (x *ListRuleExecutionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[34]
+	mi := &file_v1_automation_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2389,7 +2277,7 @@ func (x *ListRuleExecutionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRuleExecutionsRequest.ProtoReflect.Descriptor instead.
 func (*ListRuleExecutionsRequest) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{34}
+	return file_v1_automation_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ListRuleExecutionsRequest) GetRuleId() string {
@@ -2458,7 +2346,7 @@ type ListRuleExecutionsResponse struct {
 
 func (x *ListRuleExecutionsResponse) Reset() {
 	*x = ListRuleExecutionsResponse{}
-	mi := &file_v1_automation_proto_msgTypes[35]
+	mi := &file_v1_automation_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2470,7 +2358,7 @@ func (x *ListRuleExecutionsResponse) String() string {
 func (*ListRuleExecutionsResponse) ProtoMessage() {}
 
 func (x *ListRuleExecutionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_automation_proto_msgTypes[35]
+	mi := &file_v1_automation_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2483,7 +2371,7 @@ func (x *ListRuleExecutionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRuleExecutionsResponse.ProtoReflect.Descriptor instead.
 func (*ListRuleExecutionsResponse) Descriptor() ([]byte, []int) {
-	return file_v1_automation_proto_rawDescGZIP(), []int{35}
+	return file_v1_automation_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ListRuleExecutionsResponse) GetRuleExecutions() []*RuleExecution {
@@ -2580,15 +2468,7 @@ const file_v1_automation_proto_rawDesc = "" +
 	"\x11execution_context\x18\x03 \x01(\tH\x00R\x10executionContext\x88\x01\x01B\x14\n" +
 	"\x12_execution_context\"J\n" +
 	"\x13ExecuteRuleResponse\x123\n" +
-	"\texecution\x18\x01 \x01(\v2\x15.eye.v1.RuleExecutionR\texecution\"\x93\x01\n" +
-	"\x17ExecuteRuleAsyncRequest\x12\x17\n" +
-	"\arule_id\x18\x01 \x01(\tR\x06ruleId\x12\x17\n" +
-	"\adry_run\x18\x02 \x01(\bR\x06dryRun\x120\n" +
-	"\x11execution_context\x18\x03 \x01(\tH\x00R\x10executionContext\x88\x01\x01B\x14\n" +
-	"\x12_execution_context\"U\n" +
-	"\x18ExecuteRuleAsyncResponse\x12!\n" +
-	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12\x16\n" +
-	"\x06status\x18\x02 \x01(\tR\x06status\"W\n" +
+	"\texecution\x18\x01 \x01(\v2\x15.eye.v1.RuleExecutionR\texecution\"W\n" +
 	"\x1aCancelRuleExecutionRequest\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"7\n" +
@@ -2724,7 +2604,7 @@ const file_v1_automation_proto_rawDesc = "" +
 	"\x1cEXECUTION_STATUS_IN_PROGRESS\x10\x02\x12\x1e\n" +
 	"\x1aEXECUTION_STATUS_COMPLETED\x10\x03\x12\x1b\n" +
 	"\x17EXECUTION_STATUS_FAILED\x10\x04\x12\x1e\n" +
-	"\x1aEXECUTION_STATUS_CANCELLED\x10\x052\xd1\x0f\n" +
+	"\x1aEXECUTION_STATUS_CANCELLED\x10\x052\xc7\x0e\n" +
 	"\x11AutomationService\x12R\n" +
 	"\n" +
 	"CreateRule\x12\x19.eye.v1.CreateRuleRequest\x1a\f.eye.v1.Rule\"\x1b\x82\xd3\xe4\x93\x02\x15:\x04rule\"\r/api/v1/rules\x12K\n" +
@@ -2734,8 +2614,7 @@ const file_v1_automation_proto_rawDesc = "" +
 	"\n" +
 	"DeleteRule\x12\x19.eye.v1.DeleteRuleRequest\x1a\x16.google.protobuf.Empty\"\x1a\x82\xd3\xe4\x93\x02\x14*\x12/api/v1/rules/{id}\x12W\n" +
 	"\tListRules\x12\x18.eye.v1.ListRulesRequest\x1a\x19.eye.v1.ListRulesResponse\"\x15\x82\xd3\xe4\x93\x02\x0f\x12\r/api/v1/rules\x12r\n" +
-	"\vExecuteRule\x12\x1a.eye.v1.ExecuteRuleRequest\x1a\x1b.eye.v1.ExecuteRuleResponse\"*\x82\xd3\xe4\x93\x02$:\x01*\"\x1f/api/v1/rules/{rule_id}/execute\x12\x87\x01\n" +
-	"\x10ExecuteRuleAsync\x12\x1f.eye.v1.ExecuteRuleAsyncRequest\x1a .eye.v1.ExecuteRuleAsyncResponse\"0\x82\xd3\xe4\x93\x02*:\x01*\"%/api/v1/rules/{rule_id}/execute-async\x12\x8b\x01\n" +
+	"\vExecuteRule\x12\x1a.eye.v1.ExecuteRuleRequest\x1a\x1b.eye.v1.ExecuteRuleResponse\"*\x82\xd3\xe4\x93\x02$:\x01*\"\x1f/api/v1/rules/{rule_id}/execute\x12\x8b\x01\n" +
 	"\x13CancelRuleExecution\x12\".eye.v1.CancelRuleExecutionRequest\x1a\x16.google.protobuf.Empty\"8\x82\xd3\xe4\x93\x022:\x01*\"-/api/v1/rule-executions/{execution_id}/cancel\x12o\n" +
 	"\fValidateRule\x12\x1b.eye.v1.ValidateRuleRequest\x1a\x1c.eye.v1.ValidateRuleResponse\"$\x82\xd3\xe4\x93\x02\x1e:\x04rule\"\x16/api/v1/rules/validate\x12v\n" +
 	"\fSimulateRule\x12\x1b.eye.v1.SimulateRuleRequest\x1a\x1c.eye.v1.SimulateRuleResponse\"+\x82\xd3\xe4\x93\x02%:\x01*\" /api/v1/rules/{rule_id}/simulate\x12`\n" +
@@ -2765,7 +2644,7 @@ func file_v1_automation_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_automation_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_v1_automation_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
+var file_v1_automation_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
 var file_v1_automation_proto_goTypes = []any{
 	(RuleStatus)(0),                    // 0: eye.v1.RuleStatus
 	(ExecutionStatus)(0),               // 1: eye.v1.ExecutionStatus
@@ -2780,71 +2659,69 @@ var file_v1_automation_proto_goTypes = []any{
 	(*ListRulesResponse)(nil),          // 10: eye.v1.ListRulesResponse
 	(*ExecuteRuleRequest)(nil),         // 11: eye.v1.ExecuteRuleRequest
 	(*ExecuteRuleResponse)(nil),        // 12: eye.v1.ExecuteRuleResponse
-	(*ExecuteRuleAsyncRequest)(nil),    // 13: eye.v1.ExecuteRuleAsyncRequest
-	(*ExecuteRuleAsyncResponse)(nil),   // 14: eye.v1.ExecuteRuleAsyncResponse
-	(*CancelRuleExecutionRequest)(nil), // 15: eye.v1.CancelRuleExecutionRequest
-	(*ValidateRuleRequest)(nil),        // 16: eye.v1.ValidateRuleRequest
-	(*ValidateRuleResponse)(nil),       // 17: eye.v1.ValidateRuleResponse
-	(*SimulateRuleRequest)(nil),        // 18: eye.v1.SimulateRuleRequest
-	(*SimulateRuleResponse)(nil),       // 19: eye.v1.SimulateRuleResponse
-	(*SimulationResult)(nil),           // 20: eye.v1.SimulationResult
-	(*RebalancingSimulation)(nil),      // 21: eye.v1.RebalancingSimulation
-	(*AssetAllocation)(nil),            // 22: eye.v1.AssetAllocation
-	(*PlannedTrade)(nil),               // 23: eye.v1.PlannedTrade
-	(*WithdrawalSimulation)(nil),       // 24: eye.v1.WithdrawalSimulation
-	(*AssetWithdrawalPlan)(nil),        // 25: eye.v1.AssetWithdrawalPlan
-	(*StopLossSimulation)(nil),         // 26: eye.v1.StopLossSimulation
-	(*AssetStopLoss)(nil),              // 27: eye.v1.AssetStopLoss
-	(*DCASimulation)(nil),              // 28: eye.v1.DCASimulation
-	(*EnableRuleRequest)(nil),          // 29: eye.v1.EnableRuleRequest
-	(*DisableRuleRequest)(nil),         // 30: eye.v1.DisableRuleRequest
-	(*PauseRuleRequest)(nil),           // 31: eye.v1.PauseRuleRequest
-	(*ResumeRuleRequest)(nil),          // 32: eye.v1.ResumeRuleRequest
-	(*CreateRuleExecutionRequest)(nil), // 33: eye.v1.CreateRuleExecutionRequest
-	(*GetRuleExecutionRequest)(nil),    // 34: eye.v1.GetRuleExecutionRequest
-	(*UpdateRuleExecutionRequest)(nil), // 35: eye.v1.UpdateRuleExecutionRequest
-	(*ListRuleExecutionsRequest)(nil),  // 36: eye.v1.ListRuleExecutionsRequest
-	(*ListRuleExecutionsResponse)(nil), // 37: eye.v1.ListRuleExecutionsResponse
-	(*structpb.Struct)(nil),            // 38: google.protobuf.Struct
-	(*timestamppb.Timestamp)(nil),      // 39: google.protobuf.Timestamp
-	(*fieldmaskpb.FieldMask)(nil),      // 40: google.protobuf.FieldMask
-	(*emptypb.Empty)(nil),              // 41: google.protobuf.Empty
+	(*CancelRuleExecutionRequest)(nil), // 13: eye.v1.CancelRuleExecutionRequest
+	(*ValidateRuleRequest)(nil),        // 14: eye.v1.ValidateRuleRequest
+	(*ValidateRuleResponse)(nil),       // 15: eye.v1.ValidateRuleResponse
+	(*SimulateRuleRequest)(nil),        // 16: eye.v1.SimulateRuleRequest
+	(*SimulateRuleResponse)(nil),       // 17: eye.v1.SimulateRuleResponse
+	(*SimulationResult)(nil),           // 18: eye.v1.SimulationResult
+	(*RebalancingSimulation)(nil),      // 19: eye.v1.RebalancingSimulation
+	(*AssetAllocation)(nil),            // 20: eye.v1.AssetAllocation
+	(*PlannedTrade)(nil),               // 21: eye.v1.PlannedTrade
+	(*WithdrawalSimulation)(nil),       // 22: eye.v1.WithdrawalSimulation
+	(*AssetWithdrawalPlan)(nil),        // 23: eye.v1.AssetWithdrawalPlan
+	(*StopLossSimulation)(nil),         // 24: eye.v1.StopLossSimulation
+	(*AssetStopLoss)(nil),              // 25: eye.v1.AssetStopLoss
+	(*DCASimulation)(nil),              // 26: eye.v1.DCASimulation
+	(*EnableRuleRequest)(nil),          // 27: eye.v1.EnableRuleRequest
+	(*DisableRuleRequest)(nil),         // 28: eye.v1.DisableRuleRequest
+	(*PauseRuleRequest)(nil),           // 29: eye.v1.PauseRuleRequest
+	(*ResumeRuleRequest)(nil),          // 30: eye.v1.ResumeRuleRequest
+	(*CreateRuleExecutionRequest)(nil), // 31: eye.v1.CreateRuleExecutionRequest
+	(*GetRuleExecutionRequest)(nil),    // 32: eye.v1.GetRuleExecutionRequest
+	(*UpdateRuleExecutionRequest)(nil), // 33: eye.v1.UpdateRuleExecutionRequest
+	(*ListRuleExecutionsRequest)(nil),  // 34: eye.v1.ListRuleExecutionsRequest
+	(*ListRuleExecutionsResponse)(nil), // 35: eye.v1.ListRuleExecutionsResponse
+	(*structpb.Struct)(nil),            // 36: google.protobuf.Struct
+	(*timestamppb.Timestamp)(nil),      // 37: google.protobuf.Timestamp
+	(*fieldmaskpb.FieldMask)(nil),      // 38: google.protobuf.FieldMask
+	(*emptypb.Empty)(nil),              // 39: google.protobuf.Empty
 }
 var file_v1_automation_proto_depIdxs = []int32{
 	0,  // 0: eye.v1.Rule.status:type_name -> eye.v1.RuleStatus
-	38, // 1: eye.v1.Rule.configuration:type_name -> google.protobuf.Struct
+	36, // 1: eye.v1.Rule.configuration:type_name -> google.protobuf.Struct
 	3,  // 2: eye.v1.Rule.schedule:type_name -> eye.v1.RuleSchedule
-	39, // 3: eye.v1.Rule.created_at:type_name -> google.protobuf.Timestamp
-	39, // 4: eye.v1.Rule.updated_at:type_name -> google.protobuf.Timestamp
-	39, // 5: eye.v1.RuleSchedule.execute_after:type_name -> google.protobuf.Timestamp
-	39, // 6: eye.v1.RuleExecution.started_at:type_name -> google.protobuf.Timestamp
-	39, // 7: eye.v1.RuleExecution.completed_at:type_name -> google.protobuf.Timestamp
+	37, // 3: eye.v1.Rule.created_at:type_name -> google.protobuf.Timestamp
+	37, // 4: eye.v1.Rule.updated_at:type_name -> google.protobuf.Timestamp
+	37, // 5: eye.v1.RuleSchedule.execute_after:type_name -> google.protobuf.Timestamp
+	37, // 6: eye.v1.RuleExecution.started_at:type_name -> google.protobuf.Timestamp
+	37, // 7: eye.v1.RuleExecution.completed_at:type_name -> google.protobuf.Timestamp
 	1,  // 8: eye.v1.RuleExecution.status:type_name -> eye.v1.ExecutionStatus
-	38, // 9: eye.v1.RuleExecution.execution_summary:type_name -> google.protobuf.Struct
+	36, // 9: eye.v1.RuleExecution.execution_summary:type_name -> google.protobuf.Struct
 	2,  // 10: eye.v1.CreateRuleRequest.rule:type_name -> eye.v1.Rule
 	2,  // 11: eye.v1.UpdateRuleRequest.rule:type_name -> eye.v1.Rule
-	40, // 12: eye.v1.UpdateRuleRequest.update_mask:type_name -> google.protobuf.FieldMask
+	38, // 12: eye.v1.UpdateRuleRequest.update_mask:type_name -> google.protobuf.FieldMask
 	0,  // 13: eye.v1.ListRulesRequest.status:type_name -> eye.v1.RuleStatus
 	2,  // 14: eye.v1.ListRulesResponse.rules:type_name -> eye.v1.Rule
 	4,  // 15: eye.v1.ExecuteRuleResponse.execution:type_name -> eye.v1.RuleExecution
 	2,  // 16: eye.v1.ValidateRuleRequest.rule:type_name -> eye.v1.Rule
-	39, // 17: eye.v1.SimulateRuleRequest.simulate_at:type_name -> google.protobuf.Timestamp
-	20, // 18: eye.v1.SimulateRuleResponse.result:type_name -> eye.v1.SimulationResult
-	21, // 19: eye.v1.SimulationResult.rebalancing:type_name -> eye.v1.RebalancingSimulation
-	24, // 20: eye.v1.SimulationResult.withdrawal:type_name -> eye.v1.WithdrawalSimulation
-	26, // 21: eye.v1.SimulationResult.stop_loss:type_name -> eye.v1.StopLossSimulation
-	28, // 22: eye.v1.SimulationResult.dca:type_name -> eye.v1.DCASimulation
-	22, // 23: eye.v1.RebalancingSimulation.current_allocations:type_name -> eye.v1.AssetAllocation
-	22, // 24: eye.v1.RebalancingSimulation.target_allocations:type_name -> eye.v1.AssetAllocation
-	23, // 25: eye.v1.RebalancingSimulation.planned_trades:type_name -> eye.v1.PlannedTrade
-	25, // 26: eye.v1.WithdrawalSimulation.withdrawal_plan:type_name -> eye.v1.AssetWithdrawalPlan
-	27, // 27: eye.v1.StopLossSimulation.asset_actions:type_name -> eye.v1.AssetStopLoss
+	37, // 17: eye.v1.SimulateRuleRequest.simulate_at:type_name -> google.protobuf.Timestamp
+	18, // 18: eye.v1.SimulateRuleResponse.result:type_name -> eye.v1.SimulationResult
+	19, // 19: eye.v1.SimulationResult.rebalancing:type_name -> eye.v1.RebalancingSimulation
+	22, // 20: eye.v1.SimulationResult.withdrawal:type_name -> eye.v1.WithdrawalSimulation
+	24, // 21: eye.v1.SimulationResult.stop_loss:type_name -> eye.v1.StopLossSimulation
+	26, // 22: eye.v1.SimulationResult.dca:type_name -> eye.v1.DCASimulation
+	20, // 23: eye.v1.RebalancingSimulation.current_allocations:type_name -> eye.v1.AssetAllocation
+	20, // 24: eye.v1.RebalancingSimulation.target_allocations:type_name -> eye.v1.AssetAllocation
+	21, // 25: eye.v1.RebalancingSimulation.planned_trades:type_name -> eye.v1.PlannedTrade
+	23, // 26: eye.v1.WithdrawalSimulation.withdrawal_plan:type_name -> eye.v1.AssetWithdrawalPlan
+	25, // 27: eye.v1.StopLossSimulation.asset_actions:type_name -> eye.v1.AssetStopLoss
 	4,  // 28: eye.v1.CreateRuleExecutionRequest.rule_execution:type_name -> eye.v1.RuleExecution
 	4,  // 29: eye.v1.UpdateRuleExecutionRequest.rule_execution:type_name -> eye.v1.RuleExecution
-	40, // 30: eye.v1.UpdateRuleExecutionRequest.update_mask:type_name -> google.protobuf.FieldMask
+	38, // 30: eye.v1.UpdateRuleExecutionRequest.update_mask:type_name -> google.protobuf.FieldMask
 	1,  // 31: eye.v1.ListRuleExecutionsRequest.status:type_name -> eye.v1.ExecutionStatus
-	39, // 32: eye.v1.ListRuleExecutionsRequest.from:type_name -> google.protobuf.Timestamp
-	39, // 33: eye.v1.ListRuleExecutionsRequest.to:type_name -> google.protobuf.Timestamp
+	37, // 32: eye.v1.ListRuleExecutionsRequest.from:type_name -> google.protobuf.Timestamp
+	37, // 33: eye.v1.ListRuleExecutionsRequest.to:type_name -> google.protobuf.Timestamp
 	4,  // 34: eye.v1.ListRuleExecutionsResponse.rule_executions:type_name -> eye.v1.RuleExecution
 	5,  // 35: eye.v1.AutomationService.CreateRule:input_type -> eye.v1.CreateRuleRequest
 	6,  // 36: eye.v1.AutomationService.GetRule:input_type -> eye.v1.GetRuleRequest
@@ -2852,38 +2729,36 @@ var file_v1_automation_proto_depIdxs = []int32{
 	8,  // 38: eye.v1.AutomationService.DeleteRule:input_type -> eye.v1.DeleteRuleRequest
 	9,  // 39: eye.v1.AutomationService.ListRules:input_type -> eye.v1.ListRulesRequest
 	11, // 40: eye.v1.AutomationService.ExecuteRule:input_type -> eye.v1.ExecuteRuleRequest
-	13, // 41: eye.v1.AutomationService.ExecuteRuleAsync:input_type -> eye.v1.ExecuteRuleAsyncRequest
-	15, // 42: eye.v1.AutomationService.CancelRuleExecution:input_type -> eye.v1.CancelRuleExecutionRequest
-	16, // 43: eye.v1.AutomationService.ValidateRule:input_type -> eye.v1.ValidateRuleRequest
-	18, // 44: eye.v1.AutomationService.SimulateRule:input_type -> eye.v1.SimulateRuleRequest
-	29, // 45: eye.v1.AutomationService.EnableRule:input_type -> eye.v1.EnableRuleRequest
-	30, // 46: eye.v1.AutomationService.DisableRule:input_type -> eye.v1.DisableRuleRequest
-	31, // 47: eye.v1.AutomationService.PauseRule:input_type -> eye.v1.PauseRuleRequest
-	32, // 48: eye.v1.AutomationService.ResumeRule:input_type -> eye.v1.ResumeRuleRequest
-	33, // 49: eye.v1.AutomationService.CreateRuleExecution:input_type -> eye.v1.CreateRuleExecutionRequest
-	34, // 50: eye.v1.AutomationService.GetRuleExecution:input_type -> eye.v1.GetRuleExecutionRequest
-	35, // 51: eye.v1.AutomationService.UpdateRuleExecution:input_type -> eye.v1.UpdateRuleExecutionRequest
-	36, // 52: eye.v1.AutomationService.ListRuleExecutions:input_type -> eye.v1.ListRuleExecutionsRequest
-	2,  // 53: eye.v1.AutomationService.CreateRule:output_type -> eye.v1.Rule
-	2,  // 54: eye.v1.AutomationService.GetRule:output_type -> eye.v1.Rule
-	2,  // 55: eye.v1.AutomationService.UpdateRule:output_type -> eye.v1.Rule
-	41, // 56: eye.v1.AutomationService.DeleteRule:output_type -> google.protobuf.Empty
-	10, // 57: eye.v1.AutomationService.ListRules:output_type -> eye.v1.ListRulesResponse
-	12, // 58: eye.v1.AutomationService.ExecuteRule:output_type -> eye.v1.ExecuteRuleResponse
-	14, // 59: eye.v1.AutomationService.ExecuteRuleAsync:output_type -> eye.v1.ExecuteRuleAsyncResponse
-	41, // 60: eye.v1.AutomationService.CancelRuleExecution:output_type -> google.protobuf.Empty
-	17, // 61: eye.v1.AutomationService.ValidateRule:output_type -> eye.v1.ValidateRuleResponse
-	19, // 62: eye.v1.AutomationService.SimulateRule:output_type -> eye.v1.SimulateRuleResponse
-	2,  // 63: eye.v1.AutomationService.EnableRule:output_type -> eye.v1.Rule
-	2,  // 64: eye.v1.AutomationService.DisableRule:output_type -> eye.v1.Rule
-	2,  // 65: eye.v1.AutomationService.PauseRule:output_type -> eye.v1.Rule
-	2,  // 66: eye.v1.AutomationService.ResumeRule:output_type -> eye.v1.Rule
-	4,  // 67: eye.v1.AutomationService.CreateRuleExecution:output_type -> eye.v1.RuleExecution
-	4,  // 68: eye.v1.AutomationService.GetRuleExecution:output_type -> eye.v1.RuleExecution
-	4,  // 69: eye.v1.AutomationService.UpdateRuleExecution:output_type -> eye.v1.RuleExecution
-	37, // 70: eye.v1.AutomationService.ListRuleExecutions:output_type -> eye.v1.ListRuleExecutionsResponse
-	53, // [53:71] is the sub-list for method output_type
-	35, // [35:53] is the sub-list for method input_type
+	13, // 41: eye.v1.AutomationService.CancelRuleExecution:input_type -> eye.v1.CancelRuleExecutionRequest
+	14, // 42: eye.v1.AutomationService.ValidateRule:input_type -> eye.v1.ValidateRuleRequest
+	16, // 43: eye.v1.AutomationService.SimulateRule:input_type -> eye.v1.SimulateRuleRequest
+	27, // 44: eye.v1.AutomationService.EnableRule:input_type -> eye.v1.EnableRuleRequest
+	28, // 45: eye.v1.AutomationService.DisableRule:input_type -> eye.v1.DisableRuleRequest
+	29, // 46: eye.v1.AutomationService.PauseRule:input_type -> eye.v1.PauseRuleRequest
+	30, // 47: eye.v1.AutomationService.ResumeRule:input_type -> eye.v1.ResumeRuleRequest
+	31, // 48: eye.v1.AutomationService.CreateRuleExecution:input_type -> eye.v1.CreateRuleExecutionRequest
+	32, // 49: eye.v1.AutomationService.GetRuleExecution:input_type -> eye.v1.GetRuleExecutionRequest
+	33, // 50: eye.v1.AutomationService.UpdateRuleExecution:input_type -> eye.v1.UpdateRuleExecutionRequest
+	34, // 51: eye.v1.AutomationService.ListRuleExecutions:input_type -> eye.v1.ListRuleExecutionsRequest
+	2,  // 52: eye.v1.AutomationService.CreateRule:output_type -> eye.v1.Rule
+	2,  // 53: eye.v1.AutomationService.GetRule:output_type -> eye.v1.Rule
+	2,  // 54: eye.v1.AutomationService.UpdateRule:output_type -> eye.v1.Rule
+	39, // 55: eye.v1.AutomationService.DeleteRule:output_type -> google.protobuf.Empty
+	10, // 56: eye.v1.AutomationService.ListRules:output_type -> eye.v1.ListRulesResponse
+	12, // 57: eye.v1.AutomationService.ExecuteRule:output_type -> eye.v1.ExecuteRuleResponse
+	39, // 58: eye.v1.AutomationService.CancelRuleExecution:output_type -> google.protobuf.Empty
+	15, // 59: eye.v1.AutomationService.ValidateRule:output_type -> eye.v1.ValidateRuleResponse
+	17, // 60: eye.v1.AutomationService.SimulateRule:output_type -> eye.v1.SimulateRuleResponse
+	2,  // 61: eye.v1.AutomationService.EnableRule:output_type -> eye.v1.Rule
+	2,  // 62: eye.v1.AutomationService.DisableRule:output_type -> eye.v1.Rule
+	2,  // 63: eye.v1.AutomationService.PauseRule:output_type -> eye.v1.Rule
+	2,  // 64: eye.v1.AutomationService.ResumeRule:output_type -> eye.v1.Rule
+	4,  // 65: eye.v1.AutomationService.CreateRuleExecution:output_type -> eye.v1.RuleExecution
+	4,  // 66: eye.v1.AutomationService.GetRuleExecution:output_type -> eye.v1.RuleExecution
+	4,  // 67: eye.v1.AutomationService.UpdateRuleExecution:output_type -> eye.v1.RuleExecution
+	35, // 68: eye.v1.AutomationService.ListRuleExecutions:output_type -> eye.v1.ListRuleExecutionsResponse
+	52, // [52:69] is the sub-list for method output_type
+	35, // [35:52] is the sub-list for method input_type
 	35, // [35:35] is the sub-list for extension type_name
 	35, // [35:35] is the sub-list for extension extendee
 	0,  // [0:35] is the sub-list for field type_name
@@ -2897,22 +2772,21 @@ func file_v1_automation_proto_init() {
 	file_v1_automation_proto_msgTypes[2].OneofWrappers = []any{}
 	file_v1_automation_proto_msgTypes[7].OneofWrappers = []any{}
 	file_v1_automation_proto_msgTypes[9].OneofWrappers = []any{}
-	file_v1_automation_proto_msgTypes[11].OneofWrappers = []any{}
-	file_v1_automation_proto_msgTypes[16].OneofWrappers = []any{}
-	file_v1_automation_proto_msgTypes[18].OneofWrappers = []any{
+	file_v1_automation_proto_msgTypes[14].OneofWrappers = []any{}
+	file_v1_automation_proto_msgTypes[16].OneofWrappers = []any{
 		(*SimulationResult_Rebalancing)(nil),
 		(*SimulationResult_Withdrawal)(nil),
 		(*SimulationResult_StopLoss)(nil),
 		(*SimulationResult_Dca)(nil),
 	}
-	file_v1_automation_proto_msgTypes[34].OneofWrappers = []any{}
+	file_v1_automation_proto_msgTypes[32].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_automation_proto_rawDesc), len(file_v1_automation_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   36,
+			NumMessages:   34,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

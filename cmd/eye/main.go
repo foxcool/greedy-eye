@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/execution"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/provider"
 	"github.com/foxcool/greedy-eye/internal/scheduler"
@@ -219,6 +221,17 @@ func run() error {
 		// Price sources are resolved and rate-limited in this process, so their
 		// health can be read here; see GetAccountHealth.
 		WithPriceSourceHealth(credResolver)
+	pClient := pick[apiv1connect.PortfolioServiceClient](rc, ServiceConfigTypePortfolio,
+		pHandler, apiv1connect.NewPortfolioServiceClient)
+	// Execution reads the rule's account and prices, and in paper mode writes
+	// fills, through the same clients any other domain would use.
+	automationHandler.
+		WithPortfolioClient(pClient).
+		WithMarketDataClient(mdClient).
+		WithEngines(execution.NewEngines(execution.DCA{})).
+		// A manual account is traded on paper: fills move its holdings and
+		// nothing leaves the process.
+		WithVenues(execution.Venues{apiv1.AccountType_ACCOUNT_TYPE_MANUAL: execution.NewPaperVenue(pClient)})
 	// The balance sweep runs against the portfolio service in this process.
 	// A deployment without one has no balances of its own to refresh, so the
 	// job stays unregistered rather than reaching across the network for them.
@@ -236,8 +249,6 @@ func run() error {
 			path, handler := apiv1connect.NewAutomationServiceHandler(automationHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypeAnalytics:
-			pClient := pick[apiv1connect.PortfolioServiceClient](rc, ServiceConfigTypePortfolio,
-				pHandler, apiv1connect.NewPortfolioServiceClient)
 			aHandler := analytics.NewHandler(pClient, log).
 				WithMarketDataClient(mdClient).
 				WithSettingsClient(settingsClient)

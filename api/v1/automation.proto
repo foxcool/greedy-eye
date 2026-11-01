@@ -117,13 +117,6 @@ service AutomationService {
     };
   }
 
-  rpc ExecuteRuleAsync(ExecuteRuleAsyncRequest) returns (ExecuteRuleAsyncResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/rules/{rule_id}/execute-async"
-      body: "*"
-    };
-  }
-
   rpc CancelRuleExecution(CancelRuleExecutionRequest) returns (google.protobuf.Empty) {
     option (google.api.http) = {
       post: "/api/v1/rule-executions/{execution_id}/cancel"
@@ -250,17 +243,6 @@ message ExecuteRuleRequest {
 
 message ExecuteRuleResponse {
   RuleExecution execution = 1;
-}
-
-message ExecuteRuleAsyncRequest {
-  string rule_id = 1;
-  bool dry_run = 2;
-  optional string execution_context = 3;
-}
-
-message ExecuteRuleAsyncResponse {
-  string execution_id = 1;
-  string status = 2;
 }
 
 message CancelRuleExecutionRequest {

@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/execution"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/robfig/cron/v3"
@@ -23,12 +25,41 @@ import (
 // Handler implements apiv1connect.AutomationServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedAutomationServiceHandler
-	store Store
-	log   *slog.Logger
+	store    Store
+	log      *slog.Logger
+	engines  execution.Engines
+	venues   execution.Venues
+	pClient  PortfolioClient
+	mdClient MarketDataClient
+	// submitTimeout is the submit budget; a field so a test need not wait it out.
+	submitTimeout time.Duration
 }
 
 func NewHandler(store Store, log *slog.Logger) *Handler {
-	return &Handler{store: store, log: log}
+	return &Handler{store: store, log: log, submitTimeout: submitTimeout}
+}
+
+// WithEngines sets the engines rules are planned by; a rule type without one
+// cannot be simulated or executed.
+func (h *Handler) WithEngines(e execution.Engines) *Handler {
+	h.engines = e
+	return h
+}
+
+// WithVenues sets the venues trades are placed on, by account type.
+func (h *Handler) WithVenues(v execution.Venues) *Handler {
+	h.venues = v
+	return h
+}
+
+func (h *Handler) WithPortfolioClient(c PortfolioClient) *Handler {
+	h.pClient = c
+	return h
+}
+
+func (h *Handler) WithMarketDataClient(c MarketDataClient) *Handler {
+	h.mdClient = c
+	return h
 }
 
 // --- Rule CRUD ---
@@ -48,6 +79,9 @@ func (h *Handler) CreateRule(ctx context.Context, req *connect.Request[apiv1.Cre
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	r.UserID = user.ID
+	if err := h.validateConfiguration(ctx, r); err != nil {
+		return nil, err
+	}
 
 	created, err := h.store.CreateRule(ctx, r)
 	if err != nil {
@@ -95,7 +129,8 @@ func (h *Handler) UpdateRule(ctx context.Context, req *connect.Request[apiv1.Upd
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rule with ID is required"))
 	}
 
-	if _, err := h.ownedRule(ctx, req.Msg.Rule.Id); err != nil {
+	existing, err := h.ownedRule(ctx, req.Msg.Rule.Id)
+	if err != nil {
 		return nil, err
 	}
 
@@ -107,6 +142,15 @@ func (h *Handler) UpdateRule(ctx context.Context, req *connect.Request[apiv1.Upd
 	r, err := ruleFromProto(req.Msg.Rule)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	// The store never changes a rule's type or portfolio, so the new
+	// configuration is judged against the stored ones.
+	if len(fields) == 0 || slices.Contains(fields, "configuration") {
+		merged := *existing
+		merged.Configuration = r.Configuration
+		if err := h.validateConfiguration(ctx, &merged); err != nil {
+			return nil, err
+		}
 	}
 
 	updated, err := h.store.UpdateRule(ctx, r, fields)
@@ -399,93 +443,8 @@ func (h *Handler) ListRuleExecutions(ctx context.Context, req *connect.Request[a
 	}), nil
 }
 
-// --- Execution engine ---
-
-func (h *Handler) ExecuteRule(ctx context.Context, req *connect.Request[apiv1.ExecuteRuleRequest]) (*connect.Response[apiv1.ExecuteRuleResponse], error) {
-	if req.Msg.RuleId == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rule_id is required"))
-	}
-
-	rule, err := h.ownedRule(ctx, req.Msg.RuleId)
-	if err != nil {
-		return nil, err
-	}
-	if rule.Status != entity.RuleStatusActive {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("rule is not active"))
-	}
-
-	if req.Msg.DryRun {
-		// Return a simulated result without persisting.
-		now := time.Now()
-		completedAt := now
-		simExec := &entity.RuleExecution{
-			ID:          "dry-run",
-			RuleID:      rule.ID,
-			PortfolioID: rule.PortfolioID,
-			UserID:      rule.UserID,
-			Status:      entity.ExecutionStatusCompleted,
-			StartedAt:   now,
-			CompletedAt: &completedAt,
-		}
-		proto, err := ruleExecutionToProto(simExec)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
-		return connect.NewResponse(&apiv1.ExecuteRuleResponse{Execution: proto}), nil
-	}
-
-	now := time.Now()
-	exec := &entity.RuleExecution{
-		RuleID:      rule.ID,
-		PortfolioID: rule.PortfolioID,
-		UserID:      rule.UserID,
-		Status:      entity.ExecutionStatusInProgress,
-		StartedAt:   now,
-	}
-	created, err := h.store.CreateRuleExecution(ctx, exec)
-	if err != nil {
-		return nil, toConnectError(err)
-	}
-
-	completedAt := time.Now()
-	created.Status = entity.ExecutionStatusCompleted
-	created.CompletedAt = &completedAt
-	updated, err := h.store.UpdateRuleExecution(ctx, created, []string{"status", "completed_at"})
-	if err != nil {
-		return nil, toConnectError(err)
-	}
-
-	proto, err := ruleExecutionToProto(updated)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	return connect.NewResponse(&apiv1.ExecuteRuleResponse{Execution: proto}), nil
-}
-
-func (h *Handler) ExecuteRuleAsync(ctx context.Context, req *connect.Request[apiv1.ExecuteRuleAsyncRequest]) (*connect.Response[apiv1.ExecuteRuleAsyncResponse], error) {
-	if req.Msg.RuleId == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rule_id is required"))
-	}
-
-	rule, err := h.ownedRule(ctx, req.Msg.RuleId)
-	if err != nil {
-		return nil, err
-	}
-
-	exec := &entity.RuleExecution{
-		RuleID:      rule.ID,
-		PortfolioID: rule.PortfolioID,
-		UserID:      rule.UserID,
-		Status:      entity.ExecutionStatusPending,
-		StartedAt:   time.Now(),
-	}
-	created, err := h.store.CreateRuleExecution(ctx, exec)
-	if err != nil {
-		return nil, toConnectError(err)
-	}
-
-	return connect.NewResponse(&apiv1.ExecuteRuleAsyncResponse{ExecutionId: created.ID}), nil
-}
+// --- Execution ---
+// ExecuteRule and SimulateRule live in execute.go.
 
 func (h *Handler) CancelRuleExecution(ctx context.Context, req *connect.Request[apiv1.CancelRuleExecutionRequest]) (*connect.Response[emptypb.Empty], error) {
 	if req.Msg.ExecutionId == "" {
@@ -512,52 +471,6 @@ func (h *Handler) CancelRuleExecution(ctx context.Context, req *connect.Request[
 	}
 
 	return connect.NewResponse(&emptypb.Empty{}), nil
-}
-
-func (h *Handler) SimulateRule(ctx context.Context, req *connect.Request[apiv1.SimulateRuleRequest]) (*connect.Response[apiv1.SimulateRuleResponse], error) {
-	if req.Msg.RuleId == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rule_id is required"))
-	}
-
-	rule, err := h.ownedRule(ctx, req.Msg.RuleId)
-	if err != nil {
-		return nil, err
-	}
-
-	var result *apiv1.SimulationResult
-	switch rule.RuleType {
-	case "rebalancing":
-		result = &apiv1.SimulationResult{
-			RuleResult: &apiv1.SimulationResult_Rebalancing{
-				Rebalancing: &apiv1.RebalancingSimulation{},
-			},
-		}
-	case "stop_loss":
-		result = &apiv1.SimulationResult{
-			RuleResult: &apiv1.SimulationResult_StopLoss{
-				StopLoss: &apiv1.StopLossSimulation{},
-			},
-		}
-	case "dca":
-		result = &apiv1.SimulationResult{
-			RuleResult: &apiv1.SimulationResult_Dca{
-				Dca: &apiv1.DCASimulation{},
-			},
-		}
-	case "withdrawal":
-		result = &apiv1.SimulationResult{
-			RuleResult: &apiv1.SimulationResult_Withdrawal{
-				Withdrawal: &apiv1.WithdrawalSimulation{},
-			},
-		}
-	default:
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("unsupported rule type"))
-	}
-
-	return connect.NewResponse(&apiv1.SimulateRuleResponse{
-		Success: true,
-		Result:  result,
-	}), nil
 }
 
 // --- Error conversion ---

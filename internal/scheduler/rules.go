@@ -112,10 +112,12 @@ func (s *Scheduler) runRule(ruleID, userID string) {
 	resp, err := s.exec.ExecuteRule(ctx, connect.NewRequest(&apiv1.ExecuteRuleRequest{RuleId: ruleID}))
 	if err != nil {
 		var connectErr *connect.Error
-		// Paused or deleted since the last reload: expected, the next reload
-		// drops the entry.
+		// Paused or deleted since the last reload (the next reload drops the
+		// entry), or a rule type no engine plans yet: expected, not a failure.
 		if errors.As(err, &connectErr) &&
-			(connectErr.Code() == connect.CodeFailedPrecondition || connectErr.Code() == connect.CodeNotFound) {
+			(connectErr.Code() == connect.CodeFailedPrecondition ||
+				connectErr.Code() == connect.CodeNotFound ||
+				connectErr.Code() == connect.CodeUnimplemented) {
 			s.log.Info("scheduler: rule no longer executable",
 				slog.String("rule_id", ruleID), slog.String("code", connectErr.Code().String()))
 			return
@@ -127,5 +129,6 @@ func (s *Scheduler) runRule(ruleID, userID string) {
 	s.log.Info("scheduler: rule executed",
 		slog.String("rule_id", ruleID),
 		slog.String("execution_id", resp.Msg.GetExecution().GetId()),
+		slog.String("status", resp.Msg.GetExecution().GetStatus().String()),
 		slog.Duration("duration", time.Since(start)))
 }
