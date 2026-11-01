@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -140,7 +141,7 @@ func priceFromProto(p *apiv1.Price) (execution.Price, error) {
 		return execution.Price{}, fmt.Errorf("price %s: invalid last %q: %w", p.GetId(), p.GetLast(), err)
 	}
 	return execution.Price{
-		Value: raw.Shift(-int32(p.GetDecimals())), // #nosec G115 -- decimals is a small storage scale
+		Value: raw.Shift(-entity.DecI32(p.GetDecimals())),
 		AsOf:  p.GetTimestamp().AsTime(),
 	}, nil
 }
@@ -274,6 +275,15 @@ func (h *Handler) run(ctx context.Context, rule *entity.Rule, p prepared) (*enti
 		"created_transaction_ids", "transactions_created", "execution_summary",
 	})
 	if err != nil {
+		// The trades already happened and the row still says in_progress: the
+		// log is the only place left that names what they changed.
+		h.log.Error("automation: execution result not recorded",
+			slog.String("execution_id", exec.ID),
+			slog.String("status", apiv1.ExecutionStatus(status).String()),
+			slog.String("reason", reason),
+			slog.Any("affected_holding_ids", exec.AffectedHoldingIDs),
+			slog.Any("created_transaction_ids", exec.CreatedTransactionIDs),
+			slog.Any("error", err))
 		return nil, toConnectError(err)
 	}
 	return updated, nil

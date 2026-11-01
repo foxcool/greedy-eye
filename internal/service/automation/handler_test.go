@@ -423,7 +423,7 @@ func TestValidateRule_ReportsScheduleProblem(t *testing.T) {
 // --- Tests: engine dispatch ---
 
 // A rule type nothing can plan must say so instead of reporting a run that
-// did nothing: the old handler recorded a completed execution for any type.
+// did nothing.
 func TestExecuteRule_NoEngine_Unimplemented(t *testing.T) {
 	s := &mockStore{}
 	r := testRule("r-1")

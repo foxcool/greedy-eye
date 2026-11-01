@@ -980,7 +980,8 @@ Cron / API Client → AutomationService/ExecuteRule
   2. Snapshot: account (GetAccount), its holdings (ListHoldings), the pair's latest price
      (GetLatestPrice); engine.Plan(rule, snapshot) — pure, reads time only from the snapshot
   3. dry_run=true → unpersisted execution, the plan in execution_summary
-     plan error → execution recorded as failed with the reason
+     (a plan error comes back as an unpersisted failed execution)
+     plan error on a real run → execution recorded as failed with the reason
   4. CreateRuleExecution(status=in_progress)
   5. Venue by account type (manual → paper): per trade, under a per-account lock,
      read holdings → paperFill → ImportPositions (absolute amounts, import_id = execution id)

@@ -1,6 +1,10 @@
 package execution
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/foxcool/greedy-eye/internal/entity"
+)
 
 // paperFillResult is a simulated fill: the absolute positions the account
 // ends with, or why there is no fill.
@@ -34,7 +38,7 @@ func paperFill(t Trade, holdings []Holding) paperFillResult {
 		return reject("insufficient %s: have 0, need %s", t.QuoteAssetID, t.QuoteAmount)
 	case quote.Amount.LessThan(t.QuoteAmount):
 		return reject("insufficient %s: have %s, need %s", t.QuoteAssetID, quote.Amount, t.QuoteAmount)
-	case !t.QuoteAmount.Shift(int32(quote.Decimals)).IsInteger(): // #nosec G115 -- decimals is a small storage scale
+	case !t.QuoteAmount.Shift(entity.DecI32(quote.Decimals)).IsInteger():
 		return reject("quote_amount %s has more decimal places than the %s holding keeps (%d)", t.QuoteAmount, t.QuoteAssetID, quote.Decimals)
 	}
 	if !baseFound {

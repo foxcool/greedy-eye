@@ -21,6 +21,11 @@ const DCAType = "dca"
 // the fill would be priced by a market that has moved on.
 const maxDCAPriceAge = time.Hour
 
+// maxPriceLead is how far a price may be stamped after Snapshot.Now: clock
+// skew between hosts. Further ahead it is a bad row that would stay "latest",
+// and in a backtest a look into the future.
+const maxPriceLead = time.Minute
+
 // DCA buys a base asset for a fixed amount of a quote asset on every run.
 //
 // Configuration: {account_id, asset_id, quote_asset_id, quote_amount}, ids as
@@ -133,8 +138,13 @@ func (DCA) Plan(rule *entity.Rule, snap Snapshot) (TradePlan, error) {
 	if !ok {
 		return TradePlan{}, fmt.Errorf("no price for %s in %s", cfg.AssetID, cfg.QuoteAssetID)
 	}
+	// Both durations are taken forward: Sub saturates, and a negated
+	// saturated duration stays negative.
 	if age := snap.Now.Sub(price.AsOf); age > maxDCAPriceAge {
 		return TradePlan{}, fmt.Errorf("price of %s in %s is %s old, more than %s", cfg.AssetID, cfg.QuoteAssetID, age.Round(time.Second), maxDCAPriceAge)
+	}
+	if lead := price.AsOf.Sub(snap.Now); lead > maxPriceLead {
+		return TradePlan{}, fmt.Errorf("price of %s in %s is dated %s after now", cfg.AssetID, cfg.QuoteAssetID, lead.Round(time.Second))
 	}
 	if !price.Value.IsPositive() {
 		return TradePlan{}, fmt.Errorf("price of %s in %s must be positive, got %s", cfg.AssetID, cfg.QuoteAssetID, price.Value)

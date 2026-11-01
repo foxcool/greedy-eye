@@ -98,7 +98,11 @@ func TestDCAPlan(t *testing.T) {
 	}{
 		{"no price", nil, "no price"},
 		{"price of another pair", map[Pair]Price{{Asset: dcaQuote, Quote: dcaBase}: {Value: decimal.NewFromInt(1), AsOf: now}}, "no price"},
-		{"price older than an hour", priced("50000", now.Add(-time.Hour-time.Second)), "old"},
+		{"price older than an hour", priced("50000", now.Add(-time.Hour-time.Second)), "old, more than"},
+		{"price dated after now", priced("50000", now.Add(time.Minute+time.Second)), "after now"},
+		{"price centuries after now", priced("50000", now.AddDate(300, 0, 0)), "after now"},
+		{"price centuries old", priced("50000", now.AddDate(-300, 0, 0)), "old, more than"},
+		{"price within clock skew of now", priced("50000", now.Add(time.Minute)), ""},
 		{"zero price", priced("0", now), "positive"},
 		{"price from that same day", priced("50000", now.Add(-10*time.Minute)), ""},
 		{"price exactly an hour old", priced("50000", now.Add(-time.Hour)), ""},
@@ -144,6 +148,10 @@ func TestDCASimulate(t *testing.T) {
 	assert.Equal(t, 250.0, got.AvailableBalance)
 	assert.True(t, got.SufficientFunds)
 	assert.Zero(t, got.EstimatedFee)
+
+	snap.Holdings = []Holding{{ID: "h-q", AssetID: dcaQuote, Amount: decimal.NewFromInt(100), Decimals: 2}}
+	got = DCA{}.Simulate(rule, snap, plan).GetDca()
+	assert.True(t, got.SufficientFunds, "exactly quote_amount on hand is enough, as in paperFill")
 
 	snap.Holdings = nil
 	got = DCA{}.Simulate(rule, snap, plan).GetDca()

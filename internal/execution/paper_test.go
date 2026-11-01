@@ -48,11 +48,11 @@ func TestPaperFill(t *testing.T) {
 		},
 		{
 			name:      "rounds down to the base holding's decimals",
-			trade:     buy("100", "30000"),
+			trade:     buy("100", "15000"),
 			holdings:  []Holding{quote("1000", 2), base("1", 4)},
-			wantBase:  base("1.0033", 4), // 0.003333... -> 0.0033
+			wantBase:  base("1.0066", 4), // 0.006666... -> 0.0066, not 0.0067
 			wantQuote: quote("900", 2),
-			wantFill:  "0.0033",
+			wantFill:  "0.0066",
 		},
 		{
 			name:      "missing base holding is created at 8 decimals",
@@ -90,6 +90,12 @@ func TestPaperFill(t *testing.T) {
 			name:     "quote held in two rows",
 			trade:    buy("100", "40000"),
 			holdings: []Holding{quote("1000", 2), {ID: "h-q2", AssetID: dcaQuote, Amount: d("5"), Decimals: 2}},
+			rejected: "more than one",
+		},
+		{
+			name:     "base held in two rows",
+			trade:    buy("100", "40000"),
+			holdings: []Holding{quote("1000", 2), base("1", 8), {ID: "h-b2", AssetID: dcaBase, Amount: d("2"), Decimals: 8}},
 			rejected: "more than one",
 		},
 		{

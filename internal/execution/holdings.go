@@ -6,6 +6,7 @@ import (
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
+	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/shopspring/decimal"
 )
 
@@ -35,7 +36,7 @@ func AccountHoldings(ctx context.Context, client HoldingLister, accountID string
 			out = append(out, Holding{
 				ID:       h.GetId(),
 				AssetID:  h.GetAssetId(),
-				Amount:   raw.Shift(-int32(h.GetDecimals())), // #nosec G115 -- decimals is a small storage scale
+				Amount:   raw.Shift(-entity.DecI32(h.GetDecimals())),
 				Decimals: h.GetDecimals(),
 			})
 		}

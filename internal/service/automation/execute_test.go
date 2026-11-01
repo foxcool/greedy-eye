@@ -1,8 +1,11 @@
 package automation
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -394,7 +397,7 @@ func TestSimulateRule_DCAStalePrice(t *testing.T) {
 	resp, err := h.SimulateRule(ownerCtx(), connect.NewRequest(&apiv1.SimulateRuleRequest{RuleId: "r-1"}))
 	require.NoError(t, err)
 	assert.False(t, resp.Msg.Success)
-	assert.Contains(t, resp.Msg.ErrorMessage, "old")
+	assert.Contains(t, resp.Msg.ErrorMessage, "old, more than")
 }
 
 // --- Paper execution ---
@@ -639,4 +642,28 @@ func TestExecuteRule_SubmitBudgetSpentStillRecords(t *testing.T) {
 	require.NoError(t, err)
 	assert.NoError(t, recordCtxErr, "the record is written under its own budget")
 	assert.Equal(t, entity.ExecutionStatusCompleted, final.Status)
+}
+
+func TestExecuteRule_RecordFailsAfterFillIsLogged(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetRule", mock.Anything, "r-1").Return(fakeRule("fake"), nil)
+	s.On("CreateRuleExecution", mock.Anything, mock.Anything).
+		Return(&entity.RuleExecution{ID: testExecID, RuleID: "r-1", Status: entity.ExecutionStatusInProgress}, nil)
+	s.On("UpdateRuleExecution", mock.Anything, mock.Anything, mock.Anything).Return(nil, assert.AnError)
+	h := execHandler(s, &fakeEngine{}, &fakeVenue{}, apiv1.AccountType_ACCOUNT_TYPE_MANUAL)
+	var logs bytes.Buffer
+	h.log = slog.New(slog.NewTextHandler(&logs, nil))
+
+	_, err := h.ExecuteRule(ownerCtx(), connect.NewRequest(&apiv1.ExecuteRuleRequest{RuleId: "r-1"}))
+	require.Error(t, err)
+	assert.Contains(t, logs.String(), "execution_id="+testExecID)
+	assert.Contains(t, logs.String(), "EXECUTION_STATUS_COMPLETED")
+	assert.Contains(t, logs.String(), "h-base", "the holdings the fill changed are named")
+}
+
+func TestPriceFromProto_ScaleOnlyDivides(t *testing.T) {
+	// int32(MaxUint32) is -1: a bare cast would price 5 as 50.
+	got, err := priceFromProto(&apiv1.Price{Last: "5", Decimals: math.MaxUint32})
+	require.NoError(t, err)
+	assert.Negative(t, got.Value.Exponent())
 }
