@@ -52,9 +52,6 @@ const (
 	// AutomationServiceExecuteRuleProcedure is the fully-qualified name of the AutomationService's
 	// ExecuteRule RPC.
 	AutomationServiceExecuteRuleProcedure = "/eye.v1.AutomationService/ExecuteRule"
-	// AutomationServiceExecuteRuleAsyncProcedure is the fully-qualified name of the AutomationService's
-	// ExecuteRuleAsync RPC.
-	AutomationServiceExecuteRuleAsyncProcedure = "/eye.v1.AutomationService/ExecuteRuleAsync"
 	// AutomationServiceCancelRuleExecutionProcedure is the fully-qualified name of the
 	// AutomationService's CancelRuleExecution RPC.
 	AutomationServiceCancelRuleExecutionProcedure = "/eye.v1.AutomationService/CancelRuleExecution"
@@ -100,7 +97,6 @@ type AutomationServiceClient interface {
 	ListRules(context.Context, *connect.Request[v1.ListRulesRequest]) (*connect.Response[v1.ListRulesResponse], error)
 	// --- Rule execution ---
 	ExecuteRule(context.Context, *connect.Request[v1.ExecuteRuleRequest]) (*connect.Response[v1.ExecuteRuleResponse], error)
-	ExecuteRuleAsync(context.Context, *connect.Request[v1.ExecuteRuleAsyncRequest]) (*connect.Response[v1.ExecuteRuleAsyncResponse], error)
 	CancelRuleExecution(context.Context, *connect.Request[v1.CancelRuleExecutionRequest]) (*connect.Response[emptypb.Empty], error)
 	// --- Rule validation and simulation ---
 	ValidateRule(context.Context, *connect.Request[v1.ValidateRuleRequest]) (*connect.Response[v1.ValidateRuleResponse], error)
@@ -162,12 +158,6 @@ func NewAutomationServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			httpClient,
 			baseURL+AutomationServiceExecuteRuleProcedure,
 			connect.WithSchema(automationServiceMethods.ByName("ExecuteRule")),
-			connect.WithClientOptions(opts...),
-		),
-		executeRuleAsync: connect.NewClient[v1.ExecuteRuleAsyncRequest, v1.ExecuteRuleAsyncResponse](
-			httpClient,
-			baseURL+AutomationServiceExecuteRuleAsyncProcedure,
-			connect.WithSchema(automationServiceMethods.ByName("ExecuteRuleAsync")),
 			connect.WithClientOptions(opts...),
 		),
 		cancelRuleExecution: connect.NewClient[v1.CancelRuleExecutionRequest, emptypb.Empty](
@@ -247,7 +237,6 @@ type automationServiceClient struct {
 	deleteRule          *connect.Client[v1.DeleteRuleRequest, emptypb.Empty]
 	listRules           *connect.Client[v1.ListRulesRequest, v1.ListRulesResponse]
 	executeRule         *connect.Client[v1.ExecuteRuleRequest, v1.ExecuteRuleResponse]
-	executeRuleAsync    *connect.Client[v1.ExecuteRuleAsyncRequest, v1.ExecuteRuleAsyncResponse]
 	cancelRuleExecution *connect.Client[v1.CancelRuleExecutionRequest, emptypb.Empty]
 	validateRule        *connect.Client[v1.ValidateRuleRequest, v1.ValidateRuleResponse]
 	simulateRule        *connect.Client[v1.SimulateRuleRequest, v1.SimulateRuleResponse]
@@ -289,11 +278,6 @@ func (c *automationServiceClient) ListRules(ctx context.Context, req *connect.Re
 // ExecuteRule calls eye.v1.AutomationService.ExecuteRule.
 func (c *automationServiceClient) ExecuteRule(ctx context.Context, req *connect.Request[v1.ExecuteRuleRequest]) (*connect.Response[v1.ExecuteRuleResponse], error) {
 	return c.executeRule.CallUnary(ctx, req)
-}
-
-// ExecuteRuleAsync calls eye.v1.AutomationService.ExecuteRuleAsync.
-func (c *automationServiceClient) ExecuteRuleAsync(ctx context.Context, req *connect.Request[v1.ExecuteRuleAsyncRequest]) (*connect.Response[v1.ExecuteRuleAsyncResponse], error) {
-	return c.executeRuleAsync.CallUnary(ctx, req)
 }
 
 // CancelRuleExecution calls eye.v1.AutomationService.CancelRuleExecution.
@@ -361,7 +345,6 @@ type AutomationServiceHandler interface {
 	ListRules(context.Context, *connect.Request[v1.ListRulesRequest]) (*connect.Response[v1.ListRulesResponse], error)
 	// --- Rule execution ---
 	ExecuteRule(context.Context, *connect.Request[v1.ExecuteRuleRequest]) (*connect.Response[v1.ExecuteRuleResponse], error)
-	ExecuteRuleAsync(context.Context, *connect.Request[v1.ExecuteRuleAsyncRequest]) (*connect.Response[v1.ExecuteRuleAsyncResponse], error)
 	CancelRuleExecution(context.Context, *connect.Request[v1.CancelRuleExecutionRequest]) (*connect.Response[emptypb.Empty], error)
 	// --- Rule validation and simulation ---
 	ValidateRule(context.Context, *connect.Request[v1.ValidateRuleRequest]) (*connect.Response[v1.ValidateRuleResponse], error)
@@ -419,12 +402,6 @@ func NewAutomationServiceHandler(svc AutomationServiceHandler, opts ...connect.H
 		AutomationServiceExecuteRuleProcedure,
 		svc.ExecuteRule,
 		connect.WithSchema(automationServiceMethods.ByName("ExecuteRule")),
-		connect.WithHandlerOptions(opts...),
-	)
-	automationServiceExecuteRuleAsyncHandler := connect.NewUnaryHandler(
-		AutomationServiceExecuteRuleAsyncProcedure,
-		svc.ExecuteRuleAsync,
-		connect.WithSchema(automationServiceMethods.ByName("ExecuteRuleAsync")),
 		connect.WithHandlerOptions(opts...),
 	)
 	automationServiceCancelRuleExecutionHandler := connect.NewUnaryHandler(
@@ -507,8 +484,6 @@ func NewAutomationServiceHandler(svc AutomationServiceHandler, opts ...connect.H
 			automationServiceListRulesHandler.ServeHTTP(w, r)
 		case AutomationServiceExecuteRuleProcedure:
 			automationServiceExecuteRuleHandler.ServeHTTP(w, r)
-		case AutomationServiceExecuteRuleAsyncProcedure:
-			automationServiceExecuteRuleAsyncHandler.ServeHTTP(w, r)
 		case AutomationServiceCancelRuleExecutionProcedure:
 			automationServiceCancelRuleExecutionHandler.ServeHTTP(w, r)
 		case AutomationServiceValidateRuleProcedure:
@@ -562,10 +537,6 @@ func (UnimplementedAutomationServiceHandler) ListRules(context.Context, *connect
 
 func (UnimplementedAutomationServiceHandler) ExecuteRule(context.Context, *connect.Request[v1.ExecuteRuleRequest]) (*connect.Response[v1.ExecuteRuleResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.ExecuteRule is not implemented"))
-}
-
-func (UnimplementedAutomationServiceHandler) ExecuteRuleAsync(context.Context, *connect.Request[v1.ExecuteRuleAsyncRequest]) (*connect.Response[v1.ExecuteRuleAsyncResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AutomationService.ExecuteRuleAsync is not implemented"))
 }
 
 func (UnimplementedAutomationServiceHandler) CancelRuleExecution(context.Context, *connect.Request[v1.CancelRuleExecutionRequest]) (*connect.Response[emptypb.Empty], error) {

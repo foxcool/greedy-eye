@@ -341,9 +341,6 @@ func TestExecutionMethods_ValidateInputs(t *testing.T) {
 	_, err := h.ExecuteRule(ctx, connect.NewRequest(&apiv1.ExecuteRuleRequest{}))
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 
-	_, err = h.ExecuteRuleAsync(ctx, connect.NewRequest(&apiv1.ExecuteRuleAsyncRequest{}))
-	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
-
 	_, err = h.CancelRuleExecution(ctx, connect.NewRequest(&apiv1.CancelRuleExecutionRequest{}))
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 
@@ -421,4 +418,36 @@ func TestValidateRule_ReportsScheduleProblem(t *testing.T) {
 	assert.False(t, resp.Msg.Valid)
 	require.Len(t, resp.Msg.ValidationErrors, 1)
 	assert.Contains(t, resp.Msg.ValidationErrors[0], "once a minute")
+}
+
+// --- Tests: engine dispatch ---
+
+// A rule type nothing can plan must say so instead of reporting a run that
+// did nothing: the old handler recorded a completed execution for any type.
+func TestExecuteRule_NoEngine_Unimplemented(t *testing.T) {
+	s := &mockStore{}
+	r := testRule("r-1")
+	r.RuleType = "rebalancing"
+	s.On("GetRule", mock.Anything, "r-1").Return(r, nil)
+	h := newHandler(s)
+
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	_, err := h.ExecuteRule(ctx, connect.NewRequest(&apiv1.ExecuteRuleRequest{RuleId: "r-1"}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
+	s.AssertNotCalled(t, "CreateRuleExecution", mock.Anything, mock.Anything)
+}
+
+func TestSimulateRule_NoEngine_Unimplemented(t *testing.T) {
+	s := &mockStore{}
+	r := testRule("r-1")
+	r.RuleType = "rebalancing"
+	s.On("GetRule", mock.Anything, "r-1").Return(r, nil)
+	h := newHandler(s)
+
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	_, err := h.SimulateRule(ctx, connect.NewRequest(&apiv1.SimulateRuleRequest{RuleId: "r-1"}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
+	s.AssertNotCalled(t, "CreateRuleExecution", mock.Anything, mock.Anything)
 }

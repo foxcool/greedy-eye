@@ -377,9 +377,12 @@ graph TB
 
 **AutomationService** (`internal/service/automation/`):
 - RPCs implemented: CRUD for Rule and RuleExecution, EnableRule, DisableRule, PauseRule,
-  ResumeRule, ValidateRule, ExecuteRule, ExecuteRuleAsync, CancelRuleExecution, SimulateRule
-- Ownership enforced per rule (`ownedRule`); execution engines (DCA/rebalancing/stop-loss) are
-  still stubs pending the rule-engine package.
+  ResumeRule, ValidateRule, ExecuteRule, CancelRuleExecution, SimulateRule
+- Ownership enforced per rule (`ownedRule`). SimulateRule and ExecuteRule dispatch through
+  `internal/execution`: an engine per rule type plans trades, a venue per account type places
+  them. A rule type without an engine answers Unimplemented and records no execution.
+- Reads the rule's account and holdings through a PortfolioClient subset and prices through a
+  MarketDataClient subset (`clients.go`), local handlers or remote clients alike.
 - Store: `AutomationStore` (PostgreSQL) — `rules` + `rule_executions` tables
 
 **AnalyticsService** (`internal/service/analytics/`):

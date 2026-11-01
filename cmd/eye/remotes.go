@@ -61,7 +61,8 @@ func validateRemotes(config *Config) error {
 }
 
 // remotes builds Connect clients for the domains this process calls over the
-// network. Only cross-domain reads made by handlers go through it. Edges still
+// network. Cross-domain calls made by handlers go through it: reads, and
+// automation's executions (account, holdings and prices). Edges still
 // in-process whatever remotes says:
 //   - credResolver reads accounts.data through the portfolio store (personal-dwa.9)
 //   - the scheduler calls marketdata, automation and portfolio handlers (personal-dwa.11)
