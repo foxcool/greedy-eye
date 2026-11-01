@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
@@ -77,7 +78,12 @@ func parseDCAConfig(raw json.RawMessage) (dcaConfig, error) {
 // quoteAmountPattern admits plain decimals only. The decimal parser takes any
 // exponent, and "1e2000000000" passes a sign check yet costs gigabytes the
 // first time it is compared or printed; no real buy needs more digits.
-var quoteAmountPattern = regexp.MustCompile(`^[0-9]{1,30}(\.[0-9]{1,18})?$`)
+const (
+	maxQuoteIntDigits  = 30
+	maxQuoteFracDigits = 18
+)
+
+var quoteAmountPattern = regexp.MustCompile(fmt.Sprintf(`^[0-9]{1,%d}(\.[0-9]{1,%d})?$`, maxQuoteIntDigits, maxQuoteFracDigits))
 
 func parseQuoteAmount(raw json.RawMessage) (decimal.Decimal, error) {
 	if len(raw) == 0 {
@@ -87,8 +93,12 @@ func parseQuoteAmount(raw json.RawMessage) (decimal.Decimal, error) {
 	if err := json.Unmarshal(raw, &text); err != nil {
 		return decimal.Decimal{}, errors.New("quote_amount must be a decimal string")
 	}
+	if strings.HasPrefix(text, "-") {
+		return decimal.Decimal{}, errors.New("quote_amount must be positive")
+	}
 	if !quoteAmountPattern.MatchString(text) {
-		return decimal.Decimal{}, fmt.Errorf("quote_amount %q is not a number: want digits with an optional fraction, at most 30.18", text)
+		return decimal.Decimal{}, fmt.Errorf("quote_amount %q is not a plain decimal of at most %d integer and %d fraction digits",
+			text, maxQuoteIntDigits, maxQuoteFracDigits)
 	}
 	amount, err := decimal.NewFromString(text)
 	if err != nil {
@@ -142,7 +152,8 @@ func (DCA) Plan(rule *entity.Rule, snap Snapshot) (TradePlan, error) {
 // Simulate reports the planned buy against the quote balance on hand. Floats
 // appear only here, at the proto boundary.
 func (DCA) Simulate(_ *entity.Rule, snap Snapshot, plan TradePlan) *apiv1.SimulationResult {
-	var sim *apiv1.DCASimulation
+	// A DCA plan holds exactly one trade; anything else describes nothing.
+	sim := &apiv1.DCASimulation{}
 	if len(plan.Trades) == 1 {
 		t := plan.Trades[0]
 		available := decimal.Zero

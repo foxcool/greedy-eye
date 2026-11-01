@@ -135,8 +135,9 @@ docker exec eye-dev curl -s localhost:8080/eye/health
 
 The backend is a working 3-service Connect-RPC monolith. Core CRUD, portfolio
 valuation, credential-backed external integrations, account sync (wallet +
-exchange), and ownership enforcement are in place. The automation rule engines
-(DCA / rebalancing / stop-loss) and the cron scheduler are the main open items.
+exchange), and ownership enforcement are in place. Automation runs DCA rules as
+paper trading on manual accounts; rebalancing / stop-loss engines and real venues
+are the main open items.
 
 ### Service Status
 
@@ -144,7 +145,7 @@ exchange), and ownership enforcement are in place. The automation rule engines
 |---------|----------|--------|
 | MarketDataService | `internal/service/marketdata/` | ✅ Assets + prices CRUD, FetchExternalPrices (resolver) |
 | PortfolioService | `internal/service/portfolio/` | ✅ CRUD, CalculatePortfolioValue, SyncAccount (wallet + exchange), ownership |
-| AutomationService | `internal/service/automation/` | 🔄 Rule/execution CRUD + status ops done; execution engines stubbed |
+| AutomationService | `internal/service/automation/` | 🔄 Rule/execution CRUD + status ops; DCA engine on a paper venue (`internal/execution`); other engines Unimplemented |
 | AnalyticsService | `internal/service/analytics/` | 🔄 GetHeatmap scope=portfolio+balance (flat / by account / by portfolio, change% color); market/basket pending data prerequisites |
 | Credentials resolver | `internal/service/credentials/` | ✅ Per-account provider clients (signed-in: user → system; unattended: system → sole operator) |
 | User provisioning | `internal/middleware/user.go` | ✅ Header-based (psina), lazy provision, roles per request |
@@ -499,7 +500,7 @@ Tracked in beads (`bd ready`). High-level state:
 - Account sync: wallet (Moralis) + exchange (Binance spot) + broker (T-Invest positions)
 
 **In progress / next**
-- Automation rule engines: DCA, rebalancing, stop-loss (execution stubs today)
+- Automation rule engines: rebalancing, stop-loss (DCA runs on paper); real venues
 - Cron scheduler for periodic rules
 - Binance batch price fix; Gate.io exchange adapter
 - Deprecate env provider keys once fully migrated to system accounts

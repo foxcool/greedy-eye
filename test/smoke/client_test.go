@@ -77,3 +77,10 @@ func newAnalyticsClient(userID string) apiv1connect.AnalyticsServiceClient {
 		connect.WithInterceptors(userHeaders(userID)),
 	)
 }
+
+func newAutomationClient(userID string) apiv1connect.AutomationServiceClient {
+	return apiv1connect.NewAutomationServiceClient(
+		http.DefaultClient, serverURL,
+		connect.WithInterceptors(userHeaders(userID)),
+	)
+}

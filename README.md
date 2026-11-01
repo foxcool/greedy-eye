@@ -161,9 +161,8 @@ In progress / next:
 - 🔄 Quote confidence — a price with no market volume behind it must not enter
   the sum as if it were real
 - 🔄 Price coverage for non-crypto assets (MOEX, SPBEX, FX)
-- 📋 Automation engines (DCA / rebalancing / stop-loss) — deliberately blocked
-  until the portfolio total is trustworthy; rules on top of a wrong number are
-  worse than no rules
+- 🔄 Automation engines — DCA runs as paper trading on a manual account;
+  rebalancing / stop-loss and real order placement are next
 - 📋 Metrics and monitoring beyond the health check
 
 Beyond the feature work above, calling this beta would also need a documented

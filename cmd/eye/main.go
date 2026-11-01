@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
 	"github.com/foxcool/greedy-eye/internal/entity"
@@ -227,7 +228,10 @@ func run() error {
 	automationHandler.
 		WithPortfolioClient(pClient).
 		WithMarketDataClient(mdClient).
-		WithEngines(execution.NewEngines(execution.DCA{}))
+		WithEngines(execution.NewEngines(execution.DCA{})).
+		// A manual account is traded on paper: fills move its holdings and
+		// nothing leaves the process.
+		WithVenues(execution.Venues{apiv1.AccountType_ACCOUNT_TYPE_MANUAL: execution.NewPaperVenue(pClient)})
 	// The balance sweep runs against the portfolio service in this process.
 	// A deployment without one has no balances of its own to refresh, so the
 	// job stays unregistered rather than reaching across the network for them.

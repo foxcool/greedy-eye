@@ -14,6 +14,8 @@ import (
 type PortfolioClient interface {
 	GetAccount(context.Context, *connect.Request[apiv1.GetAccountRequest]) (*connect.Response[apiv1.Account], error)
 	ListHoldings(context.Context, *connect.Request[apiv1.ListHoldingsRequest]) (*connect.Response[apiv1.ListHoldingsResponse], error)
+	ImportPositions(context.Context, *connect.Request[apiv1.ImportPositionsRequest]) (*connect.Response[apiv1.ImportPositionsResponse], error)
+	ImportTransactions(context.Context, *connect.Request[apiv1.ImportTransactionsRequest]) (*connect.Response[apiv1.ImportTransactionsResponse], error)
 }
 
 // MarketDataClient is the subset of MarketDataServiceClient that Automation

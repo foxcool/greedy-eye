@@ -1,9 +1,13 @@
 package execution
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
+	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,12 +41,13 @@ func TestExecutionStatus(t *testing.T) {
 		results    []TradeResult
 		wantStatus entity.ExecutionStatus
 		wantReason string
+		notReason  string
 	}{
-		{"empty plan", nil, entity.ExecutionStatusCompleted, ""},
-		{"all filled", []TradeResult{filled, filled}, entity.ExecutionStatusCompleted, ""},
-		{"one rejected", []TradeResult{filled, rejected("insufficient USDT")}, entity.ExecutionStatusFailed, "insufficient USDT"},
-		{"first rejection wins", []TradeResult{rejected("first"), rejected("second")}, entity.ExecutionStatusFailed, "first"},
-		{"planned left over", []TradeResult{{State: StatePlanned}}, entity.ExecutionStatusFailed, "planned"},
+		{"empty plan", nil, entity.ExecutionStatusCompleted, "", ""},
+		{"all filled", []TradeResult{filled, filled}, entity.ExecutionStatusCompleted, "", ""},
+		{"one rejected", []TradeResult{filled, rejected("insufficient USDT")}, entity.ExecutionStatusFailed, "insufficient USDT", ""},
+		{"first rejection wins", []TradeResult{rejected("first"), rejected("second")}, entity.ExecutionStatusFailed, "first", "second"},
+		{"planned left over", []TradeResult{{State: StatePlanned}}, entity.ExecutionStatusFailed, "planned", ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -53,8 +58,8 @@ func TestExecutionStatus(t *testing.T) {
 			} else {
 				assert.Contains(t, reason, tc.wantReason)
 			}
-			if tc.name == "first rejection wins" {
-				assert.NotContains(t, reason, "second")
+			if tc.notReason != "" {
+				assert.NotContains(t, reason, tc.notReason)
 			}
 		})
 	}
@@ -89,4 +94,46 @@ func TestSettle(t *testing.T) {
 	assert.Error(t, err, "a terminal trade cannot be settled again")
 	_, err = Settle(TradeResult{State: StateRejected}, Outcome{}, assert.AnError)
 	assert.Error(t, err, "a terminal trade cannot be rejected again")
+}
+
+func TestJournalItem(t *testing.T) {
+	asOf := time.Date(2025, 3, 14, 11, 50, 0, 0, time.UTC)
+	r := TradeResult{
+		Trade: Trade{Side: SideBuy, AssetID: "base", QuoteAssetID: "quote", QuoteAmount: decimal.NewFromInt(100), Price: decimal.NewFromInt(40000), PriceAsOf: asOf},
+		State: StateFilled,
+		Fill:  &Fill{BaseAmount: decimal.RequireFromString("0.0025"), QuoteAmount: decimal.NewFromInt(100), Price: decimal.NewFromInt(40000), PriceAsOf: asOf},
+	}
+
+	item := JournalItem(Key{ExecutionID: "exec-1", Index: 2}, r)
+
+	assert.Equal(t, apiv1.TransactionType_TRANSACTION_TYPE_TRADE, item.Type)
+	assert.Equal(t, "base", item.GetAssetId())
+	assert.Equal(t, "exec-1:2", item.GetExternalId())
+	assert.Equal(t, map[string]string{
+		"side":           "buy",
+		"amount":         "0.0025",
+		"quote_asset_id": "quote",
+		"quote_amount":   "100",
+		"price":          "40000",
+		"price_as_of":    "2025-03-14T11:50:00Z",
+		"execution_id":   "exec-1",
+	}, item.Data)
+}
+
+func TestSummary(t *testing.T) {
+	trade := Trade{Side: SideBuy, AssetID: "base", QuoteAssetID: "quote", QuoteAmount: decimal.NewFromInt(100), Price: decimal.NewFromInt(40000)}
+	raw, err := Summary([]TradeResult{
+		{Trade: trade, State: StateFilled, Fill: &Fill{BaseAmount: decimal.RequireFromString("0.0025")}},
+		{Trade: trade, State: StateRejected, Reason: "not placed"},
+	})
+	require.NoError(t, err)
+	var got struct {
+		Trades []map[string]any `json:"trades"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &got))
+	require.Len(t, got.Trades, 2)
+	assert.Equal(t, "0.0025", got.Trades[0]["base_amount"])
+	assert.Equal(t, "100", got.Trades[0]["quote_amount"], "amounts are strings, never floats")
+	assert.NotContains(t, got.Trades[1], "base_amount", "an unfilled trade bought nothing")
+	assert.Equal(t, "not placed", got.Trades[1]["reason"])
 }

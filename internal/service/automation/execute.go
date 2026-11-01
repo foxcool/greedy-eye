@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -83,6 +84,11 @@ func (h *Handler) prepare(ctx context.Context, eng execution.Engine, rule *entit
 	acct, err := h.pClient.GetAccount(ctx, connect.NewRequest(&apiv1.GetAccountRequest{Id: inputs.AccountID}))
 	if err != nil {
 		return prepared{}, fmt.Errorf("account %s: %w", inputs.AccountID, err)
+	}
+	// validateConfiguration checked this when the rule was written; the
+	// account may have been moved to another portfolio since.
+	if acct.Msg.GetPortfolioId() != rule.PortfolioID {
+		return prepared{}, fmt.Errorf("account %s is no longer in portfolio %s", inputs.AccountID, rule.PortfolioID)
 	}
 	snap, err := h.snapshot(ctx, inputs)
 	if err != nil {
@@ -177,19 +183,23 @@ func (h *Handler) ExecuteRule(ctx context.Context, req *connect.Request[apiv1.Ex
 	return connect.NewResponse(&apiv1.ExecuteRuleResponse{Execution: proto}), nil
 }
 
-// dryRunExecution is the execution a run would start with, never persisted:
-// the plan in execution_summary, or the reason there is none.
-func dryRunExecution(rule *entity.Rule, p prepared, prepErr error) (*entity.RuleExecution, error) {
-	now := time.Now()
-	exec := &entity.RuleExecution{
-		ID:          dryRunExecutionID,
+// newExecution starts an execution record of rule.
+func newExecution(rule *entity.Rule, status entity.ExecutionStatus) *entity.RuleExecution {
+	return &entity.RuleExecution{
 		RuleID:      rule.ID,
 		PortfolioID: rule.PortfolioID,
 		UserID:      rule.UserID,
-		Status:      entity.ExecutionStatusCompleted,
-		StartedAt:   now,
-		CompletedAt: &now,
+		Status:      status,
+		StartedAt:   time.Now(),
 	}
+}
+
+// dryRunExecution is the execution a run would start with, never persisted:
+// the plan in execution_summary, or the reason there is none.
+func dryRunExecution(rule *entity.Rule, p prepared, prepErr error) (*entity.RuleExecution, error) {
+	exec := newExecution(rule, entity.ExecutionStatusCompleted)
+	exec.ID = dryRunExecutionID
+	exec.CompletedAt = &exec.StartedAt
 	if prepErr != nil {
 		exec.Status = entity.ExecutionStatusFailed
 		exec.ErrorMessage = prepErr.Error()
@@ -206,45 +216,47 @@ func dryRunExecution(rule *entity.Rule, p prepared, prepErr error) (*entity.Rule
 // recordFailure persists a run that could not plan, so the reason is on
 // record instead of in a log line nobody reads.
 func (h *Handler) recordFailure(ctx context.Context, rule *entity.Rule, reason error) (*entity.RuleExecution, error) {
-	now := time.Now()
-	created, err := h.store.CreateRuleExecution(ctx, &entity.RuleExecution{
-		RuleID:       rule.ID,
-		PortfolioID:  rule.PortfolioID,
-		UserID:       rule.UserID,
-		Status:       entity.ExecutionStatusFailed,
-		ErrorMessage: reason.Error(),
-		StartedAt:    now,
-		CompletedAt:  &now,
-	})
+	exec := newExecution(rule, entity.ExecutionStatusFailed)
+	exec.ErrorMessage = reason.Error()
+	exec.CompletedAt = &exec.StartedAt
+	created, err := h.store.CreateRuleExecution(ctx, exec)
 	if err != nil {
 		return nil, toConnectError(err)
 	}
 	return created, nil
 }
 
+// Once a trade is submitted the caller going away must not cut the run
+// short: a venue may already have moved holdings, and the journal and the
+// record have to follow. Submitting and recording get separate budgets, so a
+// submit that used up its own (waiting on the account lock, say) still leaves
+// time to write down what happened.
+const (
+	submitTimeout = 2 * time.Minute
+	recordTimeout = 30 * time.Second
+)
+
 // run creates the execution, submits each trade and records the result.
 func (h *Handler) run(ctx context.Context, rule *entity.Rule, p prepared) (*entity.RuleExecution, error) {
-	exec, err := h.store.CreateRuleExecution(ctx, &entity.RuleExecution{
-		RuleID:      rule.ID,
-		PortfolioID: rule.PortfolioID,
-		UserID:      rule.UserID,
-		Status:      entity.ExecutionStatusInProgress,
-		StartedAt:   time.Now(),
-	})
+	exec, err := h.store.CreateRuleExecution(ctx, newExecution(rule, entity.ExecutionStatusInProgress))
 	if err != nil {
 		return nil, toConnectError(err)
 	}
 
-	results, err := h.submit(ctx, p.account, exec.ID, execution.Planned(p.plan))
+	detached := context.WithoutCancel(ctx)
+	submitCtx, cancelSubmit := context.WithTimeout(detached, h.submitTimeout)
+	results, err := h.submit(submitCtx, p.account, exec.ID, execution.Planned(p.plan))
+	cancelSubmit()
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-
-	// A venue may already have moved holdings: the record is finished even
-	// when the caller has gone.
-	wctx := context.WithoutCancel(ctx)
-
+	recordCtx, cancelRecord := context.WithTimeout(detached, recordTimeout)
+	defer cancelRecord()
+	txIDs, journalErr := h.journal(recordCtx, p.account.ID, exec.ID, results)
 	status, reason := execution.ExecutionStatus(results)
+	if journalErr != nil {
+		status, reason = entity.ExecutionStatusFailed, journalMissing(journalErr, reason)
+	}
 	summary, err := execution.Summary(results)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -254,14 +266,29 @@ func (h *Handler) run(ctx context.Context, rule *entity.Rule, p prepared) (*enti
 	exec.ErrorMessage = reason
 	exec.CompletedAt = &now
 	exec.AffectedHoldingIDs = affectedHoldings(results)
+	exec.CreatedTransactionIDs = txIDs
+	exec.TransactionsCreated = int32(len(txIDs)) // #nosec G115 -- one per trade of a plan
 	exec.ExecutionSummary = summary
-	updated, err := h.store.UpdateRuleExecution(wctx, exec, []string{
-		"status", "error_message", "completed_at", "affected_holding_ids", "execution_summary",
+	updated, err := h.store.UpdateRuleExecution(recordCtx, exec, []string{
+		"status", "error_message", "completed_at", "affected_holding_ids",
+		"created_transaction_ids", "transactions_created", "execution_summary",
 	})
 	if err != nil {
 		return nil, toConnectError(err)
 	}
 	return updated, nil
+}
+
+// journalMissing is the reason of a run whose fills landed but whose journal
+// did not. Holdings carry the fill, so the model's value is right and a
+// holding can be fixed by hand; a transaction cannot be deleted through the
+// API, so the journal is not retried blindly.
+func journalMissing(journalErr error, tradeReason string) string {
+	parts := []string{"holdings applied, journal missing: " + journalErr.Error()}
+	if tradeReason != "" {
+		parts = append(parts, tradeReason)
+	}
+	return strings.Join(parts, "; ")
 }
 
 // submit places the trades in order on the account's venue. After a rejected
@@ -288,6 +315,41 @@ func (h *Handler) submit(ctx context.Context, account execution.Account, executi
 		}
 	}
 	return results, nil
+}
+
+// journal records every filled trade as a TRADE transaction on the account,
+// whatever venue filled it, under import_id = the execution id.
+func (h *Handler) journal(ctx context.Context, accountID, executionID string, results []execution.TradeResult) ([]string, error) {
+	var items []*apiv1.ImportTransactionItem
+	for i, r := range results {
+		if r.State == execution.StateFilled {
+			items = append(items, execution.JournalItem(execution.Key{ExecutionID: executionID, Index: i}, r))
+		}
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	resp, err := h.pClient.ImportTransactions(ctx, connect.NewRequest(&apiv1.ImportTransactionsRequest{
+		AccountId:    accountID,
+		Transactions: items,
+		ImportId:     &executionID,
+	}))
+	if err != nil {
+		return nil, err
+	}
+	var ids, failed []string
+	for _, item := range resp.Msg.GetItems() {
+		switch {
+		case item.Error != nil:
+			failed = append(failed, fmt.Sprintf("item %d: %s", item.GetIndex(), item.GetError()))
+		case item.TransactionId != nil:
+			ids = append(ids, item.GetTransactionId())
+		}
+	}
+	if len(failed) > 0 {
+		return ids, errors.New(strings.Join(failed, "; "))
+	}
+	return ids, nil
 }
 
 // affectedHoldings lists the holdings the venues changed, each once.

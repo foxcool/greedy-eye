@@ -31,10 +31,12 @@ type Handler struct {
 	venues   execution.Venues
 	pClient  PortfolioClient
 	mdClient MarketDataClient
+	// submitTimeout is the submit budget; a field so a test need not wait it out.
+	submitTimeout time.Duration
 }
 
 func NewHandler(store Store, log *slog.Logger) *Handler {
-	return &Handler{store: store, log: log}
+	return &Handler{store: store, log: log, submitTimeout: submitTimeout}
 }
 
 // WithEngines sets the engines rules are planned by; a rule type without one

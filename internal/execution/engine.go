@@ -53,8 +53,8 @@ type Snapshot struct {
 }
 
 // Holding returns the account's position in assetID. More than one row for
-// the asset is reported as not unique: a trade must not pick one at random.
-func (s Snapshot) Holding(assetID string) (h Holding, found, unique bool) {
+// the asset is ambiguous: a trade must not pick one at random.
+func (s Snapshot) Holding(assetID string) (h Holding, found, ambiguous bool) {
 	n := 0
 	for _, c := range s.Holdings {
 		if c.AssetID == assetID {
@@ -62,7 +62,7 @@ func (s Snapshot) Holding(assetID string) (h Holding, found, unique bool) {
 			n++
 		}
 	}
-	return h, n > 0, n <= 1
+	return h, n > 0, n > 1
 }
 
 // Inputs is what the shell has to load before Plan: the account the rule

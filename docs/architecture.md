@@ -383,6 +383,15 @@ graph TB
   them. A rule type without an engine answers Unimplemented and records no execution.
 - Reads the rule's account and holdings through a PortfolioClient subset and prices through a
   MarketDataClient subset (`clients.go`), local handlers or remote clients alike.
+- Engines: `dca` (buy a base asset for a fixed quote amount at the direct pair's latest price;
+  a price missing or more than an hour old fails the plan). Venues: a `manual` account trades
+  on paper — the paper venue is the only thing that moves its holdings, writing absolute
+  amounts through ImportPositions under `import_id` = execution id. Every filled trade, from
+  any venue, is journaled as a TRADE transaction through ImportTransactions
+  (`external_id` = `<execution_id>:<trade index>`).
+- Venues answer terminally (filled or rejected). Waiting states (an order resting on an
+  exchange, a proposal awaiting signatures) and their persistence arrive with the first venue
+  that waits; until then the core refuses a non-terminal answer as "async venue not supported".
 - Store: `AutomationStore` (PostgreSQL) — `rules` + `rule_executions` tables
 
 **AnalyticsService** (`internal/service/analytics/`):
@@ -962,16 +971,23 @@ LLM / API Client → PortfolioService/ImportPositions
      full_snapshot=true additionally zeroes positions missing from the payload
 ```
 
-#### Scenario 3: Execute Rebalancing Rule
+#### Scenario 3: Execute a DCA Rule on Paper
 
 ```text
 Cron / API Client → AutomationService/ExecuteRule
-  1. Validate rule_id, check rule.status == active
-  2. CreateRuleExecution(status=in_progress)
-  3. Run rule logic (calculate rebalancing trades)
-  4. Create Transaction records via PortfolioService
-  5. UpdateRuleExecution(status=completed, completed_at=now)
-  Note: dry_run=true returns simulated execution without DB writes
+  1. Load the owned rule, check rule.status == active, pick the engine by rule_type
+     (none → Unimplemented, no execution recorded)
+  2. Snapshot: account (GetAccount), its holdings (ListHoldings), the pair's latest price
+     (GetLatestPrice); engine.Plan(rule, snapshot) — pure, reads time only from the snapshot
+  3. dry_run=true → unpersisted execution, the plan in execution_summary
+     plan error → execution recorded as failed with the reason
+  4. CreateRuleExecution(status=in_progress)
+  5. Venue by account type (manual → paper): per trade, under a per-account lock,
+     read holdings → paperFill → ImportPositions (absolute amounts, import_id = execution id)
+  6. Journal: ImportTransactions, one TRADE per filled trade
+     (failure here → failed, "holdings applied, journal missing", affected_holding_ids set)
+  7. UpdateRuleExecution(status from the trades, completed_at, created_transaction_ids,
+     affected_holding_ids, execution_summary)
 ```
 
 ### 6.2 Critical Scenarios
@@ -1779,14 +1795,12 @@ System Quality
 #### Debt 1: No automation engines
 
 - Description: CRUD, valuation, price fetch, account sync and the cron scheduler are implemented.
-  Remaining stubs: GetPortfolioPerformance, EnrichAssetData, FindSimilarAssets, and the execution
-  engines (DCA / rebalancing / stop-loss). ExecuteRule runs a minimal synchronous flow, not
-  trading logic.
-- Impact: No automated strategy execution.
-- Resolution Plan: extract a rule-engine package out of `automation/handler.go` → a record-only
-  executor with a Plan→Apply split (paper trading) → the individual engines. Deliberately
-  sequenced **after** the valuation work: a rule acting on a number that lies is worse than no
-  rule.
+  Remaining stubs: GetPortfolioPerformance, EnrichAssetData, FindSimilarAssets. The execution
+  mechanism (`internal/execution`) runs DCA on paper; rebalancing, stop-loss and withdrawal have
+  no engine (Unimplemented), and no venue places real orders.
+- Impact: Automated strategies run only as paper trading on manual accounts.
+- Resolution Plan: the remaining engines; real venues (exchange orders, multisig proposals) as
+  further modules of the same mechanism, bringing waiting execution states with them.
 
 > **Closed since 2026-08-01**, kept out of the list so it does not read as open:
 > a quote with no market behind it no longer values a holding (ADR-009,

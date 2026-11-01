@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/shopspring/decimal"
 )
@@ -173,4 +174,28 @@ func Summary(results []TradeResult) (json.RawMessage, error) {
 		}
 	}
 	return json.Marshal(map[string]any{"trades": trades})
+}
+
+// JournalItem is the transaction recording a filled trade, for any venue.
+// external_id is the trade's key, so a repeated journal write is skipped by
+// the import's dedup instead of doubling the record.
+func JournalItem(key Key, r TradeResult) *apiv1.ImportTransactionItem {
+	assetID, externalID := r.Trade.AssetID, key.String()
+	data := map[string]string{
+		"side":           string(r.Trade.Side),
+		"quote_asset_id": r.Trade.QuoteAssetID,
+		"execution_id":   key.ExecutionID,
+	}
+	if r.Fill != nil {
+		data["amount"] = r.Fill.BaseAmount.String()
+		data["quote_amount"] = r.Fill.QuoteAmount.String()
+		data["price"] = r.Fill.Price.String()
+		data["price_as_of"] = r.Fill.PriceAsOf.UTC().Format(time.RFC3339)
+	}
+	return &apiv1.ImportTransactionItem{
+		Type:       apiv1.TransactionType_TRANSACTION_TYPE_TRADE,
+		AssetId:    &assetID,
+		Data:       data,
+		ExternalId: &externalID,
+	}
 }
