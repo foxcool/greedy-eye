@@ -35,6 +35,7 @@ const (
 	RoleWallet   Role = "wallet"
 	RoleExchange Role = "exchange"
 	RoleBroker   Role = "broker"
+	RoleMacro    Role = "macro"
 )
 
 // RoleOrigin is one role of a provider and where it is served from.
@@ -112,6 +113,28 @@ func (r *Resolver) Inventory(ctx context.Context) (Inventory, error) {
 			}
 		}
 		set(slug, RoleWallet, origin)
+	}
+
+	// MacroReadersFor takes the first usable account naming the slug, then
+	// keyless. Attempted unattended, like the wallet lookup above.
+	priceAccounts, _, err := r.accountsFor(ctx, "", entity.CapabilityMarketData)
+	if err != nil {
+		return Inventory{}, err
+	}
+	priceAccounts = firstOccurrences(priceAccounts)
+	for _, slug := range unionKeys(r.cfg.MacroReaders, r.cfg.KeylessMacroReaders) {
+		origin := OriginUnresolved
+		if _, ok := r.cfg.KeylessMacroReaders[slug]; ok {
+			origin = OriginKeyless
+		}
+		if _, ok := r.cfg.MacroReaders[slug]; ok {
+			if i := slices.IndexFunc(priceAccounts, func(a *entity.Account) bool {
+				return a.Data[DataProviderKey] == slug
+			}); i >= 0 {
+				origin = originOf(priceAccounts[i], entity.CapabilityMarketData)
+			}
+		}
+		set(slug, RoleMacro, origin)
 	}
 
 	for slug := range r.cfg.ExchangeSyncers {

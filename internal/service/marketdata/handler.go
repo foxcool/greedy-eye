@@ -189,11 +189,13 @@ type Handler struct {
 	// refreshWindow is how long until the next unattended sweep. Zero disables
 	// budgeting, which keeps tests and minimal configs on the old behaviour.
 	refreshWindow time.Duration
+	macroSource   MacroSource // optional; without it every macro series is unavailable
+	macro         *macroCache // shared by clones: the cache outlives any one builder step
 	log           *slog.Logger
 }
 
 func NewHandler(store Store, log *slog.Logger) *Handler {
-	return &Handler{store: store, log: log}
+	return &Handler{store: store, macro: newMacroCache(), log: log}
 }
 
 func (h *Handler) clone() *Handler {

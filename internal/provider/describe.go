@@ -10,6 +10,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
 	cosmosadapter "github.com/foxcool/greedy-eye/internal/adapter/cosmos"
 	esploraadapter "github.com/foxcool/greedy-eye/internal/adapter/esplora"
+	fredadapter "github.com/foxcool/greedy-eye/internal/adapter/fred"
 	gateioadapter "github.com/foxcool/greedy-eye/internal/adapter/gateio"
 	moexadapter "github.com/foxcool/greedy-eye/internal/adapter/moex"
 	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
@@ -55,9 +56,17 @@ func describeAll() []catalog.Descriptor {
 		},
 		{
 			Slug:    cbradapter.ProviderName,
-			Title:   "Bank of Russia (FX rates)",
-			Kinds:   []catalog.Kind{catalog.KindPrice},
+			Title:   "Bank of Russia (FX rates, key rate)",
+			Kinds:   []catalog.Kind{catalog.KindPrice, catalog.KindMacro},
 			Keyless: true,
+		},
+		{
+			// A free key from fred.stlouisfed.org; without one the US series
+			// report themselves unavailable.
+			Slug:        fredadapter.ProviderName,
+			Title:       "FRED (St. Louis Fed)",
+			Kinds:       []catalog.Kind{catalog.KindMacro},
+			NeedsAPIKey: true,
 		},
 		{
 			Slug:    moexadapter.ProviderName,
@@ -186,7 +195,7 @@ func capabilitiesFor(kinds []catalog.Kind) []string {
 	var caps []string
 	for _, k := range kinds {
 		switch k {
-		case catalog.KindPrice:
+		case catalog.KindPrice, catalog.KindMacro:
 			caps = appendUnique(caps, string(entity.CapabilityMarketData))
 		case catalog.KindWallet:
 			caps = appendUnique(caps, string(entity.CapabilityOnchainLookup))

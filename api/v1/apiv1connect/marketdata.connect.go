@@ -97,6 +97,9 @@ const (
 	// MarketDataServiceGetPricingStatusProcedure is the fully-qualified name of the MarketDataService's
 	// GetPricingStatus RPC.
 	MarketDataServiceGetPricingStatusProcedure = "/eye.v1.MarketDataService/GetPricingStatus"
+	// MarketDataServiceGetMacroRatesProcedure is the fully-qualified name of the MarketDataService's
+	// GetMacroRates RPC.
+	MarketDataServiceGetMacroRatesProcedure = "/eye.v1.MarketDataService/GetMacroRates"
 	// MarketDataServiceGetSweepScheduleProcedure is the fully-qualified name of the MarketDataService's
 	// GetSweepSchedule RPC.
 	MarketDataServiceGetSweepScheduleProcedure = "/eye.v1.MarketDataService/GetSweepSchedule"
@@ -173,6 +176,14 @@ type MarketDataServiceClient interface {
 	// ticker, reported with ambiguous_ticker set and no attempt fields, because
 	// it is never asked about by construction.
 	GetPricingStatus(context.Context, *connect.Request[v1.GetPricingStatusRequest]) (*connect.Response[v1.GetPricingStatusResponse], error)
+	// GetMacroRates reads macro series (policy rates) from their publishers for a
+	// dashboard widget. Nothing here is a price and nothing in a portfolio is
+	// valued from it, so it is a proxy with an in-memory cache and no table.
+	//
+	// A series whose source cannot answer — no FRED key configured, the
+	// publisher down — comes back unavailable with a reason; it never fails the
+	// call, so one missing key does not blank the series that are readable.
+	GetMacroRates(context.Context, *connect.Request[v1.GetMacroRatesRequest]) (*connect.Response[v1.GetMacroRatesResponse], error)
 	// GetSweepSchedule reports when each price source is next due to be asked.
 	//
 	// The sweep's own summary cannot answer this. A run that asked nobody logs
@@ -348,6 +359,12 @@ func NewMarketDataServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(marketDataServiceMethods.ByName("GetPricingStatus")),
 			connect.WithClientOptions(opts...),
 		),
+		getMacroRates: connect.NewClient[v1.GetMacroRatesRequest, v1.GetMacroRatesResponse](
+			httpClient,
+			baseURL+MarketDataServiceGetMacroRatesProcedure,
+			connect.WithSchema(marketDataServiceMethods.ByName("GetMacroRates")),
+			connect.WithClientOptions(opts...),
+		),
 		getSweepSchedule: connect.NewClient[v1.GetSweepScheduleRequest, v1.GetSweepScheduleResponse](
 			httpClient,
 			baseURL+MarketDataServiceGetSweepScheduleProcedure,
@@ -386,6 +403,7 @@ type marketDataServiceClient struct {
 	deletePrices           *connect.Client[v1.DeletePricesRequest, emptypb.Empty]
 	fetchExternalPrices    *connect.Client[v1.FetchExternalPricesRequest, v1.FetchExternalPricesResponse]
 	getPricingStatus       *connect.Client[v1.GetPricingStatusRequest, v1.GetPricingStatusResponse]
+	getMacroRates          *connect.Client[v1.GetMacroRatesRequest, v1.GetMacroRatesResponse]
 	getSweepSchedule       *connect.Client[v1.GetSweepScheduleRequest, v1.GetSweepScheduleResponse]
 	resetSweepSchedule     *connect.Client[v1.ResetSweepScheduleRequest, v1.ResetSweepScheduleResponse]
 }
@@ -495,6 +513,11 @@ func (c *marketDataServiceClient) GetPricingStatus(ctx context.Context, req *con
 	return c.getPricingStatus.CallUnary(ctx, req)
 }
 
+// GetMacroRates calls eye.v1.MarketDataService.GetMacroRates.
+func (c *marketDataServiceClient) GetMacroRates(ctx context.Context, req *connect.Request[v1.GetMacroRatesRequest]) (*connect.Response[v1.GetMacroRatesResponse], error) {
+	return c.getMacroRates.CallUnary(ctx, req)
+}
+
 // GetSweepSchedule calls eye.v1.MarketDataService.GetSweepSchedule.
 func (c *marketDataServiceClient) GetSweepSchedule(ctx context.Context, req *connect.Request[v1.GetSweepScheduleRequest]) (*connect.Response[v1.GetSweepScheduleResponse], error) {
 	return c.getSweepSchedule.CallUnary(ctx, req)
@@ -573,6 +596,14 @@ type MarketDataServiceHandler interface {
 	// ticker, reported with ambiguous_ticker set and no attempt fields, because
 	// it is never asked about by construction.
 	GetPricingStatus(context.Context, *connect.Request[v1.GetPricingStatusRequest]) (*connect.Response[v1.GetPricingStatusResponse], error)
+	// GetMacroRates reads macro series (policy rates) from their publishers for a
+	// dashboard widget. Nothing here is a price and nothing in a portfolio is
+	// valued from it, so it is a proxy with an in-memory cache and no table.
+	//
+	// A series whose source cannot answer — no FRED key configured, the
+	// publisher down — comes back unavailable with a reason; it never fails the
+	// call, so one missing key does not blank the series that are readable.
+	GetMacroRates(context.Context, *connect.Request[v1.GetMacroRatesRequest]) (*connect.Response[v1.GetMacroRatesResponse], error)
 	// GetSweepSchedule reports when each price source is next due to be asked.
 	//
 	// The sweep's own summary cannot answer this. A run that asked nobody logs
@@ -744,6 +775,12 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 		connect.WithSchema(marketDataServiceMethods.ByName("GetPricingStatus")),
 		connect.WithHandlerOptions(opts...),
 	)
+	marketDataServiceGetMacroRatesHandler := connect.NewUnaryHandler(
+		MarketDataServiceGetMacroRatesProcedure,
+		svc.GetMacroRates,
+		connect.WithSchema(marketDataServiceMethods.ByName("GetMacroRates")),
+		connect.WithHandlerOptions(opts...),
+	)
 	marketDataServiceGetSweepScheduleHandler := connect.NewUnaryHandler(
 		MarketDataServiceGetSweepScheduleProcedure,
 		svc.GetSweepSchedule,
@@ -800,6 +837,8 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 			marketDataServiceFetchExternalPricesHandler.ServeHTTP(w, r)
 		case MarketDataServiceGetPricingStatusProcedure:
 			marketDataServiceGetPricingStatusHandler.ServeHTTP(w, r)
+		case MarketDataServiceGetMacroRatesProcedure:
+			marketDataServiceGetMacroRatesHandler.ServeHTTP(w, r)
 		case MarketDataServiceGetSweepScheduleProcedure:
 			marketDataServiceGetSweepScheduleHandler.ServeHTTP(w, r)
 		case MarketDataServiceResetSweepScheduleProcedure:
@@ -895,6 +934,10 @@ func (UnimplementedMarketDataServiceHandler) FetchExternalPrices(context.Context
 
 func (UnimplementedMarketDataServiceHandler) GetPricingStatus(context.Context, *connect.Request[v1.GetPricingStatusRequest]) (*connect.Response[v1.GetPricingStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.GetPricingStatus is not implemented"))
+}
+
+func (UnimplementedMarketDataServiceHandler) GetMacroRates(context.Context, *connect.Request[v1.GetMacroRatesRequest]) (*connect.Response[v1.GetMacroRatesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.GetMacroRates is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) GetSweepSchedule(context.Context, *connect.Request[v1.GetSweepScheduleRequest]) (*connect.Response[v1.GetSweepScheduleResponse], error) {

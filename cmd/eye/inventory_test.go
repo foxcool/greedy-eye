@@ -44,6 +44,8 @@ func TestStartupInventoryIsOneLineNamingEveryProvider(t *testing.T) {
 		PriceProviders:        providers.PriceProviders(),
 		KeylessWalletSyncers:  providers.KeylessWalletSyncers(),
 		KeylessPriceProviders: providers.KeylessPriceProviders(),
+		MacroReaders:          providers.MacroReaders(),
+		KeylessMacroReaders:   providers.KeylessMacroReaders(),
 	})
 
 	var buf bytes.Buffer
@@ -67,7 +69,8 @@ func TestStartupInventoryIsOneLineNamingEveryProvider(t *testing.T) {
 	}
 
 	// A fresh database: keyless sources resolve, keyed ones say they do not.
-	assert.Equal(t, "price=keyless", got["cbr"])
+	assert.Equal(t, "macro=keyless price=keyless", got["cbr"])
+	assert.Equal(t, "macro=unresolved", got["fred"])
 	assert.Equal(t, "wallet=keyless", got["esplora"])
 	assert.Equal(t, "price=keyless", got["coingecko"])
 	assert.Equal(t, "exchange=per_account price=unresolved", got["binance"])

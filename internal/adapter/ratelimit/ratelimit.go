@@ -160,6 +160,10 @@ var defaultLimits = map[string]Limit{
 	// no Quota: a monthly request count would be a number that means nothing.
 	"alchemy": {RPS: 5, Burst: 2},
 
+	// FRED allows 120 requests a minute per key; a widget reads two series a
+	// few times a day behind a cache, so this is only politeness.
+	"fred": {RPS: 2, Burst: 2},
+
 	"moralis": {RPS: 5, Burst: 2},
 	"binance": {RPS: 10, Burst: 5},
 	// Gate.io allows far more; a balance read is one call per sync.

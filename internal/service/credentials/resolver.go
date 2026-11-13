@@ -102,6 +102,9 @@ type BrokerAccountListerFactory func(a *entity.Account) (entity.BrokerAccountLis
 // PriceProviderFactory builds a price provider from account credentials.
 type PriceProviderFactory func(a *entity.Account) (marketdata.PriceProvider, error)
 
+// MacroReaderFactory builds a macro series reader from account credentials.
+type MacroReaderFactory func(a *entity.Account) (marketdata.MacroReader, error)
+
 // Config wires a Resolver: per-provider factories. Credentials come from
 // accounts only.
 type Config struct {
@@ -114,6 +117,14 @@ type Config struct {
 	// which is where every broker started.
 	BrokerAccountListers map[string]BrokerAccountListerFactory
 	PriceProviders       map[string]PriceProviderFactory // keyed by provider slug
+
+	// MacroReaders read macro series (policy rates) with a key from a market_data
+	// account, keyed by provider slug. A slug here is not a price source, so an
+	// account naming it is never reported as lacking a price adapter.
+	MacroReaders map[string]MacroReaderFactory
+	// KeylessMacroReaders are publishers that need no credential. An account
+	// naming the same slug still wins.
+	KeylessMacroReaders map[string]marketdata.MacroReader
 
 	// KeylessWalletSyncers are chain readers that need no credential: public
 	// block explorers and RPC endpoints. Registered unconditionally for the same
@@ -478,7 +489,8 @@ func (r *Resolver) PriceInventoryFor(ctx context.Context, userID string) (PriceI
 	// source; reporting it as a disabled one would invent a source.
 	skipped = slices.DeleteFunc(skipped, func(s Skipped) bool {
 		_, priced := r.cfg.PriceProviders[s.Provider]
-		return s.Kind == entity.SkipDisabled && !priced
+		_, macro := r.cfg.MacroReaders[s.Provider]
+		return s.Kind == entity.SkipDisabled && !priced && !macro
 	})
 
 	// An account both owned and system scoped arrives twice. It is one
@@ -491,6 +503,9 @@ func (r *Resolver) PriceInventoryFor(ctx context.Context, userID string) (PriceI
 	for _, a := range candidates {
 		slug := a.Data[DataProviderKey]
 		factory, ok := r.cfg.PriceProviders[slug]
+		if _, macro := r.cfg.MacroReaders[slug]; macro && !ok {
+			continue // a macro-series key; MacroReadersFor reads it
+		}
 		if !ok {
 			// An account claiming market data whose provider this build cannot
 			// talk to: a slug typo, or an adapter that left with an upgrade.
@@ -549,6 +564,45 @@ func (r *Resolver) PriceInventoryFor(ctx context.Context, userID string) (PriceI
 	}
 
 	return PriceInventory{Keys: keys, Skipped: skipped, servingAccounts: serving}, nil
+}
+
+// MacroReadersFor resolves the macro publishers the caller may read: keyless
+// ones, replaced per slug by the first usable account carrying market_data.
+//
+// An account whose reader cannot be built is passed over with a warning rather
+// than failing the call, so a malformed key costs that series only.
+func (r *Resolver) MacroReadersFor(ctx context.Context, userID string) (map[string]marketdata.MacroReader, error) {
+	out := make(map[string]marketdata.MacroReader, len(r.cfg.KeylessMacroReaders))
+	for slug, reader := range r.cfg.KeylessMacroReaders {
+		out[slug] = reader
+	}
+	if len(r.cfg.MacroReaders) == 0 {
+		return out, nil
+	}
+
+	candidates, _, err := r.accountsFor(ctx, userID, entity.CapabilityMarketData)
+	if err != nil {
+		return nil, err
+	}
+	claimed := map[string]bool{}
+	for _, a := range firstOccurrences(candidates) {
+		slug := a.Data[DataProviderKey]
+		factory, ok := r.cfg.MacroReaders[slug]
+		if !ok || claimed[slug] {
+			continue
+		}
+		client, err := r.clientFor("macro_reader", a, func() (any, error) { return factory(a) })
+		if err != nil {
+			if r.cfg.Log != nil {
+				r.cfg.Log.Warn("macro reader account unusable, skipped",
+					slog.String("provider", slug), slog.String("account_id", a.ID), slog.Any("error", err))
+			}
+			continue
+		}
+		claimed[slug] = true
+		out[slug] = client.(marketdata.MacroReader)
+	}
+	return out, nil
 }
 
 // firstOccurrences drops repeated accounts, keeping each at its first position.
