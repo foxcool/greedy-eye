@@ -16,8 +16,12 @@ type Portfolio struct {
 	Name        string
 	Description string
 	Data        map[string]json.RawMessage // Flexible metadata
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// ExcludedFromTotals keeps the portfolio out of totals that cross
+	// portfolios (e.g. a paper model next to real money); valued on its own it
+	// still counts in full.
+	ExcludedFromTotals bool
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 // AccountType represents the type of financial account.

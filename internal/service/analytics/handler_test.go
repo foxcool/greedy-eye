@@ -54,6 +54,9 @@ func (f *fakeStore) ListHoldings(_ context.Context, opts portfolio.ListHoldingsO
 		if opts.HideExcluded && h.Excluded {
 			continue
 		}
+		if opts.OmitExcludedFromTotals && f.outOfTotals(h) {
+			continue
+		}
 		out = append(out, h)
 	}
 	// Pages like the real store: the token is the offset of the next row.
@@ -86,6 +89,19 @@ func (f *fakeStore) ownedBy(h *entity.Holding, userID string) bool {
 	}
 	a, ok := f.accounts[h.AccountID]
 	return ok && a.UserID == userID
+}
+
+// outOfTotals mirrors the real store's totals filter: the holding's own
+// portfolio, else the one it inherits from its account.
+func (f *fakeStore) outOfTotals(h *entity.Holding) bool {
+	pid := h.PortfolioID
+	if pid == "" {
+		if a, ok := f.accounts[h.AccountID]; ok {
+			pid = a.PortfolioID
+		}
+	}
+	p, ok := f.portfolios[pid]
+	return ok && p.ExcludedFromTotals
 }
 
 // fakeMD serves assets and prices from maps keyed by "assetID|baseAssetID";
@@ -603,6 +619,60 @@ func TestGetHeatmap_BalanceScopesToCaller(t *testing.T) {
 
 	// Foreign holding (1 BTC = 40000) must not leak into u1's balance.
 	assert.InDelta(t, 24000, resp.Msg.Nodes[0].Size, 1e-9)
+}
+
+// paperFixture adds to balanceFixture a portfolio flagged out of totals, with
+// one holding that names it and one that inherits it from its account.
+func paperFixture() (*fakeStore, *fakeMD) {
+	st, md := balanceFixture()
+	st.portfolios["pp"] = &entity.Portfolio{ID: "pp", UserID: "u1", Name: "paper", ExcludedFromTotals: true}
+	st.accounts["ap"] = &entity.Account{ID: "ap", UserID: "u1", Name: "paper venue", PortfolioID: "pp"}
+	st.holdings = append(st.holdings,
+		&entity.Holding{ID: "hp1", AssetID: "btc", AccountID: "a1", PortfolioID: "pp", Amount: dec("100000000"), Decimals: 8},
+		&entity.Holding{ID: "hp2", AssetID: "eth", AccountID: "ap", Amount: dec("5000000000000000000"), Decimals: 18},
+	)
+	return st, md
+}
+
+func TestGetHeatmap_BalanceOmitsPortfoliosExcludedFromTotals(t *testing.T) {
+	st, md := paperFixture()
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
+
+	resp, err := h.GetHeatmap(userCtx("u1"), balanceRequest())
+	require.NoError(t, err)
+
+	// The paper 1 BTC and 5 ETH stay off the map: same totals as balanceFixture.
+	require.Len(t, resp.Msg.Nodes, 2)
+	assert.Equal(t, "btc", resp.Msg.Nodes[0].Id)
+	assert.InDelta(t, 24000, resp.Msg.Nodes[0].Size, 1e-9)
+	assert.Equal(t, "eth", resp.Msg.Nodes[1].Id)
+	assert.InDelta(t, 6000, resp.Msg.Nodes[1].Size, 1e-9)
+	assert.Equal(t, uint32(4), resp.Msg.Coverage.PricedCount, "omitted holdings are not counted as covered either")
+
+	grouped, err := h.GetHeatmap(userCtx("u1"), balanceRequest(func(m *apiv1.GetHeatmapRequest) {
+		m.GroupBy = apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_PORTFOLIO
+	}))
+	require.NoError(t, err)
+	for _, n := range grouped.Msg.Nodes {
+		assert.NotEqual(t, "pp", n.Id)
+		assert.NotEqual(t, "pp", n.ParentId)
+	}
+}
+
+func TestGetHeatmap_PortfolioScopeValuesAnExcludedPortfolioInFull(t *testing.T) {
+	st, md := paperFixture()
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
+
+	resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest(func(m *apiv1.GetHeatmapRequest) {
+		m.ScopeId = "pp"
+	}))
+	require.NoError(t, err)
+
+	// Only hp1 names pp directly; the fake scopes by the holding's own
+	// portfolio, so the map is 1 BTC = 40000.
+	require.Len(t, resp.Msg.Nodes, 1)
+	assert.Equal(t, "btc", resp.Msg.Nodes[0].Id)
+	assert.InDelta(t, 40000, resp.Msg.Nodes[0].Size, 1e-9)
 }
 
 func TestGetHeatmap_BalanceValidation(t *testing.T) {

@@ -402,7 +402,9 @@ graph TB
   small one
 - Scopes: PORTFOLIO (one portfolio; flat or grouped by account) and BALANCE (all caller's
   holdings across portfolios; flat, by account, or by portfolio — holdings inherit the account's
-  portfolio, accounts outside any portfolio land in an "unassigned" group)
+  portfolio, accounts outside any portfolio land in an "unassigned" group). BALANCE leaves out
+  portfolios their owner flagged `excluded_from_totals` (a paper model is not money); PORTFOLIO
+  scope and CalculatePortfolioValue still value such a portfolio in full
 - Scopes MARKET/BASKET, PNL/target-drift color metrics and class/sector grouping return
   Unimplemented until their data prerequisites land (market metrics, asset identity, cost basis)
 - Read-only derived views: no store of its own — reads via `portfolio.Store` (holdings) and the

@@ -82,8 +82,8 @@ func (s *PortfolioStore) CreatePortfolio(ctx context.Context, p *entity.Portfoli
 	}
 
 	query := `
-		INSERT INTO portfolios (id, user_id, name, description, data, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+		INSERT INTO portfolios (id, user_id, name, description, data, excluded_from_totals, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
 		RETURNING created_at, updated_at`
 
 	err = s.pool.QueryRow(ctx, query,
@@ -92,6 +92,7 @@ func (s *PortfolioStore) CreatePortfolio(ctx context.Context, p *entity.Portfoli
 		p.Name,
 		nullableString(p.Description),
 		dataJSON,
+		p.ExcludedFromTotals,
 	).Scan(&p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		if isConstraintError(err) {
@@ -112,7 +113,7 @@ func (s *PortfolioStore) GetPortfolio(ctx context.Context, id string) (*entity.P
 	}
 
 	query := `
-		SELECT id, user_id, name, description, data, created_at, updated_at
+		SELECT id, user_id, name, description, data, excluded_from_totals, created_at, updated_at
 		FROM portfolios
 		WHERE id = $1`
 
@@ -126,6 +127,7 @@ func (s *PortfolioStore) GetPortfolio(ctx context.Context, id string) (*entity.P
 		&p.Name,
 		&description,
 		&dataJSON,
+		&p.ExcludedFromTotals,
 		&p.CreatedAt,
 		&p.UpdatedAt,
 	)
@@ -176,6 +178,10 @@ func (s *PortfolioStore) UpdatePortfolio(ctx context.Context, p *entity.Portfoli
 			setClauses = append(setClauses, fmt.Sprintf("data = $%d", argIdx))
 			args = append(args, dataJSON)
 			argIdx++
+		case "excluded_from_totals":
+			setClauses = append(setClauses, fmt.Sprintf("excluded_from_totals = $%d", argIdx))
+			args = append(args, p.ExcludedFromTotals)
+			argIdx++
 		}
 	}
 
@@ -183,7 +189,7 @@ func (s *PortfolioStore) UpdatePortfolio(ctx context.Context, p *entity.Portfoli
 		UPDATE portfolios
 		SET %s
 		WHERE id = $1
-		RETURNING id, user_id, name, description, data, created_at, updated_at`,
+		RETURNING id, user_id, name, description, data, excluded_from_totals, created_at, updated_at`,
 		strings.Join(setClauses, ", "))
 
 	var result entity.Portfolio
@@ -196,6 +202,7 @@ func (s *PortfolioStore) UpdatePortfolio(ctx context.Context, p *entity.Portfoli
 		&result.Name,
 		&description,
 		&dataJSON,
+		&result.ExcludedFromTotals,
 		&result.CreatedAt,
 		&result.UpdatedAt,
 	)
@@ -270,7 +277,7 @@ func (s *PortfolioStore) ListPortfolios(ctx context.Context, opts portfolio.List
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, user_id, name, description, data, created_at, updated_at
+		SELECT id, user_id, name, description, data, excluded_from_totals, created_at, updated_at
 		FROM portfolios
 		%s
 		ORDER BY id
@@ -296,6 +303,7 @@ func (s *PortfolioStore) ListPortfolios(ctx context.Context, opts portfolio.List
 			&p.Name,
 			&description,
 			&dataJSON,
+			&p.ExcludedFromTotals,
 			&p.CreatedAt,
 			&p.UpdatedAt,
 		); err != nil {
@@ -2155,6 +2163,12 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 
 	if opts.HideExcluded {
 		whereClauses = append(whereClauses, "h.excluded = false")
+	}
+
+	// p is the owning portfolio already joined for user scoping; a holding
+	// outside any portfolio has no flag to honour and stays in.
+	if opts.OmitExcludedFromTotals {
+		whereClauses = append(whereClauses, "(p.id IS NULL OR p.excluded_from_totals = false)")
 	}
 
 	if opts.PageToken != "" {

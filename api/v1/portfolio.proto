@@ -62,6 +62,12 @@ message Portfolio {
   map<string, google.protobuf.Any> data = 5;
   google.protobuf.Timestamp created_at = 6;
   google.protobuf.Timestamp updated_at = 7;
+  // If true, the portfolio is kept out of every total that crosses portfolios
+  // (the BALANCE heatmap, an "all portfolios" net worth) — a paper model is not
+  // money the owner has. Asked for on its own, it still values in full. Set
+  // only by the owner through UpdatePortfolio; nothing flags a portfolio
+  // automatically.
+  bool excluded_from_totals = 8;
 }
 
 // Holding represents a specific quantity of an Asset held within an Account.
@@ -432,7 +438,7 @@ message UpdatePortfolioRequest {
   // Required. Names the fields to write; everything else is left alone. An
   // absent or empty mask is rejected — it used to mean "all fields", which made
   // a message carrying only an id an instruction to clear the row. Accepts
-  // name, description, data.
+  // name, description, data, excluded_from_totals.
   google.protobuf.FieldMask update_mask = 2;
 }
 
@@ -677,6 +683,10 @@ message ListHoldingsRequest {
   optional string asset_id = 3;
   optional int32 page_size = 4;
   optional string page_token = 5;
+  // If true, leaves out holdings whose portfolio (own or inherited from the
+  // account) is excluded_from_totals. For readers that sum across portfolios;
+  // holdings outside any portfolio are kept.
+  bool omit_excluded_from_totals = 6;
 }
 
 message ListHoldingsResponse {

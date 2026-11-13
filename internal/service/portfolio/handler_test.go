@@ -1746,6 +1746,84 @@ func TestCalculatePortfolioValue_DisclosesExcluded(t *testing.T) {
 	assert.Equal(t, "500", resp.Msg.ExcludedValueAmount, "quarantined 5.0 × 1.0 disclosed")
 }
 
+// TestCalculatePortfolioValue_ExcludedFromTotalsStillValuesInFull: the flag
+// only keeps a portfolio out of totals that cross portfolios; asked for on its
+// own, every holding counts.
+func TestCalculatePortfolioValue_ExcludedFromTotalsStillValuesInFull(t *testing.T) {
+	const asset = "00000000-0000-0000-0000-0000000000c1"
+	paper := testPortfolio(testPortfolioID)
+	paper.ExcludedFromTotals = true
+
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(paper, nil)
+	s.On("ListHoldings", mock.Anything, mock.MatchedBy(func(o ListHoldingsOpts) bool {
+		return o.PortfolioID == testPortfolioID && !o.OmitExcludedFromTotals
+	})).Return([]*entity.Holding{
+		{ID: "h1", AssetID: asset, Amount: decimal.NewFromInt(200000000), Decimals: 8}, // 2.0
+	}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("GetLatestPrice", mock.Anything, latestIn(asset, "USD")).
+		Return(connect.NewResponse(&apiv1.Price{Last: "300000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 3.0
+
+	h := newHandler(s).WithMarketDataClient(md)
+	resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
+		PortfolioId: testPortfolioID,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "600", resp.Msg.TotalValueAmount)
+	s.AssertExpectations(t)
+}
+
+func TestUpdatePortfolio_ExcludedFromTotals(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	flagged := testPortfolio(testPortfolioID)
+	flagged.ExcludedFromTotals = true
+	s.On("UpdatePortfolio", mock.Anything, mock.MatchedBy(func(p *entity.Portfolio) bool {
+		return p.ID == testPortfolioID && p.ExcludedFromTotals
+	}), []string{"excluded_from_totals"}).Return(flagged, nil)
+
+	h := newHandler(s)
+	resp, err := h.UpdatePortfolio(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdatePortfolioRequest{
+		Portfolio:  &apiv1.Portfolio{Id: testPortfolioID, ExcludedFromTotals: true},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"excluded_from_totals"}},
+	}))
+	require.NoError(t, err)
+	assert.True(t, resp.Msg.ExcludedFromTotals, "the flag is exposed on the Portfolio message")
+	s.AssertExpectations(t)
+}
+
+func TestUpdatePortfolio_ExcludedFromTotalsOnAForeignPortfolio(t *testing.T) {
+	s := &mockStore{}
+	foreign := testPortfolio(testPortfolioID)
+	foreign.UserID = "someone-else"
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(foreign, nil)
+
+	h := newHandler(s)
+	_, err := h.UpdatePortfolio(ctxWithUser(testUserID), connect.NewRequest(&apiv1.UpdatePortfolioRequest{
+		Portfolio:  &apiv1.Portfolio{Id: testPortfolioID, ExcludedFromTotals: true},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"excluded_from_totals"}},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	s.AssertNotCalled(t, "UpdatePortfolio", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestListHoldings_PassesOmitExcludedFromTotals(t *testing.T) {
+	s := &mockStore{}
+	s.On("ListHoldings", mock.Anything, mock.MatchedBy(func(o ListHoldingsOpts) bool {
+		return o.UserID == testUserID && o.OmitExcludedFromTotals
+	})).Return([]*entity.Holding{}, "", nil)
+
+	h := newHandler(s)
+	_, err := h.ListHoldings(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ListHoldingsRequest{
+		OmitExcludedFromTotals: true,
+	}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+}
+
 // TestCalculatePortfolioValue_ReportsUnpricedCoverage: a holding with no price
 // path stays out of the total, as before, but is now disclosed by count and
 // identity. Absence of a quote is not a valuation of zero, and a total that

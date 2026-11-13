@@ -877,6 +877,7 @@ func (h *Handler) ListHoldings(ctx context.Context, req *connect.Request[apiv1.L
 	if req.Msg.PageToken != nil {
 		opts.PageToken = *req.Msg.PageToken
 	}
+	opts.OmitExcludedFromTotals = req.Msg.OmitExcludedFromTotals
 
 	holdings, nextPageToken, err := h.store.ListHoldings(ctx, opts)
 	if err != nil {
@@ -2976,9 +2977,10 @@ func toConnectError(err error) error {
 
 func portfolioFromProto(p *apiv1.Portfolio) *entity.Portfolio {
 	result := &entity.Portfolio{
-		ID:     p.Id,
-		UserID: p.UserId,
-		Name:   p.Name,
+		ID:                 p.Id,
+		UserID:             p.UserId,
+		Name:               p.Name,
+		ExcludedFromTotals: p.ExcludedFromTotals,
 	}
 	if p.Description != nil {
 		result.Description = *p.Description
@@ -2996,11 +2998,12 @@ func portfolioFromProto(p *apiv1.Portfolio) *entity.Portfolio {
 
 func portfolioToProto(p *entity.Portfolio) *apiv1.Portfolio {
 	result := &apiv1.Portfolio{
-		Id:        p.ID,
-		UserId:    p.UserID,
-		Name:      p.Name,
-		CreatedAt: timestamppb.New(p.CreatedAt),
-		UpdatedAt: timestamppb.New(p.UpdatedAt),
+		Id:                 p.ID,
+		UserId:             p.UserID,
+		Name:               p.Name,
+		ExcludedFromTotals: p.ExcludedFromTotals,
+		CreatedAt:          timestamppb.New(p.CreatedAt),
+		UpdatedAt:          timestamppb.New(p.UpdatedAt),
 	}
 	if p.Description != "" {
 		result.Description = &p.Description

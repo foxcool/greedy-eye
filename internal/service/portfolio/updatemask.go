@@ -14,7 +14,7 @@ import (
 // than silently dropped, so a mask that names the wrong thing cannot look like
 // a successful write.
 var (
-	portfolioUpdatable   = []string{"name", "description", "data"}
+	portfolioUpdatable   = []string{"name", "description", "data", "excluded_from_totals"}
 	holdingUpdatable     = []string{"amount", "decimals", "portfolio_id", "excluded", "chain", "liquidity"}
 	accountUpdatable     = []string{"name", "description", "type", "data", "capabilities", "system_scopes", "portfolio_id", "disabled"}
 	transactionUpdatable = []string{"status", "data"}
