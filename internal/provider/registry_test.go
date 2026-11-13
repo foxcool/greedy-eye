@@ -43,6 +43,12 @@ func registeredSlugs(r *Registry) map[string]bool {
 	for slug := range r.KeylessPriceProviders() {
 		slugs[slug] = true
 	}
+	for slug := range r.MacroReaders() {
+		slugs[slug] = true
+	}
+	for slug := range r.KeylessMacroReaders() {
+		slugs[slug] = true
+	}
 	return slugs
 }
 
@@ -163,6 +169,8 @@ func TestCapabilitiesFollowTheKind(t *testing.T) {
 				assert.Contains(t, d.Capabilities, string(entity.CapabilityOnchainLookup), d.Slug)
 			case catalog.KindExchange:
 				assert.Contains(t, d.Capabilities, string(entity.CapabilityPortfolioSync), d.Slug)
+			case catalog.KindMacro:
+				assert.Contains(t, d.Capabilities, string(entity.CapabilityMarketData), d.Slug)
 			}
 		}
 	}
@@ -188,7 +196,7 @@ func TestKeylessProvidersBuildWithoutAnAccount(t *testing.T) {
 // reads nothing on a fresh instance while the form says it should.
 func TestKeylessMeansRegisteredByDefault(t *testing.T) {
 	r := testRegistry()
-	wallets, prices := r.KeylessWalletSyncers(), r.KeylessPriceProviders()
+	wallets, prices, macros := r.KeylessWalletSyncers(), r.KeylessPriceProviders(), r.KeylessMacroReaders()
 
 	for _, d := range r.Descriptors() {
 		for _, k := range d.Kinds {
@@ -198,6 +206,8 @@ func TestKeylessMeansRegisteredByDefault(t *testing.T) {
 				_, registered = wallets[d.Slug]
 			case catalog.KindPrice:
 				_, registered = prices[d.Slug]
+			case catalog.KindMacro:
+				_, registered = macros[d.Slug]
 			default:
 				continue // an exchange always reads the synced account's own key
 			}

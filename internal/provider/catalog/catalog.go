@@ -25,6 +25,9 @@ const (
 	KindWallet Kind = "wallet"
 	// KindExchange syncs positions held at a venue.
 	KindExchange Kind = "exchange"
+	// KindMacro publishes macro series such as policy rates. Nothing is valued
+	// from it; it feeds a dashboard widget.
+	KindMacro Kind = "macro"
 )
 
 // Field is an entry in accounts.data the provider needs beyond the usual key

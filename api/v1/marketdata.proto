@@ -472,6 +472,20 @@ service MarketDataService {
     };
   }
 
+  // GetMacroRates reads macro series (policy rates) from their publishers for a
+  // dashboard widget. Nothing here is a price and nothing in a portfolio is
+  // valued from it, so it is a proxy with an in-memory cache and no table.
+  //
+  // A series whose source cannot answer — no FRED key configured, the
+  // publisher down — comes back unavailable with a reason; it never fails the
+  // call, so one missing key does not blank the series that are readable.
+  rpc GetMacroRates(GetMacroRatesRequest) returns (GetMacroRatesResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/macro/rates"
+      body: "*"
+    };
+  }
+
   // GetSweepSchedule reports when each price source is next due to be asked.
   //
   // The sweep's own summary cannot answer this. A run that asked nobody logs
@@ -827,4 +841,34 @@ message SourceSchedule {
   // out for a day so they do not hold the head of the queue. Not in deferred:
   // nothing was asked, so there is no back-off. A reset frees them too.
   uint32 unaskable = 9;
+}
+
+message GetMacroRatesRequest {
+  // Series ids to read: "fed_funds", "cbr_key_rate". Empty reads every
+  // supported series. An unknown id is rejected rather than skipped, so a
+  // typo in a widget's config is not shown as a series that never loads.
+  repeated string series = 1;
+}
+
+message MacroSeries {
+  string series = 1;
+  // False when the source could not be read; unavailable_reason then says why
+  // and the value fields are empty.
+  bool available = 2;
+  optional string unavailable_reason = 3;
+  // The rate in percent as a decimal string, never a float.
+  string value = 4;
+  // The day the publisher states the value for (YYYY-MM-DD). It is the
+  // source's own date, not the read time: a rate unchanged for weeks keeps the
+  // date of its latest print.
+  string observation_date = 5;
+  // When this instance read the value from the publisher. With the cache it can
+  // be hours before the request.
+  optional google.protobuf.Timestamp read_at = 6;
+  // The publisher: "fred" or "cbr".
+  string source = 7;
+}
+
+message GetMacroRatesResponse {
+  repeated MacroSeries series = 1;
 }

@@ -24,6 +24,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/adapter/coingecko"
 	cosmosadapter "github.com/foxcool/greedy-eye/internal/adapter/cosmos"
 	esploraadapter "github.com/foxcool/greedy-eye/internal/adapter/esplora"
+	fredadapter "github.com/foxcool/greedy-eye/internal/adapter/fred"
 	gateioadapter "github.com/foxcool/greedy-eye/internal/adapter/gateio"
 	moexadapter "github.com/foxcool/greedy-eye/internal/adapter/moex"
 	moralisadapter "github.com/foxcool/greedy-eye/internal/adapter/moralis"
@@ -431,6 +432,34 @@ func (r *Registry) KeylessPriceProviders() map[string]marketdata.PriceProvider {
 		moexadapter.ProviderName: moexadapter.NewProvider(moexadapter.NewClient(moexadapter.Config{
 			Transport: r.limits.Transport(ratelimit.Credential{Provider: moexadapter.ProviderName}, nil),
 		})),
+	}
+}
+
+// MacroReaders read macro series with a key from an account. FRED is the only
+// keyed one: its key is free but required, so it arrives as an account like any
+// other credential rather than as service configuration.
+func (r *Registry) MacroReaders() map[string]credentials.MacroReaderFactory {
+	return map[string]credentials.MacroReaderFactory{
+		fredadapter.ProviderName: func(a *entity.Account) (marketdata.MacroReader, error) {
+			if strings.TrimSpace(a.Data["api_key"]) == "" {
+				return nil, fmt.Errorf("account carries no api_key")
+			}
+			return fredadapter.NewClient(fredadapter.Config{
+				APIKey:    a.Data["api_key"],
+				Transport: r.transport(fredadapter.ProviderName, a),
+			}), nil
+		},
+	}
+}
+
+// KeylessMacroReaders are macro publishers anyone may read, registered with no
+// account: the Bank of Russia key rate comes from the same keyless host as its
+// FX feed.
+func (r *Registry) KeylessMacroReaders() map[string]marketdata.MacroReader {
+	return map[string]marketdata.MacroReader{
+		cbradapter.ProviderName: cbradapter.NewClient(cbradapter.Config{
+			Transport: r.limits.Transport(ratelimit.Credential{Provider: cbradapter.ProviderName}, nil),
+		}),
 	}
 }
 

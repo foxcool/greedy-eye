@@ -157,6 +157,8 @@ func run() error {
 		// id copied off a phone screen.
 		BrokerAccountListers: providers.BrokerAccountListers(),
 		PriceProviders:       providers.PriceProviders(),
+		MacroReaders:         providers.MacroReaders(),
+		KeylessMacroReaders:  providers.KeylessMacroReaders(),
 		// Readers that need no credential. Without these a fresh instance syncs
 		// nothing at all: a syncer is chosen from accounts carrying
 		// onchain_lookup, and the wallet account holds only an address.
@@ -187,6 +189,7 @@ func run() error {
 	rc := newRemotes(config.Remotes, config.Security.ServiceToken, log)
 	mdHandler := marketdata.NewHandler(mdStore, log).
 		WithProviderSource(credResolver).
+		WithMacroSource(credResolver).
 		// The sweep interval is what a provider divides its remaining plan
 		// allowance by, so it comes from the cron spec rather than a second
 		// config key that could disagree with it.

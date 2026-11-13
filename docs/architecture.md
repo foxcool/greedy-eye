@@ -453,6 +453,7 @@ without linking them.
   | Package | Covers | Notes |
   |---|---|---|
   | `cbr` | Bank of Russia daily FX rates | keyless; the authoritative RUB cross rate, without which a RUB-quoted instrument has a price and still adds nothing to a USD total. One print per business day — see the freshness policy in §8.3 |
+  | `fred` | FRED macro series (not prices) | needs a free key on a `market_data` account. With `cbr`'s key rate it backs `MarketDataService.GetMacroRates`: a read-through proxy with a 3 h in-memory cache and no table, because nothing is valued from a macro series. A publisher with no usable key reports its series unavailable with a reason instead of failing the call |
   | `moex` | MOEX ISS: shares, ETFs, bonds | keyless, ~15 min delayed, which is well inside what a valuation needs |
   | `tinvest` | T-Invest: SPB Exchange listings, MOEX as a second opinion | needs a personal broker token on a `broker` account carrying `market_data`, **and** a trust anchor: the host chain is issued by a root no OS or Go distribution ships. The root is not vendored — it travels in `accounts.data["root_ca"]` and is trusted for this client alone, because which anchors a service accepts is an operator's decision. The quote's base currency belongs to the row, not the provider: one response mixes a dollar-quoted foreign share with a rouble-quoted domestic one |
 - **Exchange sync** (`internal/adapter/binance/`): Binance spot balances via the SIGNED
