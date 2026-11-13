@@ -298,6 +298,106 @@ func TestAccountDisabledFlag(t *testing.T) {
 	assert.Nil(t, back.DisabledAt)
 }
 
+func TestPortfolioExcludedFromTotalsFlag(t *testing.T) {
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	s := NewPortfolioStore(pool)
+	ctx := context.Background()
+
+	owner := createTestUser(t, users)
+	p, err := s.CreatePortfolio(ctx, &entity.Portfolio{UserID: owner.ID, Name: "paper"})
+	require.NoError(t, err)
+	assert.False(t, p.ExcludedFromTotals, "a new portfolio counts toward totals")
+
+	got, err := s.UpdatePortfolio(ctx, &entity.Portfolio{ID: p.ID, ExcludedFromTotals: true}, []string{"excluded_from_totals"})
+	require.NoError(t, err)
+	assert.True(t, got.ExcludedFromTotals)
+	assert.Equal(t, "paper", got.Name, "only the flag is written")
+
+	renamed, err := s.UpdatePortfolio(ctx, &entity.Portfolio{ID: p.ID, Name: "paper model"}, []string{"name"})
+	require.NoError(t, err)
+	assert.True(t, renamed.ExcludedFromTotals, "a write that does not name the flag leaves it")
+
+	read, err := s.GetPortfolio(ctx, p.ID)
+	require.NoError(t, err)
+	assert.True(t, read.ExcludedFromTotals)
+
+	listed, _, err := s.ListPortfolios(ctx, portfolio.ListPortfoliosOpts{UserID: owner.ID})
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.True(t, listed[0].ExcludedFromTotals)
+
+	back, err := s.UpdatePortfolio(ctx, &entity.Portfolio{ID: p.ID}, []string{"excluded_from_totals"})
+	require.NoError(t, err)
+	assert.False(t, back.ExcludedFromTotals)
+}
+
+// TestListHoldingsOmitExcludedFromTotals: the cross-portfolio read drops a
+// flagged portfolio's holdings whether they name it themselves or inherit it
+// from their account, and keeps holdings that belong to no portfolio.
+func TestListHoldingsOmitExcludedFromTotals(t *testing.T) {
+	pool := getTestPool(t)
+	users := NewUserStore(pool)
+	s := NewPortfolioStore(pool)
+	assets := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	owner := createTestUser(t, users)
+	asset := createTestAsset(t, assets, "Totals"+strings.ReplaceAll(uuid.NewString(), "-", "")[:8])
+
+	main, err := s.CreatePortfolio(ctx, &entity.Portfolio{UserID: owner.ID, Name: "real"})
+	require.NoError(t, err)
+	paper, err := s.CreatePortfolio(ctx, &entity.Portfolio{UserID: owner.ID, Name: "paper"})
+	require.NoError(t, err)
+	_, err = s.UpdatePortfolio(ctx, &entity.Portfolio{ID: paper.ID, ExcludedFromTotals: true}, []string{"excluded_from_totals"})
+	require.NoError(t, err)
+
+	newAccount := func(name, portfolioID string) *entity.Account {
+		a, err := s.CreateAccount(ctx, &entity.Account{
+			UserID:       owner.ID,
+			Name:         name,
+			Type:         entity.AccountTypeManual,
+			Capabilities: []entity.AccountCapability{entity.CapabilityManualPositions},
+			PortfolioID:  portfolioID,
+		})
+		require.NoError(t, err)
+		return a
+	}
+	newHolding := func(accountID, portfolioID string) string {
+		h, err := s.CreateHolding(ctx, &entity.Holding{
+			AssetID: asset.ID, AccountID: accountID, PortfolioID: portfolioID,
+			Decimals: 8, Source: entity.SourceManual,
+		})
+		require.NoError(t, err)
+		return h.ID
+	}
+
+	loose := newAccount("loose", "")
+	paperAccount := newAccount("paper venue", paper.ID)
+	inReal := newHolding(loose.ID, main.ID)
+	unassigned := newHolding(loose.ID, "")
+	inPaperOwn := newHolding(loose.ID, paper.ID)
+	inPaperInherited := newHolding(paperAccount.ID, "")
+
+	ids := func(opts portfolio.ListHoldingsOpts) []string {
+		t.Helper()
+		got, _, err := s.ListHoldings(ctx, opts)
+		require.NoError(t, err)
+		out := make([]string, 0, len(got))
+		for _, h := range got {
+			out = append(out, h.ID)
+		}
+		return out
+	}
+
+	assert.ElementsMatch(t, []string{inReal, unassigned},
+		ids(portfolio.ListHoldingsOpts{UserID: owner.ID, OmitExcludedFromTotals: true}))
+	assert.ElementsMatch(t, []string{inReal, unassigned, inPaperOwn, inPaperInherited},
+		ids(portfolio.ListHoldingsOpts{UserID: owner.ID}), "without the option nothing is dropped")
+	assert.ElementsMatch(t, []string{inPaperOwn, inPaperInherited},
+		ids(portfolio.ListHoldingsOpts{PortfolioID: paper.ID}), "the flagged portfolio on its own is whole")
+}
+
 func newTestEncryptor(t *testing.T) *storecrypto.Encryptor {
 	t.Helper()
 	e, err := storecrypto.NewEncryptor(bytes.Repeat([]byte{7}, 32))

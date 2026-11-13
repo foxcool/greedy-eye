@@ -526,16 +526,22 @@ func (HealthReasonKind) EnumDescriptor() ([]byte, []int) {
 
 // Portfolio represents a collection of holdings managed by a user.
 type Portfolio struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	Description   *string                `protobuf:"bytes,4,opt,name=description,proto3,oneof" json:"description,omitempty"`
-	Data          map[string]*anypb.Any  `protobuf:"bytes,5,rep,name=data,proto3" json:"data,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Id          string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	UserId      string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Name        string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Description *string                `protobuf:"bytes,4,opt,name=description,proto3,oneof" json:"description,omitempty"`
+	Data        map[string]*anypb.Any  `protobuf:"bytes,5,rep,name=data,proto3" json:"data,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	CreatedAt   *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt   *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// If true, the portfolio is kept out of every total that crosses portfolios
+	// (the BALANCE heatmap, an "all portfolios" net worth) — a paper model is not
+	// money the owner has. Asked for on its own, it still values in full. Set
+	// only by the owner through UpdatePortfolio; nothing flags a portfolio
+	// automatically.
+	ExcludedFromTotals bool `protobuf:"varint,8,opt,name=excluded_from_totals,json=excludedFromTotals,proto3" json:"excluded_from_totals,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *Portfolio) Reset() {
@@ -615,6 +621,13 @@ func (x *Portfolio) GetUpdatedAt() *timestamppb.Timestamp {
 		return x.UpdatedAt
 	}
 	return nil
+}
+
+func (x *Portfolio) GetExcludedFromTotals() bool {
+	if x != nil {
+		return x.ExcludedFromTotals
+	}
+	return false
 }
 
 // Holding represents a specific quantity of an Asset held within an Account.
@@ -1148,7 +1161,7 @@ type UpdatePortfolioRequest struct {
 	// Required. Names the fields to write; everything else is left alone. An
 	// absent or empty mask is rejected — it used to mean "all fields", which made
 	// a message carrying only an id an instruction to clear the row. Accepts
-	// name, description, data.
+	// name, description, data, excluded_from_totals.
 	UpdateMask    *fieldmaskpb.FieldMask `protobuf:"bytes,2,opt,name=update_mask,json=updateMask,proto3" json:"update_mask,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2798,14 +2811,18 @@ func (x *ImportTransactionsResponse) GetFailed() int32 {
 }
 
 type ListHoldingsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	PortfolioId   *string                `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3,oneof" json:"portfolio_id,omitempty"`
-	AccountId     *string                `protobuf:"bytes,2,opt,name=account_id,json=accountId,proto3,oneof" json:"account_id,omitempty"`
-	AssetId       *string                `protobuf:"bytes,3,opt,name=asset_id,json=assetId,proto3,oneof" json:"asset_id,omitempty"`
-	PageSize      *int32                 `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
-	PageToken     *string                `protobuf:"bytes,5,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	PortfolioId *string                `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3,oneof" json:"portfolio_id,omitempty"`
+	AccountId   *string                `protobuf:"bytes,2,opt,name=account_id,json=accountId,proto3,oneof" json:"account_id,omitempty"`
+	AssetId     *string                `protobuf:"bytes,3,opt,name=asset_id,json=assetId,proto3,oneof" json:"asset_id,omitempty"`
+	PageSize    *int32                 `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
+	PageToken   *string                `protobuf:"bytes,5,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"`
+	// If true, leaves out holdings whose portfolio (own or inherited from the
+	// account) is excluded_from_totals. For readers that sum across portfolios;
+	// holdings outside any portfolio are kept.
+	OmitExcludedFromTotals bool `protobuf:"varint,6,opt,name=omit_excluded_from_totals,json=omitExcludedFromTotals,proto3" json:"omit_excluded_from_totals,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *ListHoldingsRequest) Reset() {
@@ -2871,6 +2888,13 @@ func (x *ListHoldingsRequest) GetPageToken() string {
 		return *x.PageToken
 	}
 	return ""
+}
+
+func (x *ListHoldingsRequest) GetOmitExcludedFromTotals() bool {
+	if x != nil {
+		return x.OmitExcludedFromTotals
+	}
+	return false
 }
 
 type ListHoldingsResponse struct {
@@ -4709,7 +4733,7 @@ var File_v1_portfolio_proto protoreflect.FileDescriptor
 
 const file_v1_portfolio_proto_rawDesc = "" +
 	"\n" +
-	"\x12v1/portfolio.proto\x12\x06eye.v1\x1a\x19google/protobuf/any.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x13v1/marketdata.proto\"\xf5\x02\n" +
+	"\x12v1/portfolio.proto\x12\x06eye.v1\x1a\x19google/protobuf/any.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x13v1/marketdata.proto\"\xa7\x03\n" +
 	"\tPortfolio\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x12\n" +
@@ -4719,7 +4743,8 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x1aM\n" +
+	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x120\n" +
+	"\x14excluded_from_totals\x18\b \x01(\bR\x12excludedFromTotals\x1aM\n" +
 	"\tDataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12*\n" +
 	"\x05value\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\x05value:\x028\x01B\x0e\n" +
@@ -4953,7 +4978,7 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x05items\x18\x03 \x03(\v2\x1f.eye.v1.ImportTransactionResultR\x05items\x12\x18\n" +
 	"\acreated\x18\x04 \x01(\x05R\acreated\x12\x18\n" +
 	"\askipped\x18\x05 \x01(\x05R\askipped\x12\x16\n" +
-	"\x06failed\x18\x06 \x01(\x05R\x06failed\"\x91\x02\n" +
+	"\x06failed\x18\x06 \x01(\x05R\x06failed\"\xcc\x02\n" +
 	"\x13ListHoldingsRequest\x12&\n" +
 	"\fportfolio_id\x18\x01 \x01(\tH\x00R\vportfolioId\x88\x01\x01\x12\"\n" +
 	"\n" +
@@ -4961,7 +4986,8 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\basset_id\x18\x03 \x01(\tH\x02R\aassetId\x88\x01\x01\x12 \n" +
 	"\tpage_size\x18\x04 \x01(\x05H\x03R\bpageSize\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"page_token\x18\x05 \x01(\tH\x04R\tpageToken\x88\x01\x01B\x0f\n" +
+	"page_token\x18\x05 \x01(\tH\x04R\tpageToken\x88\x01\x01\x129\n" +
+	"\x19omit_excluded_from_totals\x18\x06 \x01(\bR\x16omitExcludedFromTotalsB\x0f\n" +
 	"\r_portfolio_idB\r\n" +
 	"\v_account_idB\v\n" +
 	"\t_asset_idB\f\n" +

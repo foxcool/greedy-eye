@@ -429,6 +429,13 @@ table "portfolios" {
     type = uuid
     null = false
   }
+  # Kept out of totals that cross portfolios (a paper model is not money the
+  # owner has); valued on its own it still counts in full. Owner-set only.
+  column "excluded_from_totals" {
+    type    = boolean
+    null    = false
+    default = false
+  }
 
   primary_key {
     columns = [column.id]

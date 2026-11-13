@@ -156,6 +156,10 @@ type ListHoldingsOpts struct {
 	PageToken   string
 	// HideExcluded filters out holdings where excluded=true when set to true.
 	HideExcluded bool
+	// OmitExcludedFromTotals drops holdings whose owning portfolio (own or
+	// inherited from the account) is flagged excluded_from_totals. Holdings
+	// outside any portfolio are kept.
+	OmitExcludedFromTotals bool
 }
 
 // ListTransactionsOpts contains options for listing transactions.

@@ -120,6 +120,10 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 		if _, ok := middleware.UserFromContext(ctx); !ok {
 			return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
 		}
+		// BALANCE crosses portfolios, so a portfolio its owner flagged out of
+		// totals (a paper model) must not add to it. PORTFOLIO scope names one
+		// portfolio and values it in full.
+		listReq.OmitExcludedFromTotals = true
 	} else {
 		if msg.ScopeId == "" {
 			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("scope_id (portfolio id) is required"))
