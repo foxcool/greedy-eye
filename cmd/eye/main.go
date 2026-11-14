@@ -417,8 +417,8 @@ func healthPayload(ver string) ([]byte, error) {
 }
 
 // logProviderInventory logs, once at startup, every provider with whether
-// unattended work resolves it and from which kind of account, then the price
-// accounts it skipped. Credentials live in the database, so a missing key
+// unattended work resolves it and from which kind of account, then the
+// market-data accounts it skipped. Credentials live in the database, so a missing key
 // would otherwise surface only as a silent sweep hours later.
 // Resolved with no user in context: the scheduler's own view.
 func logProviderInventory(ctx context.Context, resolver *credentials.Resolver, log *slog.Logger) {

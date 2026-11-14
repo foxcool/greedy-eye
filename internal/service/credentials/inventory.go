@@ -60,7 +60,7 @@ func (p ProviderStatus) String() string {
 }
 
 // Inventory is every provider the build registers, seen by work with no user
-// in context, plus the price accounts that view passed over.
+// in context, plus the market-data accounts that view passed over.
 type Inventory struct {
 	Providers []ProviderStatus // ordered by slug
 	Skipped   []Skipped
@@ -115,24 +115,19 @@ func (r *Resolver) Inventory(ctx context.Context) (Inventory, error) {
 		set(slug, RoleWallet, origin)
 	}
 
-	// MacroReadersFor takes the first usable account naming the slug, then
-	// keyless. Attempted unattended, like the wallet lookup above.
-	priceAccounts, _, err := r.accountsFor(ctx, "", entity.CapabilityMarketData)
+	// Read off the resolution MacroReadersFor serves from, so an account that
+	// builds no reader cannot make its slug look served. Unattended, like the
+	// wallet lookup above.
+	macro, err := r.resolveMacro(ctx, "")
 	if err != nil {
 		return Inventory{}, err
 	}
-	priceAccounts = firstOccurrences(priceAccounts)
 	for _, slug := range unionKeys(r.cfg.MacroReaders, r.cfg.KeylessMacroReaders) {
 		origin := OriginUnresolved
-		if _, ok := r.cfg.KeylessMacroReaders[slug]; ok {
+		if a, ok := macro.serving[slug]; ok {
+			origin = originOf(a, entity.CapabilityMarketData)
+		} else if _, ok := macro.readers[slug]; ok {
 			origin = OriginKeyless
-		}
-		if _, ok := r.cfg.MacroReaders[slug]; ok {
-			if i := slices.IndexFunc(priceAccounts, func(a *entity.Account) bool {
-				return a.Data[DataProviderKey] == slug
-			}); i >= 0 {
-				origin = originOf(priceAccounts[i], entity.CapabilityMarketData)
-			}
 		}
 		set(slug, RoleMacro, origin)
 	}
@@ -144,7 +139,7 @@ func (r *Resolver) Inventory(ctx context.Context) (Inventory, error) {
 		set(slug, RoleBroker, OriginPerAccount)
 	}
 
-	inv := Inventory{Skipped: prices.Skipped}
+	inv := Inventory{Skipped: append(prices.Skipped, macro.skipped...)}
 	for _, slug := range slices.Sorted(maps.Keys(roles)) {
 		status := ProviderStatus{Provider: slug}
 		for _, role := range slices.Sorted(maps.Keys(roles[slug])) {

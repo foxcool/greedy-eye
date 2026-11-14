@@ -572,23 +572,45 @@ func (r *Resolver) PriceInventoryFor(ctx context.Context, userID string) (PriceI
 // An account whose reader cannot be built is passed over with a warning rather
 // than failing the call, so a malformed key costs that series only.
 func (r *Resolver) MacroReadersFor(ctx context.Context, userID string) (map[string]marketdata.MacroReader, error) {
-	out := make(map[string]marketdata.MacroReader, len(r.cfg.KeylessMacroReaders))
+	res, err := r.resolveMacro(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return res.readers, nil
+}
+
+// macroResolution is what one resolution of the macro registry saw: the reader
+// per slug, the account behind each reader that came from one, and the
+// accounts whose reader could not be built.
+type macroResolution struct {
+	readers map[string]marketdata.MacroReader
+	serving map[string]*entity.Account
+	skipped []Skipped
+}
+
+// resolveMacro is the single resolution behind MacroReadersFor and the macro
+// role of Inventory. Two walks over the same accounts once disagreed: the
+// inventory named an account whose reader the other walk had refused to build.
+func (r *Resolver) resolveMacro(ctx context.Context, userID string) (macroResolution, error) {
+	res := macroResolution{
+		readers: make(map[string]marketdata.MacroReader, len(r.cfg.KeylessMacroReaders)),
+		serving: map[string]*entity.Account{},
+	}
 	for slug, reader := range r.cfg.KeylessMacroReaders {
-		out[slug] = reader
+		res.readers[slug] = reader
 	}
 	if len(r.cfg.MacroReaders) == 0 {
-		return out, nil
+		return res, nil
 	}
 
 	candidates, _, err := r.accountsFor(ctx, userID, entity.CapabilityMarketData)
 	if err != nil {
-		return nil, err
+		return macroResolution{}, err
 	}
-	claimed := map[string]bool{}
 	for _, a := range firstOccurrences(candidates) {
 		slug := a.Data[DataProviderKey]
 		factory, ok := r.cfg.MacroReaders[slug]
-		if !ok || claimed[slug] {
+		if _, claimed := res.serving[slug]; !ok || claimed {
 			continue
 		}
 		client, err := r.clientFor("macro_reader", a, func() (any, error) { return factory(a) })
@@ -597,12 +619,18 @@ func (r *Resolver) MacroReadersFor(ctx context.Context, userID string) (map[stri
 				r.cfg.Log.Warn("macro reader account unusable, skipped",
 					slog.String("provider", slug), slog.String("account_id", a.ID), slog.Any("error", err))
 			}
+			res.skipped = append(res.skipped, Skipped{
+				Provider:  slug,
+				AccountID: a.ID,
+				Kind:      entity.SkipCannotBuild,
+				Reason:    "account unusable: " + err.Error(),
+			})
 			continue
 		}
-		claimed[slug] = true
-		out[slug] = client.(marketdata.MacroReader)
+		res.serving[slug] = a
+		res.readers[slug] = client.(marketdata.MacroReader)
 	}
-	return out, nil
+	return res, nil
 }
 
 // firstOccurrences drops repeated accounts, keeping each at its first position.
