@@ -1075,6 +1075,15 @@ func (h *Handler) CreateAccount(ctx context.Context, req *connect.Request[apiv1.
 	if err := checkMisspelledData(account.Data); err != nil {
 		return nil, err
 	}
+	// The INSERT writes any portfolio_id it is given, and sync, import and
+	// paper fills stamp the account's portfolio on every holding they write: an
+	// account born in a foreign portfolio would put its positions in that
+	// owner's totals. UpdateAccount guards a move the same way.
+	if account.PortfolioID != "" {
+		if _, err := h.ownedPortfolio(ctx, account.PortfolioID); err != nil {
+			return nil, err
+		}
+	}
 	created, err := h.store.CreateAccount(ctx, account)
 	if err != nil {
 		return nil, toConnectError(err)

@@ -533,6 +533,42 @@ func TestCreateAccount_OK(t *testing.T) {
 	assert.Equal(t, testAccountID, resp.Msg.Id)
 }
 
+// TestCreateAccount_ForeignPortfolio: an account may only be born in its
+// owner's portfolio. Holdings an import or a paper fill writes are stamped with
+// the account's portfolio, so an account in someone else's portfolio would
+// land its positions in their totals.
+func TestCreateAccount_ForeignPortfolio(t *testing.T) {
+	foreign := testPortfolio(testPortfolioID2)
+	foreign.UserID = testUserID2
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID2).Return(foreign, nil)
+	h := newHandler(s)
+
+	portfolioID := testPortfolioID2
+	_, err := h.CreateAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreateAccountRequest{
+		Account: &apiv1.Account{Name: "Manual", Type: apiv1.AccountType_ACCOUNT_TYPE_MANUAL, PortfolioId: &portfolioID},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	s.AssertNotCalled(t, "CreateAccount", mock.Anything, mock.Anything)
+}
+
+func TestCreateAccount_OwnPortfolio(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("CreateAccount", mock.Anything, mock.MatchedBy(func(a *entity.Account) bool {
+		return a.PortfolioID == testPortfolioID
+	})).Return(testAccount(testAccountID), nil)
+	h := newHandler(s)
+
+	portfolioID := testPortfolioID
+	_, err := h.CreateAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreateAccountRequest{
+		Account: &apiv1.Account{Name: "Manual", Type: apiv1.AccountType_ACCOUNT_TYPE_MANUAL, PortfolioId: &portfolioID},
+	}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+}
+
 func TestGetAccount_NotFound(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(nil, store.ErrNotFound)
