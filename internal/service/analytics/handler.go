@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"sort"
 	"time"
 
@@ -186,8 +185,10 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 	// Every asset is priced before any holding is valued: one market-data read
 	// per set, not one per holding. See priceAssets.
 	var assetIDs []string
+	seen := map[string]bool{}
 	for _, hld := range holdings {
-		if !slices.Contains(assetIDs, hld.AssetID) {
+		if !seen[hld.AssetID] {
+			seen[hld.AssetID] = true
 			assetIDs = append(assetIDs, hld.AssetID)
 		}
 	}

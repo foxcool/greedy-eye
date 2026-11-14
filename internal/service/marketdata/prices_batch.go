@@ -59,9 +59,15 @@ func (h *Handler) lookupPrice(ctx context.Context, l *apiv1.PriceLookup) (*apiv1
 		}
 		return resp.Msg, nil
 	}
+	// ListPriceHistory resolves only the base, so the asset is resolved here:
+	// the contract accepts a ticker in every lookup, windowed or not.
+	assetID, err := h.resolveAssetID(ctx, l.GetAssetId())
+	if err != nil {
+		return nil, toConnectError(err)
+	}
 	pageSize := int32(1)
 	resp, err := h.ListPriceHistory(ctx, connect.NewRequest(&apiv1.ListPriceHistoryRequest{
-		AssetId: l.GetAssetId(), BaseAssetId: l.GetBaseAssetId(), From: l.From, PageSize: &pageSize,
+		AssetId: assetID, BaseAssetId: l.GetBaseAssetId(), From: l.From, PageSize: &pageSize,
 	}))
 	if err != nil {
 		return nil, err

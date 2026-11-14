@@ -92,3 +92,23 @@ func TestGetPrices_RejectsInvalidRequests(t *testing.T) {
 		})
 	}
 }
+
+// A ticker is accepted in a windowed lookup too, as the latest one accepts it.
+func TestGetPrices_WindowedLookupResolvesTicker(t *testing.T) {
+	const (
+		btc = "00000000-0000-0000-0000-0000000000b1"
+		usd = "00000000-0000-0000-0000-0000000000d1"
+	)
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	s := &mockStore{}
+	s.On("GetAssetBySymbol", mock.Anything, "BTC").Return(&entity.Asset{ID: btc}, nil)
+	s.On("ListPriceHistory", mock.Anything, ListPriceHistoryOpts{AssetID: btc, BaseAssetID: usd, From: &from, PageSize: 1}).
+		Return([]*entity.StoredPrice{{ID: "then", AssetID: btc, BaseAssetID: usd}}, "", nil)
+	h := newHandler(s)
+
+	resp, err := h.GetPrices(context.Background(), connect.NewRequest(&apiv1.GetPricesRequest{
+		Lookups: []*apiv1.PriceLookup{{AssetId: "BTC", BaseAssetId: usd, From: timestamppb.New(from)}},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "then", resp.Msg.Results[0].GetPrice().GetId())
+}
