@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/entity/entitytest"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
 	"github.com/foxcool/greedy-eye/internal/store"
 	storecrypto "github.com/foxcool/greedy-eye/internal/store/crypto"
@@ -364,10 +365,14 @@ func TestListHoldingsOmitExcludedFromTotals(t *testing.T) {
 		return a
 	}
 	newHolding := func(accountID, portfolioID string) string {
-		h, err := s.CreateHolding(ctx, &entity.Holding{
-			AssetID: asset.ID, AccountID: accountID, PortfolioID: portfolioID,
-			Decimals: 8, Source: entity.SourceManual,
-		})
+		h, err := s.CreateHolding(ctx, entitytest.Holding(entity.Holding{
+			AssetID:     asset.ID,
+			AccountID:   accountID,
+			PortfolioID: portfolioID,
+			Decimals:    8,
+		}, entitytest.HoldingState{
+			Source: entity.SourceManual,
+		}))
 		require.NoError(t, err)
 		return h.ID
 	}
@@ -1152,17 +1157,18 @@ func TestHoldingProvenanceRoundtrip(t *testing.T) {
 
 	t.Run("each source persists and reads back", func(t *testing.T) {
 		for _, source := range []entity.ProvenanceSource{entity.SourceSync, entity.SourceManual, entity.SourceLLMImport} {
-			created, err := s.CreateHolding(ctx, &entity.Holding{
+			created, err := s.CreateHolding(ctx, entitytest.Holding(entity.Holding{
 				AssetID:   asset.ID,
 				AccountID: account.ID,
 				Decimals:  8,
-				Source:    source,
-			})
+			}, entitytest.HoldingState{
+				Source: source,
+			}))
 			require.NoError(t, err, "source %s", source)
 
 			got, err := s.GetHolding(ctx, created.ID)
 			require.NoError(t, err)
-			assert.Equal(t, source, got.Source)
+			assert.Equal(t, source, got.Source())
 			assert.Empty(t, got.ImportID)
 		}
 	})
@@ -1177,24 +1183,26 @@ func TestHoldingProvenanceRoundtrip(t *testing.T) {
 	})
 
 	t.Run("unknown source rejected", func(t *testing.T) {
-		_, err := s.CreateHolding(ctx, &entity.Holding{
+		_, err := s.CreateHolding(ctx, entitytest.Holding(entity.Holding{
 			AssetID:   asset.ID,
 			AccountID: account.ID,
 			Decimals:  8,
-			Source:    "spoofed",
-		})
+		}, entitytest.HoldingState{
+			Source: "spoofed",
+		}))
 		require.ErrorIs(t, err, store.ErrInvalidArgument)
 	})
 
 	t.Run("import_id round-trip and list scan", func(t *testing.T) {
 		importID := uuid.Must(uuid.NewV7()).String()
-		created, err := s.CreateHolding(ctx, &entity.Holding{
+		created, err := s.CreateHolding(ctx, entitytest.Holding(entity.Holding{
 			AssetID:   asset.ID,
 			AccountID: account.ID,
 			Decimals:  8,
-			Source:    entity.SourceLLMImport,
 			ImportID:  importID,
-		})
+		}, entitytest.HoldingState{
+			Source: entity.SourceLLMImport,
+		}))
 		require.NoError(t, err)
 
 		got, err := s.GetHolding(ctx, created.ID)
@@ -1210,7 +1218,7 @@ func TestHoldingProvenanceRoundtrip(t *testing.T) {
 			}
 		}
 		require.NotNil(t, found, "imported holding missing from list")
-		assert.Equal(t, entity.SourceLLMImport, found.Source)
+		assert.Equal(t, entity.SourceLLMImport, found.Source())
 		assert.Equal(t, importID, found.ImportID)
 	})
 
@@ -1218,44 +1226,45 @@ func TestHoldingProvenanceRoundtrip(t *testing.T) {
 	// recorded reads back empty, which the sync path reads as the machine's — the
 	// only reading that lets a repaired verdict release what it excluded.
 	t.Run("exclusion author round-trip", func(t *testing.T) {
-		created, err := s.CreateHolding(ctx, &entity.Holding{
-			AssetID:        asset.ID,
-			AccountID:      account.ID,
-			Amount:         decimal.RequireFromString("100"),
-			Decimals:       8,
+		created, err := s.CreateHolding(ctx, entitytest.Holding(entity.Holding{
+			AssetID:   asset.ID,
+			AccountID: account.ID,
+			Amount:    decimal.RequireFromString("100"),
+			Decimals:  8,
+		}, entitytest.HoldingState{
 			Source:         entity.SourceSync,
 			Excluded:       true,
 			ExcludedSource: entity.ExcludedByQuarantine,
-		})
+		}))
 		require.NoError(t, err)
 
 		got, err := s.GetHolding(ctx, created.ID)
 		require.NoError(t, err)
-		assert.True(t, got.Excluded)
-		assert.Equal(t, entity.ExcludedByQuarantine, got.ExcludedSource)
+		assert.True(t, got.Excluded())
+		assert.Equal(t, entity.ExcludedByQuarantine, got.ExcludedSource())
 
 		// The release: both fields move together, and the row comes back clean.
-		got.Excluded = false
-		got.ExcludedSource = entity.ExclusionUnrecorded
+		got.SetExcluded(false, entity.ExclusionUnrecorded)
 		_, err = s.UpdateHolding(ctx, got, []string{"excluded", "excluded_source"})
 		require.NoError(t, err)
 
 		released, err := s.GetHolding(ctx, created.ID)
 		require.NoError(t, err)
-		assert.False(t, released.Excluded)
-		assert.Equal(t, entity.ExclusionUnrecorded, released.ExcludedSource)
+		assert.False(t, released.Excluded())
+		assert.Equal(t, entity.ExclusionUnrecorded, released.ExcludedSource())
 
 		// And the list path scans the column too, not only the single read.
-		user := &entity.Holding{
-			AssetID:        asset.ID,
-			AccountID:      account.ID,
-			Amount:         decimal.RequireFromString("1"),
-			Decimals:       8,
-			Chain:          "author-list",
+		user := entitytest.Holding(entity.Holding{
+			AssetID:   asset.ID,
+			AccountID: account.ID,
+			Amount:    decimal.RequireFromString("1"),
+			Decimals:  8,
+			Chain:     "author-list",
+		}, entitytest.HoldingState{
 			Source:         entity.SourceSync,
 			Excluded:       true,
 			ExcludedSource: entity.ExcludedByUser,
-		}
+		})
 		user, err = s.CreateHolding(ctx, user)
 		require.NoError(t, err)
 
@@ -1268,21 +1277,22 @@ func TestHoldingProvenanceRoundtrip(t *testing.T) {
 			}
 		}
 		require.NotNil(t, found)
-		assert.Equal(t, entity.ExcludedByUser, found.ExcludedSource)
+		assert.Equal(t, entity.ExcludedByUser, found.ExcludedSource())
 		assert.False(t, found.ReleasableBySync(), "a person's exclusion is not the sync's to lift")
 	})
 
 	// An imported row carries no stamp until a sync writes it; once one does,
 	// the stamp persists beside the unchanged source, on both read paths.
 	t.Run("synced_at round-trip on an adopted row", func(t *testing.T) {
-		created, err := s.CreateHolding(ctx, &entity.Holding{
+		created, err := s.CreateHolding(ctx, entitytest.Holding(entity.Holding{
 			AssetID:   asset.ID,
 			AccountID: account.ID,
 			Amount:    decimal.RequireFromString("5"),
 			Decimals:  8,
 			Chain:     "synced-at",
-			Source:    entity.SourceLLMImport,
-		})
+		}, entitytest.HoldingState{
+			Source: entity.SourceLLMImport,
+		}))
 		require.NoError(t, err)
 
 		got, err := s.GetHolding(ctx, created.ID)
@@ -1306,7 +1316,7 @@ func TestHoldingProvenanceRoundtrip(t *testing.T) {
 		require.NotNil(t, found)
 		require.NotNil(t, found.SyncedAt)
 		assert.True(t, at.Equal(*found.SyncedAt))
-		assert.Equal(t, entity.SourceLLMImport, found.Source, "the stamp does not rewrite provenance")
+		assert.Equal(t, entity.SourceLLMImport, found.Source(), "the stamp does not rewrite provenance")
 		assert.True(t, found.Swept())
 	})
 
@@ -1316,14 +1326,15 @@ func TestHoldingProvenanceRoundtrip(t *testing.T) {
 	t.Run("chain round-trip and per-chain rows", func(t *testing.T) {
 		var ids []string
 		for _, chain := range []string{"eth", "base", ""} {
-			created, err := s.CreateHolding(ctx, &entity.Holding{
+			created, err := s.CreateHolding(ctx, entitytest.Holding(entity.Holding{
 				AssetID:   asset.ID,
 				AccountID: account.ID,
 				Amount:    decimal.RequireFromString("100"),
 				Decimals:  8,
 				Chain:     chain,
-				Source:    entity.SourceSync,
-			})
+			}, entitytest.HoldingState{
+				Source: entity.SourceSync,
+			}))
 			require.NoError(t, err, "chain %q", chain)
 			ids = append(ids, created.ID)
 
@@ -1358,15 +1369,16 @@ func TestHoldingProvenanceRoundtrip(t *testing.T) {
 			entity.LiquidityLiquid, entity.LiquidityStaked, entity.LiquidityUnbonding,
 			entity.LiquidityLocked, entity.LiquidityVesting, entity.LiquidityUnknown,
 		} {
-			created, err := s.CreateHolding(ctx, &entity.Holding{
+			created, err := s.CreateHolding(ctx, entitytest.Holding(entity.Holding{
 				AssetID:   asset.ID,
 				AccountID: account.ID,
 				Amount:    decimal.RequireFromString("100"),
 				Decimals:  8,
 				Chain:     "cosmos",
 				Liquidity: liquidity,
-				Source:    entity.SourceSync,
-			})
+			}, entitytest.HoldingState{
+				Source: entity.SourceSync,
+			}))
 			require.NoError(t, err, "liquidity %q", liquidity)
 
 			got, err := s.GetHolding(ctx, created.ID)
@@ -1374,23 +1386,25 @@ func TestHoldingProvenanceRoundtrip(t *testing.T) {
 			assert.Equal(t, liquidity, got.Liquidity)
 		}
 
-		_, err := s.CreateHolding(ctx, &entity.Holding{
+		_, err := s.CreateHolding(ctx, entitytest.Holding(entity.Holding{
 			AssetID:   asset.ID,
 			AccountID: account.ID,
 			Decimals:  8,
 			Liquidity: "mostly-liquid",
-			Source:    entity.SourceSync,
-		})
+		}, entitytest.HoldingState{
+			Source: entity.SourceSync,
+		}))
 		require.ErrorIs(t, err, store.ErrInvalidArgument)
 	})
 
 	t.Run("delete holding", func(t *testing.T) {
-		created, err := s.CreateHolding(ctx, &entity.Holding{
+		created, err := s.CreateHolding(ctx, entitytest.Holding(entity.Holding{
 			AssetID:   asset.ID,
 			AccountID: account.ID,
 			Decimals:  8,
-			Source:    entity.SourceManual,
-		})
+		}, entitytest.HoldingState{
+			Source: entity.SourceManual,
+		}))
 		require.NoError(t, err)
 
 		require.NoError(t, s.DeleteHolding(ctx, created.ID))
@@ -1462,14 +1476,15 @@ func TestInHoldingsTxRollsBackTheWholeSnapshot(t *testing.T) {
 	require.NoError(t, err)
 
 	// The snapshot the account already has: one row the next sync will refresh.
-	existing, err := s.CreateHolding(ctx, &entity.Holding{
+	existing, err := s.CreateHolding(ctx, entitytest.Holding(entity.Holding{
 		AssetID:   asset.ID,
 		AccountID: account.ID,
 		Amount:    decimal.RequireFromString("100"),
 		Decimals:  6,
 		Liquidity: entity.LiquidityLiquid,
-		Source:    entity.SourceSync,
-	})
+	}, entitytest.HoldingState{
+		Source: entity.SourceSync,
+	}))
 	require.NoError(t, err)
 
 	t.Run("a failed write undoes the ones before it", func(t *testing.T) {
@@ -1479,14 +1494,15 @@ func TestInHoldingsTxRollsBackTheWholeSnapshot(t *testing.T) {
 			if _, err := w.UpdateHolding(ctx, existing, []string{"amount"}); err != nil {
 				return err
 			}
-			if _, err := w.CreateHolding(ctx, &entity.Holding{
+			if _, err := w.CreateHolding(ctx, entitytest.Holding(entity.Holding{
 				AssetID:   asset.ID,
 				AccountID: account.ID,
 				Amount:    decimal.RequireFromString("42"),
 				Decimals:  6,
 				Liquidity: entity.LiquidityStaked,
-				Source:    entity.SourceSync,
-			}); err != nil {
+			}, entitytest.HoldingState{
+				Source: entity.SourceSync,
+			})); err != nil {
 				return err
 			}
 			return wantErr // the sync gave up here — nothing above may survive
@@ -1508,14 +1524,15 @@ func TestInHoldingsTxRollsBackTheWholeSnapshot(t *testing.T) {
 			if _, err := w.UpdateHolding(ctx, existing, []string{"amount"}); err != nil {
 				return err
 			}
-			_, err := w.CreateHolding(ctx, &entity.Holding{
+			_, err := w.CreateHolding(ctx, entitytest.Holding(entity.Holding{
 				AssetID:   asset.ID,
 				AccountID: account.ID,
 				Amount:    decimal.RequireFromString("42"),
 				Decimals:  6,
 				Liquidity: entity.LiquidityStaked,
-				Source:    entity.SourceSync,
-			})
+			}, entitytest.HoldingState{
+				Source: entity.SourceSync,
+			}))
 			return err
 		})
 		require.NoError(t, err)
@@ -1553,9 +1570,13 @@ func TestListStaleSyncTargets(t *testing.T) {
 	// holdingAt writes a holding and backdates it: updated_at is set by the
 	// store, and the whole question here is how old that timestamp is.
 	holdingAt := func(accountID string, updatedAt time.Time) {
-		h, err := s.CreateHolding(ctx, &entity.Holding{
-			AssetID: asset.ID, AccountID: accountID, Decimals: 8, Source: entity.SourceSync,
-		})
+		h, err := s.CreateHolding(ctx, entitytest.Holding(entity.Holding{
+			AssetID:   asset.ID,
+			AccountID: accountID,
+			Decimals:  8,
+		}, entitytest.HoldingState{
+			Source: entity.SourceSync,
+		}))
 		require.NoError(t, err)
 		_, err = pool.Exec(ctx, "UPDATE holdings SET updated_at = $1 WHERE id = $2", updatedAt, h.ID)
 		require.NoError(t, err)
@@ -1937,10 +1958,14 @@ func TestUnsolicitedAssets(t *testing.T) {
 	require.NoError(t, err)
 
 	hold := func(assetID, amount string, source entity.ProvenanceSource) {
-		_, err := s.CreateHolding(ctx, &entity.Holding{
-			AssetID: assetID, AccountID: account.ID, Decimals: 8,
-			Amount: decimal.RequireFromString(amount), Source: source,
-		})
+		_, err := s.CreateHolding(ctx, entitytest.Holding(entity.Holding{
+			AssetID:   assetID,
+			AccountID: account.ID,
+			Decimals:  8,
+			Amount:    decimal.RequireFromString(amount),
+		}, entitytest.HoldingState{
+			Source: source,
+		}))
 		require.NoError(t, err)
 	}
 

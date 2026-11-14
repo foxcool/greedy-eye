@@ -15,6 +15,7 @@ import (
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/entity/entitytest"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/shopspring/decimal"
@@ -1046,7 +1047,7 @@ func TestCreateHolding_StampsManualSource(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
 	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
-		return h.Source == entity.SourceManual && h.ImportID == ""
+		return h.Source() == entity.SourceManual && h.ImportID == ""
 	})).Return(testHolding(testHoldingID), nil)
 	h := newHandler(s)
 
@@ -1166,9 +1167,9 @@ func TestUpdateHolding_ExcludeTouchesOnlyExcluded(t *testing.T) {
 	s.On("GetHolding", mock.Anything, testHoldingID).Return(testHolding(testHoldingID), nil)
 	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
 	stored := testHolding(testHoldingID)
-	stored.Excluded = true
+	stored.SetExcluded(true, entity.ExclusionUnrecorded)
 	s.On("UpdateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
-		return h.ID == testHoldingID && h.Excluded && h.ExcludedSource == entity.ExcludedByUser
+		return h.ID == testHoldingID && h.Excluded() && h.ExcludedSource() == entity.ExcludedByUser
 	}), []string{"excluded", "excluded_source"}).Return(stored, nil)
 	h := newHandler(s)
 
@@ -1487,7 +1488,7 @@ func TestListUnpricedHoldings_SkipsPricedAndQuarantined(t *testing.T) {
 	s := &mockStore{}
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
 		{ID: "h-priced", AssetID: goodAsset, Amount: decimal.NewFromInt(1), Decimals: 0},
-		{ID: "h-quarantined", AssetID: deadAsset, Amount: decimal.NewFromInt(1), Decimals: 0, Excluded: true},
+		entitytest.Holding(entity.Holding{ID: "h-quarantined", AssetID: deadAsset, Amount: decimal.NewFromInt(1), Decimals: 0}, entitytest.HoldingState{Excluded: true}),
 		{ID: "h-unpriced", AssetID: deadAsset, Amount: decimal.NewFromInt(1), Decimals: 0},
 	}, "", nil)
 
@@ -1728,8 +1729,8 @@ func TestCalculatePortfolioValue_DisclosesExcluded(t *testing.T) {
 	s.On("ListHoldings", mock.Anything, mock.MatchedBy(func(o ListHoldingsOpts) bool {
 		return !o.HideExcluded
 	})).Return([]*entity.Holding{
-		{ID: "h1", AssetID: legitAsset, Amount: decimal.NewFromInt(100000000), Decimals: 8},                // 1.0
-		{ID: "h2", AssetID: scamAsset, Amount: decimal.NewFromInt(500000000), Decimals: 8, Excluded: true}, // 5.0, quarantined
+		{ID: "h1", AssetID: legitAsset, Amount: decimal.NewFromInt(100000000), Decimals: 8},                                                                           // 1.0
+		entitytest.Holding(entity.Holding{ID: "h2", AssetID: scamAsset, Amount: decimal.NewFromInt(500000000), Decimals: 8}, entitytest.HoldingState{Excluded: true}), // 5.0, quarantined
 	}, "", nil)
 
 	md := &mockMDClient{}
@@ -1837,9 +1838,9 @@ func TestCalculatePortfolioValue_ReportsUnpricedCoverage(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
-		{ID: "h1", AssetID: pricedAsset, Amount: decimal.NewFromInt(100000000), Decimals: 8},               // 1.0, priced
-		{ID: "h2", AssetID: unpricedAsset, Amount: decimal.NewFromInt(700000000), Decimals: 8},             // 7.0, no quote
-		{ID: "h3", AssetID: scamAsset, Amount: decimal.NewFromInt(500000000), Decimals: 8, Excluded: true}, // quarantined
+		{ID: "h1", AssetID: pricedAsset, Amount: decimal.NewFromInt(100000000), Decimals: 8},                                                                          // 1.0, priced
+		{ID: "h2", AssetID: unpricedAsset, Amount: decimal.NewFromInt(700000000), Decimals: 8},                                                                        // 7.0, no quote
+		entitytest.Holding(entity.Holding{ID: "h3", AssetID: scamAsset, Amount: decimal.NewFromInt(500000000), Decimals: 8}, entitytest.HoldingState{Excluded: true}), // quarantined
 	}, "", nil)
 
 	md := &mockMDClient{}
@@ -2245,10 +2246,10 @@ func TestSyncAccount_ScamVerdictExcludesHolding(t *testing.T) {
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
 	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
-		return h.AssetID == "asset-scam" && h.Excluded
+		return h.AssetID == "asset-scam" && h.Excluded()
 	})).Return(&entity.Holding{ID: "h-scam"}, nil)
 	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
-		return h.AssetID == "asset-legit" && !h.Excluded
+		return h.AssetID == "asset-legit" && !h.Excluded()
 	})).Return(&entity.Holding{ID: "h-legit"}, nil)
 
 	ws := &mockWalletSyncer{}
@@ -2293,16 +2294,17 @@ func TestSyncAccount_LateVerdictExcludesExistingHolding(t *testing.T) {
 	acct.Type = entity.AccountTypeWallet
 	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
 
-	impostor := &entity.Holding{
+	impostor := entitytest.Holding(entity.Holding{
 		ID:        "h-fake",
 		AssetID:   "asset-fake",
 		AccountID: testAccountID,
 		Amount:    decimal.RequireFromString("1894544900000"),
 		Decimals:  6,
 		Chain:     "eth",
-		Source:    entity.SourceSync,
-		Excluded:  false,
-	}
+	}, entitytest.HoldingState{
+		Source:   entity.SourceSync,
+		Excluded: false,
+	})
 
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
@@ -2333,7 +2335,7 @@ func TestSyncAccount_LateVerdictExcludesExistingHolding(t *testing.T) {
 		AccountId: testAccountID,
 	}))
 	require.NoError(t, err)
-	assert.True(t, impostor.Excluded, "a quarantine verdict must reach a row that already exists")
+	assert.True(t, impostor.Excluded(), "a quarantine verdict must reach a row that already exists")
 	assert.Contains(t, updatedFields, "excluded")
 }
 
@@ -2347,17 +2349,18 @@ func TestSyncAccount_UserExclusionIsNotLowered(t *testing.T) {
 	acct.Type = entity.AccountTypeWallet
 	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
 
-	userExcluded := &entity.Holding{
-		ID:             "h-dai",
-		AssetID:        "asset-DAI",
-		AccountID:      testAccountID,
-		Amount:         decimal.RequireFromString("100"),
-		Decimals:       18,
-		Chain:          "eth",
+	userExcluded := entitytest.Holding(entity.Holding{
+		ID:        "h-dai",
+		AssetID:   "asset-DAI",
+		AccountID: testAccountID,
+		Amount:    decimal.RequireFromString("100"),
+		Decimals:  18,
+		Chain:     "eth",
+	}, entitytest.HoldingState{
 		Source:         entity.SourceSync,
 		Excluded:       true,
 		ExcludedSource: entity.ExcludedByUser,
-	}
+	})
 
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
@@ -2383,7 +2386,7 @@ func TestSyncAccount_UserExclusionIsNotLowered(t *testing.T) {
 		AccountId: testAccountID,
 	}))
 	require.NoError(t, err)
-	assert.True(t, userExcluded.Excluded)
+	assert.True(t, userExcluded.Excluded())
 	assert.NotContains(t, updatedFields, "excluded", "a legit verdict does not touch a person's decision")
 }
 
@@ -2406,17 +2409,18 @@ func TestSyncAccount_QuarantineExclusionIsReleased(t *testing.T) {
 		"excluded before the author was recorded": entity.ExclusionUnrecorded,
 	} {
 		t.Run(name, func(t *testing.T) {
-			repaired := &entity.Holding{
-				ID:             "h-dai",
-				AssetID:        "asset-DAI",
-				AccountID:      testAccountID,
-				Amount:         decimal.RequireFromString("100"),
-				Decimals:       18,
-				Chain:          "eth",
+			repaired := entitytest.Holding(entity.Holding{
+				ID:        "h-dai",
+				AssetID:   "asset-DAI",
+				AccountID: testAccountID,
+				Amount:    decimal.RequireFromString("100"),
+				Decimals:  18,
+				Chain:     "eth",
+			}, entitytest.HoldingState{
 				Source:         entity.SourceSync,
 				Excluded:       true,
 				ExcludedSource: source,
-			}
+			})
 
 			s := &mockStore{}
 			s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
@@ -2448,8 +2452,8 @@ func TestSyncAccount_QuarantineExclusionIsReleased(t *testing.T) {
 			require.NoError(t, err)
 
 			require.NotNil(t, updated)
-			assert.False(t, updated.Excluded, "the verdict is gone, so the exclusion goes with it")
-			assert.Equal(t, entity.ExclusionUnrecorded, updated.ExcludedSource)
+			assert.False(t, updated.Excluded(), "the verdict is gone, so the exclusion goes with it")
+			assert.Equal(t, entity.ExclusionUnrecorded, updated.ExcludedSource())
 			assert.Contains(t, updatedFields, "excluded")
 			assert.Contains(t, updatedFields, "excluded_source")
 		})
@@ -2729,7 +2733,7 @@ func TestSyncAccount_Exchange(t *testing.T) {
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
 	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
-		return h.Amount.String() == "60000000" && h.Decimals == 8 && h.Source == entity.SourceSync
+		return h.Amount.String() == "60000000" && h.Decimals == 8 && h.Source() == entity.SourceSync
 	})).Return(&entity.Holding{ID: testHoldingID}, nil)
 
 	syncer := &mockExchangeSyncer{}
@@ -2964,7 +2968,7 @@ func TestImportPositions_CommitStampsProvenance(t *testing.T) {
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
 	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
-		return h.Source == entity.SourceLLMImport &&
+		return h.Source() == entity.SourceLLMImport &&
 			h.ImportID == importID &&
 			h.AssetID == newAssetID &&
 			h.PortfolioID == testPortfolioID &&
@@ -3181,7 +3185,7 @@ func TestImportPositions_FullSnapshotPlan(t *testing.T) {
 	absent.AssetID = absentAssetID
 	excluded := testHolding("01926d35-6a1e-7004-8004-000000000003")
 	excluded.AssetID = excludedAssetID
-	excluded.Excluded = true
+	excluded.SetExcluded(true, entity.ExclusionUnrecorded)
 	s.On("ListHoldings", mock.Anything, mock.Anything).
 		Return([]*entity.Holding{kept, absent, excluded}, "", nil)
 
@@ -3338,14 +3342,15 @@ func TestSyncAccount_AdoptsPreChainHolding(t *testing.T) {
 	acct.Type = entity.AccountTypeWallet
 	acct.Data = map[string]string{"address": "0xabc", "chain": "eth,base"}
 
-	legacy := &entity.Holding{
+	legacy := entitytest.Holding(entity.Holding{
 		ID:        "h-legacy",
-		AssetID:   "asset-USDC", // what the auto-resolving market-data mock returns
+		AssetID:   "asset-USDC",
 		AccountID: testAccountID,
 		Amount:    decimal.RequireFromString("4000000"),
 		Decimals:  6,
-		Source:    entity.SourceSync,
-	}
+	}, entitytest.HoldingState{
+		Source: entity.SourceSync,
+	})
 
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
@@ -3452,14 +3457,15 @@ func TestSyncAccount_AdoptsPreDimensionHolding(t *testing.T) {
 	acct.Type = entity.AccountTypeWallet
 	acct.Data = map[string]string{"address": "cosmos1abc", "chain": "cosmos"}
 
-	legacy := &entity.Holding{
+	legacy := entitytest.Holding(entity.Holding{
 		ID:        "h-legacy",
 		AssetID:   "asset-ATOM",
 		AccountID: testAccountID,
 		Amount:    decimal.RequireFromString("8000000"),
 		Decimals:  6,
-		Source:    entity.SourceSync,
-	}
+	}, entitytest.HoldingState{
+		Source: entity.SourceSync,
+	})
 
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
@@ -3511,14 +3517,15 @@ func TestSyncAccount_AdoptsImportedPreDimensionHolding(t *testing.T) {
 	acct.Type = entity.AccountTypeWallet
 	acct.Data = map[string]string{"address": "cosmos1abc", "chain": "cosmos"}
 
-	imported := &entity.Holding{
+	imported := entitytest.Holding(entity.Holding{
 		ID:        "h-imported",
 		AssetID:   "asset-ATOM",
 		AccountID: testAccountID,
 		Amount:    decimal.RequireFromString("66542752"),
 		Decimals:  6,
-		Source:    entity.SourceLLMImport,
-	}
+	}, entitytest.HoldingState{
+		Source: entity.SourceLLMImport,
+	})
 
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
@@ -3552,7 +3559,7 @@ func TestSyncAccount_AdoptsImportedPreDimensionHolding(t *testing.T) {
 
 	require.NotNil(t, updated, "the imported row is reused, not left to double the position")
 	assert.Equal(t, "h-imported", updated.ID)
-	assert.Equal(t, entity.SourceLLMImport, updated.Source, "provenance is not rewritten")
+	assert.Equal(t, entity.SourceLLMImport, updated.Source(), "provenance is not rewritten")
 	assert.NotNil(t, updated.SyncedAt, "the adopted row is now the sync's to refresh")
 	assert.Equal(t, "21835346", updated.Amount.String())
 	assert.Equal(t, 1, createdCount, "only the second state becomes a new row")
@@ -3669,24 +3676,26 @@ func TestSyncAccount_ZeroesVanishedHolding(t *testing.T) {
 	acct.Type = entity.AccountTypeWallet
 	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
 
-	kept := &entity.Holding{
+	kept := entitytest.Holding(entity.Holding{
 		ID:        "h-dai",
 		AssetID:   "asset-DAI",
 		AccountID: testAccountID,
 		Amount:    decimal.RequireFromString("100"),
 		Decimals:  18,
 		Chain:     "eth",
-		Source:    entity.SourceSync,
-	}
-	sold := &entity.Holding{
+	}, entitytest.HoldingState{
+		Source: entity.SourceSync,
+	})
+	sold := entitytest.Holding(entity.Holding{
 		ID:        "h-usdt",
 		AssetID:   "asset-USDT",
 		AccountID: testAccountID,
 		Amount:    decimal.RequireFromString("563993463"),
 		Decimals:  6,
 		Chain:     "eth",
-		Source:    entity.SourceSync,
-	}
+	}, entitytest.HoldingState{
+		Source: entity.SourceSync,
+	})
 
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
@@ -3734,15 +3743,16 @@ func TestSyncAccount_UnstorableBalanceDoesNotBlockRemoval(t *testing.T) {
 	acct.Type = entity.AccountTypeWallet
 	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
 
-	sold := &entity.Holding{
+	sold := entitytest.Holding(entity.Holding{
 		ID:        "h-usdt",
 		AssetID:   "asset-USDT",
 		AccountID: testAccountID,
 		Amount:    decimal.RequireFromString("563993463"),
 		Decimals:  6,
 		Chain:     "eth",
-		Source:    entity.SourceSync,
-	}
+	}, entitytest.HoldingState{
+		Source: entity.SourceSync,
+	})
 
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
@@ -3780,14 +3790,15 @@ func TestSyncAccount_PartialFetchKeepsVanishedHoldings(t *testing.T) {
 	acct.Type = entity.AccountTypeWallet
 	acct.Data = map[string]string{"addresses": "bc1good bc1bad", "chain": "bitcoin"}
 
-	stale := &entity.Holding{
+	stale := entitytest.Holding(entity.Holding{
 		ID:        "h-ltc",
 		AssetID:   "asset-LTC",
 		AccountID: testAccountID,
 		Amount:    decimal.RequireFromString("100000000"),
 		Decimals:  8,
-		Source:    entity.SourceSync,
-	}
+	}, entitytest.HoldingState{
+		Source: entity.SourceSync,
+	})
 
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
@@ -3826,15 +3837,16 @@ func TestSyncAccount_EmptySnapshotKeepsHoldings(t *testing.T) {
 	acct.Type = entity.AccountTypeWallet
 	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
 
-	existing := &entity.Holding{
+	existing := entitytest.Holding(entity.Holding{
 		ID:        "h-dai",
 		AssetID:   "asset-DAI",
 		AccountID: testAccountID,
 		Amount:    decimal.RequireFromString("100"),
 		Decimals:  18,
 		Chain:     "eth",
-		Source:    entity.SourceSync,
-	}
+	}, entitytest.HoldingState{
+		Source: entity.SourceSync,
+	})
 
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
@@ -3866,14 +3878,15 @@ func TestSyncAccount_LeavesForeignProvenanceAlone(t *testing.T) {
 	acct.Type = entity.AccountTypeWallet
 	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
 
-	manual := &entity.Holding{
+	manual := entitytest.Holding(entity.Holding{
 		ID:        "h-manual",
 		AssetID:   "asset-XMR",
 		AccountID: testAccountID,
 		Amount:    decimal.RequireFromString("500"),
 		Decimals:  12,
-		Source:    entity.SourceManual,
-	}
+	}, entitytest.HoldingState{
+		Source: entity.SourceManual,
+	})
 
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
@@ -3907,14 +3920,15 @@ func TestSyncAccount_ZeroesAdoptedHoldingOnceGone(t *testing.T) {
 	acct.Type = entity.AccountTypeWallet
 	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
 
-	imported := &entity.Holding{
+	imported := entitytest.Holding(entity.Holding{
 		ID:        "h-imported",
 		AssetID:   "asset-USDC",
 		AccountID: testAccountID,
 		Amount:    decimal.RequireFromString("5000000"),
 		Decimals:  6,
-		Source:    entity.SourceLLMImport,
-	}
+	}, entitytest.HoldingState{
+		Source: entity.SourceLLMImport,
+	})
 
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
@@ -3957,7 +3971,7 @@ func TestSyncAccount_ZeroesAdoptedHoldingOnceGone(t *testing.T) {
 	second := sync()
 	assert.Equal(t, int32(1), second.HoldingsZeroed)
 	assert.True(t, imported.Amount.IsZero(), "a position the provider stopped reporting is gone")
-	assert.Equal(t, entity.SourceLLMImport, imported.Source, "provenance survives the removal")
+	assert.Equal(t, entity.SourceLLMImport, imported.Source(), "provenance survives the removal")
 	assert.Contains(t, zeroFields, "synced_at")
 }
 
@@ -3970,16 +3984,17 @@ func TestSyncAccount_EmptySnapshotGuardsAdoptedRows(t *testing.T) {
 	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
 
 	synced := time.Now().Add(-time.Hour)
-	adopted := &entity.Holding{
+	adopted := entitytest.Holding(entity.Holding{
 		ID:        "h-adopted",
 		AssetID:   "asset-DAI",
 		AccountID: testAccountID,
 		Amount:    decimal.RequireFromString("100"),
 		Decimals:  18,
 		Chain:     "eth",
-		Source:    entity.SourceLLMImport,
 		SyncedAt:  &synced,
-	}
+	}, entitytest.HoldingState{
+		Source: entity.SourceLLMImport,
+	})
 
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
@@ -4008,14 +4023,15 @@ func TestSyncAccount_AdoptedRowIsNotZeroed(t *testing.T) {
 	acct.Type = entity.AccountTypeWallet
 	acct.Data = map[string]string{"address": "0xabc", "chain": "eth"}
 
-	legacy := &entity.Holding{
+	legacy := entitytest.Holding(entity.Holding{
 		ID:        "h-legacy",
 		AssetID:   "asset-USDC",
 		AccountID: testAccountID,
 		Amount:    decimal.RequireFromString("4000000"),
 		Decimals:  6,
-		Source:    entity.SourceSync,
-	}
+	}, entitytest.HoldingState{
+		Source: entity.SourceSync,
+	})
 
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)

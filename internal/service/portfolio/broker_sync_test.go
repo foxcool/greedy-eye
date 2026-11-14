@@ -56,7 +56,7 @@ func TestSyncAccount_BrokerPositionsBecomeHoldings(t *testing.T) {
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
 	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
-		return h.Source == entity.SourceSync && h.AccountID == testAccountID
+		return h.Source() == entity.SourceSync && h.AccountID == testAccountID
 	})).Return(&entity.Holding{ID: testHoldingID}, nil).Times(4)
 
 	syncer := &mockBrokerSyncer{}
@@ -161,7 +161,7 @@ func TestSyncAccount_BrokerSoldPositionIsZeroed(t *testing.T) {
 	acct := brokerAccount()
 	sold := testHolding("01926d35-6a1e-7006-8006-0000000000ff")
 	sold.AssetID = "asset-SBER"
-	sold.Source = entity.SourceSync
+	require.NoError(t, sold.StampSource(entity.SourceSync))
 	sold.Liquidity = entity.LiquidityLiquid
 
 	s := &mockStore{}
@@ -198,7 +198,7 @@ func TestSyncAccount_BrokerSkipHoldsBackZeroing(t *testing.T) {
 	acct := brokerAccount()
 	stale := testHolding("01926d35-6a1e-7006-8006-0000000000fe")
 	stale.AssetID = "asset-OLD"
-	stale.Source = entity.SourceSync
+	require.NoError(t, stale.StampSource(entity.SourceSync))
 	stale.Liquidity = entity.LiquidityLiquid
 
 	s := &mockStore{}
@@ -234,7 +234,7 @@ func TestSyncAccount_BrokerDefaultedMarketIsCountedNotWithheld(t *testing.T) {
 	acct := brokerAccount()
 	sold := testHolding("01926d35-6a1e-7006-8006-0000000000fd")
 	sold.AssetID = "asset-SBER"
-	sold.Source = entity.SourceSync
+	require.NoError(t, sold.StampSource(entity.SourceSync))
 	sold.Liquidity = entity.LiquidityLiquid
 
 	s := &mockStore{}
@@ -266,7 +266,7 @@ func TestSyncAccount_BrokerDefaultedMarketIsCountedNotWithheld(t *testing.T) {
 func TestSyncAccount_BrokerFetchErrorKeepsPositions(t *testing.T) {
 	acct := brokerAccount()
 	held := testHolding("01926d35-6a1e-7006-8006-0000000000fc")
-	held.Source = entity.SourceSync
+	require.NoError(t, held.StampSource(entity.SourceSync))
 
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)

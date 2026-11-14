@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/entity/entitytest"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/google/uuid"
@@ -1195,12 +1196,13 @@ func seedHoldingForAsset(t *testing.T, pool *pgxpool.Pool, assetID string) strin
 	})
 	require.NoError(t, err)
 
-	holding, err := portfolios.CreateHolding(ctx, &entity.Holding{
+	holding, err := portfolios.CreateHolding(ctx, entitytest.Holding(entity.Holding{
 		AssetID:   assetID,
 		AccountID: account.ID,
 		Decimals:  8,
-		Source:    entity.SourceManual,
-	})
+	}, entitytest.HoldingState{
+		Source: entity.SourceManual,
+	}))
 	require.NoError(t, err)
 	return holding.ID
 }

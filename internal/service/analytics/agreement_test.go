@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/entity/entitytest"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
@@ -107,7 +108,7 @@ func agreementFixture() (*fakeStore, *fakeMD) {
 			{ID: "h-ghost", AssetID: "ghost", AccountID: "a1", PortfolioID: "p1", Amount: dec("500"), Decimals: 2},
 			{ID: "h-orph", AssetID: "orph", AccountID: "a1", PortfolioID: "p1", Amount: dec("400"), Decimals: 2},
 			{ID: "h-twin", AssetID: "twin", AccountID: "a1", PortfolioID: "p1", Amount: dec("300"), Decimals: 2},
-			{ID: "h-scam", AssetID: "scam", AccountID: "a1", PortfolioID: "p1", Amount: dec("999"), Decimals: 2, Excluded: true},
+			entitytest.Holding(entity.Holding{ID: "h-scam", AssetID: "scam", AccountID: "a1", PortfolioID: "p1", Amount: dec("999"), Decimals: 2}, entitytest.HoldingState{Excluded: true}),
 		},
 	}
 	md := &fakeMD{

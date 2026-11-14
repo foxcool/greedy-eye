@@ -16,6 +16,7 @@ import (
 
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/entity/entitytest"
 	pkgstore "github.com/foxcool/greedy-eye/internal/store"
 )
 
@@ -463,11 +464,11 @@ func TestAccountHealthOfANamedUnreadableAccount(t *testing.T) {
 func TestUnconfirmedReason(t *testing.T) {
 	at := func(d int) *time.Time { v := time.Date(2026, 10, d, 6, 30, 0, 0, time.UTC); return &v }
 	row := func(id string, synced *time.Time, amount string) *entity.Holding {
-		return &entity.Holding{ID: id, Amount: decimal.RequireFromString(amount), Source: entity.SourceSync, SyncedAt: synced}
+		return entitytest.Holding(entity.Holding{ID: id, Amount: decimal.RequireFromString(amount), SyncedAt: synced}, entitytest.HoldingState{Source: entity.SourceSync})
 	}
 	excluded := row("scam", at(1), "6106")
-	excluded.Excluded = true
-	manual := &entity.Holding{ID: "manual", Amount: decimal.RequireFromString("5"), Source: entity.SourceManual, UpdatedAt: *at(1)}
+	excluded.SetExcluded(true, entity.ExclusionUnrecorded)
+	manual := entitytest.Holding(entity.Holding{ID: "manual", Amount: decimal.RequireFromString("5"), UpdatedAt: *at(1)}, entitytest.HoldingState{Source: entity.SourceManual})
 
 	r := unconfirmedReason([]*entity.Holding{
 		row("dai", at(22), "200"),

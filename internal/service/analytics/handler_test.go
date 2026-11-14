@@ -12,6 +12,7 @@ import (
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/entity/entitytest"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
 	"github.com/foxcool/greedy-eye/internal/store"
@@ -51,7 +52,7 @@ func (f *fakeStore) ListHoldings(_ context.Context, opts portfolio.ListHoldingsO
 		if opts.UserID != "" && !f.ownedBy(h, opts.UserID) {
 			continue
 		}
-		if opts.HideExcluded && h.Excluded {
+		if opts.HideExcluded && h.Excluded() {
 			continue
 		}
 		if opts.OmitExcludedFromTotals && f.outOfTotals(h) {
@@ -310,7 +311,7 @@ func TestGetHeatmap_SkipsUnpricedAndExcluded(t *testing.T) {
 	st, md := fixture()
 	st.holdings = append(st.holdings,
 		&entity.Holding{ID: "h3", AssetID: "mystery", AccountID: "a1", PortfolioID: "p1", Amount: dec("100"), Decimals: 0},
-		&entity.Holding{ID: "h4", AssetID: "eth", AccountID: "a1", PortfolioID: "p1", Amount: dec("1000000000000000000"), Decimals: 18, Excluded: true},
+		entitytest.Holding(entity.Holding{ID: "h4", AssetID: "eth", AccountID: "a1", PortfolioID: "p1", Amount: dec("1000000000000000000"), Decimals: 18}, entitytest.HoldingState{Excluded: true}),
 	)
 
 	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
@@ -386,9 +387,9 @@ func TestGetHeatmap_AmountAgeIgnoresUnsweptRows(t *testing.T) {
 
 	st, md := fixture()
 	st.holdings[0].UpdatedAt = recent
-	st.holdings[0].Source = entity.SourceSync
+	require.NoError(t, st.holdings[0].StampSource(entity.SourceSync))
 	st.holdings[1].UpdatedAt = ancient
-	st.holdings[1].Source = entity.SourceManual
+	require.NoError(t, st.holdings[1].StampSource(entity.SourceManual))
 
 	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
 
@@ -727,9 +728,9 @@ func TestGetHeatmap_AmountAgeIgnoresZeroedRows(t *testing.T) {
 
 	st, md := fixture()
 	st.holdings[0].UpdatedAt = recent
-	st.holdings[0].Source = entity.SourceSync
+	require.NoError(t, st.holdings[0].StampSource(entity.SourceSync))
 	st.holdings[1].UpdatedAt = frozen
-	st.holdings[1].Source = entity.SourceSync
+	require.NoError(t, st.holdings[1].StampSource(entity.SourceSync))
 	st.holdings[1].Amount = decimal.Zero
 
 	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
@@ -753,9 +754,9 @@ func TestGetHeatmap_AmountAgeCountsAdoptedRows(t *testing.T) {
 
 	st, md := fixture()
 	st.holdings[0].UpdatedAt = recent
-	st.holdings[0].Source = entity.SourceSync
+	require.NoError(t, st.holdings[0].StampSource(entity.SourceSync))
 	st.holdings[1].UpdatedAt = adopted
-	st.holdings[1].Source = entity.SourceLLMImport
+	require.NoError(t, st.holdings[1].StampSource(entity.SourceLLMImport))
 	st.holdings[1].SyncedAt = &adopted
 
 	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
@@ -773,10 +774,16 @@ func TestGetHeatmap_ExcludedRowsDoNotCrowdOutPages(t *testing.T) {
 	st, md := fixture()
 	var spam []*entity.Holding
 	for i := range holdingsPageSize {
-		spam = append(spam, &entity.Holding{
-			ID: fmt.Sprintf("spam-%d", i), AssetID: "eth", AccountID: "a1", PortfolioID: "p1",
-			Amount: dec("1"), Decimals: 18, Excluded: true,
-		})
+		spam = append(spam, entitytest.Holding(entity.Holding{
+			ID:          fmt.Sprintf("spam-%d", i),
+			AssetID:     "eth",
+			AccountID:   "a1",
+			PortfolioID: "p1",
+			Amount:      dec("1"),
+			Decimals:    18,
+		}, entitytest.HoldingState{
+			Excluded: true,
+		}))
 	}
 	st.holdings = append(spam, st.holdings...)
 
