@@ -27,9 +27,12 @@ type DatedPriceProvider interface {
 const cbrSourceID = "cbr"
 
 const (
-	// maxBackfillDays bounds one call. Each day is one request to the feed,
-	// and a range typed a decade too wide should be refused, not served.
-	maxBackfillDays = 3700
+	// maxBackfillDays bounds one call to about a year. Each day is one request
+	// to the feed, and the shared limiter allows the feed about one a second,
+	// so a year takes minutes while a decade would hold the call open for an
+	// hour. Deeper history is backfilled a year at a time; re-runs and
+	// overlaps cost nothing (see BackfillCbrRates).
+	maxBackfillDays = 370
 
 	// heldLookback reaches back from the first requested day for rows already
 	// held: a day with no set of its own is answered with an earlier one, so a

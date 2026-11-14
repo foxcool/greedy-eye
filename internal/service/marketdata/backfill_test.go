@@ -32,12 +32,12 @@ func TestBackfillCbrRates_RejectsABadRange(t *testing.T) {
 	h := newHandler(&mockStore{})
 
 	for name, msg := range map[string]*apiv1.BackfillCbrRatesRequest{
-		"missing dates":     {},
-		"not a date":        {FromDate: "16.02.2024", ToDate: "2024-02-19"},
-		"reversed":          {FromDate: "2024-02-19", ToDate: "2024-02-16"},
-		"longer than cap":   {FromDate: "2000-01-01", ToDate: "2024-02-19"},
-		"to date missing":   {FromDate: "2024-02-16"},
-		"from date missing": {ToDate: "2024-02-16"},
+		"missing dates":      {},
+		"not a date":         {FromDate: "16.02.2024", ToDate: "2024-02-19"},
+		"reversed":           {FromDate: "2024-02-19", ToDate: "2024-02-16"},
+		"longer than a year": {FromDate: "2023-01-01", ToDate: "2024-02-19"},
+		"to date missing":    {FromDate: "2024-02-16"},
+		"from date missing":  {ToDate: "2024-02-16"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := h.BackfillCbrRates(adminContext(), connect.NewRequest(msg))

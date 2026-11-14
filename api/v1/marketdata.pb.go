@@ -3249,7 +3249,9 @@ func (x *GetMacroRatesResponse) GetSeries() []*MacroSeries {
 
 type BackfillCbrRatesRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// First and last calendar day to backfill, inclusive, as YYYY-MM-DD.
+	// First and last calendar day to backfill, inclusive, as YYYY-MM-DD. At
+	// most 370 days per call: each day is one request to the rate-limited
+	// feed, so deeper history is loaded a year at a time.
 	FromDate      string `protobuf:"bytes,1,opt,name=from_date,json=fromDate,proto3" json:"from_date,omitempty"`
 	ToDate        string `protobuf:"bytes,2,opt,name=to_date,json=toDate,proto3" json:"to_date,omitempty"`
 	unknownFields protoimpl.UnknownFields

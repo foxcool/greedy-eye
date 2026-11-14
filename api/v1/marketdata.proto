@@ -892,7 +892,9 @@ message GetMacroRatesResponse {
 }
 
 message BackfillCbrRatesRequest {
-  // First and last calendar day to backfill, inclusive, as YYYY-MM-DD.
+  // First and last calendar day to backfill, inclusive, as YYYY-MM-DD. At
+  // most 370 days per call: each day is one request to the rate-limited
+  // feed, so deeper history is loaded a year at a time.
   string from_date = 1;
   string to_date = 2;
 }
