@@ -17,6 +17,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/robfig/cron/v3"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -291,6 +292,24 @@ func (h *Handler) ValidateRule(ctx context.Context, req *connect.Request[apiv1.V
 	if r.Schedule != nil {
 		if err := validateCronExpression(r.Schedule.CronExpression); err != nil {
 			errs = append(errs, err.Error())
+		}
+	}
+
+	// The engine's configuration and the portfolio membership are judged by the
+	// check CreateRule runs. Without a type and portfolio its verdict would only
+	// repeat what is already reported. The schedule was judged above.
+	if r.RuleType != "" && r.PortfolioId != "" {
+		noSchedule := proto.Clone(r).(*apiv1.Rule)
+		noSchedule.Schedule = nil
+		candidate, err := ruleFromProto(noSchedule)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("configuration: %v", err))
+		} else if err := h.validateConfiguration(ctx, candidate); err != nil {
+			var ce *connect.Error
+			if !errors.As(err, &ce) || ce.Code() != connect.CodeInvalidArgument {
+				return nil, err
+			}
+			errs = append(errs, ce.Message())
 		}
 	}
 
