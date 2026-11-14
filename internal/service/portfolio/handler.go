@@ -155,8 +155,24 @@ func (h *Handler) ownedPortfolio(ctx context.Context, id string) (*entity.Portfo
 }
 
 // ownedAccount loads an account and enforces ownership.
+//
+// An unreadable row has no owner to check, so ownership is read off the
+// caller's list (callersUnreadable) before its read error is returned: that
+// error confirms the id exists and its text can quote decrypted bytes.
 func (h *Handler) ownedAccount(ctx context.Context, id string) (*entity.Account, error) {
 	a, err := h.store.GetAccount(ctx, id)
+	if errors.Is(err, store.ErrUnreadable) {
+		user, ok := middleware.UserFromContext(ctx)
+		if !ok {
+			return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
+		}
+		if !user.IsAdmin() {
+			if _, lookupErr := h.callersUnreadable(ctx, user.ID, id); lookupErr != nil {
+				return nil, lookupErr
+			}
+		}
+		return nil, toConnectError(err)
+	}
 	if err != nil {
 		return nil, toConnectError(err)
 	}

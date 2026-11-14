@@ -579,6 +579,33 @@ func TestGetAccount_NotFound(t *testing.T) {
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 }
 
+// TestGetAccount_UnreadableForeignRow: a row whose data cannot be read has no
+// owner to check, and its read error can quote decrypted bytes. A caller who
+// does not own it gets NotFound, as for a readable foreign row, never the text.
+func TestGetAccount_UnreadableForeignRow(t *testing.T) {
+	const secret = "decrypted: sk-live-0123456789"
+	readErr := fmt.Errorf("failed to get account: %w", errors.Join(store.ErrUnreadable, errors.New(secret)))
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(nil, readErr)
+	s.On("ListUnreadableAccounts", mock.Anything, testUserID2).Return([]*entity.UnreadableAccount(nil), nil)
+	s.On("ListUnreadableAccounts", mock.Anything, testUserID).Return([]*entity.UnreadableAccount{
+		{ID: testAccountID, UserID: testUserID, Failure: entity.ReadFailureUndecryptable},
+	}, nil)
+	h := newHandler(s)
+
+	_, err := h.GetAccount(ctxWithUser(testUserID2), connect.NewRequest(&apiv1.GetAccountRequest{Id: testAccountID}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	assert.NotContains(t, err.Error(), secret)
+	assert.NotErrorIs(t, err, store.ErrUnreadable, "a non-owner must not learn the row exists")
+
+	// The owner still learns the row is unreadable, which GetAccountHealth relies on.
+	_, err = h.GetAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.GetAccountRequest{Id: testAccountID}))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, store.ErrUnreadable)
+}
+
 func TestDeleteAccount_OK(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
