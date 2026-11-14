@@ -475,10 +475,10 @@ func (h *Handler) CancelRuleExecution(ctx context.Context, req *connect.Request[
 		return nil, toConnectError(err)
 	}
 
-	terminal := exec.Status == entity.ExecutionStatusCompleted ||
-		exec.Status == entity.ExecutionStatusCancelled ||
-		exec.Status == entity.ExecutionStatusFailed
-	if terminal {
+	// Only a pending execution can be cancelled. A run is synchronous: in
+	// progress means its trades are being placed and cannot be recalled, and
+	// run would overwrite a cancel with the status the trades give anyway.
+	if exec.Status != entity.ExecutionStatusPending {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("execution cannot be cancelled"))
 	}
 
