@@ -13,7 +13,10 @@ import (
 )
 
 // serve stands up a stub of the observations endpoint that replies with a
-// recorded body. The returned counter is how many requests reached it.
+// fixture. dff_recorded.json and bad_key.json are bodies FRED sent
+// (2026-11-14); the two carrying a "." row are built by hand in the same
+// shape, since a day without a print cannot be recorded on demand. The
+// returned counter is how many requests reached it.
 func serve(t *testing.T, status int, fixture string) (*Client, *int, *http.Request) {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join("testdata", fixture))
@@ -53,6 +56,15 @@ func TestLatestReadsNewestPublishedObservation(t *testing.T) {
 	assert.Equal(t, "desc", q.Get("sort_order"))
 }
 
+func TestLatestReadsARecordedResponse(t *testing.T) {
+	c, _, _ := serve(t, http.StatusOK, "dff_recorded.json")
+
+	obs, err := c.Latest(context.Background(), "DFF")
+	require.NoError(t, err)
+	assert.Equal(t, "3.88", obs.Value.String())
+	assert.Equal(t, "2026-11-12", obs.Date.Format("2006-01-02"))
+}
+
 func TestLatestWithoutUsableObservationFails(t *testing.T) {
 	c, _, _ := serve(t, http.StatusOK, "no_usable_observation.json")
 
@@ -65,6 +77,7 @@ func TestLatestRefusedKeyIsAnErrorWithoutTheKey(t *testing.T) {
 
 	_, err := c.Latest(context.Background(), "DFF")
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "api_key is not registered")
 	assert.NotContains(t, err.Error(), "secret-key")
 }
 
