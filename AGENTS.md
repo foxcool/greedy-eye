@@ -6,9 +6,10 @@ Connect-RPC, PostgreSQL via pgx, schema managed by Atlas.
 ## How We Work
 
 - Run `make check` before every commit (vet, lint, unit tests).
-- Lint and the checks run in Docker through make targets so they match CI. Run
-  them through make, not through host tools: a host `golangci-lint` or
-  `gofmt` with another version or config gives a different answer than CI.
+- Run the checks through make targets, not host tools. `make lint` runs
+  golangci-lint in Docker at the version CI pins, so it matches CI; `gofmt`,
+  the build-tag check, `go vet` and the unit tests run on the host toolchain
+  through the same targets, as they do on CI runners.
 - `make check` does not include the static security scanner (gosec). CI runs it
   in `.github/workflows/security.yml` as `gosec -exclude-generated ./...`;
   there is no make target for it, so run the scanner separately with the same
@@ -93,8 +94,9 @@ so a schema.hcl change without a migration cannot reach main.
 
 ### Trust headers
 
-`X-User-*`, `X-Service-Token`, `X-Sync-Authority`, `X-Spend-Class` and `X-Spend-Caller` grant
-rights (`internal/middleware`).
+`X-User-*`, `X-Service-Token`, `X-Sync-Authority` and `X-Spend-Class` grant rights
+(`internal/middleware`); `X-Spend-Caller` only names who is charged, but is trusted and
+stripped the same way.
 An interceptor that writes them deletes them first and sets them only from ctx, so a
 reused or copied request cannot carry a previous caller's rights to the next hop.
 

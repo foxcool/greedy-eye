@@ -1752,7 +1752,8 @@ somebody chose, since that would report one currency's number under another curr
 
   **Reserve.** The rate limiter (`internal/adapter/ratelimit`) holds `backgroundReserve = 0.8`
   of each quota entry's volume for background work. `ceiling` gives a background request 80% of
-  `Quota` and an interactive one 100%. `reserve` runs before the request is sent, checks every
+  `Quota` and an interactive one 100%. The background ceiling is `Quota * 0.8` truncated to an
+  integer, so for small quotas the protected share is a little more than 20%. `reserve` runs before the request is sent, checks every
   quota entry of the credential (day and month), and refuses with `spend.ErrQuotaExhausted` when
   any entry has reached the ceiling for the request's class; otherwise it counts the request.
   The last 20% of a period is therefore reachable only by interactive requests. Only volume is
@@ -1783,8 +1784,10 @@ somebody chose, since that would report one currency's number under another curr
   treated as interactive. A forwarded caller keeps its name; `callerInterceptor` does not
   rename a call that already arrived named.
 
-  **Trust.** Both headers grant budget decisions: a caller who could set them could choose which
-  reserve a request is charged to. They are honoured only on a call with a valid
+  **Trust.** `X-Spend-Class` decides which ceiling a request is held to, so a caller who could
+  set it could spend the reserve held for people. `X-Spend-Caller` changes no ceiling; it only
+  picks the label the usage is recorded under, which a forger could use to hide or misplace
+  spend. Both are honoured only on a call with a valid
   `X-Service-Token`, the forwarding interceptor deletes any copy already on the request before
   writing from ctx, and the edge strips them from outside requests (`trust-strip`).
 - **Consequences**:
