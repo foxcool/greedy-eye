@@ -2,6 +2,9 @@ package analytics
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"slices"
 	"time"
 
 	"connectrpc.com/connect"
@@ -9,6 +12,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/pricefresh"
 	"github.com/foxcool/greedy-eye/internal/quoting"
 	"github.com/shopspring/decimal"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -29,54 +33,199 @@ type assetPricing struct {
 	quotedAt time.Time
 }
 
-// assetPricing resolves (and caches in `cache`) price, change and label for assetID.
+// priceAssets resolves price, change and label for every asset in assetIDs,
+// reading market data once per set rather than once per asset: in a split
+// deployment each call is a network hop, and a map over hundreds of holdings
+// must not cost hundreds of them. The reads, in order, each depending on the
+// one before:
+//
+//  1. labels for every asset (ListAssets by id);
+//  2. each asset's latest price in any base, and in the quote asset;
+//  3. the conversion rate, both directions, for every base step 2 found;
+//  4. each priced asset's first price of the window, in the pair chosen.
 //
 // Price resolution lives in internal/quoting, shared with the portfolio total:
 // among the ways to express the asset the FRESHEST candidate wins, and the
 // market-depth gate reads every candidate that reports a volume rather than only
-// the chosen one. See that package for why each is the way it is.
+// the chosen one. See that package for why each is the way it is. It runs here
+// unchanged, against the prices collected in steps 2-3 (prefetchedPrices), so
+// the batch cannot price an asset differently from the per-pair reads it
+// replaces.
 //
 // Sharing one implementation is the point: a total and a map that disagree are
 // one number with two authors. TestTotalAndHeatmapAgree still guards the
 // agreement; the extraction removes the way to break it.
-func (h *Handler) assetPricing(ctx context.Context, cache map[string]*assetPricing, assetID, quoteAssetID string, from time.Time) (*assetPricing, error) {
-	if ap, ok := cache[assetID]; ok {
-		return ap, nil
+func (h *Handler) priceAssets(ctx context.Context, assetIDs []string, quoteAssetID string, from time.Time) (map[string]*assetPricing, error) {
+	out := make(map[string]*assetPricing, len(assetIDs))
+	for _, id := range assetIDs {
+		out[id] = &assetPricing{label: id, reason: apiv1.UnpricedReason_UNPRICED_REASON_NO_QUOTE}
 	}
-	ap := &assetPricing{label: assetID, reason: apiv1.UnpricedReason_UNPRICED_REASON_NO_QUOTE}
-	cache[assetID] = ap
-
-	if err := h.resolveLabel(ctx, ap, assetID); err != nil {
+	if len(assetIDs) == 0 {
+		return out, nil
+	}
+	if err := h.resolveLabels(ctx, out, assetIDs); err != nil {
 		return nil, err
 	}
 
-	candidates, missing, err := quoting.Candidates(ctx, h.mdClient, h.log, assetID, quoteAssetID)
-	if err != nil {
+	// Steps 2 and 3: exactly the pairs quoting.Candidates asks about.
+	prices := prefetchedPrices{}
+	var lookups []*apiv1.PriceLookup
+	for _, id := range assetIDs {
+		if id == quoteAssetID {
+			continue // identity: Candidates asks nothing
+		}
+		lookups = append(lookups, &apiv1.PriceLookup{AssetId: id}, &apiv1.PriceLookup{AssetId: id, BaseAssetId: quoteAssetID})
+	}
+	if err := h.fetchPrices(ctx, prices, lookups); err != nil {
 		return nil, err
 	}
-	if len(candidates) == 0 {
-		ap.reason = missing.Reason()
-		return ap, nil
+	lookups = nil
+	for _, id := range assetIDs {
+		latest := prices[priceKey{asset: id}]
+		if latest == nil || latest.BaseAssetId == "" || latest.BaseAssetId == quoteAssetID {
+			continue
+		}
+		lookups = append(lookups,
+			&apiv1.PriceLookup{AssetId: latest.BaseAssetId, BaseAssetId: quoteAssetID},
+			&apiv1.PriceLookup{AssetId: quoteAssetID, BaseAssetId: latest.BaseAssetId})
 	}
-	if thin, isThin := quoting.AnyThin(candidates); isThin {
-		h.markThin(ctx, ap, assetID, thin.Row)
-		return ap, nil
-	}
-
-	best := quoting.Freshest(candidates)
-	ap.unit, ap.priced, ap.quotedAt = best.Unit, true, pricefresh.QuotedAt(best.Row)
-
-	// Change is read in the pair the price came from: the conversion rate
-	// cancels out only approximately, and it is the asset that is being asked
-	// about, not the currency it is converted through.
-	then, ok, err := h.histPrice(ctx, assetID, best.BaseID, from)
-	if err != nil {
+	if err := h.fetchPrices(ctx, prices, lookups); err != nil {
 		return nil, err
 	}
-	if ok {
-		ap.changePct = changePct(best.ValueBase, then)
+
+	best := map[string]quoting.Quote{}
+	for _, id := range assetIDs {
+		ap := out[id]
+		candidates, missing, err := quoting.Candidates(ctx, prices, h.log, id, quoteAssetID)
+		if err != nil {
+			return nil, err
+		}
+		if len(candidates) == 0 {
+			ap.reason = missing.Reason()
+			continue
+		}
+		if thin, isThin := quoting.AnyThin(candidates); isThin {
+			h.markThin(ctx, ap, id, thin.Row)
+			continue
+		}
+		b := quoting.Freshest(candidates)
+		ap.unit, ap.priced, ap.quotedAt = b.Unit, true, pricefresh.QuotedAt(b.Row)
+		best[id] = b
 	}
-	return ap, nil
+
+	// Step 4. Change is read in the pair the price came from: the conversion
+	// rate cancels out only approximately, and it is the asset that is being
+	// asked about, not the currency it is converted through.
+	lookups = nil
+	for _, id := range assetIDs {
+		if b, ok := best[id]; ok {
+			lookups = append(lookups, &apiv1.PriceLookup{AssetId: id, BaseAssetId: b.BaseID, From: timestamppb.New(from)})
+		}
+	}
+	history := prefetchedPrices{}
+	if err := h.fetchPrices(ctx, history, lookups); err != nil {
+		return nil, err
+	}
+	for id, b := range best {
+		row := history[priceKey{asset: id, base: b.BaseID, windowed: true}]
+		if row == nil {
+			continue // no history: change stays 0
+		}
+		then, ok, err := quoting.RealUnit(row, h.log, id)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out[id].changePct = changePct(b.ValueBase, then)
+		}
+	}
+	return out, nil
+}
+
+// maxBatch is the most ids or lookups one market-data request carries, the
+// bound both ListAssets and GetPrices enforce. A set larger than that costs
+// one more call per batch, not one per asset.
+const maxBatch = 1000
+
+// fetchPrices answers lookups through GetPrices and records every answer —
+// including "no price" — in into.
+func (h *Handler) fetchPrices(ctx context.Context, into prefetchedPrices, lookups []*apiv1.PriceLookup) error {
+	for chunk := range slices.Chunk(lookups, maxBatch) {
+		resp, err := h.mdClient.GetPrices(ctx, connect.NewRequest(&apiv1.GetPricesRequest{Lookups: chunk}))
+		if err != nil {
+			return err
+		}
+		if len(resp.Msg.GetResults()) != len(chunk) {
+			return connect.NewError(connect.CodeInternal,
+				fmt.Errorf("market data answered %d of %d price lookups", len(resp.Msg.GetResults()), len(chunk)))
+		}
+		for i, r := range resp.Msg.GetResults() {
+			into[keyOf(chunk[i])] = r.GetPrice()
+		}
+	}
+	return nil
+}
+
+// resolveLabels names each asset by symbol, falling back to name; an asset
+// the catalogue does not return keeps its ID as label.
+func (h *Handler) resolveLabels(ctx context.Context, out map[string]*assetPricing, assetIDs []string) error {
+	for chunk := range slices.Chunk(assetIDs, maxBatch) {
+		req := &apiv1.ListAssetsRequest{Ids: chunk, PageSize: proto.Int32(int32(len(chunk)))} // #nosec G115 -- bounded by maxBatch
+		for {
+			resp, err := h.mdClient.ListAssets(ctx, connect.NewRequest(req))
+			if err != nil {
+				return err
+			}
+			for _, a := range resp.Msg.GetAssets() {
+				ap, ok := out[a.GetId()]
+				if !ok {
+					continue
+				}
+				switch {
+				case a.GetSymbol() != "":
+					ap.label = a.GetSymbol()
+				case a.GetName() != "":
+					ap.label = a.GetName()
+				}
+			}
+			next := resp.Msg.GetNextPageToken()
+			if next == "" || len(resp.Msg.GetAssets()) == 0 {
+				break
+			}
+			req.PageToken = &next
+		}
+	}
+	return nil
+}
+
+// priceKey identifies one price lookup: a pair, latest unless windowed.
+type priceKey struct {
+	asset, base string
+	windowed    bool
+}
+
+func keyOf(l *apiv1.PriceLookup) priceKey {
+	return priceKey{asset: l.GetAssetId(), base: l.GetBaseAssetId(), windowed: l.From != nil}
+}
+
+// prefetchedPrices serves quoting.PriceReader from answers already collected,
+// so the shared pricing rule runs over a batch without a hop per pair. A pair
+// asked and found priceless answers NotFound, as the RPC would. A pair never
+// asked is a bug in priceAssets' lookup set, and fails loudly rather than
+// reading as "no price" and silently dropping the asset off the map.
+type prefetchedPrices map[priceKey]*apiv1.Price
+
+func (p prefetchedPrices) GetLatestPrice(_ context.Context, req *connect.Request[apiv1.GetLatestPriceRequest]) (*connect.Response[apiv1.Price], error) {
+	row, asked := p[priceKey{asset: req.Msg.GetAssetId(), base: req.Msg.GetBaseAssetId()}]
+	switch {
+	case !asked:
+		return nil, connect.NewError(connect.CodeInternal,
+			fmt.Errorf("price %s/%s was not collected before pricing", req.Msg.GetAssetId(), req.Msg.GetBaseAssetId()))
+	case row == nil:
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("no price"))
+	default:
+		return connect.NewResponse(row), nil
+	}
 }
 
 // markThin records that the market-depth gate fired on this asset. A thin quote
@@ -94,48 +243,12 @@ func (h *Handler) markThin(ctx context.Context, ap *assetPricing, assetID string
 		"asset_id", assetID, "label", ap.label, "price_base", price.GetBaseAssetId())
 }
 
-func (h *Handler) resolveLabel(ctx context.Context, ap *assetPricing, assetID string) error {
-	resp, err := h.mdClient.GetAsset(ctx, connect.NewRequest(&apiv1.GetAssetRequest{Id: assetID}))
-	if err != nil {
-		if connect.CodeOf(err) == connect.CodeNotFound {
-			return nil // keep the ID as label
-		}
-		return err
-	}
-	switch {
-	case resp.Msg.Symbol != nil && *resp.Msg.Symbol != "":
-		ap.label = *resp.Msg.Symbol
-	case resp.Msg.Name != "":
-		ap.label = resp.Msg.Name
-	}
-	return nil
-}
-
 func changePct(now, then decimal.Decimal) float64 {
 	if then.IsZero() {
 		return 0
 	}
 	pct, _ := now.Sub(then).Div(then).Mul(decimal.NewFromInt(100)).Float64()
 	return pct
-}
-
-// histPrice returns the first stored price of assetID in baseID at or after
-// `from` as a real-unit decimal. ok is false when there is no history.
-func (h *Handler) histPrice(ctx context.Context, assetID, baseID string, from time.Time) (decimal.Decimal, bool, error) {
-	pageSize := int32(1)
-	resp, err := h.mdClient.ListPriceHistory(ctx, connect.NewRequest(&apiv1.ListPriceHistoryRequest{
-		AssetId:     assetID,
-		BaseAssetId: baseID,
-		From:        timestamppb.New(from),
-		PageSize:    &pageSize,
-	}))
-	if err != nil {
-		return decimal.Zero, false, err
-	}
-	if len(resp.Msg.Prices) == 0 {
-		return decimal.Zero, false, nil
-	}
-	return quoting.RealUnit(resp.Msg.Prices[0], h.log, assetID)
 }
 
 // sharpenUnpriced replaces NO_QUOTE with the more specific reason the pricing

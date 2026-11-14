@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"time"
 
@@ -162,7 +163,6 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 	grouped := msg.GroupBy != apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_UNSPECIFIED
 	type leafKey struct{ groupID, assetID string }
 	values := map[leafKey]decimal.Decimal{}
-	assets := map[string]*assetPricing{}     // assetID → resolved price/change/label
 	accountPortfolios := map[string]string{} // accountID → its portfolio id (for group_by=portfolio)
 
 	coverage := &apiv1.ValuationCoverage{}
@@ -183,11 +183,21 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 
 	drawnAt := time.Now()
 
+	// Every asset is priced before any holding is valued: one market-data read
+	// per set, not one per holding. See priceAssets.
+	var assetIDs []string
 	for _, hld := range holdings {
-		ap, err := h.assetPricing(ctx, assets, hld.AssetID, quoteAssetID, from)
-		if err != nil {
-			return nil, err
+		if !slices.Contains(assetIDs, hld.AssetID) {
+			assetIDs = append(assetIDs, hld.AssetID)
 		}
+	}
+	assets, err := h.priceAssets(ctx, assetIDs, quoteAssetID, from)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, hld := range holdings {
+		ap := assets[hld.AssetID]
 		if !ap.priced {
 			// No usable price: the holding draws no node at all, so say so. On a
 			// map an omission is invisible in a way it is not in a total — there
