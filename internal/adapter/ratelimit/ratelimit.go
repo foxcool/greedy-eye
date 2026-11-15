@@ -264,6 +264,12 @@ type Registry struct {
 	loaded map[string]Usage
 	// unflushed is spend a failed write handed back, for the next flush.
 	unflushed []Usage
+	// held is rows the store keeps refusing, kept apart from the healthy batch
+	// (see isolate). Written under mu; a row is only changed inside Flush.
+	held map[rowKey]*heldRow
+	// flushSeq counts flushes, the clock of held rows' back-off: counted in
+	// flushes, not seconds, so tests need no real time.
+	flushSeq int
 	// inflight is what the running write took and has not settled. A write
 	// can hang past Stop's deadline, and the loss line must still name it.
 	inflight []Usage
@@ -302,6 +308,7 @@ func NewRegistry(overrides map[string]Limit, opts ...Option) *Registry {
 		flushing:   make(chan struct{}, 1),
 		buckets:    make(map[string]*bucket),
 		loaded:     make(map[string]Usage),
+		held:       make(map[rowKey]*heldRow),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -414,7 +421,11 @@ func (r *Registry) logLost() {
 	r.unflushed = mergeUsage(unwritten)
 	// The write in flight still owns its spend (settle files it), so it is
 	// reported here but not handed back: a late settle would hold it twice.
-	lost := mergeUsage(append(append([]Usage(nil), r.unflushed...), r.inflight...))
+	lost := append(append([]Usage(nil), r.unflushed...), r.inflight...)
+	for _, h := range r.held {
+		lost = append(lost, h.delta)
+	}
+	lost = mergeUsage(lost)
 	var inflight int64
 	for _, u := range r.inflight {
 		inflight += u.Requests
@@ -502,6 +513,7 @@ func (r *Registry) Flush(ctx context.Context) error {
 	defer func() { <-r.flushing }()
 
 	r.mu.Lock()
+	r.flushSeq++
 	deltas := r.unflushed
 	r.unflushed = nil
 	for _, b := range r.buckets {
@@ -510,12 +522,47 @@ func (r *Registry) Flush(ctx context.Context) error {
 	// A retried delta and new spend of the same caller must be one row: an
 	// upsert that touches a row twice in one statement is refused.
 	deltas = mergeUsage(deltas)
-	r.inflight = deltas
+	// New spend on a row the store refuses joins that row instead of the
+	// batch, or it would be refused with it and split the batch again.
+	batch := deltas[:0:0]
+	for _, d := range deltas {
+		if h, ok := r.held[keyOf(d)]; ok {
+			h.delta.Requests += d.Requests
+			h.delta.Backoffs += d.Backoffs
+			continue
+		}
+		batch = append(batch, d)
+	}
+	var due []rowKey
+	for k, h := range r.held {
+		if h.retryAt <= r.flushSeq {
+			due = append(due, k)
+		}
+	}
+	r.inflight = batch
 	r.mu.Unlock()
 
-	if len(deltas) == 0 {
-		return nil
+	var err error
+	if len(batch) > 0 {
+		err = r.writeBatch(ctx, batch)
 	}
+	// A failed batch may mean the store is down; a held row's retry would
+	// then be blamed on the row for nothing.
+	if err == nil {
+		err = r.retryHeld(ctx, due)
+	}
+	if err == nil {
+		r.mu.Lock()
+		n := len(r.held)
+		r.mu.Unlock()
+		if n > 0 {
+			err = fmt.Errorf("%d usage rows held back after the store refused them", n)
+		}
+	}
+	return err
+}
+
+func (r *Registry) writeBatch(ctx context.Context, deltas []Usage) error {
 	err := r.usage.AddUsage(ctx, deltas)
 	if err == nil {
 		r.settle(nil)
@@ -526,6 +573,48 @@ func (r *Registry) Flush(ctx context.Context) error {
 		return err
 	}
 	return r.isolate(ctx, deltas, err)
+}
+
+// heldRow is a row the store refused while others landed beside it. It is
+// retried on its own with back-off instead of being dropped: an under-reported
+// period is the failure this package exists to prevent, and what is held is
+// bounded by providers x callers x periods. Its amount is in the log line
+// that names it, which is where an operator finds it if the row never lands.
+type heldRow struct {
+	delta    Usage
+	failures int
+	retryAt  int // flushSeq at which it is next tried
+}
+
+// heldRetryMax caps the back-off, in flushes.
+const heldRetryMax = 16
+
+// retryHeld writes each due held row on its own. A row that lands leaves
+// held; one that is refused again waits twice as long as the last time.
+func (r *Registry) retryHeld(ctx context.Context, due []rowKey) error {
+	var errs []error
+	for _, k := range due {
+		if ctx.Err() != nil {
+			return errors.Join(append(errs, ctx.Err())...)
+		}
+		r.mu.Lock()
+		h := r.held[k]
+		d := h.delta
+		r.mu.Unlock()
+
+		err := r.usage.AddUsage(ctx, []Usage{d})
+		r.mu.Lock()
+		switch {
+		case err == nil:
+			delete(r.held, k)
+		case ctx.Err() == nil:
+			h.failures++
+			h.retryAt = r.flushSeq + min(1<<(h.failures-1), heldRetryMax)
+			errs = append(errs, err)
+		}
+		r.mu.Unlock()
+	}
+	return errors.Join(errs...)
 }
 
 // settle ends the write in flight and hands what it could not write back for
@@ -547,8 +636,7 @@ func (r *Registry) settle(kept []Usage) {
 // A row is blamed only when another one landed in the same pass: the store is
 // then known to work, and the failure is the row's. When nothing lands the store
 // is down, which one error for the batch says better than one per row. Failed
-// rows are kept, never dropped: an under-reported period is the failure this
-// package exists to prevent, and merging keeps what is held to one row per key.
+// rows are held apart (see heldRow), so the healthy rows go back to one write.
 func (r *Registry) isolate(ctx context.Context, deltas []Usage, batchErr error) error {
 	type rejected struct {
 		delta Usage
@@ -580,13 +668,28 @@ func (r *Registry) isolate(ctx context.Context, deltas []Usage, batchErr error) 
 		rowErrs = append(rowErrs, err)
 		break
 	}
-	r.settle(kept)
-
 	if landed == 0 {
+		r.settle(kept)
 		return batchErr
 	}
+	// Blamed rows leave the batch for good: the rest go back to one write.
+	blamed := make(map[rowKey]bool, len(bad))
+	r.mu.Lock()
 	for _, b := range bad {
-		r.log.Error("Provider usage row could not be written, keeping it",
+		k := keyOf(b.delta)
+		blamed[k] = true
+		r.held[k] = &heldRow{delta: b.delta, retryAt: r.flushSeq + 1}
+	}
+	r.mu.Unlock()
+	rest := kept[:0:0]
+	for _, d := range kept {
+		if !blamed[keyOf(d)] {
+			rest = append(rest, d)
+		}
+	}
+	r.settle(rest)
+	for _, b := range bad {
+		r.log.Error("Provider usage row could not be written, holding it apart and retrying alone",
 			slog.String("provider", b.delta.Provider),
 			slog.String("key_fingerprint", b.delta.Fingerprint),
 			slog.String("period_start", b.delta.PeriodStart.UTC().Format(time.RFC3339)),
@@ -598,17 +701,23 @@ func (r *Registry) isolate(ctx context.Context, deltas []Usage, batchErr error) 
 	return errors.Join(rowErrs...)
 }
 
+// rowKey names the stored row a delta lands on.
+type rowKey struct {
+	provider, fp, caller string
+	start                int64
+}
+
+func keyOf(d Usage) rowKey {
+	return rowKey{d.Provider, d.Fingerprint, d.Caller, d.PeriodStart.UnixNano()}
+}
+
 // mergeUsage sums deltas that land on the same stored row, keeping first-seen
 // order.
 func mergeUsage(deltas []Usage) []Usage {
-	type rowKey struct {
-		provider, fp, caller string
-		start                int64
-	}
 	at := make(map[rowKey]int, len(deltas))
 	out := make([]Usage, 0, len(deltas))
 	for _, d := range deltas {
-		k := rowKey{d.Provider, d.Fingerprint, d.Caller, d.PeriodStart.UnixNano()}
+		k := keyOf(d)
 		if i, ok := at[k]; ok {
 			out[i].Requests += d.Requests
 			out[i].Backoffs += d.Backoffs

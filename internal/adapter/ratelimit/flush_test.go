@@ -526,3 +526,87 @@ func (s *syncBuffer) String() string {
 	defer s.mu.Unlock()
 	return s.buf.String()
 }
+
+// writeLogStore records the size of every write and refuses any that holds the
+// poisoned row.
+type writeLogStore struct {
+	*fakeUsageStore
+	poisoned string
+
+	mu     sync.Mutex
+	writes [][]string
+}
+
+func (s *writeLogStore) AddUsage(ctx context.Context, deltas []Usage) error {
+	fps := make([]string, 0, len(deltas))
+	for _, d := range deltas {
+		fps = append(fps, d.Fingerprint)
+	}
+	s.mu.Lock()
+	s.writes = append(s.writes, fps)
+	s.mu.Unlock()
+	for _, d := range deltas {
+		if d.Fingerprint == s.poisoned {
+			return errors.New("row rejected")
+		}
+	}
+	return s.fakeUsageStore.AddUsage(ctx, deltas)
+}
+
+func (s *writeLogStore) take() [][]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w := s.writes
+	s.writes = nil
+	return w
+}
+
+// TestPoisonedRowIsKeptOutOfTheBatch: once the store has refused a row, later
+// flushes write the healthy rows as one batch instead of splitting every flush
+// into single-row writes, and the refused row is retried alone with back-off.
+func TestPoisonedRowIsKeptOutOfTheBatch(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	store := &writeLogStore{fakeUsageStore: &fakeUsageStore{}, poisoned: fingerprint("key-bad")}
+	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
+	keys := []string{"key-a", "key-b", "key-c", "key-bad"}
+	spendAll := func() {
+		for _, k := range keys {
+			require.NoError(t, reg.bucket(Credential{Provider: "test", APIKey: k}).
+				reserve(spend.ClassInteractive, "sweep", now))
+		}
+	}
+
+	spendAll()
+	require.Error(t, reg.Flush(ctx))
+	store.take()
+
+	badAttempts := 0
+	for range 20 {
+		spendAll()
+		require.Error(t, reg.Flush(ctx))
+		batches := 0
+		for _, w := range store.take() {
+			if len(w) == 1 && w[0] == fingerprint("key-bad") {
+				badAttempts++
+				continue
+			}
+			batches++
+			assert.Len(t, w, 3, "the healthy rows are one write")
+			assert.NotContains(t, w, fingerprint("key-bad"))
+		}
+		assert.Equal(t, 1, batches)
+	}
+	assert.Less(t, badAttempts, 10, "the refused row backs off")
+
+	// Nothing is dropped: the row lands once the store accepts it, with all
+	// the spend that piled up on it.
+	store.poisoned = ""
+	for range 20 {
+		if reg.Flush(ctx) == nil {
+			break
+		}
+	}
+	assert.EqualValues(t, 21, storedRequests(store.fakeUsageStore)[fingerprint("key-bad")+"/sweep"])
+	assert.EqualValues(t, 21, storedRequests(store.fakeUsageStore)[fingerprint("key-a")+"/sweep"])
+}
