@@ -383,8 +383,20 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 	var oldestQuote time.Time
 	valuedAt := time.Now()
 
+	// Every price the holdings need, collected up front in a constant number of
+	// calls rather than a hop per holding (see unitPrice). Excluded holdings
+	// included: their value is still reported, apart from the total.
+	assetIDs := make([]string, 0, len(holdings))
 	for _, hld := range holdings {
-		priced, err := h.unitPrice(ctx, hld.AssetID, quoteAssetID)
+		assetIDs = append(assetIDs, hld.AssetID)
+	}
+	prices, err := quoting.Prefetch(ctx, h.mdClient, assetIDs, quoteAssetID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get prices: %w", err))
+	}
+
+	for _, hld := range holdings {
+		priced, err := h.unitPrice(ctx, prices, hld.AssetID, quoteAssetID)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get price for %s: %w", hld.AssetID, err))
 		}
@@ -605,9 +617,14 @@ type pricing struct {
 // heatmap resolves its prices through the same code, so the total and the map
 // cannot answer under different rules.
 //
+// prices is what quoting.Prefetch collected for the whole set, not the market
+// data client: asked per holding, the rule costs two to four hops each in a
+// split deployment, and a valuation over hundreds of holdings must not cost
+// hundreds of them.
+//
 // A non-nil error signals an unexpected failure, not an unpriced holding.
-func (h *Handler) unitPrice(ctx context.Context, assetID, quoteAssetID string) (pricing, error) {
-	candidates, missing, err := quoting.Candidates(ctx, h.mdClient, h.log, assetID, quoteAssetID)
+func (h *Handler) unitPrice(ctx context.Context, prices quoting.PriceReader, assetID, quoteAssetID string) (pricing, error) {
+	candidates, missing, err := quoting.Candidates(ctx, prices, h.log, assetID, quoteAssetID)
 	if err != nil {
 		return pricing{outcome: quoting.NoQuote}, err
 	}
@@ -994,6 +1011,17 @@ func (h *Handler) ListUnpricedHoldings(ctx context.Context, req *connect.Request
 		if err != nil {
 			return nil, toConnectError(err)
 		}
+		// One set read per store page, as the valuation does (see unitPrice).
+		assetIDs := make([]string, 0, len(page))
+		for _, hld := range page {
+			if !hld.Excluded() {
+				assetIDs = append(assetIDs, hld.AssetID)
+			}
+		}
+		prices, err := quoting.Prefetch(ctx, h.mdClient, assetIDs, quoteAssetID)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get prices: %w", err))
+		}
 		for _, hld := range page {
 			// Quarantine is a decision, not a missing price. An excluded holding
 			// is out of the total on purpose and is disclosed by its own counter,
@@ -1002,7 +1030,7 @@ func (h *Handler) ListUnpricedHoldings(ctx context.Context, req *connect.Request
 			if hld.Excluded() {
 				continue
 			}
-			priced, err := h.unitPrice(ctx, hld.AssetID, quoteAssetID)
+			priced, err := h.unitPrice(ctx, prices, hld.AssetID, quoteAssetID)
 			if err != nil {
 				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get price for %s: %w", hld.AssetID, err))
 			}

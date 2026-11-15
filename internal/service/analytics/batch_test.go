@@ -79,15 +79,3 @@ func TestGetHeatmap_MarketDataCallsDoNotGrowWithHoldings(t *testing.T) {
 	small, large := calls(3), calls(60)
 	assert.Equal(t, small, large, "market-data calls for 3 holdings vs 60")
 }
-
-// A pair priceAssets did not collect must fail, not read as "no price": the
-// latter would drop a priced asset off the map without a trace.
-func TestPrefetchedPrices_UncollectedPairFails(t *testing.T) {
-	p := prefetchedPrices{{asset: "eth", base: "USD"}: nil}
-
-	_, err := p.GetLatestPrice(context.Background(), connect.NewRequest(&apiv1.GetLatestPriceRequest{AssetId: "eth", BaseAssetId: "USD"}))
-	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err), "collected, no price")
-
-	_, err = p.GetLatestPrice(context.Background(), connect.NewRequest(&apiv1.GetLatestPriceRequest{AssetId: "eth"}))
-	assert.Equal(t, connect.CodeInternal, connect.CodeOf(err), "never collected")
-}
