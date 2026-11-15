@@ -44,7 +44,7 @@ different audiences:
 |---|---|---|
 | ADR-001 | Modular Monolith vs Microservices | accepted |
 | ADR-002 | Connect-RPC over h2c instead of gRPC-Gateway | accepted (supersedes the original gRPC + gRPC-Gateway decision) |
-| ADR-003 | 3-service domain API instead of 8 services | accepted |
+| ADR-003 | 3-service domain API instead of 8 services | accepted; historical, the API now has five services |
 | ADR-004 | User management delegated to external service (psina) | accepted |
 | ADR-005 | Application-level encryption for accounts.data | accepted |
 | ADR-006 | Composite asset identity (symbol, market, type) | accepted |
@@ -1380,7 +1380,7 @@ somebody chose, since that would report one currency's number under another curr
   - ➖ Requires h2c-aware reverse proxy (Traefik `server.scheme=h2c`)
 
 ### ADR-003: 3-service domain API instead of 8 services
-- **Status**: accepted
+- **Status**: accepted; the three-service decision is historical, the API now has five services (see Decision)
 - **Context**: Initial design had 8 gRPC services (Storage, User, Asset, Portfolio, Price, Rule,
   Auth, Messenger). This caused excessive indirection and coupling.
 - **Decision**: Consolidate into 3 domain services: MarketDataService (assets + prices),

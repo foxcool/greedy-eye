@@ -172,7 +172,7 @@ surface (`make migrate-diff name=...` turns an edit into a file in `migrations/`
 `make migrate-apply` runs what a database has not run, `make migrate-status`
 shows executed vs pending and `make migrate-drift` what a live database has that
 `schema.hcl` does not. An instance created before the catalogue must be baselined
-once (`make migrate-baseline`). Known risks and debt:
+once (`make migrate-baseline version=<migration version>`). Known risks and debt:
 [docs/architecture.md](docs/architecture.md) §11.
 
 ---
