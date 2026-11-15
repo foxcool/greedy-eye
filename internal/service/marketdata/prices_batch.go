@@ -91,18 +91,24 @@ func (h *Handler) latestPrices(ctx context.Context, lookups []*apiv1.PriceLookup
 		if l.From != nil {
 			continue
 		}
+		// Asset first, and the base only for a known asset: GetLatestPrice
+		// answers NotFound for an unknown asset without resolving the base,
+		// so a base failure must not fail a lookup that one already settled.
 		assetID, err := resolve(l.GetAssetId())
 		if err != nil {
 			return err
+		}
+		if assetID == "" {
+			continue // unknown ticker: no price, as GetLatestPrice's NotFound
 		}
 		baseID := ""
 		if l.GetBaseAssetId() != "" {
 			if baseID, err = resolve(l.GetBaseAssetId()); err != nil {
 				return err
 			}
-		}
-		if assetID == "" || (l.GetBaseAssetId() != "" && baseID == "") {
-			continue // unknown ticker: no price, as GetLatestPrice's NotFound
+			if baseID == "" {
+				continue
+			}
 		}
 		pairs = append(pairs, PricePair{AssetID: assetID, BaseAssetID: baseID})
 		at = append(at, i)

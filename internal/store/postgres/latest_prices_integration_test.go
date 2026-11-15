@@ -35,13 +35,14 @@ func TestLatestPrices_MatchesGetLatestPrice(t *testing.T) {
 	ghost := createTestAsset(t, s, "Set Ghost")
 
 	t0 := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
-	put := func(asset, base *entity.Asset, source string, at time.Duration, last int64) {
+	put := func(asset, base *entity.Asset, source string, at time.Duration, last int64) *entity.StoredPrice {
 		t.Helper()
-		_, err := s.CreatePrice(ctx, &entity.StoredPrice{
+		p, err := s.CreatePrice(ctx, &entity.StoredPrice{
 			SourceID: source, AssetID: asset.ID, BaseAssetID: base.ID, Interval: "latest",
 			Decimals: 2, Last: decimal.NewFromInt(last), Timestamp: t0.Add(at),
 		})
 		require.NoError(t, err)
+		return p
 	}
 	// eth: newest print is in BTC, from another source than its newest USD one.
 	put(eth, usd, "exchange1", 1*time.Minute, 200000)
@@ -54,6 +55,11 @@ func TestLatestPrices_MatchesGetLatestPrice(t *testing.T) {
 	// btc/usd and its inverse, as a cross rate is read.
 	put(btc, usd, "exchange1", 7*time.Minute, 6000000)
 	put(usd, btc, "exchange1", 8*time.Minute, 1)
+	// sol/btc: two sources at the same instant. Both paths must settle the tie
+	// the same way, by id, rather than by whatever order a plan returns.
+	tieA := put(sol, btc, "exchange1", 9*time.Minute, 25)
+	tieB := put(sol, btc, "exchange2", 9*time.Minute, 26)
+	tieWinner := max(tieA.ID, tieB.ID)
 
 	var lookups []*apiv1.PriceLookup
 	for _, a := range []string{usd.ID, btc.ID, eth.ID, sol.ID, ghost.ID, uuid.NewString()} {
@@ -87,5 +93,11 @@ func TestLatestPrices_MatchesGetLatestPrice(t *testing.T) {
 		assert.True(t, proto.Equal(single.Msg, got), "%s\nsingle: %v\nbatch:  %v", name, single.Msg, got)
 	}
 	// The fixture must exercise both answers, or equality proves nothing.
-	assert.Equal(t, 10, priced, "priced lookups in the fixture")
+	assert.Equal(t, 11, priced, "priced lookups in the fixture")
+
+	for i, l := range lookups {
+		if l.AssetId == sol.ID && (l.BaseAssetId == btc.ID || l.BaseAssetId == "") {
+			assert.Equal(t, tieWinner, batch.Msg.Results[i].GetPrice().GetId(), "lookup %d: a tie goes to the highest id", i)
+		}
+	}
 }

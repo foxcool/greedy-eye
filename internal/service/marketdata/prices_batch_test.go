@@ -193,3 +193,19 @@ func TestGetPrices_TickerResolutionFailureFailsTheBatch(t *testing.T) {
 	}))
 	assert.Equal(t, connect.CodeInternal, connect.CodeOf(err))
 }
+
+// An unknown asset settles its lookup before the base is looked at, as
+// GetLatestPrice does: a base that would fail to resolve must not fail the
+// batch for a lookup that already has its answer.
+func TestGetPrices_UnknownAssetSkipsBaseResolution(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAssetBySymbol", mock.Anything, "NOPE").Return(nil, fmt.Errorf("asset: %w", store.ErrNotFound))
+	// BROKEN is not stubbed: resolving it panics the mock.
+	h := newHandler(s)
+
+	resp, err := h.GetPrices(context.Background(), connect.NewRequest(&apiv1.GetPricesRequest{
+		Lookups: []*apiv1.PriceLookup{{AssetId: "NOPE", BaseAssetId: "BROKEN"}},
+	}))
+	require.NoError(t, err)
+	assert.Nil(t, resp.Msg.Results[0].Price)
+}

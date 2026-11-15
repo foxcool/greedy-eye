@@ -1425,7 +1425,10 @@ func (s *MarketDataStore) CreatePrices(ctx context.Context, prices []*entity.Sto
 	return count, nil
 }
 
-// GetLatestPrice returns the most recent price for asset/base/source.
+// GetLatestPrice returns the most recent price for asset/base/source. Two rows
+// at the same instant (two sources, or two bases with no base filter) are
+// settled by id, so the answer is the same on every read and LatestPrices,
+// which orders the same way, cannot pick the other one.
 func (s *MarketDataStore) GetLatestPrice(ctx context.Context, assetID, baseAssetID, sourceID string) (*entity.StoredPrice, error) {
 	if assetID == "" {
 		return nil, fmt.Errorf("%w: asset_id is required", store.ErrInvalidArgument)
@@ -1449,7 +1452,7 @@ func (s *MarketDataStore) GetLatestPrice(ctx context.Context, assetID, baseAsset
 		SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, market_cap, timestamp, provenance
 		FROM prices
 		WHERE asset_id = $1%s
-		ORDER BY timestamp DESC
+		ORDER BY timestamp DESC, id DESC
 		LIMIT 1`, filters)
 
 	var price entity.StoredPrice
@@ -1512,7 +1515,7 @@ func (s *MarketDataStore) LatestPrices(ctx context.Context, pairs []marketdata.P
 			SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, market_cap, timestamp, provenance
 			FROM prices
 			WHERE asset_id = w.asset_id AND (w.base_asset_id IS NULL OR base_asset_id = w.base_asset_id)
-			ORDER BY timestamp DESC
+			ORDER BY timestamp DESC, id DESC
 			LIMIT 1
 		) p`, assets, bases)
 	if err != nil {
