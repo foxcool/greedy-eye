@@ -131,6 +131,7 @@ func (f *fakeMD) GetLatestPrice(_ context.Context, _ *connect.Request[apiv1.GetL
 
 // fakeEngine plans one trade per call and reports which rule it saw.
 type fakeEngine struct {
+	mu      sync.Mutex
 	planned []string
 }
 
@@ -141,7 +142,9 @@ func (e *fakeEngine) Inputs(*entity.Rule) (execution.Inputs, error) {
 }
 
 func (e *fakeEngine) Plan(rule *entity.Rule, snap execution.Snapshot) (execution.TradePlan, error) {
+	e.mu.Lock()
 	e.planned = append(e.planned, rule.ID)
+	e.mu.Unlock()
 	return execution.TradePlan{Trades: []execution.Trade{{
 		Side: execution.SideBuy, AssetID: "base", QuoteAssetID: "quote",
 		QuoteAmount: decimal.NewFromInt(100), Price: decimal.NewFromInt(50), PriceAsOf: snap.Now,

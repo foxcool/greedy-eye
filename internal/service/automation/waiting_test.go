@@ -2,6 +2,8 @@ package automation
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,13 +22,16 @@ import (
 // waitingVenue proposes every trade for a signature and answers checks with
 // whatever the test sets next.
 type waitingVenue struct {
+	mu        sync.Mutex
 	submitted []execution.Key
 	checked   []execution.Key
 	next      execution.Outcome
 }
 
 func (v *waitingVenue) Submit(_ context.Context, _ execution.Account, _ execution.Trade, key execution.Key) (execution.Outcome, error) {
+	v.mu.Lock()
 	v.submitted = append(v.submitted, key)
+	v.mu.Unlock()
 	return execution.Outcome{Status: execution.OutcomePendingSignature, VenueRef: "safetx-" + key.String()}, nil
 }
 
@@ -164,8 +169,9 @@ func TestExecuteRule_PolicyRefusesBeforeTheVenue(t *testing.T) {
 
 func TestConfirmWaiting_MovesTradesOn(t *testing.T) {
 	s := &mockStore{}
-	s.On("ListRuleExecutions", mock.Anything, waitingOf("")).
-		Return([]*entity.RuleExecution{waitingExecution(t, "e-1", execution.StateSubmitted)}, "", nil).Once()
+	stored := waitingExecution(t, "e-1", execution.StateSubmitted)
+	s.On("ListRuleExecutions", mock.Anything, waitingOf("")).Return([]*entity.RuleExecution{stored}, "", nil).Once()
+	s.On("GetRuleExecution", mock.Anything, "e-1").Return(stored, nil)
 	s.On("GetRule", mock.Anything, "r-1").Return(fakeRule("fake"), nil)
 	var written *entity.RuleExecution
 	s.On("UpdateRuleExecution", mock.Anything, mock.Anything, mock.Anything).
@@ -190,8 +196,9 @@ func TestConfirmWaiting_MovesTradesOn(t *testing.T) {
 
 func TestConfirmWaiting_StillWaitingWritesNothing(t *testing.T) {
 	s := &mockStore{}
-	s.On("ListRuleExecutions", mock.Anything, waitingOf("")).
-		Return([]*entity.RuleExecution{waitingExecution(t, "e-1", execution.StatePendingSignature)}, "", nil).Once()
+	stored := waitingExecution(t, "e-1", execution.StatePendingSignature)
+	s.On("ListRuleExecutions", mock.Anything, waitingOf("")).Return([]*entity.RuleExecution{stored}, "", nil).Once()
+	s.On("GetRuleExecution", mock.Anything, "e-1").Return(stored, nil)
 	s.On("GetRule", mock.Anything, "r-1").Return(fakeRule("fake"), nil)
 	venue := &waitingVenue{next: execution.Outcome{Status: execution.OutcomePendingSignature}}
 	h := walletHandler(s, venue, walletPolicy)
@@ -226,4 +233,103 @@ func TestCancelRuleExecution_ExpiresProposalButNotASubmittedTx(t *testing.T) {
 	_, err = newHandler(s2).CancelRuleExecution(ctx, connect.NewRequest(&apiv1.CancelRuleExecutionRequest{ExecutionId: "e-2"}))
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	s2.AssertNotCalled(t, "UpdateRuleExecution", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestConfirmWaiting_LeavesAnExecutionMovedSinceTheList: a cancel or the next
+// run may move an execution between the list and its check; the pass re-reads
+// it under the rule's lock and keeps their state.
+func TestConfirmWaiting_LeavesAnExecutionMovedSinceTheList(t *testing.T) {
+	s := &mockStore{}
+	listed := waitingExecution(t, "e-1", execution.StatePendingSignature)
+	cancelled := *listed
+	cancelled.Status = entity.ExecutionStatusCancelled
+	s.On("ListRuleExecutions", mock.Anything, waitingOf("")).Return([]*entity.RuleExecution{listed}, "", nil).Once()
+	s.On("GetRuleExecution", mock.Anything, "e-1").Return(&cancelled, nil)
+	venue := &waitingVenue{next: execution.Outcome{Status: execution.OutcomeSubmitted}}
+	h := walletHandler(s, venue, walletPolicy)
+
+	moved, err := h.ConfirmWaiting(context.Background())
+	require.NoError(t, err)
+	assert.Zero(t, moved)
+	assert.Empty(t, venue.checked, "the venue is not asked about an execution that stopped waiting")
+	s.AssertNotCalled(t, "UpdateRuleExecution", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// memExecutions keeps executions in memory, enough for concurrent runs of one
+// rule to see each other's results; everything else goes to the mock.
+type memExecutions struct {
+	*mockStore
+	mu    sync.Mutex
+	execs []*entity.RuleExecution
+}
+
+func (m *memExecutions) CreateRuleExecution(_ context.Context, e *entity.RuleExecution) (*entity.RuleExecution, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c := *e
+	c.ID = fmt.Sprintf("e-%d", len(m.execs)+1)
+	m.execs = append(m.execs, &c)
+	out := c
+	return &out, nil
+}
+
+func (m *memExecutions) UpdateRuleExecution(_ context.Context, e *entity.RuleExecution, _ []string) (*entity.RuleExecution, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, x := range m.execs {
+		if x.ID == e.ID {
+			c := *e
+			m.execs[i] = &c
+		}
+	}
+	out := *e
+	return &out, nil
+}
+
+func (m *memExecutions) ListRuleExecutions(_ context.Context, o ListRuleExecutionsOpts) ([]*entity.RuleExecution, string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []*entity.RuleExecution
+	for _, x := range m.execs {
+		if x.Status == o.Status && (o.RuleID == "" || x.RuleID == o.RuleID) {
+			c := *x
+			out = append(out, &c)
+		}
+	}
+	return out, "", nil
+}
+
+func (m *memExecutions) count(status entity.ExecutionStatus) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, x := range m.execs {
+		if x.Status == status {
+			n++
+		}
+	}
+	return n
+}
+
+// TestExecuteRule_ConcurrentRunsLeaveOneProposal: a scheduler fire and a
+// manual run of one rule at once must not both find no waiting proposal and
+// both propose.
+func TestExecuteRule_ConcurrentRunsLeaveOneProposal(t *testing.T) {
+	mem := &memExecutions{mockStore: &mockStore{}}
+	mem.On("GetRule", mock.Anything, "r-1").Return(fakeRule("fake"), nil)
+	h := walletHandler(mem, &waitingVenue{}, walletPolicy)
+
+	const runs = 8
+	var wg sync.WaitGroup
+	for range runs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := h.ExecuteRule(ownerCtx(), connect.NewRequest(&apiv1.ExecuteRuleRequest{RuleId: "r-1"}))
+			assert.NoError(t, err)
+		}()
+	}
+	wg.Wait()
+	assert.Equal(t, 1, mem.count(entity.ExecutionStatusPending), "one waiting proposal per rule")
+	assert.Equal(t, runs-1, mem.count(entity.ExecutionStatusCancelled), "every earlier one expired")
 }

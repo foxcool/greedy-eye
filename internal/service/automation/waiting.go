@@ -124,7 +124,17 @@ func (h *Handler) ConfirmWaiting(ctx context.Context) (moved int, err error) {
 	return moved, nil
 }
 
-func (h *Handler) confirmOne(ctx context.Context, exec *entity.RuleExecution) (bool, error) {
+func (h *Handler) confirmOne(ctx context.Context, listed *entity.RuleExecution) (bool, error) {
+	// Under the rule's lock the execution is read again: a run or a cancel
+	// may have moved it since it was listed, and its state is theirs to keep.
+	defer h.locks.lock(listed.RuleID)()
+	exec, err := h.store.GetRuleExecution(ctx, listed.ID)
+	if err != nil {
+		return false, err
+	}
+	if exec.Status != entity.ExecutionStatusPending {
+		return false, nil
+	}
 	results, err := execution.ParseSummary(exec.ExecutionSummary)
 	if err != nil {
 		return false, err

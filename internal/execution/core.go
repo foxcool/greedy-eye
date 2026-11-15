@@ -169,12 +169,19 @@ func Expire(r TradeResult, reason string) (TradeResult, error) {
 	return r, nil
 }
 
-// ExecutionStatus derives an execution's status from its trades: failed with
-// the first rejected or failed trade's reason; cancelled when a proposal
-// expired; pending while any trade waits; completed when every trade filled
-// (an empty plan included).
+// ExecutionStatus derives an execution's status from its trades. While any
+// trade waits the execution is pending, whatever its other trades did: a
+// terminal status would take it out of the confirmation pass and strand the
+// waiting trade. Once nothing waits: failed with the first rejected or failed
+// trade's reason; cancelled when a proposal expired; completed when every
+// trade filled (an empty plan included).
 func ExecutionStatus(results []TradeResult) (entity.ExecutionStatus, string) {
-	expired, waiting := -1, false
+	for _, r := range results {
+		if r.State.Waiting() {
+			return entity.ExecutionStatusPending, ""
+		}
+	}
+	expired := -1
 	for i, r := range results {
 		switch {
 		case r.State == StateRejected || r.State == StateFailed:
@@ -183,17 +190,12 @@ func ExecutionStatus(results []TradeResult) (entity.ExecutionStatus, string) {
 			if expired < 0 {
 				expired = i
 			}
-		case r.State.Waiting():
-			waiting = true
 		case r.State != StateFilled:
 			return entity.ExecutionStatusFailed, fmt.Sprintf("trade %d left %s", i, r.State)
 		}
 	}
-	switch {
-	case expired >= 0:
+	if expired >= 0 {
 		return entity.ExecutionStatusCancelled, fmt.Sprintf("trade %d expired: %s", expired, results[expired].Reason)
-	case waiting:
-		return entity.ExecutionStatusPending, ""
 	}
 	return entity.ExecutionStatusCompleted, ""
 }

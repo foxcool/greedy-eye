@@ -34,10 +34,11 @@ type Handler struct {
 	mdClient MarketDataClient
 	// submitTimeout is the submit budget; a field so a test need not wait it out.
 	submitTimeout time.Duration
+	locks         *ruleLocks
 }
 
 func NewHandler(store Store, log *slog.Logger) *Handler {
-	return &Handler{store: store, log: log, submitTimeout: submitTimeout}
+	return &Handler{store: store, log: log, submitTimeout: submitTimeout, locks: newRuleLocks()}
 }
 
 // WithEngines sets the engines rules are planned by; a rule type without one
@@ -476,6 +477,12 @@ func (h *Handler) CancelRuleExecution(ctx context.Context, req *connect.Request[
 	}
 	if _, err := h.ownedRule(ctx, exec.RuleID); err != nil {
 		return nil, err
+	}
+	// Under the rule's lock the execution is read again: a run or the
+	// confirmation pass may have moved it since the read above.
+	defer h.locks.lock(exec.RuleID)()
+	if exec, err = h.store.GetRuleExecution(ctx, exec.ID); err != nil {
+		return nil, toConnectError(err)
 	}
 
 	// Only a pending execution can be cancelled: its trades wait on a

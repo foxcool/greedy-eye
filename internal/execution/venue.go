@@ -10,9 +10,12 @@ import (
 )
 
 // Account is the account a trade is placed on; its type selects the venue.
+// SlippageBps is the account policy's limit, for a venue that quotes before it
+// trades (the paper venue fills at the plan's price and ignores it).
 type Account struct {
-	ID   string
-	Type apiv1.AccountType
+	ID          string
+	Type        apiv1.AccountType
+	SlippageBps uint32
 }
 
 // Key identifies one trade of one execution. Its string form is the

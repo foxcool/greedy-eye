@@ -97,6 +97,8 @@ func TestExecutionStatus(t *testing.T) {
 		{"waiting for a block", []TradeResult{{State: StateSubmitted}}, entity.ExecutionStatusPending, "", ""},
 		{"expired proposal", []TradeResult{{State: StateExpired, Reason: "not signed"}}, entity.ExecutionStatusCancelled, "not signed", ""},
 		{"reverted on chain", []TradeResult{{State: StateFailed, Reason: "reverted"}}, entity.ExecutionStatusFailed, "reverted", ""},
+		{"waiting outranks a failure", []TradeResult{{State: StateFailed, Reason: "reverted"}, {State: StatePendingSignature}}, entity.ExecutionStatusPending, "", ""},
+		{"waiting outranks an expiry", []TradeResult{{State: StateExpired}, {State: StateSubmitted}}, entity.ExecutionStatusPending, "", ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

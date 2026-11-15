@@ -105,7 +105,7 @@ func (h *Handler) prepare(ctx context.Context, eng execution.Engine, rule *entit
 	}
 	policy, policyErr := execution.ParsePolicy(acct.Msg.GetType(), acct.Msg.GetData())
 	return prepared{
-		account:   execution.Account{ID: acct.Msg.GetId(), Type: acct.Msg.GetType()},
+		account:   execution.Account{ID: acct.Msg.GetId(), Type: acct.Msg.GetType(), SlippageBps: policy.SlippageBps},
 		snap:      snap,
 		plan:      plan,
 		policy:    policy,
@@ -246,6 +246,7 @@ const (
 
 // run creates the execution, submits each trade and records the result.
 func (h *Handler) run(ctx context.Context, rule *entity.Rule, p prepared) (*entity.RuleExecution, error) {
+	defer h.locks.lock(rule.ID)()
 	blocked, err := h.supersede(ctx, rule)
 	if err != nil {
 		return nil, err

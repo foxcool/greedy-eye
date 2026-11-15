@@ -408,7 +408,11 @@ graph TB
   rule's next run expires its unsigned proposals (`CANCELLED`, "not signed before the rule's
   next run") and proposes afresh at a current quote, while a submitted transaction holds the
   next run back, since it cannot be withdrawn. CancelRuleExecution expires proposals the same
-  way and refuses an execution with a submitted transaction. The scheduler's confirmation pass
+  way and refuses an execution with a submitted transaction. A rule's run, cancel and
+  confirmation take one lock per rule and re-read the execution under it, so two at once
+  cannot both propose or overwrite each other; the lock is per process, so a second
+  automation instance needs a Postgres advisory lock. While any trade waits the execution
+  stays pending, whatever its other trades did. The scheduler's confirmation pass
   (`scheduler.confirmcron`) asks a `WaitingVenue` where each waiting trade is, on behalf of the
   execution's owner, and records what moved. The first such venue, a Safe-backed wallet account
   in propose mode, is decided in ADR-012; until it lands no venue waits.
