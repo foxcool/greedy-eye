@@ -667,3 +667,41 @@ func TestPriceFromProto_ScaleOnlyDivides(t *testing.T) {
 	require.NoError(t, err)
 	assert.Negative(t, got.Value.Exponent())
 }
+
+// ValidateRule judges a configuration by the rule CreateRule's validation, so a
+// dry check never passes what a write would refuse.
+func TestValidateRule_DCAConfigurationValidated(t *testing.T) {
+	with := func(key string, value any) map[string]any {
+		cfg := validDCA()
+		cfg[key] = value
+		return cfg
+	}
+	tests := []struct {
+		name        string
+		cfg         map[string]any
+		portfolioID string
+		wantError   string
+	}{
+		{"valid", validDCA(), "p-1", ""},
+		{"bad account uuid", with("account_id", "not-a-uuid"), "p-1", "configuration"},
+		{"zero quote_amount", with("quote_amount", "0"), "p-1", "configuration"},
+		{"unknown account", with("account_id", "0190a3a0-0000-7000-8000-0000000000ff"), "p-1", "not found"},
+		{"account outside the rule's portfolio", validDCA(), "p-other", "not in portfolio"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := dcaHandler(&mockStore{}, &fakePortfolio{portfolioID: tc.portfolioID}, &fakeMD{})
+			resp, err := h.ValidateRule(ownerCtx(), connect.NewRequest(&apiv1.ValidateRuleRequest{Rule: &apiv1.Rule{
+				Name: "dca", RuleType: execution.DCAType, PortfolioId: "p-1", Configuration: dcaConfig(t, tc.cfg),
+			}}))
+			require.NoError(t, err)
+			if tc.wantError == "" {
+				assert.True(t, resp.Msg.Valid, resp.Msg.ValidationErrors)
+				return
+			}
+			assert.False(t, resp.Msg.Valid)
+			require.Len(t, resp.Msg.ValidationErrors, 1)
+			assert.Contains(t, resp.Msg.ValidationErrors[0], tc.wantError)
+		})
+	}
+}

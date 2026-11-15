@@ -215,11 +215,33 @@ func TestRunRule_PassesOwnerContextAndRuleID(t *testing.T) {
 }
 
 func TestRunRule_ErrorCodesHandled(t *testing.T) {
-	for _, code := range []connect.Code{connect.CodeFailedPrecondition, connect.CodeNotFound, connect.CodeInternal} {
-		t.Run(code.String(), func(t *testing.T) {
-			exec := &fakeExecutor{err: connect.NewError(code, fmt.Errorf("boom"))}
-			s := newTestScheduler(t, Config{}, &mockRuleStore{}, exec, &fakeFetcher{})
-			assert.NotPanics(t, func() { s.runRule("rule-1", "user-1") })
+	tests := []struct {
+		code     connect.Code
+		expected bool // logged as INFO, not as a failure
+	}{
+		{connect.CodeFailedPrecondition, true},
+		{connect.CodeNotFound, true},
+		{connect.CodeInternal, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.code.String(), func(t *testing.T) {
+			var buf bytes.Buffer
+			log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+			exec := &fakeExecutor{err: connect.NewError(tc.code, fmt.Errorf("boom"))}
+			s, err := New(Config{}, &mockRuleStore{}, exec, &fakeFetcher{}, nil, log)
+			require.NoError(t, err)
+
+			s.runRule("rule-1", "user-1")
+
+			out := buf.String()
+			if tc.expected {
+				assert.Contains(t, out, "level=INFO")
+				assert.Contains(t, out, "code="+tc.code.String())
+				assert.NotContains(t, out, "level=ERROR")
+			} else {
+				assert.Contains(t, out, "level=ERROR")
+				assert.NotContains(t, out, "level=INFO")
+			}
 		})
 	}
 }
