@@ -54,7 +54,6 @@ Also: `api/v1/*.proto` is the API contract, `schema.hcl` the schema,
 - `internal/service/` - Connect handlers and business logic
 - `internal/spend/` - Spend class and caller labels carried in a context
 - `internal/store/postgres/` - PostgreSQL data layer (pgx)
-- `internal/testutil/` - Test utilities (testcontainers)
 - `api/v1/` - Protocol Buffer definitions
 
 ## Commands
