@@ -112,6 +112,10 @@ type Store interface {
 	// sourceID means "any" for that filter; omitting baseAssetID yields the price in
 	// whatever pair the asset trades against (used for cross-rate valuation).
 	GetLatestPrice(ctx context.Context, assetID, baseAssetID, sourceID string) (*entity.StoredPrice, error)
+	// LatestPrices answers GetLatestPrice (any source) for every pair in one
+	// query: result i is the latest price of pairs[i], nil when there is none.
+	// An empty BaseAssetID means "any base", as it does for GetLatestPrice.
+	LatestPrices(ctx context.Context, pairs []PricePair) ([]*entity.StoredPrice, error)
 	ListPriceHistory(ctx context.Context, opts ListPriceHistoryOpts) ([]*entity.StoredPrice, string, error)
 	DeletePrice(ctx context.Context, id string) error
 	DeletePrices(ctx context.Context, opts DeletePricesOpts) error
@@ -206,6 +210,12 @@ type RecordAttemptsOpts struct {
 	TTL time.Duration
 	// MaxBackoff caps the exponential push-out applied to consecutive misses.
 	MaxBackoff time.Duration
+}
+
+// PricePair names one latest-price read for LatestPrices.
+type PricePair struct {
+	AssetID     string
+	BaseAssetID string // empty: any base
 }
 
 // ListPriceHistoryOpts contains options for listing price history.

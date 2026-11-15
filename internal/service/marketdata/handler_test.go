@@ -269,6 +269,16 @@ func (m *mockStore) GetLatestPrice(ctx context.Context, assetID, baseAssetID, so
 	return nil, args.Error(1)
 }
 
+// LatestPrices answers from a func registered as the return value, so one
+// expectation can answer a set of any size.
+func (m *mockStore) LatestPrices(ctx context.Context, pairs []PricePair) ([]*entity.StoredPrice, error) {
+	args := m.Called(ctx, pairs)
+	if fn, ok := args.Get(0).(func([]PricePair) []*entity.StoredPrice); ok {
+		return fn(pairs), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockStore) ListPriceHistory(ctx context.Context, opts ListPriceHistoryOpts) ([]*entity.StoredPrice, string, error) {
 	args := m.Called(ctx, opts)
 	if v := args.Get(0); v != nil {

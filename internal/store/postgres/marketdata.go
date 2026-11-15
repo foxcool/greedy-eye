@@ -1482,6 +1482,81 @@ func (s *MarketDataStore) GetLatestPrice(ctx context.Context, assetID, baseAsset
 	return &price, nil
 }
 
+// LatestPrices answers GetLatestPrice (any source) for a set of pairs in one
+// round trip. Each pair runs the same predicate, order and limit as the
+// single-pair query, as a lateral subquery, so a pair cannot get a different
+// row from the set than it gets alone; a batch of hundreds of pairs costs one
+// query instead of one each.
+func (s *MarketDataStore) LatestPrices(ctx context.Context, pairs []marketdata.PricePair) ([]*entity.StoredPrice, error) {
+	out := make([]*entity.StoredPrice, len(pairs))
+	if len(pairs) == 0 {
+		return out, nil
+	}
+	assets := make([]string, len(pairs))
+	bases := make([]*string, len(pairs)) // NULL: any base
+	for i, p := range pairs {
+		if p.AssetID == "" {
+			return nil, fmt.Errorf("%w: pair %d: asset_id is required", store.ErrInvalidArgument, i)
+		}
+		assets[i] = p.AssetID
+		if p.BaseAssetID != "" {
+			bases[i] = &pairs[i].BaseAssetID
+		}
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT w.ord, p.id, p.source_id, p.asset_id, p.base_asset_id, p.interval, p.decimals, p.last,
+			p.open, p.high, p.low, p.close, p.volume, p.market_cap, p.timestamp, p.provenance
+		FROM unnest($1::uuid[], $2::uuid[]) WITH ORDINALITY AS w(asset_id, base_asset_id, ord)
+		CROSS JOIN LATERAL (
+			SELECT id, source_id, asset_id, base_asset_id, interval, decimals, last, open, high, low, close, volume, market_cap, timestamp, provenance
+			FROM prices
+			WHERE asset_id = w.asset_id AND (w.base_asset_id IS NULL OR base_asset_id = w.base_asset_id)
+			ORDER BY timestamp DESC
+			LIMIT 1
+		) p`, assets, bases)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest prices: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			ord        int64
+			price      entity.StoredPrice
+			provenance *string
+		)
+		if err := rows.Scan(
+			&ord,
+			&price.ID,
+			&price.SourceID,
+			&price.AssetID,
+			&price.BaseAssetID,
+			&price.Interval,
+			&price.Decimals,
+			&price.Last,
+			&price.Open,
+			&price.High,
+			&price.Low,
+			&price.Close,
+			&price.Volume,
+			&price.MarketCap,
+			&price.Timestamp,
+			&provenance,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan latest price: %w", err)
+		}
+		if ord < 1 || ord > int64(len(out)) {
+			return nil, fmt.Errorf("latest prices: ordinal %d outside %d pairs", ord, len(out))
+		}
+		price.Provenance = readProvenance(provenance)
+		out[ord-1] = &price
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to get latest prices: %w", err)
+	}
+	return out, nil
+}
+
 // GetFirstPriceAfter returns the earliest stored price for assetID/baseAssetID at or after `after`.
 func (s *MarketDataStore) GetFirstPriceAfter(ctx context.Context, assetID, baseAssetID string, after time.Time) (*entity.StoredPrice, error) {
 	if assetID == "" || baseAssetID == "" {
