@@ -86,11 +86,10 @@ func (v *PaperVenue) Submit(ctx context.Context, account Account, trade Trade, k
 		return p.outcome, p.err
 	}
 
-	holdings, err := AccountHoldings(ctx, v.client, account.ID)
+	res, err := v.fill(ctx, account.ID, trade)
 	if err != nil {
 		return Outcome{}, err
 	}
-	res := paperFill(trade, holdings)
 	if res.Reason != "" {
 		return Outcome{Status: OutcomeRejected, Reason: res.Reason}, nil
 	}
@@ -116,6 +115,27 @@ func (v *PaperVenue) Submit(ctx context.Context, account Account, trade Trade, k
 		ids = append(ids, id)
 	}
 	return v.remember(key, Outcome{Status: OutcomeFilled, Fill: res.Fill, HoldingIDs: ids}, nil)
+}
+
+// Preview decides the trade as Submit does and writes nothing.
+func (v *PaperVenue) Preview(ctx context.Context, account Account, trade Trade) (Outcome, error) {
+	res, err := v.fill(ctx, account.ID, trade)
+	if err != nil {
+		return Outcome{}, err
+	}
+	if res.Reason != "" {
+		return Outcome{Status: OutcomeRejected, Reason: res.Reason}, nil
+	}
+	return Outcome{Status: OutcomeFilled, Fill: res.Fill}, nil
+}
+
+// fill decides a trade against the account's current holdings.
+func (v *PaperVenue) fill(ctx context.Context, accountID string, trade Trade) (paperFillResult, error) {
+	holdings, err := AccountHoldings(ctx, v.client, accountID)
+	if err != nil {
+		return paperFillResult{}, err
+	}
+	return paperFill(trade, holdings), nil
 }
 
 // createdHolding finds the holding an import has just created. The fill is

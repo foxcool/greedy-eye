@@ -94,8 +94,9 @@ type Engine interface {
 	// Inputs reads the rule's configuration; an error means it is invalid.
 	Inputs(rule *entity.Rule) (Inputs, error)
 	Plan(rule *entity.Rule, snap Snapshot) (TradePlan, error)
-	// Simulate describes a plan in SimulateRule's terms.
-	Simulate(rule *entity.Rule, snap Snapshot, plan TradePlan) *apiv1.SimulationResult
+	// Simulate describes a plan in SimulateRule's terms. outcomes are the
+	// venue's Preview answers, one per trade of the plan, in its order.
+	Simulate(rule *entity.Rule, snap Snapshot, plan TradePlan, outcomes []Outcome) *apiv1.SimulationResult
 }
 
 // Engines is the registry of engines by rule type.
