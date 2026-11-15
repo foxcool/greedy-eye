@@ -223,10 +223,7 @@ func (s *UserStore) DeleteUser(ctx context.Context, id string) error {
 }
 
 func (s *UserStore) ListUsers(ctx context.Context, opts userservice.ListUsersOpts) ([]*entity.User, string, error) {
-	limit := opts.PageSize
-	if limit <= 0 {
-		limit = defaultPageSize
-	}
+	limit := pageLimit(opts.PageSize)
 
 	args := []any{}
 	argIdx := 1

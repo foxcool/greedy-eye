@@ -124,6 +124,10 @@ func New(cfg Config, rules RuleStore, exec RuleExecutor, prices PriceFetcher, re
 		if _, err := cron.ParseStandard(cfg.RescoreCron); err != nil {
 			return nil, fmt.Errorf("invalid rescoreCron %q: %w", cfg.RescoreCron, err)
 		}
+		// Rescore is turned off by an empty rescoreCron, not by a missing rescorer.
+		if rescorer == nil {
+			return nil, fmt.Errorf("rescoreCron %q is set but no rescorer was given", cfg.RescoreCron)
+		}
 	}
 	if cfg.BalanceSyncCron != "" {
 		if _, err := cron.ParseStandard(cfg.BalanceSyncCron); err != nil {
@@ -169,7 +173,7 @@ func (s *Scheduler) Start() error {
 			return fmt.Errorf("register price fetch job: %w", err)
 		}
 	}
-	if s.cfg.RescoreCron != "" && s.rescorer != nil {
+	if s.cfg.RescoreCron != "" {
 		if _, err := s.cron.AddFunc(s.cfg.RescoreCron, s.rescoreAssets); err != nil {
 			return fmt.Errorf("register asset rescore job: %w", err)
 		}

@@ -179,6 +179,15 @@ type PortfolioServiceClient interface {
 	UpdateTransaction(context.Context, *connect.Request[v1.UpdateTransactionRequest]) (*connect.Response[v1.Transaction], error)
 	ListTransactions(context.Context, *connect.Request[v1.ListTransactionsRequest]) (*connect.Response[v1.ListTransactionsResponse], error)
 	// --- Account sync ---
+	// SyncAccount reads a wallet, exchange or broker account from its source and
+	// writes the assets and holdings it found. Errors:
+	//   - InvalidArgument: account_id is empty.
+	//   - NotFound / PermissionDenied: the account does not exist or is not the
+	//     caller's.
+	//   - FailedPrecondition: the account is disabled; enable it to sync.
+	//   - Aborted: a sync of this account is already running; retry when it
+	//     finishes.
+	//   - Unimplemented: this instance has no account sync configured.
 	SyncAccount(context.Context, *connect.Request[v1.SyncAccountRequest]) (*connect.Response[v1.SyncAccountResponse], error)
 	// GetAccountSweepSchedule reports which accounts the balance sweep is holding
 	// back, why, and until when.
@@ -653,6 +662,15 @@ type PortfolioServiceHandler interface {
 	UpdateTransaction(context.Context, *connect.Request[v1.UpdateTransactionRequest]) (*connect.Response[v1.Transaction], error)
 	ListTransactions(context.Context, *connect.Request[v1.ListTransactionsRequest]) (*connect.Response[v1.ListTransactionsResponse], error)
 	// --- Account sync ---
+	// SyncAccount reads a wallet, exchange or broker account from its source and
+	// writes the assets and holdings it found. Errors:
+	//   - InvalidArgument: account_id is empty.
+	//   - NotFound / PermissionDenied: the account does not exist or is not the
+	//     caller's.
+	//   - FailedPrecondition: the account is disabled; enable it to sync.
+	//   - Aborted: a sync of this account is already running; retry when it
+	//     finishes.
+	//   - Unimplemented: this instance has no account sync configured.
 	SyncAccount(context.Context, *connect.Request[v1.SyncAccountRequest]) (*connect.Response[v1.SyncAccountResponse], error)
 	// GetAccountSweepSchedule reports which accounts the balance sweep is holding
 	// back, why, and until when.

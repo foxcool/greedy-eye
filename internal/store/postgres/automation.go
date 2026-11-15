@@ -238,10 +238,7 @@ func (s *AutomationStore) DeleteRule(ctx context.Context, id string) error {
 }
 
 func (s *AutomationStore) ListRules(ctx context.Context, opts automation.ListRulesOpts) ([]*entity.Rule, string, error) {
-	limit := opts.PageSize
-	if limit <= 0 {
-		limit = defaultPageSize
-	}
+	limit := pageLimit(opts.PageSize)
 
 	args := []any{}
 	argIdx := 1
@@ -599,10 +596,7 @@ func (s *AutomationStore) UpdateRuleExecution(ctx context.Context, e *entity.Rul
 }
 
 func (s *AutomationStore) ListRuleExecutions(ctx context.Context, opts automation.ListRuleExecutionsOpts) ([]*entity.RuleExecution, string, error) {
-	limit := opts.PageSize
-	if limit <= 0 {
-		limit = defaultPageSize
-	}
+	limit := pageLimit(opts.PageSize)
 
 	args := []any{}
 	argIdx := 1

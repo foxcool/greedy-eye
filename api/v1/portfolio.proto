@@ -350,6 +350,15 @@ service PortfolioService {
   }
 
   // --- Account sync ---
+  // SyncAccount reads a wallet, exchange or broker account from its source and
+  // writes the assets and holdings it found. Errors:
+  //   - InvalidArgument: account_id is empty.
+  //   - NotFound / PermissionDenied: the account does not exist or is not the
+  //     caller's.
+  //   - FailedPrecondition: the account is disabled; enable it to sync.
+  //   - Aborted: a sync of this account is already running; retry when it
+  //     finishes.
+  //   - Unimplemented: this instance has no account sync configured.
   rpc SyncAccount(SyncAccountRequest) returns (SyncAccountResponse) {
     option (google.api.http) = {
       post: "/api/v1/accounts/{account_id}/sync"
@@ -518,17 +527,27 @@ message ListUnsolicitedAssetsResponse {
   map<string, bool> unsolicited = 1;
 }
 
+// GetPortfolioPerformance is the price return of today's holdings since `from`:
+// trades inside the range do not show. Excluded holdings are counted. Only
+// direct pairs with the quote currency are used, so a holding without one drops
+// out silently; one with no price since `from` counts as 0% return.
 message GetPortfolioPerformanceRequest {
   string portfolio_id = 1;
+  // Start of the range. Defaults to 30 days ago.
   google.protobuf.Timestamp from = 2;
+  // Ignored: the range always ends now.
   google.protobuf.Timestamp to = 3;
+  // Despite the name, the quote currency, not a benchmark. Defaults to the
+  // display currency.
   string benchmark_asset_id = 4;
 }
 
 message PortfolioPerformanceResponse {
   string portfolio_id = 1;
   double return_percentage = 2;
+  // Not computed: always 0.
   double volatility = 3;
+  // Not computed: always 0.
   double sharpe_ratio = 4;
 }
 

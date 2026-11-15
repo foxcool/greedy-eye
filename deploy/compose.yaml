@@ -150,7 +150,7 @@ services:
   # A database that already carries the schema (dev, prod, anything created
   # before migrations existed) has to be baselined once; see docs/development.md.
   migrate:
-    profiles: ["default", "dev"]
+    profiles: ["default", "dev", "debug"]
     # Pinned to the version the release image installs, so dev runs the deploy's
     # migration engine rather than whatever :latest became overnight.
     image: arigaio/atlas:1.3.2

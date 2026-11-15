@@ -644,8 +644,8 @@ func divisorScale(a, b uint32) (int32, bool) {
 	return int32(sum), true // #nosec G115 -- bounded by maxDivisorScale
 }
 
-// GetPortfolioPerformance calculates return over a time range using stored price history.
-// If no `from` is set, defaults to 30 days ago. Requires marketStore.
+// GetPortfolioPerformance: what it computes and what it ignores is documented
+// on GetPortfolioPerformanceRequest in the proto.
 func (h *Handler) GetPortfolioPerformance(ctx context.Context, req *connect.Request[apiv1.GetPortfolioPerformanceRequest]) (*connect.Response[apiv1.PortfolioPerformanceResponse], error) {
 	if h.mdClient == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("market data client not configured"))

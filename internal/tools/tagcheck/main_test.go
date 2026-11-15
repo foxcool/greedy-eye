@@ -58,16 +58,48 @@ func TestMissing(t *testing.T) {
 	write("b/new_test.go", "//go:build newtag && linux\n\npackage b\n")
 	write("testdata/skip.go", "//go:build ignoredtag\n\npackage c\n")
 
-	got, err := missing(os.DirFS(dir), map[string]bool{"integration": true})
+	got, excluded, err := missing(os.DirFS(dir), map[string]bool{"integration": true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || len(got["newtag"]) != 1 {
-		t.Fatalf("got %v, want only newtag", got)
+	if len(got) != 1 || len(got["newtag"]) != 1 || len(excluded) != 0 {
+		t.Fatalf("got %v, excluded %v; want only newtag", got, excluded)
 	}
 
-	got, err = missing(os.DirFS(dir), map[string]bool{"integration": true, "newtag": true})
-	if err != nil || len(got) != 0 {
-		t.Fatalf("got %v, %v; want none", got, err)
+	got, excluded, err = missing(os.DirFS(dir), map[string]bool{"integration": true, "newtag": true})
+	if err != nil || len(got) != 0 || len(excluded) != 0 {
+		t.Fatalf("got %v, excluded %v, %v; want none", got, excluded, err)
+	}
+}
+
+// TestMissingReportsANegatedListedTag: "!integration" with integration listed
+// is a file the linter never loads, although every tag it names is listed.
+func TestMissingReportsANegatedListedTag(t *testing.T) {
+	dir := t.TempDir()
+	for rel, src := range map[string]string{
+		"a/unit.go":      "//go:build !integration\n\npackage a\n",
+		"b/platform.go":  "//go:build darwin && !windows\n\npackage b\n",
+		"c/either.go":    "//go:build !integration || linux\n\npackage c\n",
+		"d/listed_ok.go": "//go:build integration && !smoke || eval\n\npackage d\n",
+	} {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, excluded, err := missing(os.DirFS(dir), map[string]bool{"integration": true, "smoke": true, "eval": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("got unlisted %v, want none", got)
+	}
+	// platform.go holds on some GOOS and either.go on linux; d/ holds via eval.
+	if !reflect.DeepEqual(excluded, []string{"a/unit.go"}) {
+		t.Fatalf("excluded %v, want only a/unit.go", excluded)
 	}
 }

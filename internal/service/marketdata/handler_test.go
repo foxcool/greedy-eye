@@ -4016,3 +4016,49 @@ func TestFindOrCreateAsset_ProviderNamespaceRefNeedsAuthority(t *testing.T) {
 		require.NoError(t, err)
 	})
 }
+
+// spentResolver confirms contracts but reports its credential as spent, the
+// way a CoinGecko key does once its share of the plan is gone.
+type spentResolver struct{ fakeContractResolver }
+
+func (s *spentResolver) Unusable() (string, bool) { return "plan spent", true }
+
+// TestContractResolver_SpentFirstKeyHandsTheLookupToTheNext: with two CoinGecko
+// accounts, only the first key used to confirm contracts, so a spent first key
+// failed every confirmation while the second had budget.
+func TestContractResolver_SpentFirstKeyHandsTheLookupToTheNext(t *testing.T) {
+	spent := &spentResolver{}
+	fresh := &fakeContractResolver{}
+	h := newHandler(&mockStore{}).WithProviderSource(keySource{
+		coingeckoProvider: {spent, fresh},
+	})
+
+	r, err := h.contractResolver(context.Background())
+	require.NoError(t, err)
+	assert.Same(t, fresh, r, "the usable key confirms")
+
+	h = newHandler(&mockStore{}).WithProviderSource(keySource{
+		coingeckoProvider: {spent},
+	})
+	r, err = h.contractResolver(context.Background())
+	require.NoError(t, err)
+	assert.Same(t, spent, r, "with no usable key the last one answers, so its refusal is what surfaces")
+}
+
+// TestNamedAssets_ReadsEveryPage: the store caps a page, so a named-id lookup
+// longer than one page used to keep the first page and report the rest as
+// unknown asset ids.
+func TestNamedAssets_ReadsEveryPage(t *testing.T) {
+	ids := []string{"a1", "a2"}
+	s := &mockStore{}
+	s.On("ListAssets", mock.Anything, ListAssetsOpts{IDs: ids, PageSize: 2}).
+		Return([]*entity.Asset{testAsset("a1")}, "next", nil).Once()
+	s.On("ListAssets", mock.Anything, ListAssetsOpts{IDs: ids, PageSize: 2, PageToken: "next"}).
+		Return([]*entity.Asset{testAsset("a2")}, "", nil).Once()
+
+	got, err := newHandler(s).namedAssets(context.Background(), ids)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Empty(t, unknownIDs(ids, got))
+	s.AssertExpectations(t)
+}

@@ -637,6 +637,29 @@ func TestAccountBeatsAKeylessSyncer(t *testing.T) {
 	assert.Equal(t, "acct-tonapi", s.(*fakeSyncer).name)
 }
 
+// TestOverlappingKeylessSyncersResolveTheSameWay: if two keyless readers ever
+// claim one address, every call must pick the same one, not whichever the map
+// yields first.
+func TestOverlappingKeylessSyncersResolveTheSameWay(t *testing.T) {
+	reader := func(name string) WalletProvider {
+		return WalletProvider{
+			Factory:        func(*entity.Account) (entity.WalletSyncer, error) { return &fakeSyncer{name: name}, nil },
+			HandlesAddress: func(string) bool { return true },
+		}
+	}
+	keyless := map[string]WalletProvider{}
+	for _, slug := range []string{"delta", "alpha", "echo", "charlie", "bravo"} {
+		keyless[slug] = reader(slug)
+	}
+	r := NewResolver(Config{Source: &fakeSource{}, KeylessWalletSyncers: keyless})
+
+	for range 50 {
+		s, err := r.WalletSyncerFor(context.Background(), "u1", "addr", nil)
+		require.NoError(t, err)
+		require.Equal(t, "alpha", s.(*fakeSyncer).name)
+	}
+}
+
 // pausedProvider is a price provider whose credential cannot carry unattended
 // work until a known time.
 type pausedProvider struct {

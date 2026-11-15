@@ -123,9 +123,8 @@ func run() error {
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := rateLimits.Stop(ctx); err != nil {
-			log.Error("Failed to persist provider usage", slog.Any("error", err))
-		}
+		// Stop already logs the spend it could not persist.
+		_ = rateLimits.Stop(ctx)
 	}()
 
 	// Initialize accounts.data encryption at rest (ADR-005)

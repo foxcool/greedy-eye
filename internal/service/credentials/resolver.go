@@ -366,8 +366,10 @@ func (r *Resolver) WalletSyncerFor(ctx context.Context, userID, address string, 
 
 	// Nobody's account claims this address, so fall back to the readers that
 	// need no credential. Routing still decides: a keyless reader serves its own
-	// ecosystem and no other.
-	for slug, provider := range r.cfg.KeylessWalletSyncers {
+	// ecosystem and no other. Sorted, so overlapping claims resolve the same
+	// way on every call.
+	for _, slug := range slices.Sorted(maps.Keys(r.cfg.KeylessWalletSyncers)) {
+		provider := r.cfg.KeylessWalletSyncers[slug]
 		if !provider.matches(address, chains) {
 			continue
 		}

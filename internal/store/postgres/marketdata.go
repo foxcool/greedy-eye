@@ -20,6 +20,18 @@ import (
 
 const defaultPageSize = 20
 
+// maxPageSize bounds a list page: page_size comes from the client and sizes the
+// result slice. 1000 is the largest page an internal caller asks for.
+const maxPageSize = 1000
+
+// pageLimit turns a requested page size into the one a list query runs with.
+func pageLimit(requested int) int {
+	if requested <= 0 {
+		return defaultPageSize
+	}
+	return min(requested, maxPageSize)
+}
+
 // MarketDataStore implements marketdata.Store using PostgreSQL.
 type MarketDataStore struct {
 	pool *pgxpool.Pool
@@ -791,10 +803,7 @@ func (s *MarketDataStore) DeleteAsset(ctx context.Context, id string) error {
 
 // ListAssets returns a paginated list of assets, optionally filtered by tags.
 func (s *MarketDataStore) ListAssets(ctx context.Context, opts marketdata.ListAssetsOpts) ([]*entity.Asset, string, error) {
-	limit := opts.PageSize
-	if limit <= 0 {
-		limit = defaultPageSize
-	}
+	limit := pageLimit(opts.PageSize)
 
 	args := []any{}
 	argIdx := 1
@@ -1522,10 +1531,7 @@ func (s *MarketDataStore) ListPriceHistory(ctx context.Context, opts marketdata.
 		return nil, "", fmt.Errorf("%w: asset_id and base_asset_id are required", store.ErrInvalidArgument)
 	}
 
-	limit := opts.PageSize
-	if limit <= 0 {
-		limit = defaultPageSize
-	}
+	limit := pageLimit(opts.PageSize)
 
 	args := []any{opts.AssetID, opts.BaseAssetID}
 	argIdx := 3
