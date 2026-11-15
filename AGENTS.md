@@ -10,10 +10,10 @@ Connect-RPC, PostgreSQL via pgx, schema managed by Atlas.
   golangci-lint in Docker at the version CI pins, so it matches CI; `gofmt`,
   the build-tag check, `go vet` and the unit tests run on the host toolchain
   through the same targets, as they do on CI runners.
-- `make check` does not include the static security scanner (gosec). CI runs it
-  in `.github/workflows/security.yml` as `gosec -exclude-generated ./...`;
-  there is no make target for it, so run the scanner separately with the same
-  arguments before a push.
+- `make check` does not include the static security scanner (gosec). Run
+  `make gosec` before a push: it runs the scanner in Docker at the version CI
+  pins, with CI's arguments (CI calls the same target in
+  `.github/workflows/security.yml`).
 - `make up` starts the dev stand and its `migrate` service applies pending
   migrations first. A stand started from a branch therefore changes the dev
   database, including for migrations that branch has not merged.
@@ -61,6 +61,7 @@ Also: `api/v1/*.proto` is the API contract, `schema.hcl` the schema,
 ```bash
 make check            # vet + lint (Docker) + unit tests: run before commit
 make lint             # gofmt, build-tag check, golangci-lint in Docker
+make gosec            # gosec in Docker, CI's arguments; not part of check
 make vet              # go vet
 make test-unit        # Unit tests (race detector, coverage)
 make test-integration # Integration tests (testcontainers, needs Atlas CLI)
