@@ -99,7 +99,28 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 	if err != nil {
 		return nil, err
 	}
+	return p.quote(rates, candidates)
+}
 
+// FetchPricesOn republishes the set in force on a past day, as the same rows
+// FetchPrices writes for the current one. Each row is dated by the set, not by
+// day (see Client.RatesOn), so the days of one weekend come back as one set's
+// rows and a store keyed on the timestamp holds them once.
+func (p *Provider) FetchPricesOn(ctx context.Context, assets []*entity.Asset, day time.Time) ([]entity.StoredPrice, error) {
+	candidates := p.Asked(assets)
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	rates, err := p.client.RatesOn(ctx, day)
+	if err != nil {
+		return nil, err
+	}
+	return p.quote(rates, candidates)
+}
+
+// quote turns one rate set into USD prices for the candidates the set carries.
+func (p *Provider) quote(rates *Rates, candidates []*entity.Asset) ([]entity.StoredPrice, error) {
 	// Every rate in the set is stated in roubles per unit, so the USD leg is
 	// what turns the set into USD quotes. Without it there is nothing to
 	// publish — not even the rouble.

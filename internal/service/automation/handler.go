@@ -17,6 +17,7 @@ import (
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/robfig/cron/v3"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -294,6 +295,24 @@ func (h *Handler) ValidateRule(ctx context.Context, req *connect.Request[apiv1.V
 		}
 	}
 
+	// The engine's configuration and the portfolio membership are judged by the
+	// check CreateRule runs. Without a type and portfolio its verdict would only
+	// repeat what is already reported. The schedule was judged above.
+	if r.RuleType != "" && r.PortfolioId != "" {
+		noSchedule := proto.Clone(r).(*apiv1.Rule)
+		noSchedule.Schedule = nil
+		candidate, err := ruleFromProto(noSchedule)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("configuration: %v", err))
+		} else if err := h.validateConfiguration(ctx, candidate); err != nil {
+			var ce *connect.Error
+			if !errors.As(err, &ce) || ce.Code() != connect.CodeInvalidArgument {
+				return nil, err
+			}
+			errs = append(errs, ce.Message())
+		}
+	}
+
 	return connect.NewResponse(&apiv1.ValidateRuleResponse{
 		Valid:            len(errs) == 0,
 		ValidationErrors: errs,
@@ -455,11 +474,14 @@ func (h *Handler) CancelRuleExecution(ctx context.Context, req *connect.Request[
 	if err != nil {
 		return nil, toConnectError(err)
 	}
+	if _, err := h.ownedRule(ctx, exec.RuleID); err != nil {
+		return nil, err
+	}
 
-	terminal := exec.Status == entity.ExecutionStatusCompleted ||
-		exec.Status == entity.ExecutionStatusCancelled ||
-		exec.Status == entity.ExecutionStatusFailed
-	if terminal {
+	// Only a pending execution can be cancelled. A run is synchronous: in
+	// progress means its trades are being placed and cannot be recalled, and
+	// run would overwrite a cancel with the status the trades give anyway.
+	if exec.Status != entity.ExecutionStatusPending {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("execution cannot be cancelled"))
 	}
 

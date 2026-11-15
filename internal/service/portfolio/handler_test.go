@@ -533,6 +533,42 @@ func TestCreateAccount_OK(t *testing.T) {
 	assert.Equal(t, testAccountID, resp.Msg.Id)
 }
 
+// TestCreateAccount_ForeignPortfolio: an account may only be born in its
+// owner's portfolio. Holdings an import or a paper fill writes are stamped with
+// the account's portfolio, so an account in someone else's portfolio would
+// land its positions in their totals.
+func TestCreateAccount_ForeignPortfolio(t *testing.T) {
+	foreign := testPortfolio(testPortfolioID2)
+	foreign.UserID = testUserID2
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID2).Return(foreign, nil)
+	h := newHandler(s)
+
+	portfolioID := testPortfolioID2
+	_, err := h.CreateAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreateAccountRequest{
+		Account: &apiv1.Account{Name: "Manual", Type: apiv1.AccountType_ACCOUNT_TYPE_MANUAL, PortfolioId: &portfolioID},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	s.AssertNotCalled(t, "CreateAccount", mock.Anything, mock.Anything)
+}
+
+func TestCreateAccount_OwnPortfolio(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("CreateAccount", mock.Anything, mock.MatchedBy(func(a *entity.Account) bool {
+		return a.PortfolioID == testPortfolioID
+	})).Return(testAccount(testAccountID), nil)
+	h := newHandler(s)
+
+	portfolioID := testPortfolioID
+	_, err := h.CreateAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreateAccountRequest{
+		Account: &apiv1.Account{Name: "Manual", Type: apiv1.AccountType_ACCOUNT_TYPE_MANUAL, PortfolioId: &portfolioID},
+	}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+}
+
 func TestGetAccount_NotFound(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(nil, store.ErrNotFound)
@@ -541,6 +577,33 @@ func TestGetAccount_NotFound(t *testing.T) {
 	_, err := h.GetAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.GetAccountRequest{Id: testAccountID}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+}
+
+// TestGetAccount_UnreadableForeignRow: a row whose data cannot be read has no
+// owner to check, and its read error can quote decrypted bytes. A caller who
+// does not own it gets NotFound, as for a readable foreign row, never the text.
+func TestGetAccount_UnreadableForeignRow(t *testing.T) {
+	const secret = "decrypted: sk-live-0123456789"
+	readErr := fmt.Errorf("failed to get account: %w", errors.Join(store.ErrUnreadable, errors.New(secret)))
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(nil, readErr)
+	s.On("ListUnreadableAccounts", mock.Anything, testUserID2).Return([]*entity.UnreadableAccount(nil), nil)
+	s.On("ListUnreadableAccounts", mock.Anything, testUserID).Return([]*entity.UnreadableAccount{
+		{ID: testAccountID, UserID: testUserID, Failure: entity.ReadFailureUndecryptable},
+	}, nil)
+	h := newHandler(s)
+
+	_, err := h.GetAccount(ctxWithUser(testUserID2), connect.NewRequest(&apiv1.GetAccountRequest{Id: testAccountID}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	assert.NotContains(t, err.Error(), secret)
+	assert.NotErrorIs(t, err, store.ErrUnreadable, "a non-owner must not learn the row exists")
+
+	// The owner still learns the row is unreadable, which GetAccountHealth relies on.
+	_, err = h.GetAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.GetAccountRequest{Id: testAccountID}))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, store.ErrUnreadable)
 }
 
 func TestDeleteAccount_OK(t *testing.T) {
@@ -4221,4 +4284,143 @@ func TestSyncAccount_TwoContractsOnOneAssetStillAccumulate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "3000000", written.String(), "two contracts, two positions, one sum")
 	s.AssertExpectations(t)
+}
+
+// --- Tests: batch import atomicity ---
+
+// stagingStore gives the mock store a transaction that can roll back: writes
+// made through InHoldingsTx are kept only when fn returns nil, writes made on
+// the store directly commit at once. committed is what a reader would see.
+type stagingStore struct {
+	*mockStore
+	committed []string
+}
+
+func (s *stagingStore) CreateHolding(ctx context.Context, h *entity.Holding) (*entity.Holding, error) {
+	created, err := s.mockStore.CreateHolding(ctx, h)
+	if err == nil {
+		s.committed = append(s.committed, "create "+h.AssetID)
+	}
+	return created, err
+}
+
+func (s *stagingStore) UpdateHolding(ctx context.Context, h *entity.Holding, fields []string) (*entity.Holding, error) {
+	updated, err := s.mockStore.UpdateHolding(ctx, h, fields)
+	if err == nil {
+		s.committed = append(s.committed, "update "+h.AssetID)
+	}
+	return updated, err
+}
+
+func (s *stagingStore) InHoldingsTx(_ context.Context, fn func(HoldingWriter) error) error {
+	w := &stagingWriter{mockStore: s.mockStore}
+	if err := fn(w); err != nil {
+		return err
+	}
+	s.committed = append(s.committed, w.staged...)
+	return nil
+}
+
+type stagingWriter struct {
+	*mockStore
+	staged []string
+}
+
+func (w *stagingWriter) CreateHolding(ctx context.Context, h *entity.Holding) (*entity.Holding, error) {
+	created, err := w.mockStore.CreateHolding(ctx, h)
+	if err == nil {
+		w.staged = append(w.staged, "create "+h.AssetID)
+	}
+	return created, err
+}
+
+func (w *stagingWriter) UpdateHolding(ctx context.Context, h *entity.Holding, fields []string) (*entity.Holding, error) {
+	updated, err := w.mockStore.UpdateHolding(ctx, h, fields)
+	if err == nil {
+		w.staged = append(w.staged, "update "+h.AssetID)
+	}
+	return updated, err
+}
+
+// atomicImportFixture: the account holds testAssetID (the quote); the batch
+// debits it and credits a new base asset, the shape of a paper fill.
+func atomicImportFixture(t *testing.T) (*stagingStore, *Handler, []*apiv1.ImportPositionItem) {
+	t.Helper()
+	const baseAssetID = "01926d35-6a1e-7005-8005-00000000000c"
+
+	s := &stagingStore{mockStore: &mockStore{}}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{testHolding(testHoldingID)}, "", nil)
+
+	md := &mockMDClient{}
+	for _, id := range []string{testAssetID, baseAssetID} {
+		md.On("GetAsset", mock.Anything, assetReq(id)).Return(connect.NewResponse(&apiv1.Asset{Id: id}), nil)
+	}
+	quote, base := testAssetID, baseAssetID
+	items := []*apiv1.ImportPositionItem{
+		{AssetId: &quote, Amount: "0.0004"}, // 100000 -> 40000: UPDATE
+		{AssetId: &base, Amount: "3"},       // no holding yet: CREATE
+	}
+	return s, newHandler(s).WithMarketDataClient(md), items
+}
+
+// TestImportPositions_FailedWriteLeavesTheBatchUnapplied: the second item's
+// write fails after the first was written; the first must not stay written,
+// or a paper fill debits the quote without crediting the base.
+func TestImportPositions_FailedWriteLeavesTheBatchUnapplied(t *testing.T) {
+	s, h, items := atomicImportFixture(t)
+	s.On("UpdateHolding", mock.Anything, mock.Anything, mock.Anything).Return(testHolding(testHoldingID), nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(nil, errors.New("disk full"))
+
+	resp, err := h.ImportPositions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportPositionsRequest{
+		AccountId: testAccountID,
+		Positions: items,
+	}))
+	require.NoError(t, err)
+
+	assert.Empty(t, s.committed, "nothing of a failed batch may land")
+	assert.Equal(t, int32(2), resp.Msg.Failed)
+	assert.Zero(t, resp.Msg.Updated)
+	require.NotNil(t, resp.Msg.Items[0].Error, "the debit is reported as not applied")
+	assert.Contains(t, *resp.Msg.Items[0].Error, "not applied")
+	require.NotNil(t, resp.Msg.Items[1].Error)
+	assert.Contains(t, *resp.Msg.Items[1].Error, "disk full")
+}
+
+// TestImportPositions_FailedItemLeavesTheBatchUnapplied: an item that fails its
+// plan sinks the commit too; the plan alone reports failures per item.
+func TestImportPositions_FailedItemLeavesTheBatchUnapplied(t *testing.T) {
+	s, h, items := atomicImportFixture(t)
+	items[1].Amount = "not-a-number"
+
+	resp, err := h.ImportPositions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportPositionsRequest{
+		AccountId: testAccountID,
+		Positions: items,
+	}))
+	require.NoError(t, err)
+
+	assert.Empty(t, s.committed)
+	s.AssertNotCalled(t, "UpdateHolding", mock.Anything, mock.Anything, mock.Anything)
+	assert.Equal(t, int32(2), resp.Msg.Failed)
+	require.NotNil(t, resp.Msg.Items[0].Error)
+	assert.Contains(t, *resp.Msg.Items[0].Error, "not applied")
+}
+
+// TestImportPositions_CleanBatchCommitsEveryItem: the transaction does not
+// cost a clean batch anything.
+func TestImportPositions_CleanBatchCommitsEveryItem(t *testing.T) {
+	s, h, items := atomicImportFixture(t)
+	s.On("UpdateHolding", mock.Anything, mock.Anything, mock.Anything).Return(testHolding(testHoldingID), nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(testHolding(testHoldingID2), nil)
+
+	resp, err := h.ImportPositions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportPositionsRequest{
+		AccountId: testAccountID,
+		Positions: items,
+	}))
+	require.NoError(t, err)
+
+	assert.Len(t, s.committed, 2)
+	assert.Zero(t, resp.Msg.Failed)
+	assert.Equal(t, int32(1), resp.Msg.Updated)
+	assert.Equal(t, int32(1), resp.Msg.Created)
 }

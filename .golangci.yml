@@ -11,3 +11,152 @@ run:
 formatters:
   enable:
     - gofmt
+
+linters:
+  enable:
+    - depguard
+  settings:
+    depguard:
+      rules:
+        # Only cmd/eye wires stores. A service reaching a concrete store would
+        # bypass its consumer-defined client interfaces and the per-domain
+        # runtime grants, which only catch a violation when a test runs that path.
+        # internal/store/postgres itself is exempt (it is the package being guarded).
+        store-wiring-only-in-cmd:
+          files:
+            - "**/internal/**"
+            - "!**/internal/store/postgres/**"
+          deny:
+            - pkg: github.com/foxcool/greedy-eye/internal/store/postgres
+              desc: "store-wiring-only-in-cmd: only cmd/eye may import internal/store/postgres; take a consumer-defined interface instead"
+
+        # internal/service/<X> must not import internal/service/<Y>: cross-domain
+        # access goes through consumer-defined client interfaces wired in cmd/eye.
+        # One rule per service so each exception is listed with its reason: to
+        # allow an import, delete the matching deny entry below and say why in a
+        # comment. Test files are not checked: they may build fixtures from a
+        # sibling domain's types.
+        service-no-cross-import-analytics:
+          files:
+            - "**/internal/service/analytics/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/foxcool/greedy-eye/internal/service/automation
+              desc: "service-no-cross-import: internal/service/analytics must not import internal/service/automation; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/credentials
+              desc: "service-no-cross-import: internal/service/analytics must not import internal/service/credentials; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/marketdata
+              desc: "service-no-cross-import: internal/service/analytics must not import internal/service/marketdata; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/portfolio
+              desc: "service-no-cross-import: internal/service/analytics must not import internal/service/portfolio; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/settings
+              desc: "service-no-cross-import: internal/service/analytics must not import internal/service/settings; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/user
+              desc: "service-no-cross-import: internal/service/analytics must not import internal/service/user; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+
+        service-no-cross-import-automation:
+          files:
+            - "**/internal/service/automation/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/foxcool/greedy-eye/internal/service/analytics
+              desc: "service-no-cross-import: internal/service/automation must not import internal/service/analytics; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/credentials
+              desc: "service-no-cross-import: internal/service/automation must not import internal/service/credentials; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/marketdata
+              desc: "service-no-cross-import: internal/service/automation must not import internal/service/marketdata; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/portfolio
+              desc: "service-no-cross-import: internal/service/automation must not import internal/service/portfolio; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/settings
+              desc: "service-no-cross-import: internal/service/automation must not import internal/service/settings; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/user
+              desc: "service-no-cross-import: internal/service/automation must not import internal/service/user; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+
+        service-no-cross-import-credentials:
+          files:
+            - "**/internal/service/credentials/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/foxcool/greedy-eye/internal/service/analytics
+              desc: "service-no-cross-import: internal/service/credentials must not import internal/service/analytics; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/automation
+              desc: "service-no-cross-import: internal/service/credentials must not import internal/service/automation; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            # allowed: the resolver reads the marketdata provider-credential types it resolves keys for
+            - pkg: github.com/foxcool/greedy-eye/internal/service/portfolio
+              desc: "service-no-cross-import: internal/service/credentials must not import internal/service/portfolio; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/settings
+              desc: "service-no-cross-import: internal/service/credentials must not import internal/service/settings; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/user
+              desc: "service-no-cross-import: internal/service/credentials must not import internal/service/user; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+
+        service-no-cross-import-marketdata:
+          files:
+            - "**/internal/service/marketdata/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/foxcool/greedy-eye/internal/service/analytics
+              desc: "service-no-cross-import: internal/service/marketdata must not import internal/service/analytics; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/automation
+              desc: "service-no-cross-import: internal/service/marketdata must not import internal/service/automation; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/credentials
+              desc: "service-no-cross-import: internal/service/marketdata must not import internal/service/credentials; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/portfolio
+              desc: "service-no-cross-import: internal/service/marketdata must not import internal/service/portfolio; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/settings
+              desc: "service-no-cross-import: internal/service/marketdata must not import internal/service/settings; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/user
+              desc: "service-no-cross-import: internal/service/marketdata must not import internal/service/user; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+
+        service-no-cross-import-portfolio:
+          files:
+            - "**/internal/service/portfolio/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/foxcool/greedy-eye/internal/service/analytics
+              desc: "service-no-cross-import: internal/service/portfolio must not import internal/service/analytics; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/automation
+              desc: "service-no-cross-import: internal/service/portfolio must not import internal/service/automation; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/credentials
+              desc: "service-no-cross-import: internal/service/portfolio must not import internal/service/credentials; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/marketdata
+              desc: "service-no-cross-import: internal/service/portfolio must not import internal/service/marketdata; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/settings
+              desc: "service-no-cross-import: internal/service/portfolio must not import internal/service/settings; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/user
+              desc: "service-no-cross-import: internal/service/portfolio must not import internal/service/user; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+
+        service-no-cross-import-settings:
+          files:
+            - "**/internal/service/settings/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/foxcool/greedy-eye/internal/service/analytics
+              desc: "service-no-cross-import: internal/service/settings must not import internal/service/analytics; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/automation
+              desc: "service-no-cross-import: internal/service/settings must not import internal/service/automation; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/credentials
+              desc: "service-no-cross-import: internal/service/settings must not import internal/service/credentials; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/marketdata
+              desc: "service-no-cross-import: internal/service/settings must not import internal/service/marketdata; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/portfolio
+              desc: "service-no-cross-import: internal/service/settings must not import internal/service/portfolio; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/user
+              desc: "service-no-cross-import: internal/service/settings must not import internal/service/user; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+
+        service-no-cross-import-user:
+          files:
+            - "**/internal/service/user/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/foxcool/greedy-eye/internal/service/analytics
+              desc: "service-no-cross-import: internal/service/user must not import internal/service/analytics; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/automation
+              desc: "service-no-cross-import: internal/service/user must not import internal/service/automation; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/credentials
+              desc: "service-no-cross-import: internal/service/user must not import internal/service/credentials; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/marketdata
+              desc: "service-no-cross-import: internal/service/user must not import internal/service/marketdata; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/portfolio
+              desc: "service-no-cross-import: internal/service/user must not import internal/service/portfolio; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"
+            - pkg: github.com/foxcool/greedy-eye/internal/service/settings
+              desc: "service-no-cross-import: internal/service/user must not import internal/service/settings; use a consumer-defined client interface or add a reasoned exception in .golangci.yml"

@@ -106,6 +106,9 @@ const (
 	// MarketDataServiceResetSweepScheduleProcedure is the fully-qualified name of the
 	// MarketDataService's ResetSweepSchedule RPC.
 	MarketDataServiceResetSweepScheduleProcedure = "/eye.v1.MarketDataService/ResetSweepSchedule"
+	// MarketDataServiceBackfillCbrRatesProcedure is the fully-qualified name of the MarketDataService's
+	// BackfillCbrRates RPC.
+	MarketDataServiceBackfillCbrRatesProcedure = "/eye.v1.MarketDataService/BackfillCbrRates"
 	// MarketDataServiceGetPricesProcedure is the fully-qualified name of the MarketDataService's
 	// GetPrices RPC.
 	MarketDataServiceGetPricesProcedure = "/eye.v1.MarketDataService/GetPrices"
@@ -223,6 +226,18 @@ type MarketDataServiceClient interface {
 	// withdrawn by another. Folding it into FetchExternalPrices as a flag would
 	// hide a schedule mutation inside a call whose name promises prices.
 	ResetSweepSchedule(context.Context, *connect.Request[v1.ResetSweepScheduleRequest]) (*connect.Response[v1.ResetSweepScheduleResponse], error)
+	// BackfillCbrRates writes the Bank of Russia rate set in force on each day of
+	// [from_date, to_date] into prices, as the same cbr rows the sweep writes.
+	//
+	// The sweep reads only the set in force today, so an instance holds CBR rates
+	// from the day it started sweeping and cannot value anything older. This is
+	// run once per instance for the depth of the history to be valued; the sweep
+	// keeps the series current from there.
+	//
+	// Idempotent per (asset, set date): a row already held for that day is left
+	// as it is and counted in prices_held, so re-running a range creates
+	// nothing. Admin-only, like every price write.
+	BackfillCbrRates(context.Context, *connect.Request[v1.BackfillCbrRatesRequest]) (*connect.Response[v1.BackfillCbrRatesResponse], error)
 	// GetPrices reads many price points in one call: per lookup, the latest
 	// price of a pair, or the first one at or after a time. It exists for
 	// consumers in another domain that value a set of assets — a valuation
@@ -390,6 +405,12 @@ func NewMarketDataServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(marketDataServiceMethods.ByName("ResetSweepSchedule")),
 			connect.WithClientOptions(opts...),
 		),
+		backfillCbrRates: connect.NewClient[v1.BackfillCbrRatesRequest, v1.BackfillCbrRatesResponse](
+			httpClient,
+			baseURL+MarketDataServiceBackfillCbrRatesProcedure,
+			connect.WithSchema(marketDataServiceMethods.ByName("BackfillCbrRates")),
+			connect.WithClientOptions(opts...),
+		),
 		getPrices: connect.NewClient[v1.GetPricesRequest, v1.GetPricesResponse](
 			httpClient,
 			baseURL+MarketDataServiceGetPricesProcedure,
@@ -425,6 +446,7 @@ type marketDataServiceClient struct {
 	getMacroRates          *connect.Client[v1.GetMacroRatesRequest, v1.GetMacroRatesResponse]
 	getSweepSchedule       *connect.Client[v1.GetSweepScheduleRequest, v1.GetSweepScheduleResponse]
 	resetSweepSchedule     *connect.Client[v1.ResetSweepScheduleRequest, v1.ResetSweepScheduleResponse]
+	backfillCbrRates       *connect.Client[v1.BackfillCbrRatesRequest, v1.BackfillCbrRatesResponse]
 	getPrices              *connect.Client[v1.GetPricesRequest, v1.GetPricesResponse]
 }
 
@@ -548,6 +570,11 @@ func (c *marketDataServiceClient) ResetSweepSchedule(ctx context.Context, req *c
 	return c.resetSweepSchedule.CallUnary(ctx, req)
 }
 
+// BackfillCbrRates calls eye.v1.MarketDataService.BackfillCbrRates.
+func (c *marketDataServiceClient) BackfillCbrRates(ctx context.Context, req *connect.Request[v1.BackfillCbrRatesRequest]) (*connect.Response[v1.BackfillCbrRatesResponse], error) {
+	return c.backfillCbrRates.CallUnary(ctx, req)
+}
+
 // GetPrices calls eye.v1.MarketDataService.GetPrices.
 func (c *marketDataServiceClient) GetPrices(ctx context.Context, req *connect.Request[v1.GetPricesRequest]) (*connect.Response[v1.GetPricesResponse], error) {
 	return c.getPrices.CallUnary(ctx, req)
@@ -665,6 +692,18 @@ type MarketDataServiceHandler interface {
 	// withdrawn by another. Folding it into FetchExternalPrices as a flag would
 	// hide a schedule mutation inside a call whose name promises prices.
 	ResetSweepSchedule(context.Context, *connect.Request[v1.ResetSweepScheduleRequest]) (*connect.Response[v1.ResetSweepScheduleResponse], error)
+	// BackfillCbrRates writes the Bank of Russia rate set in force on each day of
+	// [from_date, to_date] into prices, as the same cbr rows the sweep writes.
+	//
+	// The sweep reads only the set in force today, so an instance holds CBR rates
+	// from the day it started sweeping and cannot value anything older. This is
+	// run once per instance for the depth of the history to be valued; the sweep
+	// keeps the series current from there.
+	//
+	// Idempotent per (asset, set date): a row already held for that day is left
+	// as it is and counted in prices_held, so re-running a range creates
+	// nothing. Admin-only, like every price write.
+	BackfillCbrRates(context.Context, *connect.Request[v1.BackfillCbrRatesRequest]) (*connect.Response[v1.BackfillCbrRatesResponse], error)
 	// GetPrices reads many price points in one call: per lookup, the latest
 	// price of a pair, or the first one at or after a time. It exists for
 	// consumers in another domain that value a set of assets — a valuation
@@ -828,6 +867,12 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 		connect.WithSchema(marketDataServiceMethods.ByName("ResetSweepSchedule")),
 		connect.WithHandlerOptions(opts...),
 	)
+	marketDataServiceBackfillCbrRatesHandler := connect.NewUnaryHandler(
+		MarketDataServiceBackfillCbrRatesProcedure,
+		svc.BackfillCbrRates,
+		connect.WithSchema(marketDataServiceMethods.ByName("BackfillCbrRates")),
+		connect.WithHandlerOptions(opts...),
+	)
 	marketDataServiceGetPricesHandler := connect.NewUnaryHandler(
 		MarketDataServiceGetPricesProcedure,
 		svc.GetPrices,
@@ -884,6 +929,8 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 			marketDataServiceGetSweepScheduleHandler.ServeHTTP(w, r)
 		case MarketDataServiceResetSweepScheduleProcedure:
 			marketDataServiceResetSweepScheduleHandler.ServeHTTP(w, r)
+		case MarketDataServiceBackfillCbrRatesProcedure:
+			marketDataServiceBackfillCbrRatesHandler.ServeHTTP(w, r)
 		case MarketDataServiceGetPricesProcedure:
 			marketDataServiceGetPricesHandler.ServeHTTP(w, r)
 		default:
@@ -989,6 +1036,10 @@ func (UnimplementedMarketDataServiceHandler) GetSweepSchedule(context.Context, *
 
 func (UnimplementedMarketDataServiceHandler) ResetSweepSchedule(context.Context, *connect.Request[v1.ResetSweepScheduleRequest]) (*connect.Response[v1.ResetSweepScheduleResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.ResetSweepSchedule is not implemented"))
+}
+
+func (UnimplementedMarketDataServiceHandler) BackfillCbrRates(context.Context, *connect.Request[v1.BackfillCbrRatesRequest]) (*connect.Response[v1.BackfillCbrRatesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.BackfillCbrRates is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) GetPrices(context.Context, *connect.Request[v1.GetPricesRequest]) (*connect.Response[v1.GetPricesResponse], error) {

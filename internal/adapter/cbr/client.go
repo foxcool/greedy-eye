@@ -24,7 +24,8 @@ const defaultBaseURL = "https://www.cbr.ru"
 
 // dailyPath serves the rates set for a business day. Without a date parameter
 // it answers with the set currently in force, which is the one to value
-// today's positions at.
+// today's positions at; with date_req it answers with the set in force on that
+// day (see RatesOn).
 const dailyPath = "/scripts/XML_daily.asp"
 
 // userAgent identifies the client by name. The feed answers 403 to Go's
@@ -99,7 +100,28 @@ type valute struct {
 // document. A set with no usable row at all is an error — that is the feed
 // having changed shape, not a currency having a bad day.
 func (c *Client) DailyRates(ctx context.Context) (*Rates, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+dailyPath, nil)
+	return c.fetchSet(ctx, c.baseURL+dailyPath)
+}
+
+// RatesOn fetches the set in force on a past calendar day.
+//
+// The day is read from day's own year, month and day fields, whatever its
+// location: the caller names a date, and converting the instant to Moscow time
+// first would ask for the neighbouring one.
+//
+// A day with no set of its own — a weekend, a public holiday — is answered
+// with the set in force on it, and Rates.Date is that set's own date, earlier
+// than the one asked for. Several days therefore share one set, and a caller
+// storing per day must key on Rates.Date to store it once.
+func (c *Client) RatesOn(ctx context.Context, day time.Time) (*Rates, error) {
+	// Slashes are legal in a query and are sent as the feed documents them,
+	// not percent-encoded.
+	return c.fetchSet(ctx, c.baseURL+dailyPath+"?date_req="+day.Format("02/01/2006"))
+}
+
+// fetchSet reads one rate set document (see DailyRates for what is kept).
+func (c *Client) fetchSet(ctx context.Context, target string) (*Rates, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return nil, fmt.Errorf("cbr: build request: %w", err)
 	}

@@ -58,6 +58,9 @@ func resolveImportID(raw *string) (string, error) {
 // batch with dry_run=false. One holding per (account, asset): an existing
 // holding gets its amount refreshed, a new one is created with
 // source=llm_import and the batch import_id.
+//
+// A commit writes the batch's holdings all or none (see applyPositionWrites):
+// the plan reports failures per item, the commit does not land part of it.
 func (h *Handler) ImportPositions(ctx context.Context, req *connect.Request[apiv1.ImportPositionsRequest]) (*connect.Response[apiv1.ImportPositionsResponse], error) {
 	if h.mdClient == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("asset resolution not configured"))
@@ -87,9 +90,19 @@ func (h *Handler) ImportPositions(ctx context.Context, req *connect.Request[apiv
 	// assets by id, plus would-be-created assets by identity in a dry run.
 	seenAssets := map[string]bool{}
 
+	var writes []positionWrite
 	for _, item := range req.Msg.Positions {
-		result := h.importOnePosition(ctx, req.Msg.DryRun, account, item, importID, holdingByAsset, seenAssets)
+		result, write := h.importOnePosition(ctx, req.Msg.DryRun, account, item, importID, holdingByAsset, seenAssets)
 		resp.Items = append(resp.Items, result)
+		if write != nil {
+			writes = append(writes, *write)
+		}
+	}
+	if !req.Msg.DryRun {
+		h.applyPositionWrites(ctx, account.ID, resp.Items, writes, holdingByAsset)
+	}
+
+	for _, result := range resp.Items {
 		switch {
 		case result.Error != nil:
 			resp.Failed++
@@ -172,8 +185,16 @@ func (h *Handler) assetSymbol(ctx context.Context, assetID string) string {
 	return resp.Msg.GetSymbol()
 }
 
-// importOnePosition validates, resolves and (unless dry-run) applies a single
-// batch item. Failures are per-item: they land in the result, not as an error.
+// positionWrite is one holding write of a committed batch: a holding to
+// create when holding.ID is empty, otherwise the refreshed copy to update.
+type positionWrite struct {
+	result  *apiv1.ImportPositionResult
+	holding *entity.Holding
+}
+
+// importOnePosition validates, resolves and plans a single batch item, and
+// returns the holding write a commit would make (nil when there is none).
+// Failures are per-item: they land in the result, not as an error.
 func (h *Handler) importOnePosition(
 	ctx context.Context,
 	dryRun bool,
@@ -182,12 +203,11 @@ func (h *Handler) importOnePosition(
 	importID string,
 	holdingByAsset map[string]*entity.Holding,
 	seenAssets map[string]bool,
-) *apiv1.ImportPositionResult {
+) (*apiv1.ImportPositionResult, *positionWrite) {
 	result := &apiv1.ImportPositionResult{Symbol: entity.NormalizeSymbol(item.Symbol)}
-	fail := func(err error) *apiv1.ImportPositionResult {
-		msg := err.Error()
-		result.Error = &msg
-		return result
+	fail := func(err error) (*apiv1.ImportPositionResult, *positionWrite) {
+		setImportError(result, err)
+		return result, nil
 	}
 
 	amount, err := decimal.NewFromString(item.Amount)
@@ -230,43 +250,90 @@ func (h *Handler) importOnePosition(
 	}
 
 	if dryRun || result.Action == apiv1.ImportAction_IMPORT_ACTION_SKIP {
-		return result
+		return result, nil
 	}
 
 	if existing == nil {
+		return result, &positionWrite{result: result, holding: &entity.Holding{
+			AssetID:   assetID,
+			AccountID: account.ID,
+			Amount:    raw,
+			Decimals:  decimals,
+			Source:    entity.SourceLLMImport,
+			ImportID:  importID,
+		}}
+	}
+	// A copy: the loaded holding stays as stored until the batch commits.
+	// Only the balance is refreshed; source stays creation provenance.
+	updated := *existing
+	updated.Amount = raw
+	updated.Decimals = decimals
+	return result, &positionWrite{result: result, holding: &updated}
+}
+
+// applyPositionWrites lands a committed batch in one holdings transaction, so
+// a caller writing related positions together (the paper venue debits the
+// quote and credits the base in one batch) never sees one without the other.
+// A batch with a failed item writes nothing, and a write that fails rolls the
+// rest back; every planned item then carries an error saying it was not
+// applied.
+func (h *Handler) applyPositionWrites(ctx context.Context, accountID string, items []*apiv1.ImportPositionResult, writes []positionWrite, holdingByAsset map[string]*entity.Holding) {
+	if len(writes) == 0 {
+		return
+	}
+	for _, item := range items {
+		if item.Error != nil {
+			for _, w := range writes {
+				setImportError(w.result, errors.New("not applied: another item in the batch failed"))
+			}
+			return
+		}
+	}
+	failedAt := -1
+	written := make([]*entity.Holding, len(writes))
+	err := h.store.InHoldingsTx(ctx, func(tw HoldingWriter) error {
 		// Not account.PortfolioID, read before the batch: see
 		// HoldingWriter.LockAccountPortfolio.
-		var created *entity.Holding
-		err := h.store.InHoldingsTx(ctx, func(w HoldingWriter) error {
-			portfolioID, err := w.LockAccountPortfolio(ctx, account.ID)
-			if err != nil {
-				return err
-			}
-			created, err = w.CreateHolding(ctx, &entity.Holding{
-				AssetID:     assetID,
-				AccountID:   account.ID,
-				PortfolioID: portfolioID,
-				Amount:      raw,
-				Decimals:    decimals,
-				Source:      entity.SourceLLMImport,
-				ImportID:    importID,
-			})
-			return err
-		})
+		portfolioID, err := tw.LockAccountPortfolio(ctx, accountID)
 		if err != nil {
-			return fail(fmt.Errorf("create holding: %w", err))
+			return fmt.Errorf("lock account portfolio: %w", err)
 		}
-		holdingByAsset[assetID] = created
-		return result
+		for i, w := range writes {
+			if w.holding.ID == "" {
+				w.holding.PortfolioID = portfolioID
+				written[i], err = tw.CreateHolding(ctx, w.holding)
+				if err != nil {
+					failedAt = i
+					return fmt.Errorf("create holding: %w", err)
+				}
+				continue
+			}
+			written[i], err = tw.UpdateHolding(ctx, w.holding, []string{"amount", "decimals"})
+			if err != nil {
+				failedAt = i
+				return fmt.Errorf("update holding: %w", err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		for i, w := range writes {
+			if i == failedAt {
+				setImportError(w.result, err)
+				continue
+			}
+			setImportError(w.result, fmt.Errorf("not applied, batch rolled back: %w", err))
+		}
+		return
 	}
+	for i, w := range writes {
+		holdingByAsset[w.holding.AssetID] = written[i]
+	}
+}
 
-	existing.Amount = raw
-	existing.Decimals = decimals
-	// Only the balance is refreshed; source stays creation provenance.
-	if _, err := h.store.UpdateHolding(ctx, existing, []string{"amount", "decimals"}); err != nil {
-		return fail(fmt.Errorf("update holding: %w", err))
-	}
-	return result
+func setImportError(result *apiv1.ImportPositionResult, err error) {
+	msg := err.Error()
+	result.Error = &msg
 }
 
 // resolveImportAsset turns a batch item into an asset id via explicit id or
