@@ -337,7 +337,9 @@ graph TB
   FindOrCreateAsset (by the composite identity, ADR-006), SetAssetVerdict (scam filter, ADR-007),
   AddAssetRiskFlag / DeleteAssetRiskFlag (axis 2 of the risk model — a flag never moves a sum),
   DeleteAssetExternalRef (unbind a wrong contract binding; there is no link RPC yet, ADR-006),
-  CreatePrice, CreatePrices, GetLatestPrice, ListPriceHistory, ListPricesByInterval, DeletePrice,
+  CreatePrice, CreatePrices, GetLatestPrice, GetPrices (batched GetLatestPrice / window-start
+  ListPriceHistory, so a cross-domain valuation reads one set per call instead of one hop per
+  holding), ListPriceHistory, ListPricesByInterval, DeletePrice,
   DeletePrices, FetchExternalPrices (via the credentials resolver), GetPricingStatus (batched: what asking an asset's sources has produced, for the
   positions a valuation reports as unpriced; an asset never asked about is absent rather than
   reported empty), GetSweepSchedule (per source: how many assets are due, deferred, never
@@ -1731,6 +1733,78 @@ somebody chose, since that would report one currency's number under another curr
   `market` was excluded from the key to treat); hardcoding USDT = 1 USD (a stablecoin depeg is
   exactly the event a portfolio tool exists for, and a nailed-down constant has no author: it
   passes `pricefresh` never stale and `marketdepth` with no volume)
+
+---
+
+### ADR-011: Provider spend is split into background and interactive classes, with a reserve for people
+- **Status**: accepted
+- **Context**: A provider plan is a fixed allowance per period (usually a month), and one credential
+  is shared by everything that asks. Unattended work — the hourly price sweep, balance sync,
+  rescoring — spends it far faster than a person does: a sweep runs every hour, the Sync button is
+  pressed a few times a week. Without a split, the sweep empties the allowance on the 20th and the
+  request someone is actually waiting on is refused for the rest of the month. A request that
+  crosses a service boundary (split deployment) must not lose that label on the hop, or the far
+  side meters the sweep as an ordinary RPC.
+- **Decision**: every provider request is made under a context that carries two labels, defined in
+  `internal/spend`.
+
+  **Class** (`spend.Class`). `ClassInteractive` is the default: unmarked work is work someone is
+  waiting on. `ClassBackground` is set explicitly by the scheduler jobs (`job:price_sweep`,
+  `job:balance_sync`, `job:rescore`).
+
+  **Reserve.** The rate limiter (`internal/adapter/ratelimit`) holds `backgroundReserve = 0.8`
+  of each quota entry's volume for background work. `ceiling` gives a background request 80% of
+  `Quota` and an interactive one 100%. The background ceiling is `Quota * 0.8` truncated to an
+  integer, so for small quotas the protected share is a little more than 20%. `reserve` runs before the request is sent, checks every
+  quota entry of the credential (day and month), and refuses with `spend.ErrQuotaExhausted` when
+  any entry has reached the ceiling for the request's class; otherwise it counts the request.
+  The last 20% of a period is therefore reachable only by interactive requests. Only volume is
+  split this way: the steady rate (RPS) is shared by both classes. Budgeting for the sweep
+  (`remaining`) and the "cannot carry background work" answer (`Unusable`) both use the
+  background ceiling, so a sweep plans against, and reports, the share it may actually spend.
+  A refusal by quota is not retried against the same key; another credential may take the work
+  (`spend.KeyRefused`).
+
+  **Caller.** A second label, `spend.WithCaller`, names what spends (`job:<name>` from jobs,
+  `rpc:<Method>` from `callerInterceptor` in `cmd/eye/main.go` for calls that arrive unnamed).
+  Labels nest as `outer/inner`, and a request with none is recorded as `unlabelled`. The caller
+  does not change what is allowed; it is the split of the usage counter, stored per caller so an
+  operator can see why the plan was spent. It is cut to valid UTF-8 and 200 bytes
+  (`cleanCaller`) because it becomes part of a usage row's key and can arrive over the wire.
+
+  **Wire form.** Between sibling services the labels travel as two headers, set by
+  `ForwardIdentityInterceptor` and read by `ServiceIdentityInterceptor` (`internal/middleware`):
+
+  | Header | Sent when | Value | Effect on the far side |
+  |---|---|---|---|
+  | `X-Spend-Class` | ctx class is background | `background` | ctx gets `ClassBackground` |
+  | `X-Spend-Caller` | ctx has a caller | the label | ctx gets that caller |
+
+  An interactive class is never sent: an absent header means interactive, matching the default in
+  `spend.ClassFromContext`. An unlabelled caller is not sent either, so the far side names the
+  call itself instead of recording the hop as unlabelled. Any other class value is ignored and
+  treated as interactive. A forwarded caller keeps its name; `callerInterceptor` does not
+  rename a call that already arrived named.
+
+  **Trust.** `X-Spend-Class` decides which ceiling a request is held to, so a caller who could
+  set it could spend the reserve held for people. `X-Spend-Caller` changes no ceiling; it only
+  picks the label the usage is recorded under, which a forger could use to hide or misplace
+  spend. Both are honoured only on a call with a valid
+  `X-Service-Token`, the forwarding interceptor deletes any copy already on the request before
+  writing from ctx, and the edge strips them from outside requests (`trust-strip`).
+- **Consequences**:
+  - ➕ A month whose sweep has used its share still answers interactive requests
+  - ➕ Usage is attributable per caller, including across a hop
+  - ➖ The reserve is one constant for every provider and plan; it is not configurable per
+    credential
+  - ➖ Reserve protects only quota volume, not the request rate
+  - ➖ Only the two shipped classes exist; a third needs a new wire value, since unknown values
+    degrade to interactive
+- **Rejected**: a separate credential for background work (most plans issue one key, and the plan
+  belongs to the key); a per-job quota (spend would be fragmented across jobs while the question
+  — is anything left for a person — is about the credential as a whole); inferring the class on
+  the far side from the method (the far side cannot tell a sweep calling `FetchExternalPrices`
+  from a person pressing the button).
 
 ---
 

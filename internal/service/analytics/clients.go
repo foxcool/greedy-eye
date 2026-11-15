@@ -13,10 +13,14 @@ import (
 // MarketDataClient is the subset of MarketDataServiceClient that Analytics needs.
 // Satisfied by *marketdata.Handler (monolith) and apiv1connect.MarketDataServiceClient
 // (microservice), same as portfolio.MarketDataClient.
+//
+// Only set reads: prices and labels come through GetPrices and ListAssets, one
+// call per set (see Handler.priceAssets), so the per-pair RPCs are not part of
+// this port and a per-holding loop over them cannot come back unnoticed.
 type MarketDataClient interface {
 	GetAsset(context.Context, *connect.Request[apiv1.GetAssetRequest]) (*connect.Response[apiv1.Asset], error)
-	GetLatestPrice(context.Context, *connect.Request[apiv1.GetLatestPriceRequest]) (*connect.Response[apiv1.Price], error)
-	ListPriceHistory(context.Context, *connect.Request[apiv1.ListPriceHistoryRequest]) (*connect.Response[apiv1.ListPriceHistoryResponse], error)
+	ListAssets(context.Context, *connect.Request[apiv1.ListAssetsRequest]) (*connect.Response[apiv1.ListAssetsResponse], error)
+	GetPrices(context.Context, *connect.Request[apiv1.GetPricesRequest]) (*connect.Response[apiv1.GetPricesResponse], error)
 	GetPricingStatus(context.Context, *connect.Request[apiv1.GetPricingStatusRequest]) (*connect.Response[apiv1.GetPricingStatusResponse], error)
 }
 

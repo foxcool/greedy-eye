@@ -149,6 +149,34 @@ func (f *fakeMD) ListPriceHistory(_ context.Context, req *connect.Request[apiv1.
 	return connect.NewResponse(resp), nil
 }
 
+// ListAssets answers the id-filtered read the heatmap labels assets with; an
+// id the fake does not know is absent, as in the catalogue.
+func (f *fakeMD) ListAssets(_ context.Context, req *connect.Request[apiv1.ListAssetsRequest]) (*connect.Response[apiv1.ListAssetsResponse], error) {
+	resp := &apiv1.ListAssetsResponse{}
+	for _, id := range req.Msg.GetIds() {
+		if a, ok := f.assets[id]; ok {
+			resp.Assets = append(resp.Assets, a)
+		}
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// GetPrices answers each lookup from the same maps the single-pair reads use,
+// so every fixture prices the same whichever way it is read.
+func (f *fakeMD) GetPrices(ctx context.Context, req *connect.Request[apiv1.GetPricesRequest]) (*connect.Response[apiv1.GetPricesResponse], error) {
+	resp := &apiv1.GetPricesResponse{}
+	for _, l := range req.Msg.GetLookups() {
+		r := &apiv1.PriceLookupResult{Lookup: l}
+		if l.From != nil {
+			r.Price = f.hist[l.AssetId+"|"+l.BaseAssetId]
+		} else {
+			r.Price = f.latest[l.AssetId+"|"+l.BaseAssetId]
+		}
+		resp.Results = append(resp.Results, r)
+	}
+	return connect.NewResponse(resp), nil
+}
+
 // --- Helpers ---
 
 func testLogger() *slog.Logger {

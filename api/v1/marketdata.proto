@@ -533,6 +533,41 @@ service MarketDataService {
       body: "*"
     };
   }
+
+  // BackfillCbrRates writes the Bank of Russia rate set in force on each day of
+  // [from_date, to_date] into prices, as the same cbr rows the sweep writes.
+  //
+  // The sweep reads only the set in force today, so an instance holds CBR rates
+  // from the day it started sweeping and cannot value anything older. This is
+  // run once per instance for the depth of the history to be valued; the sweep
+  // keeps the series current from there.
+  //
+  // Idempotent per (asset, set date): a row already held for that day is left
+  // as it is and counted in prices_held, so re-running a range creates
+  // nothing. Admin-only, like every price write.
+  rpc BackfillCbrRates(BackfillCbrRatesRequest) returns (BackfillCbrRatesResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/prices/cbr/backfill"
+      body: "*"
+    };
+  }
+
+
+  // GetPrices reads many price points in one call: per lookup, the latest
+  // price of a pair, or the first one at or after a time. It exists for
+  // consumers in another domain that value a set of assets — a valuation
+  // collects its prices before deciding, one request per set, instead of one
+  // GetLatestPrice / ListPriceHistory hop per holding.
+  //
+  // Each lookup answers exactly what the single-pair RPC would: a ticker is
+  // accepted where an id is, and a pair with no price comes back without one
+  // rather than failing the batch. At most 1000 lookups per request.
+  rpc GetPrices(GetPricesRequest) returns (GetPricesResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/prices/batch"
+      body: "*"
+    };
+  }
 }
 
 // =============================================================================
@@ -871,4 +906,57 @@ message MacroSeries {
 
 message GetMacroRatesResponse {
   repeated MacroSeries series = 1;
+}
+
+message BackfillCbrRatesRequest {
+  // First and last calendar day to backfill, inclusive, as YYYY-MM-DD. At
+  // most 370 days per call: each day is one request to the rate-limited
+  // feed, so deeper history is loaded a year at a time.
+  string from_date = 1;
+  string to_date = 2;
+}
+
+message BackfillCbrRatesResponse {
+  // Calendar days asked of the feed.
+  uint32 days_requested = 1;
+  // Rows this call wrote.
+  uint32 prices_created = 2;
+  // Rows the range needed and the table already held: written by the sweep
+  // or by an earlier backfill. A re-run reports everything here and nothing
+  // in prices_created.
+  uint32 prices_held = 3;
+  // Days the feed could not answer, or rows that could not be stored, one
+  // line each. The call does not stop at the first: every other day is still
+  // worth having, and a re-run fills the gaps without duplicating the rest.
+  repeated string errors = 4;
+}
+
+
+// PriceLookup names one price point in a GetPrices batch.
+message PriceLookup {
+  string asset_id = 1;
+  // Empty: the latest price in whatever base the asset last traded against,
+  // as GetLatestPrice does with no base. Required when from is set.
+  string base_asset_id = 2;
+  // When set, the first price at or after this time instead of the latest —
+  // the reference point a change over a window is measured from, as
+  // ListPriceHistory with from and page_size 1 answers it.
+  optional google.protobuf.Timestamp from = 3;
+}
+
+message GetPricesRequest {
+  repeated PriceLookup lookups = 1;
+}
+
+message PriceLookupResult {
+  // The lookup as asked, so a caller can key the answer without relying on
+  // position.
+  PriceLookup lookup = 1;
+  // Unset when the pair has no price (or no price since from).
+  Price price = 2;
+}
+
+message GetPricesResponse {
+  // One result per lookup, in request order.
+  repeated PriceLookupResult results = 1;
 }
