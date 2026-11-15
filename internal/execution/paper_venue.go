@@ -21,15 +21,44 @@ type PaperPortfolio interface {
 // PaperVenue is a simulated exchange on a manual account, and the only way an
 // execution moves its holdings. Fills are written as absolute amounts under
 // import_id = the execution id, so they are told apart from hand imports.
+//
+// The trade key is its idempotency key: a Submit repeating a key whose fill
+// was written, or may have been, answers as that first Submit did and writes
+// nothing. A key that was rejected or whose import was refused wrote nothing,
+// so a repeat decides afresh.
+// shortcut: keys are remembered in memory, for the life of the process and
+// without eviction; a retry after a restart would fill again. Upgrade when
+// anything retries Submit: keep the key with the fill in the database.
 type PaperVenue struct {
 	client PaperPortfolio
 
 	mu       sync.Mutex
 	accounts map[string]*sync.Mutex
+	placed   map[Key]placedFill
+}
+
+// placedFill is the answer Submit gave to a key whose import was sent.
+type placedFill struct {
+	outcome Outcome
+	err     error
 }
 
 func NewPaperVenue(client PaperPortfolio) *PaperVenue {
-	return &PaperVenue{client: client, accounts: map[string]*sync.Mutex{}}
+	return &PaperVenue{client: client, accounts: map[string]*sync.Mutex{}, placed: map[Key]placedFill{}}
+}
+
+func (v *PaperVenue) placedAnswer(key Key) (placedFill, bool) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	p, ok := v.placed[key]
+	return p, ok
+}
+
+func (v *PaperVenue) remember(key Key, outcome Outcome, err error) (Outcome, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.placed[key] = placedFill{outcome: outcome, err: err}
+	return outcome, err
 }
 
 // accountLock serialises read-fill-write per account: the scheduler runs jobs
@@ -51,6 +80,11 @@ func (v *PaperVenue) Submit(ctx context.Context, account Account, trade Trade, k
 	lock := v.accountLock(account.ID)
 	lock.Lock()
 	defer lock.Unlock()
+	// Checked under the account lock, so a repeat waits for the first
+	// Submit of its key to finish and then sees its answer.
+	if p, ok := v.placedAnswer(key); ok {
+		return p.outcome, p.err
+	}
 
 	holdings, err := AccountHoldings(ctx, v.client, account.ID)
 	if err != nil {
@@ -69,7 +103,7 @@ func (v *PaperVenue) Submit(ctx context.Context, account Account, trade Trade, k
 	}))
 	if err != nil {
 		// The call may have failed after the portfolio side wrote.
-		return Outcome{}, fmt.Errorf("paper fill may be applied, check holdings of account %s: %w", account.ID, err)
+		return v.remember(key, Outcome{}, fmt.Errorf("paper fill may be applied, check holdings of account %s: %w", account.ID, err))
 	}
 	if failed := failedItems(resp.Msg); failed != "" {
 		return Outcome{}, fmt.Errorf("paper fill not applied to account %s: %s", account.ID, failed)
@@ -81,7 +115,7 @@ func (v *PaperVenue) Submit(ctx context.Context, account Account, trade Trade, k
 	} else if id := v.createdHolding(ctx, account.ID, trade.AssetID); id != "" {
 		ids = append(ids, id)
 	}
-	return Outcome{Status: OutcomeFilled, Fill: res.Fill, HoldingIDs: ids}, nil
+	return v.remember(key, Outcome{Status: OutcomeFilled, Fill: res.Fill, HoldingIDs: ids}, nil)
 }
 
 // createdHolding finds the holding an import has just created. The fill is

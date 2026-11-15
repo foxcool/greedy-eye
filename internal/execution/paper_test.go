@@ -252,3 +252,74 @@ func TestPaperVenue_ItemFailureIsAnError(t *testing.T) {
 	assert.NotContains(t, err.Error(), "in part", "the import commits all or none")
 	assert.Contains(t, err.Error(), dcaBase+": update holding: boom")
 }
+
+func TestPaperVenue_RepeatedKeyFillsOnce(t *testing.T) {
+	pf := &memPortfolio{holdings: map[string]*apiv1.Holding{
+		dcaQuote: {Id: "h-q", AssetId: dcaQuote, Amount: "100000", Decimals: 2}, // 1000.00
+	}}
+	venue := NewPaperVenue(pf)
+	trade := Trade{Side: SideBuy, AssetID: dcaBase, QuoteAssetID: dcaQuote, QuoteAmount: d("100"), Price: d("50000")}
+	key := Key{ExecutionID: dcaAccount, Index: 0}
+
+	first, err := venue.Submit(context.Background(), Account{ID: dcaAccount}, trade, key)
+	require.NoError(t, err)
+	again, err := venue.Submit(context.Background(), Account{ID: dcaAccount}, trade, key)
+	require.NoError(t, err)
+
+	assert.Equal(t, first, again, "a retry gets the answer of the fill it repeats")
+	assert.Equal(t, 1, pf.imports)
+	assert.Equal(t, "90000", pf.holdings[dcaQuote].Amount, "one buy of 100 from 1000")
+	assert.Equal(t, "200000", pf.holdings[dcaBase].Amount, "one fill of 0.002")
+
+	other, err := venue.Submit(context.Background(), Account{ID: dcaAccount}, trade, Key{ExecutionID: dcaAccount, Index: 1})
+	require.NoError(t, err)
+	assert.Equal(t, OutcomeFilled, other.Status, "another key is another trade")
+	assert.Equal(t, "80000", pf.holdings[dcaQuote].Amount)
+}
+
+// unsureImport fails the import call itself, as a timeout does after the
+// portfolio side may have written.
+type unsureImport struct{ *memPortfolio }
+
+func (u unsureImport) ImportPositions(ctx context.Context, req *connect.Request[apiv1.ImportPositionsRequest]) (*connect.Response[apiv1.ImportPositionsResponse], error) {
+	if _, err := u.memPortfolio.ImportPositions(ctx, req); err != nil {
+		return nil, err
+	}
+	return nil, connect.NewError(connect.CodeDeadlineExceeded, context.DeadlineExceeded)
+}
+
+func TestPaperVenue_RepeatedKeyAfterUnsureImportIsNotRetried(t *testing.T) {
+	pf := &memPortfolio{holdings: map[string]*apiv1.Holding{
+		dcaQuote: {Id: "h-q", AssetId: dcaQuote, Amount: "100000", Decimals: 2},
+	}}
+	venue := NewPaperVenue(unsureImport{pf})
+	trade := Trade{Side: SideBuy, AssetID: dcaBase, QuoteAssetID: dcaQuote, QuoteAmount: d("100"), Price: d("50000")}
+	key := Key{ExecutionID: dcaAccount, Index: 0}
+
+	_, err := venue.Submit(context.Background(), Account{ID: dcaAccount}, trade, key)
+	require.Error(t, err)
+	_, err = venue.Submit(context.Background(), Account{ID: dcaAccount}, trade, key)
+	require.Error(t, err, "a fill that may have landed is not placed again")
+	assert.Contains(t, err.Error(), "may be applied")
+	assert.Equal(t, 1, pf.imports)
+	assert.Equal(t, "90000", pf.holdings[dcaQuote].Amount)
+}
+
+func TestPaperVenue_RepeatedKeyAfterRejectionDecidesAgain(t *testing.T) {
+	pf := &memPortfolio{holdings: map[string]*apiv1.Holding{
+		dcaQuote: {Id: "h-q", AssetId: dcaQuote, Amount: "5000", Decimals: 2}, // 50.00
+	}}
+	venue := NewPaperVenue(pf)
+	trade := Trade{Side: SideBuy, AssetID: dcaBase, QuoteAssetID: dcaQuote, QuoteAmount: d("100"), Price: d("50000")}
+	key := Key{ExecutionID: dcaAccount, Index: 0}
+
+	out, err := venue.Submit(context.Background(), Account{ID: dcaAccount}, trade, key)
+	require.NoError(t, err)
+	require.Equal(t, OutcomeRejected, out.Status)
+
+	pf.holdings[dcaQuote].Amount = "100000" // topped up to 1000.00
+	out, err = venue.Submit(context.Background(), Account{ID: dcaAccount}, trade, key)
+	require.NoError(t, err)
+	assert.Equal(t, OutcomeFilled, out.Status, "a rejection wrote nothing, so a retry is a fresh decision")
+	assert.Equal(t, 1, pf.imports)
+}
