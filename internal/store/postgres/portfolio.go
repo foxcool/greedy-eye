@@ -725,6 +725,12 @@ func (e *unreadableAccountError) Unwrap() []error {
 	return []error{store.ErrUnreadable, e.err}
 }
 
+// UnreadableAccount names the row for store.UnreadableAccountOf.
+func (e *unreadableAccountError) UnreadableAccount() *entity.UnreadableAccount {
+	a := e.account
+	return &a
+}
+
 // skipAndLogUnreadable reports whether a list should leave out the row
 // scanAccount failed with, and if so logs it by id and class only.
 func (s *PortfolioStore) skipAndLogUnreadable(err error) bool {

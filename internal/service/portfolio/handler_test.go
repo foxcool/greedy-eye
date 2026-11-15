@@ -607,6 +607,65 @@ func TestGetAccount_UnreadableForeignRow(t *testing.T) {
 	assert.ErrorIs(t, err, store.ErrUnreadable)
 }
 
+// namedReadError is a store read error that names its row, as the PostgreSQL
+// store's does: its text is the decrypting code's, its row is what may be shown.
+type namedReadError struct {
+	account entity.UnreadableAccount
+	text    string
+}
+
+func (e *namedReadError) Error() string { return e.text }
+func (e *namedReadError) Unwrap() error { return store.ErrUnreadable }
+func (e *namedReadError) UnreadableAccount() *entity.UnreadableAccount {
+	a := e.account
+	return &a
+}
+
+// TestOwnedAccount_UnreadableRowShowsOnlyItsClass: the owner and an admin learn
+// that the row cannot be read and why, by class; the store's text, which can
+// quote decrypted bytes, never reaches the response.
+func TestOwnedAccount_UnreadableRowShowsOnlyItsClass(t *testing.T) {
+	const secret = "sk-live-0123456789"
+	lost := entity.UnreadableAccount{ID: testAccountID, UserID: testUserID, Failure: entity.ReadFailureCorrupt}
+	readErr := fmt.Errorf("failed to get account: %w",
+		&namedReadError{account: lost, text: `invalid character 'k' in "` + secret + `"`})
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(nil, readErr)
+	s.On("ListUnreadableAccounts", mock.Anything, testUserID).
+		Return([]*entity.UnreadableAccount{&lost}, nil).Maybe()
+	h := newHandler(s)
+
+	for name, ctx := range map[string]context.Context{
+		"owner": ctxWithUser(testUserID),
+		"admin": ctxWithAdmin(testUserID2),
+	} {
+		t.Run(name, func(t *testing.T) {
+			for rpc, call := range map[string]func() error{
+				"GetAccount": func() error {
+					_, err := h.GetAccount(ctx, connect.NewRequest(&apiv1.GetAccountRequest{Id: testAccountID}))
+					return err
+				},
+				"DeleteAccount": func() error {
+					_, err := h.DeleteAccount(ctx, connect.NewRequest(&apiv1.DeleteAccountRequest{Id: testAccountID}))
+					return err
+				},
+			} {
+				err := call()
+				require.Error(t, err, rpc)
+				assert.Equal(t, connect.CodeInternal, connect.CodeOf(err), rpc)
+				assert.ErrorIs(t, err, store.ErrUnreadable, "%s: account health reads the class off this", rpc)
+				var ce *connect.Error
+				require.True(t, errors.As(err, &ce), rpc)
+				assert.NotContains(t, ce.Message(), secret, rpc)
+				assert.NotContains(t, ce.Message(), "invalid character", "%s: no store text crosses the wire", rpc)
+				assert.Contains(t, ce.Message(), string(entity.ReadFailureCorrupt), rpc)
+			}
+		})
+	}
+	s.AssertNotCalled(t, "DeleteAccount", mock.Anything, mock.Anything)
+}
+
 func TestDeleteAccount_OK(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
