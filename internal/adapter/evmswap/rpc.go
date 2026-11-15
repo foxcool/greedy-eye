@@ -264,6 +264,9 @@ func (e *InsufficientFundsError) Error() string {
 // router's reason on, so the most common failure would otherwise read as
 // "reverted" and nothing more.
 func (c *Client) CheckFunds(ctx context.Context, s Swap) error {
+	if s.AmountIn == nil || s.AmountIn.Sign() <= 0 {
+		return errors.New("evmswap: amount in must be positive")
+	}
 	res, err := c.call(ctx, nil, s.TokenIn, append(selBalanceOf[:], wordAddress(s.Safe)...))
 	if err != nil {
 		return err

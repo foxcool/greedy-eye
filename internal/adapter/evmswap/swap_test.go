@@ -77,6 +77,8 @@ func TestBuildRefusesAnUnprotectedSwap(t *testing.T) {
 		"no deadline":      func(s *Swap) { s.Deadline = time.Time{} },
 		"same token":       func(s *Swap) { s.TokenOut = s.TokenIn },
 		"fee not uint24":   func(s *Swap) { s.Fee = 1 << 24 },
+		"zero Safe burns":  func(s *Swap) { s.Safe = Address{} },
+		"zero token":       func(s *Swap) { s.TokenOut = Address{} },
 	} {
 		s := testSwap()
 		mutate(&s)

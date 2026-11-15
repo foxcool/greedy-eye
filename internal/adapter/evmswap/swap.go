@@ -90,6 +90,11 @@ func MinOut(quoted *big.Int, slippageBps uint32) (*big.Int, error) {
 
 func (s Swap) validate() error {
 	switch {
+	case s.Safe == Address{}:
+		// The Safe is the swap's recipient: a zero one burns the output.
+		return errors.New("evmswap: Safe address is zero")
+	case s.TokenIn == Address{} || s.TokenOut == Address{}:
+		return errors.New("evmswap: token address is zero")
 	case s.AmountIn == nil || s.AmountIn.Sign() <= 0:
 		return errors.New("evmswap: amount in must be positive")
 	case s.MinOut == nil || s.MinOut.Sign() <= 0:

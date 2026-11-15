@@ -168,6 +168,11 @@ func TestCheckFunds(t *testing.T) {
 
 	s.AmountIn = big.NewInt(10_000_000)
 	assert.NoError(t, c.CheckFunds(context.Background(), s), "exactly enough is enough")
+
+	for _, bad := range []*big.Int{nil, big.NewInt(-1), big.NewInt(0)} {
+		s.AmountIn = bad
+		assert.Error(t, c.CheckFunds(context.Background(), s), "%v is not an amount to check", bad)
+	}
 }
 
 func TestSimulateNamesAnEmptyRevert(t *testing.T) {
