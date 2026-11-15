@@ -229,7 +229,7 @@ func TestPaperVenue_ReportsCreatedHolding(t *testing.T) {
 }
 
 // failingImport answers an import with a per-item failure, as ImportPositions
-// does when one position cannot be written.
+// does when one position cannot be written: the batch is then not applied.
 type failingImport struct{ *memPortfolio }
 
 func (f failingImport) ImportPositions(context.Context, *connect.Request[apiv1.ImportPositionsRequest]) (*connect.Response[apiv1.ImportPositionsResponse], error) {
@@ -247,7 +247,8 @@ func TestPaperVenue_ItemFailureIsAnError(t *testing.T) {
 	trade := Trade{Side: SideBuy, AssetID: dcaBase, QuoteAssetID: dcaQuote, QuoteAmount: d("100"), Price: d("50000")}
 
 	_, err := NewPaperVenue(failingImport{pf}).Submit(context.Background(), Account{ID: dcaAccount}, trade, Key{ExecutionID: dcaAccount})
-	require.Error(t, err, "a fill written in part must not be reported as filled")
-	assert.Contains(t, err.Error(), "in part")
+	require.Error(t, err, "a failed import must not be reported as filled")
+	assert.Contains(t, err.Error(), "paper fill not applied")
+	assert.NotContains(t, err.Error(), "in part", "the import commits all or none")
 	assert.Contains(t, err.Error(), dcaBase+": update holding: boom")
 }

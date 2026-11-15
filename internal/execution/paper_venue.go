@@ -72,7 +72,7 @@ func (v *PaperVenue) Submit(ctx context.Context, account Account, trade Trade, k
 		return Outcome{}, fmt.Errorf("paper fill may be applied, check holdings of account %s: %w", account.ID, err)
 	}
 	if failed := failedItems(resp.Msg); failed != "" {
-		return Outcome{}, fmt.Errorf("paper fill may be applied in part, check holdings of account %s: %s", account.ID, failed)
+		return Outcome{}, fmt.Errorf("paper fill not applied to account %s: %s", account.ID, failed)
 	}
 
 	ids := []string{res.Quote.ID}
@@ -98,8 +98,8 @@ func (v *PaperVenue) createdHolding(ctx context.Context, accountID, assetID stri
 	return ""
 }
 
-// failedItems names the positions an import did not write. Items are applied
-// one by one, so the others may have been.
+// failedItems names the positions an import refused. The import commits a
+// batch all or none, so any failed item means the batch was not applied.
 func failedItems(resp *apiv1.ImportPositionsResponse) string {
 	var failed []string
 	for _, item := range resp.GetItems() {
