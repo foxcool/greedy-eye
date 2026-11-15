@@ -1372,10 +1372,8 @@ func (h *Handler) contractResolver(ctx context.Context) (ContractResolver, error
 	return nil, nil
 }
 
-// resolverKey is the key of one slug a confirmation goes to, chosen the way the
-// sweep chooses its key: the first that can carry the work, so a spent first key
-// hands the lookup to the next instead of failing it. With every key unusable it
-// is the last one, and its refusal is the error the caller sees.
+// resolverKey picks a slug's key for a contract lookup by the sweep's rule
+// (sweepKey), so a spent first key hands the lookup to the next.
 func resolverKey(keys []PriceProvider) (ContractResolver, bool) {
 	var resolvers []PriceProvider
 	for _, p := range keys {
@@ -1388,6 +1386,24 @@ func resolverKey(keys []PriceProvider) (ContractResolver, bool) {
 	}
 	p, _, _ := sweepKey(resolvers)
 	return p.(ContractResolver), true
+}
+
+// namedAssets reads every asset ids names, over as many pages as the store's
+// page cap takes.
+func (h *Handler) namedAssets(ctx context.Context, ids []string) ([]*entity.Asset, error) {
+	var all []*entity.Asset
+	opts := ListAssetsOpts{IDs: ids, PageSize: len(ids)}
+	for {
+		page, next, err := h.store.ListAssets(ctx, opts)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page...)
+		if next == "" || len(page) == 0 {
+			return all, nil
+		}
+		opts.PageToken = next
+	}
 }
 
 // coingeckoProvider is the provider slug whose contract catalog is preferred for
@@ -1533,10 +1549,7 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	var unknownAssets string
 	if len(req.Msg.AssetIds) > 0 && backgroundIDs == nil {
 		var err error
-		named, _, err = h.store.ListAssets(ctx, ListAssetsOpts{
-			IDs:      req.Msg.AssetIds,
-			PageSize: len(req.Msg.AssetIds),
-		})
+		named, err = h.namedAssets(ctx, req.Msg.AssetIds)
 		if err != nil {
 			return nil, toConnectError(err)
 		}

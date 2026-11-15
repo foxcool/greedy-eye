@@ -4044,3 +4044,21 @@ func TestContractResolver_SpentFirstKeyHandsTheLookupToTheNext(t *testing.T) {
 	require.NoError(t, err)
 	assert.Same(t, spent, r, "with no usable key the last one answers, so its refusal is what surfaces")
 }
+
+// TestNamedAssets_ReadsEveryPage: the store caps a page, so a named-id lookup
+// longer than one page used to keep the first page and report the rest as
+// unknown asset ids.
+func TestNamedAssets_ReadsEveryPage(t *testing.T) {
+	ids := []string{"a1", "a2"}
+	s := &mockStore{}
+	s.On("ListAssets", mock.Anything, ListAssetsOpts{IDs: ids, PageSize: 2}).
+		Return([]*entity.Asset{testAsset("a1")}, "next", nil).Once()
+	s.On("ListAssets", mock.Anything, ListAssetsOpts{IDs: ids, PageSize: 2, PageToken: "next"}).
+		Return([]*entity.Asset{testAsset("a2")}, "", nil).Once()
+
+	got, err := newHandler(s).namedAssets(context.Background(), ids)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Empty(t, unknownIDs(ids, got))
+	s.AssertExpectations(t)
+}
