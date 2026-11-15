@@ -337,7 +337,9 @@ graph TB
   FindOrCreateAsset (by the composite identity, ADR-006), SetAssetVerdict (scam filter, ADR-007),
   AddAssetRiskFlag / DeleteAssetRiskFlag (axis 2 of the risk model — a flag never moves a sum),
   DeleteAssetExternalRef (unbind a wrong contract binding; there is no link RPC yet, ADR-006),
-  CreatePrice, CreatePrices, GetLatestPrice, ListPriceHistory, ListPricesByInterval, DeletePrice,
+  CreatePrice, CreatePrices, GetLatestPrice, GetPrices (batched GetLatestPrice / window-start
+  ListPriceHistory, so a cross-domain valuation reads one set per call instead of one hop per
+  holding), ListPriceHistory, ListPricesByInterval, DeletePrice,
   DeletePrices, FetchExternalPrices (via the credentials resolver), GetPricingStatus (batched: what asking an asset's sources has produced, for the
   positions a valuation reports as unpriced; an asset never asked about is absent rather than
   reported empty), GetSweepSchedule (per source: how many assets are due, deferred, never

@@ -109,6 +109,9 @@ const (
 	// MarketDataServiceBackfillCbrRatesProcedure is the fully-qualified name of the MarketDataService's
 	// BackfillCbrRates RPC.
 	MarketDataServiceBackfillCbrRatesProcedure = "/eye.v1.MarketDataService/BackfillCbrRates"
+	// MarketDataServiceGetPricesProcedure is the fully-qualified name of the MarketDataService's
+	// GetPrices RPC.
+	MarketDataServiceGetPricesProcedure = "/eye.v1.MarketDataService/GetPrices"
 )
 
 // MarketDataServiceClient is a client for the eye.v1.MarketDataService service.
@@ -235,6 +238,16 @@ type MarketDataServiceClient interface {
 	// as it is and counted in prices_held, so re-running a range creates
 	// nothing. Admin-only, like every price write.
 	BackfillCbrRates(context.Context, *connect.Request[v1.BackfillCbrRatesRequest]) (*connect.Response[v1.BackfillCbrRatesResponse], error)
+	// GetPrices reads many price points in one call: per lookup, the latest
+	// price of a pair, or the first one at or after a time. It exists for
+	// consumers in another domain that value a set of assets — a valuation
+	// collects its prices before deciding, one request per set, instead of one
+	// GetLatestPrice / ListPriceHistory hop per holding.
+	//
+	// Each lookup answers exactly what the single-pair RPC would: a ticker is
+	// accepted where an id is, and a pair with no price comes back without one
+	// rather than failing the batch. At most 1000 lookups per request.
+	GetPrices(context.Context, *connect.Request[v1.GetPricesRequest]) (*connect.Response[v1.GetPricesResponse], error)
 }
 
 // NewMarketDataServiceClient constructs a client for the eye.v1.MarketDataService service. By
@@ -398,6 +411,12 @@ func NewMarketDataServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(marketDataServiceMethods.ByName("BackfillCbrRates")),
 			connect.WithClientOptions(opts...),
 		),
+		getPrices: connect.NewClient[v1.GetPricesRequest, v1.GetPricesResponse](
+			httpClient,
+			baseURL+MarketDataServiceGetPricesProcedure,
+			connect.WithSchema(marketDataServiceMethods.ByName("GetPrices")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -428,6 +447,7 @@ type marketDataServiceClient struct {
 	getSweepSchedule       *connect.Client[v1.GetSweepScheduleRequest, v1.GetSweepScheduleResponse]
 	resetSweepSchedule     *connect.Client[v1.ResetSweepScheduleRequest, v1.ResetSweepScheduleResponse]
 	backfillCbrRates       *connect.Client[v1.BackfillCbrRatesRequest, v1.BackfillCbrRatesResponse]
+	getPrices              *connect.Client[v1.GetPricesRequest, v1.GetPricesResponse]
 }
 
 // CreateAsset calls eye.v1.MarketDataService.CreateAsset.
@@ -555,6 +575,11 @@ func (c *marketDataServiceClient) BackfillCbrRates(ctx context.Context, req *con
 	return c.backfillCbrRates.CallUnary(ctx, req)
 }
 
+// GetPrices calls eye.v1.MarketDataService.GetPrices.
+func (c *marketDataServiceClient) GetPrices(ctx context.Context, req *connect.Request[v1.GetPricesRequest]) (*connect.Response[v1.GetPricesResponse], error) {
+	return c.getPrices.CallUnary(ctx, req)
+}
+
 // MarketDataServiceHandler is an implementation of the eye.v1.MarketDataService service.
 type MarketDataServiceHandler interface {
 	// --- Asset CRUD ---
@@ -679,6 +704,16 @@ type MarketDataServiceHandler interface {
 	// as it is and counted in prices_held, so re-running a range creates
 	// nothing. Admin-only, like every price write.
 	BackfillCbrRates(context.Context, *connect.Request[v1.BackfillCbrRatesRequest]) (*connect.Response[v1.BackfillCbrRatesResponse], error)
+	// GetPrices reads many price points in one call: per lookup, the latest
+	// price of a pair, or the first one at or after a time. It exists for
+	// consumers in another domain that value a set of assets — a valuation
+	// collects its prices before deciding, one request per set, instead of one
+	// GetLatestPrice / ListPriceHistory hop per holding.
+	//
+	// Each lookup answers exactly what the single-pair RPC would: a ticker is
+	// accepted where an id is, and a pair with no price comes back without one
+	// rather than failing the batch. At most 1000 lookups per request.
+	GetPrices(context.Context, *connect.Request[v1.GetPricesRequest]) (*connect.Response[v1.GetPricesResponse], error)
 }
 
 // NewMarketDataServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -838,6 +873,12 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 		connect.WithSchema(marketDataServiceMethods.ByName("BackfillCbrRates")),
 		connect.WithHandlerOptions(opts...),
 	)
+	marketDataServiceGetPricesHandler := connect.NewUnaryHandler(
+		MarketDataServiceGetPricesProcedure,
+		svc.GetPrices,
+		connect.WithSchema(marketDataServiceMethods.ByName("GetPrices")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/eye.v1.MarketDataService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MarketDataServiceCreateAssetProcedure:
@@ -890,6 +931,8 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 			marketDataServiceResetSweepScheduleHandler.ServeHTTP(w, r)
 		case MarketDataServiceBackfillCbrRatesProcedure:
 			marketDataServiceBackfillCbrRatesHandler.ServeHTTP(w, r)
+		case MarketDataServiceGetPricesProcedure:
+			marketDataServiceGetPricesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -997,4 +1040,8 @@ func (UnimplementedMarketDataServiceHandler) ResetSweepSchedule(context.Context,
 
 func (UnimplementedMarketDataServiceHandler) BackfillCbrRates(context.Context, *connect.Request[v1.BackfillCbrRatesRequest]) (*connect.Response[v1.BackfillCbrRatesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.BackfillCbrRates is not implemented"))
+}
+
+func (UnimplementedMarketDataServiceHandler) GetPrices(context.Context, *connect.Request[v1.GetPricesRequest]) (*connect.Response[v1.GetPricesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.GetPrices is not implemented"))
 }

@@ -551,6 +551,23 @@ service MarketDataService {
       body: "*"
     };
   }
+
+
+  // GetPrices reads many price points in one call: per lookup, the latest
+  // price of a pair, or the first one at or after a time. It exists for
+  // consumers in another domain that value a set of assets — a valuation
+  // collects its prices before deciding, one request per set, instead of one
+  // GetLatestPrice / ListPriceHistory hop per holding.
+  //
+  // Each lookup answers exactly what the single-pair RPC would: a ticker is
+  // accepted where an id is, and a pair with no price comes back without one
+  // rather than failing the batch. At most 1000 lookups per request.
+  rpc GetPrices(GetPricesRequest) returns (GetPricesResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/prices/batch"
+      body: "*"
+    };
+  }
 }
 
 // =============================================================================
@@ -912,4 +929,34 @@ message BackfillCbrRatesResponse {
   // line each. The call does not stop at the first: every other day is still
   // worth having, and a re-run fills the gaps without duplicating the rest.
   repeated string errors = 4;
+}
+
+
+// PriceLookup names one price point in a GetPrices batch.
+message PriceLookup {
+  string asset_id = 1;
+  // Empty: the latest price in whatever base the asset last traded against,
+  // as GetLatestPrice does with no base. Required when from is set.
+  string base_asset_id = 2;
+  // When set, the first price at or after this time instead of the latest —
+  // the reference point a change over a window is measured from, as
+  // ListPriceHistory with from and page_size 1 answers it.
+  optional google.protobuf.Timestamp from = 3;
+}
+
+message GetPricesRequest {
+  repeated PriceLookup lookups = 1;
+}
+
+message PriceLookupResult {
+  // The lookup as asked, so a caller can key the answer without relying on
+  // position.
+  PriceLookup lookup = 1;
+  // Unset when the pair has no price (or no price since from).
+  Price price = 2;
+}
+
+message GetPricesResponse {
+  // One result per lookup, in request order.
+  repeated PriceLookupResult results = 1;
 }
