@@ -394,6 +394,7 @@ graph TB
 - Venues answer terminally (filled or rejected). Waiting states (an order resting on an
   exchange, a proposal awaiting signatures) and their persistence arrive with the first venue
   that waits; until then the core refuses a non-terminal answer as "async venue not supported".
+  The first real venue is decided in ADR-012: a Safe-backed wallet account in propose mode.
 - Store: `AutomationStore` (PostgreSQL) — `rules` + `rule_executions` tables
 
 **AnalyticsService** (`internal/service/analytics/`):
@@ -1805,6 +1806,72 @@ somebody chose, since that would report one currency's number under another curr
   — is anything left for a person — is about the credential as a whole); inferring the class on
   the far side from the method (the far side cannot tell a sweep calling `FetchExternalPrices`
   from a person pressing the button).
+
+### ADR-012: A trade reaches a chain through a Safe the user controls; GE never holds a key that spends
+
+- **Status**: accepted; not implemented yet. Today only the paper venue exists (§5.3,
+  AutomationService).
+- **Context**: Rules plan trades, and the paper venue fills them on a manual account. Moving real
+  money on a chain needs a signature, and the obvious way to get one — a seed or private key next
+  to the provider keys in `accounts.data` — is the wrong one. A seed has no scope: it is every
+  address on every network, and its loss is irreversible. Encryption at rest (ADR-005) protects
+  against a database dump, not against a captured process or host, because the master key lives
+  in the same process. And once a model writes trade plans, attacker-controlled text (token
+  names, memos, contract metadata) reaches the planner; a planner that could also sign would
+  turn a prompt injection into a transfer.
+- **Decision**:
+
+  **The execution path is a property of the account, not of the rule.** The venue registry stays
+  keyed by account, as for paper (`execution.Venues`): a `manual` account trades on paper; a
+  `wallet` account whose data names a Safe and `execution = propose` trades through that Safe.
+  A rule does not choose a mode, so the same rule moves from paper to a real account by pointing
+  its config at another account, and one account never executes the same plan two ways.
+  `execution = live` is reserved for the autonomous mode below and is another value of the same
+  field.
+
+  **propose.** GE builds the unsigned Safe transaction, simulates it, and proposes it to the Safe
+  Transaction Service with a delegate key that can propose and cannot execute. A person confirms
+  in the Safe App on a hardware wallet, whose screen is the last check that what is signed is
+  what GE described. GE generates the delegate key per account and stores it sealed in
+  `accounts.data`; the API returns only its address, which the owner adds as a delegate. Because
+  that key moves no funds, propose is allowed on a public instance. The trade waits in
+  `pending_signature`; one waiting proposal per rule, and the rule's next run expires it and
+  proposes again with a fresh quote. Calls are limited to known contracts and operations (an
+  ERC-20 approve for the exact amount and a Uniswap V3 swap with a minimum output and a
+  deadline, batched through MultiSend), never calldata from an external API.
+
+  **live** (not built). Only in self-hosted builds; a separate signer process holds a dedicated
+  operational key, never the user's main seed, sealed at rest and unlocked by hand at start. The
+  key spends only through the Safe Allowance Module, so an on-chain daily cap bounds the loss
+  even if the host is taken. The allowance is refilled only through propose: automation spends a
+  budget and cannot raise it. A public instance ships no signing code at all — holding users'
+  spending keys would be custody.
+
+  **Policy** (per-trade maximum, token allowlist, slippage ceiling) is set on the account and
+  checked by a pure function in the execution core between Plan and Submit, for every venue.
+  In propose the person and the hardware wallet are the final gate; live adds a second,
+  independent copy of the policy inside the signer, because there no person looks.
+
+  **Holdings** of a Safe account change only through wallet sync. The execution keeps the
+  `safeTxHash`, the transaction hash and what the receipt says was swapped; no TRADE row is
+  journaled until the ledger can hold one for a non-manual account, so a confirmed trade and the
+  next sync cannot count the same delta twice.
+- **Consequences**:
+  - ➕ No key in GE can move funds in propose; a compromised instance can at worst propose a
+    transaction the owner refuses
+  - ➕ Paper, propose and live share the planner, the policy and the trade lifecycle; a new mode
+    is a venue, not a copy of the core
+  - ➕ The same rule moves from paper to real money by changing its account
+  - ➖ Every propose trade needs a person; a missed signature skips that period's purchase
+  - ➖ EVM chains with a Safe deployment only; other networks need their own signing path
+  - ➖ A real trade has no row in the transaction journal until the ledger supports it
+- **Rejected**: an `execution_mode` flag on the rule (one account could run the same plan two
+  ways, and paper would become a flag rather than a property of the portfolio); a seed or private
+  key stored in `accounts.data` (unscoped and irreversible, see Context); a key the user pastes as
+  the delegate (one paste away from handing over the Safe owner's key); a DEX aggregator API
+  (arbitrary calldata from a third party, which neither GE nor the hardware wallet can decode
+  into a known operation); policy only in Safe guard contracts (a contract deployment for a mode
+  where a person already signs every transaction).
 
 ---
 
