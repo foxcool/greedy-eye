@@ -13,18 +13,20 @@ import (
 
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/entity/entitytest"
 )
 
 func syncedRow(id, assetID, chain, amount string) *entity.Holding {
-	return &entity.Holding{
+	return entitytest.Holding(entity.Holding{
 		ID:        id,
 		AssetID:   assetID,
 		AccountID: testAccountID,
 		Amount:    decimal.RequireFromString(amount),
 		Decimals:  18,
 		Chain:     chain,
-		Source:    entity.SourceSync,
-	}
+	}, entitytest.HoldingState{
+		Source: entity.SourceSync,
+	})
 }
 
 // scopeHarness is a wallet on eth and arbitrum whose sync returns DAI on eth

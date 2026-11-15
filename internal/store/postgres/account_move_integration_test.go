@@ -12,6 +12,7 @@ import (
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/entity/entitytest"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
@@ -58,10 +59,15 @@ func newMoveFixture(t *testing.T) *moveFixture {
 	require.NoError(t, err)
 
 	newHolding := func(portfolioID string, cents int64) *entity.Holding {
-		h, err := f.store.CreateHolding(ctx, &entity.Holding{
-			AssetID: f.cash.ID, AccountID: f.account.ID, PortfolioID: portfolioID,
-			Amount: decimal.NewFromInt(cents), Decimals: 2, Source: entity.SourceManual,
-		})
+		h, err := f.store.CreateHolding(ctx, entitytest.Holding(entity.Holding{
+			AssetID:     f.cash.ID,
+			AccountID:   f.account.ID,
+			PortfolioID: portfolioID,
+			Amount:      decimal.NewFromInt(cents),
+			Decimals:    2,
+		}, entitytest.HoldingState{
+			Source: entity.SourceManual,
+		}))
 		require.NoError(t, err)
 		return h
 	}

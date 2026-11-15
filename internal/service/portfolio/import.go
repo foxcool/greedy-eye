@@ -144,7 +144,7 @@ func (h *Handler) reconcileAbsentHoldings(
 	// Stable order: map iteration would shuffle the plan between calls.
 	assetIDs := make([]string, 0, len(holdingByAsset))
 	for assetID := range holdingByAsset {
-		if !seenAssets[assetID] && !holdingByAsset[assetID].Excluded {
+		if !seenAssets[assetID] && !holdingByAsset[assetID].Excluded() {
 			assetIDs = append(assetIDs, assetID)
 		}
 	}
@@ -254,14 +254,17 @@ func (h *Handler) importOnePosition(
 	}
 
 	if existing == nil {
-		return result, &positionWrite{result: result, holding: &entity.Holding{
+		created := &entity.Holding{
 			AssetID:   assetID,
 			AccountID: account.ID,
 			Amount:    raw,
 			Decimals:  decimals,
-			Source:    entity.SourceLLMImport,
 			ImportID:  importID,
-		}}
+		}
+		if err := created.StampSource(entity.SourceLLMImport); err != nil {
+			return fail(err)
+		}
+		return result, &positionWrite{result: result, holding: created}
 	}
 	// A copy: the loaded holding stays as stored until the batch commits.
 	// Only the balance is refreshed; source stays creation provenance.

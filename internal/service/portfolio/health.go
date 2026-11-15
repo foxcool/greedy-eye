@@ -342,7 +342,7 @@ func unconfirmedReason(rows []*entity.Holding) *apiv1.HealthReason {
 		oldest time.Time
 	)
 	for _, r := range rows {
-		if !r.Swept() || r.Amount.IsZero() || r.Excluded {
+		if !r.Swept() || r.Amount.IsZero() || r.Excluded() {
 			continue
 		}
 		confirmed := r.UpdatedAt

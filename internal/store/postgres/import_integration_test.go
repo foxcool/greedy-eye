@@ -11,6 +11,7 @@ import (
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/entity/entitytest"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
@@ -90,10 +91,10 @@ func TestImportPositionsCommitsAllOrNone(t *testing.T) {
 
 	account, err := s.CreateAccount(ctx, &entity.Account{UserID: user.ID, Name: "paper", Type: entity.AccountTypeManual})
 	require.NoError(t, err)
-	quoteHolding, err := s.CreateHolding(ctx, &entity.Holding{
+	quoteHolding, err := s.CreateHolding(ctx, entitytest.Holding(entity.Holding{
 		AssetID: quote.ID, AccountID: account.ID,
-		Amount: decimal.NewFromInt(10000), Decimals: 2, Source: entity.SourceManual,
-	})
+		Amount: decimal.NewFromInt(10000), Decimals: 2,
+	}, entitytest.HoldingState{Source: entity.SourceManual}))
 	require.NoError(t, err)
 
 	md := marketdata.NewHandler(assets, slog.New(slog.DiscardHandler))

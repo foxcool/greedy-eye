@@ -388,7 +388,7 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get price for %s: %w", hld.AssetID, err))
 		}
-		if hld.Excluded {
+		if hld.Excluded() {
 			// Count every quarantined holding; add its value only when priced.
 			// Quarantine is its own axis: an excluded holding is out of the total
 			// by decision, not for lack of a quote, so it stays out of coverage.
@@ -773,7 +773,9 @@ func (h *Handler) CreateHolding(ctx context.Context, req *connect.Request[apiv1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("amount must not be negative"))
 	}
 	// Provenance is server-stamped: everything created through this RPC is manual.
-	holding.Source = entity.SourceManual
+	if err := holding.StampSource(entity.SourceManual); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	// The target account (and portfolio, when set) must belong to the caller.
 	if _, err := h.ownedAccount(ctx, holding.AccountID); err != nil {
 		return nil, err
@@ -833,12 +835,12 @@ func (h *Handler) UpdateHolding(ctx context.Context, req *connect.Request[apiv1.
 			return nil, err
 		}
 	}
-	// A person touching the flag owns it from then on, in both directions: their
-	// exclusion is not lifted by the next sync, and their re-inclusion is not
-	// undone by one either. The author is server-stamped rather than sent, the
-	// way holdings.source is — a client cannot claim to be the quarantine.
+	// A person's exclusion is not lifted by the next sync. The author is
+	// server-stamped rather than sent, the way holdings.source is — a client
+	// cannot claim to be the quarantine. A re-inclusion carries no author
+	// (see entity.Holding.SetExcluded), so the column is written either way.
 	if slices.Contains(fields, "excluded") {
-		holding.ExcludedSource = entity.ExcludedByUser
+		holding.SetExcluded(holding.Excluded(), entity.ExcludedByUser)
 		fields = append(fields, "excluded_source")
 	}
 	updated, err := h.store.UpdateHolding(ctx, holding, fields)
@@ -997,7 +999,7 @@ func (h *Handler) ListUnpricedHoldings(ctx context.Context, req *connect.Request
 			// is out of the total on purpose and is disclosed by its own counter,
 			// so mixing it into this worklist would merge two axes the coverage
 			// block keeps apart.
-			if hld.Excluded {
+			if hld.Excluded() {
 				continue
 			}
 			priced, err := h.unitPrice(ctx, hld.AssetID, quoteAssetID)
@@ -2714,13 +2716,11 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 			// did not say who set it; now it does, and only the machine's own
 			// exclusions are lifted here. A person's stands in both directions.
 			switch {
-			case entry.excluded && !existing.Excluded:
-				existing.Excluded = true
-				existing.ExcludedSource = entity.ExcludedByQuarantine
+			case entry.excluded && !existing.Excluded():
+				existing.SetExcluded(true, entity.ExcludedByQuarantine)
 				fields = append(fields, "excluded", "excluded_source")
 			case !entry.excluded && existing.ReleasableBySync():
-				existing.Excluded = false
-				existing.ExcludedSource = entity.ExclusionUnrecorded
+				existing.SetExcluded(false, entity.ExclusionUnrecorded)
 				fields = append(fields, "excluded", "excluded_source")
 				written.holdingsReleased++
 			}
@@ -2734,7 +2734,7 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 			// from the sums; the position still syncs (no frozen holding), it is
 			// just quarantined. An existing holding's excluded flag is left alone
 			// on update so a user's manual override survives resync.
-			_, err := w.CreateHolding(ctx, &entity.Holding{
+			created := &entity.Holding{
 				AssetID:     assetID,
 				AccountID:   plan.accountID,
 				PortfolioID: portfolioID,
@@ -2742,16 +2742,13 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 				Decimals:    decimals,
 				Chain:       key.chain,
 				Liquidity:   key.liquidity,
-				Source:      entity.SourceSync,
 				SyncedAt:    &syncedAt,
-				Excluded:    entry.excluded,
-				ExcludedSource: func() entity.ExclusionSource {
-					if entry.excluded {
-						return entity.ExcludedByQuarantine
-					}
-					return entity.ExclusionUnrecorded
-				}(),
-			})
+			}
+			if err := created.StampSource(entity.SourceSync); err != nil {
+				return writtenSnapshot{}, fmt.Errorf("create holding for asset %s: %w", assetID, err)
+			}
+			created.SetExcluded(entry.excluded, entity.ExcludedByQuarantine)
+			_, err := w.CreateHolding(ctx, created)
 			if err != nil {
 				return writtenSnapshot{}, fmt.Errorf("create holding for asset %s: %w", assetID, err)
 			}
@@ -3063,8 +3060,9 @@ func holdingFromProto(h *apiv1.Holding) (*entity.Holding, error) {
 		AccountID: h.AccountId,
 		Chain:     h.Chain,
 		Liquidity: entity.Liquidity(h.Liquidity),
-		Excluded:  h.Excluded,
 	}
+	// The author is never taken from the wire; UpdateHolding stamps it.
+	result.SetExcluded(h.Excluded, entity.ExclusionUnrecorded)
 	if h.PortfolioId != nil {
 		result.PortfolioID = *h.PortfolioId
 	}
@@ -3080,8 +3078,8 @@ func holdingToProto(h *entity.Holding) *apiv1.Holding {
 		AccountId: h.AccountID,
 		Chain:     h.Chain,
 		Liquidity: string(h.Liquidity),
-		Excluded:  h.Excluded,
-		Source:    provenanceToProto(h.Source),
+		Excluded:  h.Excluded(),
+		Source:    provenanceToProto(h.Source()),
 		CreatedAt: timestamppb.New(h.CreatedAt),
 		UpdatedAt: timestamppb.New(h.UpdatedAt),
 	}

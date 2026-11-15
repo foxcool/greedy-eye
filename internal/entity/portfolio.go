@@ -2,6 +2,7 @@ package entity
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -196,7 +197,7 @@ const (
 // ReleasableBySync reports whether a sync may lift this exclusion once the
 // verdict behind it is gone. Only a person's decision survives.
 func (h *Holding) ReleasableBySync() bool {
-	return h.Excluded && h.ExcludedSource != ExcludedByUser
+	return h.excluded && h.excludedSource != ExcludedByUser
 }
 
 // ProvenanceSource records how a holding or transaction entered the system.
@@ -243,7 +244,7 @@ func (h *Holding) DatesAmounts() bool {
 // sync that adopts an imported row refreshes it while Source stays unchanged.
 // Source = sync still counts because rows synced before SyncedAt carry no stamp.
 func (h *Holding) Swept() bool {
-	return h.Source == SourceSync || h.SyncedAt != nil
+	return h.source == SourceSync || h.SyncedAt != nil
 }
 
 // Liquidity says how soon a position can be spent. It is the axis the runway
@@ -300,17 +301,55 @@ type Holding struct {
 	// (account, asset, chain, liquidity), so staked and liquid ATOM on one chain
 	// are two rows. Empty means the source could not say — never "liquid".
 	Liquidity Liquidity
-	Excluded  bool // If true, holding is explicitly excluded from all portfolio calculations
-	// ExcludedSource says who raised Excluded, so a machine exclusion can be
-	// lifted when its reason is gone while a person's stands. Meaningless while
-	// Excluded is false.
-	ExcludedSource ExclusionSource
-	Source         ProvenanceSource // Creation provenance; immutable after create
-	ImportID       string           // Optional batch id linking rows created by one import
+	// excluded, excludedSource and source are unexported so their rules hold
+	// in code rather than in comments; see SetExcluded and StampSource.
+	excluded       bool
+	excludedSource ExclusionSource
+	source         ProvenanceSource
+	ImportID       string // Optional batch id linking rows created by one import
 	// SyncedAt is when a sync last wrote this row; nil means none ever has. See Swept.
 	SyncedAt  *time.Time
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// ErrSourceImmutable is returned when a holding's provenance would change after
+// it was stamped.
+var ErrSourceImmutable = errors.New("holding source is immutable once stamped")
+
+// Excluded reports whether the holding is explicitly kept out of every
+// portfolio calculation.
+func (h *Holding) Excluded() bool { return h.excluded }
+
+// ExcludedSource says who raised Excluded, so a machine exclusion can be lifted
+// when its reason is gone while a person's stands. Always ExclusionUnrecorded
+// while Excluded is false.
+func (h *Holding) ExcludedSource() ExclusionSource { return h.excludedSource }
+
+// SetExcluded is the only way to change the exclusion pair. Raising the flag
+// records its author; lowering it drops the author, because an author of an
+// exclusion that does not exist means nothing and would otherwise survive to
+// be read as one.
+func (h *Holding) SetExcluded(excluded bool, by ExclusionSource) {
+	h.excluded = excluded
+	if !excluded {
+		by = ExclusionUnrecorded
+	}
+	h.excludedSource = by
+}
+
+// Source is the holding's creation provenance.
+func (h *Holding) Source() ProvenanceSource { return h.source }
+
+// StampSource sets the creation provenance once: before create by the writer
+// that asserts the row, or when a stored row is read back. Stamping the same
+// value again is a no-op; any other value is ErrSourceImmutable.
+func (h *Holding) StampSource(s ProvenanceSource) error {
+	if h.source != "" && h.source != s {
+		return fmt.Errorf("%w: %q -> %q", ErrSourceImmutable, h.source, s)
+	}
+	h.source = s
+	return nil
 }
 
 // TransactionType represents the type of financial transaction.

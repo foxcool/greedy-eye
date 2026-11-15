@@ -1918,8 +1918,8 @@ func createHolding(ctx context.Context, q holdingExecutor, h *entity.Holding) (*
 	if h.AccountID == "" {
 		return nil, fmt.Errorf("%w: account_id is required", store.ErrInvalidArgument)
 	}
-	if !h.Source.Valid() {
-		return nil, fmt.Errorf("%w: unknown provenance source %q", store.ErrInvalidArgument, h.Source)
+	if !h.Source().Valid() {
+		return nil, fmt.Errorf("%w: unknown provenance source %q", store.ErrInvalidArgument, h.Source())
 	}
 	// Unknown ("") is allowed and is the default; a misspelled state is not.
 	// The column is a vocabulary, and a typo in it would read as a fifth
@@ -1957,9 +1957,9 @@ func createHolding(ctx context.Context, q holdingExecutor, h *entity.Holding) (*
 		portfolioID,
 		h.Chain,
 		string(h.Liquidity),
-		h.Excluded,
-		string(h.ExcludedSource),
-		string(h.Source),
+		h.Excluded(),
+		string(h.ExcludedSource()),
+		string(h.Source()),
 		importID,
 		h.SyncedAt,
 	).Scan(&h.CreatedAt, &h.UpdatedAt)
@@ -1971,6 +1971,19 @@ func createHolding(ctx context.Context, q holdingExecutor, h *entity.Holding) (*
 	}
 
 	return h, nil
+}
+
+// holdingRowState holds the columns whose rules entity.Holding enforces, so a
+// read goes through the same methods as every other writer of them.
+type holdingRowState struct {
+	excluded       bool
+	excludedSource entity.ExclusionSource
+	source         entity.ProvenanceSource
+}
+
+func (r holdingRowState) applyTo(h *entity.Holding) error {
+	h.SetExcluded(r.excluded, r.excludedSource)
+	return h.StampSource(r.source)
 }
 
 func (s *PortfolioStore) GetHolding(ctx context.Context, id string) (*entity.Holding, error) {
@@ -1988,6 +2001,7 @@ func (s *PortfolioStore) GetHolding(ctx context.Context, id string) (*entity.Hol
 
 	var h entity.Holding
 	var portfolioID, importID *string
+	var row holdingRowState
 
 	err := s.pool.QueryRow(ctx, query, id).Scan(
 		&h.ID,
@@ -1998,9 +2012,9 @@ func (s *PortfolioStore) GetHolding(ctx context.Context, id string) (*entity.Hol
 		&portfolioID,
 		&h.Chain,
 		&h.Liquidity,
-		&h.Excluded,
-		&h.ExcludedSource,
-		&h.Source,
+		&row.excluded,
+		&row.excludedSource,
+		&row.source,
 		&importID,
 		&h.SyncedAt,
 		&h.CreatedAt,
@@ -2010,6 +2024,9 @@ func (s *PortfolioStore) GetHolding(ctx context.Context, id string) (*entity.Hol
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("%w: holding with ID %s", store.ErrNotFound, id)
 		}
+		return nil, fmt.Errorf("failed to get holding: %w", err)
+	}
+	if err := row.applyTo(&h); err != nil {
 		return nil, fmt.Errorf("failed to get holding: %w", err)
 	}
 
@@ -2062,11 +2079,11 @@ func updateHolding(ctx context.Context, q holdingExecutor, h *entity.Holding, fi
 			argIdx++
 		case "excluded":
 			setClauses = append(setClauses, fmt.Sprintf("excluded = $%d", argIdx))
-			args = append(args, h.Excluded)
+			args = append(args, h.Excluded())
 			argIdx++
 		case "excluded_source":
 			setClauses = append(setClauses, fmt.Sprintf("excluded_source = $%d", argIdx))
-			args = append(args, string(h.ExcludedSource))
+			args = append(args, string(h.ExcludedSource()))
 			argIdx++
 		case "chain":
 			setClauses = append(setClauses, fmt.Sprintf("chain = $%d", argIdx))
@@ -2206,6 +2223,7 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 	for rows.Next() {
 		var h entity.Holding
 		var portfolioID, importID *string
+		var row holdingRowState
 
 		if err := rows.Scan(
 			&h.ID,
@@ -2216,14 +2234,17 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 			&portfolioID,
 			&h.Chain,
 			&h.Liquidity,
-			&h.Excluded,
-			&h.ExcludedSource,
-			&h.Source,
+			&row.excluded,
+			&row.excludedSource,
+			&row.source,
 			&importID,
 			&h.SyncedAt,
 			&h.CreatedAt,
 			&h.UpdatedAt,
 		); err != nil {
+			return nil, "", fmt.Errorf("failed to scan holding: %w", err)
+		}
+		if err := row.applyTo(&h); err != nil {
 			return nil, "", fmt.Errorf("failed to scan holding: %w", err)
 		}
 

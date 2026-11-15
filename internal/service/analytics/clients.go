@@ -49,9 +49,12 @@ func holdingFromProto(h *apiv1.Holding) (*entity.Holding, error) {
 		PortfolioID: h.GetPortfolioId(),
 		Chain:       h.Chain,
 		Liquidity:   entity.Liquidity(h.Liquidity),
-		Excluded:    h.Excluded,
-		Source:      provenanceFromProto(h.Source),
 		UpdatedAt:   h.UpdatedAt.AsTime(),
+	}
+	// The wire does not carry the exclusion author; nothing here reads it.
+	result.SetExcluded(h.Excluded, entity.ExclusionUnrecorded)
+	if err := result.StampSource(provenanceFromProto(h.Source)); err != nil {
+		return nil, fmt.Errorf("holding %s: %w", h.Id, err)
 	}
 	if h.SyncedAt != nil {
 		t := h.SyncedAt.AsTime()

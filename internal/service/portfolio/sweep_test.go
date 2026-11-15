@@ -18,6 +18,7 @@ import (
 
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/entity/entitytest"
 	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/store"
 )
@@ -216,8 +217,8 @@ func TestCalculatePortfolioValue_ReportsAmountAge(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
-		{ID: "h1", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: recent, Source: entity.SourceSync},
-		{ID: "h2", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: old, Source: entity.SourceSync},
+		entitytest.Holding(entity.Holding{ID: "h1", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: recent}, entitytest.HoldingState{Source: entity.SourceSync}),
+		entitytest.Holding(entity.Holding{ID: "h2", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: old}, entitytest.HoldingState{Source: entity.SourceSync}),
 	}, "", nil)
 
 	md := &mockMDClient{}
@@ -250,9 +251,9 @@ func TestCalculatePortfolioValue_AmountAgeIgnoresUnsweptRows(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
-		{ID: "h1", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: recent, Source: entity.SourceSync},
-		{ID: "h2", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: old, Source: entity.SourceManual},
-		{ID: "h3", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: ancient, Source: entity.SourceLLMImport},
+		entitytest.Holding(entity.Holding{ID: "h1", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: recent}, entitytest.HoldingState{Source: entity.SourceSync}),
+		entitytest.Holding(entity.Holding{ID: "h2", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: old}, entitytest.HoldingState{Source: entity.SourceManual}),
+		entitytest.Holding(entity.Holding{ID: "h3", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: ancient}, entitytest.HoldingState{Source: entity.SourceLLMImport}),
 	}, "", nil)
 
 	md := &mockMDClient{}
@@ -284,7 +285,7 @@ func TestCalculatePortfolioValue_AllUnsweptLeavesAmountsUndated(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
-		{ID: "h1", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: old, Source: entity.SourceManual},
+		entitytest.Holding(entity.Holding{ID: "h1", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: old}, entitytest.HoldingState{Source: entity.SourceManual}),
 	}, "", nil)
 
 	md := &mockMDClient{}
@@ -855,8 +856,8 @@ func TestCalculatePortfolioValue_AmountAgeIgnoresZeroedRows(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
-		{ID: "h1", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: recent, Source: entity.SourceSync},
-		{ID: "h2", AssetID: testAssetID, Amount: decimal.Zero, Decimals: 0, UpdatedAt: frozen, Source: entity.SourceSync},
+		entitytest.Holding(entity.Holding{ID: "h1", AssetID: testAssetID, Amount: decimal.NewFromInt(1), Decimals: 0, UpdatedAt: recent}, entitytest.HoldingState{Source: entity.SourceSync}),
+		entitytest.Holding(entity.Holding{ID: "h2", AssetID: testAssetID, Amount: decimal.Zero, Decimals: 0, UpdatedAt: frozen}, entitytest.HoldingState{Source: entity.SourceSync}),
 	}, "", nil)
 
 	md := &mockMDClient{}
@@ -888,7 +889,7 @@ func TestCalculatePortfolioValue_AllZeroedLeavesAmountsUndated(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
-		{ID: "h1", AssetID: testAssetID, Amount: decimal.Zero, Decimals: 0, UpdatedAt: frozen, Source: entity.SourceSync},
+		entitytest.Holding(entity.Holding{ID: "h1", AssetID: testAssetID, Amount: decimal.Zero, Decimals: 0, UpdatedAt: frozen}, entitytest.HoldingState{Source: entity.SourceSync}),
 	}, "", nil)
 
 	md := &mockMDClient{}
