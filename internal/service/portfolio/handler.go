@@ -1116,10 +1116,16 @@ func (h *Handler) CreateAccount(ctx context.Context, req *connect.Request[apiv1.
 	// The INSERT writes any portfolio_id it is given, and sync, import and
 	// paper fills stamp the account's portfolio on every holding they write: an
 	// account born in a foreign portfolio would put its positions in that
-	// owner's totals. UpdateAccount guards a move the same way.
+	// owner's totals. An admin passes ownedPortfolio for any portfolio, so the
+	// portfolio's owner is compared with the account's, not with the caller.
+	// UpdateAccount guards a move the same way.
 	if account.PortfolioID != "" {
-		if _, err := h.ownedPortfolio(ctx, account.PortfolioID); err != nil {
+		p, err := h.ownedPortfolio(ctx, account.PortfolioID)
+		if err != nil {
 			return nil, err
+		}
+		if p.UserID != account.UserID {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio belongs to another user than the account"))
 		}
 	}
 	created, err := h.store.CreateAccount(ctx, account)
@@ -1180,9 +1186,14 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 			return nil, err
 		}
 	}
+	// The account's owner, not the caller, must own the portfolio: see CreateAccount.
 	if slices.Contains(fields, "portfolio_id") && account.PortfolioID != "" && account.PortfolioID != existing.PortfolioID {
-		if _, err := h.ownedPortfolio(ctx, account.PortfolioID); err != nil {
+		p, err := h.ownedPortfolio(ctx, account.PortfolioID)
+		if err != nil {
 			return nil, err
+		}
+		if p.UserID != existing.UserID {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio belongs to another user than the account"))
 		}
 	}
 	if slices.Contains(fields, "data") {

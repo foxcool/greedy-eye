@@ -458,6 +458,38 @@ func TestAccountHealthOfANamedUnreadableAccount(t *testing.T) {
 	assert.Contains(t, err.Error(), "connection reset", "a failed lookup is reported, not read as somebody else's account")
 }
 
+// TestAccountHealthOfAnUnreadableAccountForAnAdmin: an admin diagnosing another
+// user's unreadable account gets it reported with that owner's deferrals, not
+// NotFound for missing from the admin's own list; and the row is looked up once.
+func TestAccountHealthOfAnUnreadableAccountForAnAdmin(t *testing.T) {
+	lost := entity.UnreadableAccount{ID: "lost", UserID: testUserID, Name: "lost key", Type: entity.AccountTypeWallet,
+		Failure: entity.ReadFailureUndecryptable}
+
+	store := newHealthStore()
+	store.On("GetAccount", mock.Anything, "lost").Return(nil,
+		fmt.Errorf("failed to get account: %w", &namedReadError{account: lost, text: "cipher: message authentication failed"}))
+	store.On("ListSyncDeferrals", mock.Anything, testUserID, "lost").Return([]*entity.SyncDeferral(nil), nil)
+
+	resp, err := newHandler(store).GetAccountHealth(ctxWithAdmin(testUserID2),
+		connect.NewRequest(&apiv1.GetAccountHealthRequest{AccountId: proto.String("lost")}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Accounts, 1)
+	assert.Equal(t, "lost key", resp.Msg.Accounts[0].AccountName)
+	assert.Equal(t, apiv1.HealthReasonKind_HEALTH_REASON_KIND_UNREADABLE, resp.Msg.Accounts[0].Reasons[0].Kind)
+	assert.Contains(t, resp.Msg.Accounts[0].Reasons[0].Message, string(entity.ReadFailureUndecryptable))
+	store.AssertNotCalled(t, "ListUnreadableAccounts", mock.Anything, mock.Anything)
+
+	// A store whose error does not name the row: the owner's list is read once.
+	unnamed := newHealthStore()
+	unnamed.On("GetAccount", mock.Anything, "lost").Return(nil, fmt.Errorf("failed to get account: %w", pkgstore.ErrUnreadable))
+	unnamed.On("ListUnreadableAccounts", mock.Anything, testUserID).Return([]*entity.UnreadableAccount{&lost}, nil)
+	unnamed.On("ListSyncDeferrals", mock.Anything, testUserID, "lost").Return([]*entity.SyncDeferral(nil), nil)
+	_, err = newHandler(unnamed).GetAccountHealth(ctxWithUser(testUserID),
+		connect.NewRequest(&apiv1.GetAccountHealthRequest{AccountId: proto.String("lost")}))
+	require.NoError(t, err)
+	unnamed.AssertNumberOfCalls(t, "ListUnreadableAccounts", 1)
+}
+
 // TestUnconfirmedReason: a row the latest snapshot did not write and did not
 // zero keeps its last amount silently. darkfox.eth carried a sold WBTC that
 // way for weeks; the account looked healthy throughout.

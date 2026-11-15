@@ -554,6 +554,54 @@ func TestCreateAccount_ForeignPortfolio(t *testing.T) {
 	s.AssertNotCalled(t, "CreateAccount", mock.Anything, mock.Anything)
 }
 
+// TestCreateAccount_AdminCannotUseAnotherUsersPortfolio: an admin may see any
+// portfolio, but the account it creates is the admin's own, and its holdings are
+// stamped with its portfolio: in another user's portfolio they would count in
+// that user's totals.
+func TestCreateAccount_AdminCannotUseAnotherUsersPortfolio(t *testing.T) {
+	foreign := testPortfolio(testPortfolioID2)
+	foreign.UserID = testUserID2
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID2).Return(foreign, nil)
+
+	portfolioID := testPortfolioID2
+	_, err := newHandler(s).CreateAccount(ctxWithAdmin(testUserID), connect.NewRequest(&apiv1.CreateAccountRequest{
+		Account: &apiv1.Account{Name: "Manual", Type: apiv1.AccountType_ACCOUNT_TYPE_MANUAL, PortfolioId: &portfolioID},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	s.AssertNotCalled(t, "CreateAccount", mock.Anything, mock.Anything)
+}
+
+// TestUpdateAccount_PortfolioMustBelongToTheAccountOwner: an admin may edit
+// another user's account, but moving it into a portfolio its owner does not
+// own — the admin's included — is refused; into the owner's own it is not.
+func TestUpdateAccount_PortfolioMustBelongToTheAccountOwner(t *testing.T) {
+	move := func(portfolioID string) *connect.Request[apiv1.UpdateAccountRequest] {
+		return connect.NewRequest(&apiv1.UpdateAccountRequest{
+			Account:    &apiv1.Account{Id: testAccountID, PortfolioId: &portfolioID},
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"portfolio_id"}},
+		})
+	}
+	adminsOwn := testPortfolio(testPortfolioID2)
+	adminsOwn.UserID = testUserID2
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	s.On("GetPortfolio", mock.Anything, testPortfolioID2).Return(adminsOwn, nil)
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("UpdateAccount", mock.Anything, mock.Anything, []string{"portfolio_id"}).Return(testAccount(testAccountID), nil)
+	h := newHandler(s)
+
+	_, err := h.UpdateAccount(ctxWithAdmin(testUserID2), move(testPortfolioID2))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	s.AssertNotCalled(t, "UpdateAccount", mock.Anything, mock.Anything, mock.Anything)
+
+	_, err = h.UpdateAccount(ctxWithAdmin(testUserID2), move(testPortfolioID))
+	require.NoError(t, err, "the owner's own portfolio stays open to an admin")
+}
+
 func TestCreateAccount_OwnPortfolio(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
