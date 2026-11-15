@@ -4285,3 +4285,142 @@ func TestSyncAccount_TwoContractsOnOneAssetStillAccumulate(t *testing.T) {
 	assert.Equal(t, "3000000", written.String(), "two contracts, two positions, one sum")
 	s.AssertExpectations(t)
 }
+
+// --- Tests: batch import atomicity ---
+
+// stagingStore gives the mock store a transaction that can roll back: writes
+// made through InHoldingsTx are kept only when fn returns nil, writes made on
+// the store directly commit at once. committed is what a reader would see.
+type stagingStore struct {
+	*mockStore
+	committed []string
+}
+
+func (s *stagingStore) CreateHolding(ctx context.Context, h *entity.Holding) (*entity.Holding, error) {
+	created, err := s.mockStore.CreateHolding(ctx, h)
+	if err == nil {
+		s.committed = append(s.committed, "create "+h.AssetID)
+	}
+	return created, err
+}
+
+func (s *stagingStore) UpdateHolding(ctx context.Context, h *entity.Holding, fields []string) (*entity.Holding, error) {
+	updated, err := s.mockStore.UpdateHolding(ctx, h, fields)
+	if err == nil {
+		s.committed = append(s.committed, "update "+h.AssetID)
+	}
+	return updated, err
+}
+
+func (s *stagingStore) InHoldingsTx(_ context.Context, fn func(HoldingWriter) error) error {
+	w := &stagingWriter{mockStore: s.mockStore}
+	if err := fn(w); err != nil {
+		return err
+	}
+	s.committed = append(s.committed, w.staged...)
+	return nil
+}
+
+type stagingWriter struct {
+	*mockStore
+	staged []string
+}
+
+func (w *stagingWriter) CreateHolding(ctx context.Context, h *entity.Holding) (*entity.Holding, error) {
+	created, err := w.mockStore.CreateHolding(ctx, h)
+	if err == nil {
+		w.staged = append(w.staged, "create "+h.AssetID)
+	}
+	return created, err
+}
+
+func (w *stagingWriter) UpdateHolding(ctx context.Context, h *entity.Holding, fields []string) (*entity.Holding, error) {
+	updated, err := w.mockStore.UpdateHolding(ctx, h, fields)
+	if err == nil {
+		w.staged = append(w.staged, "update "+h.AssetID)
+	}
+	return updated, err
+}
+
+// atomicImportFixture: the account holds testAssetID (the quote); the batch
+// debits it and credits a new base asset, the shape of a paper fill.
+func atomicImportFixture(t *testing.T) (*stagingStore, *Handler, []*apiv1.ImportPositionItem) {
+	t.Helper()
+	const baseAssetID = "01926d35-6a1e-7005-8005-00000000000c"
+
+	s := &stagingStore{mockStore: &mockStore{}}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{testHolding(testHoldingID)}, "", nil)
+
+	md := &mockMDClient{}
+	for _, id := range []string{testAssetID, baseAssetID} {
+		md.On("GetAsset", mock.Anything, assetReq(id)).Return(connect.NewResponse(&apiv1.Asset{Id: id}), nil)
+	}
+	quote, base := testAssetID, baseAssetID
+	items := []*apiv1.ImportPositionItem{
+		{AssetId: &quote, Amount: "0.0004"}, // 100000 -> 40000: UPDATE
+		{AssetId: &base, Amount: "3"},       // no holding yet: CREATE
+	}
+	return s, newHandler(s).WithMarketDataClient(md), items
+}
+
+// TestImportPositions_FailedWriteLeavesTheBatchUnapplied: the second item's
+// write fails after the first was written; the first must not stay written,
+// or a paper fill debits the quote without crediting the base.
+func TestImportPositions_FailedWriteLeavesTheBatchUnapplied(t *testing.T) {
+	s, h, items := atomicImportFixture(t)
+	s.On("UpdateHolding", mock.Anything, mock.Anything, mock.Anything).Return(testHolding(testHoldingID), nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(nil, errors.New("disk full"))
+
+	resp, err := h.ImportPositions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportPositionsRequest{
+		AccountId: testAccountID,
+		Positions: items,
+	}))
+	require.NoError(t, err)
+
+	assert.Empty(t, s.committed, "nothing of a failed batch may land")
+	assert.Equal(t, int32(2), resp.Msg.Failed)
+	assert.Zero(t, resp.Msg.Updated)
+	require.NotNil(t, resp.Msg.Items[0].Error, "the debit is reported as not applied")
+	assert.Contains(t, *resp.Msg.Items[0].Error, "not applied")
+	require.NotNil(t, resp.Msg.Items[1].Error)
+	assert.Contains(t, *resp.Msg.Items[1].Error, "disk full")
+}
+
+// TestImportPositions_FailedItemLeavesTheBatchUnapplied: an item that fails its
+// plan sinks the commit too; the plan alone reports failures per item.
+func TestImportPositions_FailedItemLeavesTheBatchUnapplied(t *testing.T) {
+	s, h, items := atomicImportFixture(t)
+	items[1].Amount = "not-a-number"
+
+	resp, err := h.ImportPositions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportPositionsRequest{
+		AccountId: testAccountID,
+		Positions: items,
+	}))
+	require.NoError(t, err)
+
+	assert.Empty(t, s.committed)
+	s.AssertNotCalled(t, "UpdateHolding", mock.Anything, mock.Anything, mock.Anything)
+	assert.Equal(t, int32(2), resp.Msg.Failed)
+	require.NotNil(t, resp.Msg.Items[0].Error)
+	assert.Contains(t, *resp.Msg.Items[0].Error, "not applied")
+}
+
+// TestImportPositions_CleanBatchCommitsEveryItem: the transaction does not
+// cost a clean batch anything.
+func TestImportPositions_CleanBatchCommitsEveryItem(t *testing.T) {
+	s, h, items := atomicImportFixture(t)
+	s.On("UpdateHolding", mock.Anything, mock.Anything, mock.Anything).Return(testHolding(testHoldingID), nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(testHolding(testHoldingID2), nil)
+
+	resp, err := h.ImportPositions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportPositionsRequest{
+		AccountId: testAccountID,
+		Positions: items,
+	}))
+	require.NoError(t, err)
+
+	assert.Len(t, s.committed, 2)
+	assert.Zero(t, resp.Msg.Failed)
+	assert.Equal(t, int32(1), resp.Msg.Updated)
+	assert.Equal(t, int32(1), resp.Msg.Created)
+}
