@@ -505,6 +505,16 @@ without linking them.
   already includes what is locked or staked, so summing them doubles the largest position on a
   staking-heavy account.
 
+- **Safe swap** (`internal/adapter/evmswap/`): builds the one transaction shape the propose mode
+  of ADR-012 sends for signature — a Safe delegate call to MultiSendCallOnly with an ERC-20
+  approve of exactly the input amount and a Uniswap V3 `exactInputSingle` inside the router's
+  `multicall(deadline)`, paying out to the Safe — and decodes only that shape back, so the
+  summary shown next to a proposal is derived from the bytes that will be signed. Quotes every
+  fee tier through QuoterV2 and keeps the best; simulates through the Safe's `simulateAndRevert`
+  with SimulateTxAccessor, because a plain call to MultiSend would approve as MultiSend rather
+  than as the Safe. A failing batch reverts without a reason (MultiSendCallOnly does not pass
+  one on), so a missing input balance is checked first with `balanceOf` and named with both
+  amounts. Base and Base Sepolia only. **Wired to nothing yet**: the Safe venue is its consumer.
 - **Messenger Adapters** (`internal/adapter/telegram/`): Telegram — **client only, wired to
   nothing.** The package compiles and is tested, but no service imports it and there is no
   notification path in the codebase. It is ahead of its consumer, not left over from one:
