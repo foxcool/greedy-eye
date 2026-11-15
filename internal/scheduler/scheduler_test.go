@@ -107,6 +107,11 @@ func TestNew_InvalidPriceFetchCron(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestNew_RescoreCronWithoutRescorer(t *testing.T) {
+	_, err := New(Config{RescoreCron: "0 3 * * *"}, &mockRuleStore{}, &fakeExecutor{}, &fakeFetcher{}, nil, testLogger())
+	assert.ErrorContains(t, err, "no rescorer")
+}
+
 func TestNew_EmptyPriceFetchCron(t *testing.T) {
 	s := newTestScheduler(t, Config{}, &mockRuleStore{}, &fakeExecutor{}, &fakeFetcher{})
 	assert.NotNil(t, s)
