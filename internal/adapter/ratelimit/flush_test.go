@@ -610,3 +610,33 @@ func TestPoisonedRowIsKeptOutOfTheBatch(t *testing.T) {
 	assert.EqualValues(t, 21, storedRequests(store.fakeUsageStore)[fingerprint("key-bad")+"/sweep"])
 	assert.EqualValues(t, 21, storedRequests(store.fakeUsageStore)[fingerprint("key-a")+"/sweep"])
 }
+
+// TestHeldRowBackoffStaysCapped: a row refused for long enough must not wrap
+// its back-off around to "due now".
+func TestHeldRowBackoffStaysCapped(t *testing.T) {
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	store := &writeLogStore{fakeUsageStore: &fakeUsageStore{}, poisoned: "fp-bad"}
+	reg := quotaRegistry(t, 100, func() time.Time { return now }, WithUsageStore(store))
+	k := keyOf(Usage{Provider: "test", Fingerprint: "fp-bad", PeriodStart: now})
+	reg.held[k] = &heldRow{delta: Usage{Provider: "test", Fingerprint: "fp-bad", PeriodStart: now, Requests: 1}, failures: 64}
+
+	reg.flushSeq = 10
+	require.Error(t, reg.retryHeld(context.Background(), []rowKey{k}))
+	assert.Equal(t, 10+heldRetryMax, reg.held[k].retryAt)
+}
+
+// TestHeldRowsDoNotLogOnEveryTick: the row was logged when it was refused; the
+// periodic flush stays quiet while it waits out its back-off.
+func TestHeldRowsDoNotLogOnEveryTick(t *testing.T) {
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	store := &writeLogStore{fakeUsageStore: &fakeUsageStore{}, poisoned: "fp-bad"}
+	reg := quotaRegistry(t, 100, func() time.Time { return now }, WithUsageStore(store))
+	var buf bytes.Buffer
+	reg.log = slog.New(slog.NewTextHandler(&buf, nil))
+	k := keyOf(Usage{Provider: "test", Fingerprint: "fp-bad", PeriodStart: now})
+	reg.held[k] = &heldRow{delta: Usage{Provider: "test", Fingerprint: "fp-bad", PeriodStart: now, Requests: 1}, retryAt: 1 << 30}
+
+	reg.flushOnce(context.Background())
+	assert.Empty(t, buf.String())
+	require.ErrorIs(t, reg.Flush(context.Background()), errRowsHeld, "shutdown still sees it")
+}

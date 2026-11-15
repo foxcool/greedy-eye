@@ -269,6 +269,9 @@ type Registry struct {
 	// flushSeq counts flushes, the clock of held rows' back-off: counted in
 	// flushes, not seconds, so tests need no real time.
 	flushSeq int
+	// heldInflight is the held row whose retry is being written. It stays in
+	// held (the loss line names it once) and is only counted as unsure.
+	heldInflight *Usage
 	// inflight is what the running write took and has not settled. A write
 	// can hang past Stop's deadline, and the loss line must still name it.
 	inflight []Usage
@@ -427,6 +430,9 @@ func (r *Registry) logLost() {
 	for _, u := range r.inflight {
 		inflight += u.Requests
 	}
+	if r.heldInflight != nil {
+		inflight += r.heldInflight.Requests
+	}
 	r.mu.Unlock()
 
 	var requests, backoffs int64
@@ -487,7 +493,7 @@ func (r *Registry) flushLoop(ctx context.Context, stop <-chan struct{}) {
 func (r *Registry) flushOnce(ctx context.Context) {
 	flushCtx, cancel := context.WithTimeout(ctx, flushInterval)
 	defer cancel()
-	if err := r.Flush(flushCtx); err != nil {
+	if err := r.Flush(flushCtx); err != nil && !errors.Is(err, errRowsHeld) {
 		r.log.Error("Failed to persist provider usage, will retry", slog.Any("error", err))
 	}
 }
@@ -553,7 +559,7 @@ func (r *Registry) Flush(ctx context.Context) error {
 		n := len(r.held)
 		r.mu.Unlock()
 		if n > 0 {
-			err = fmt.Errorf("%d usage rows held back after the store refused them", n)
+			err = fmt.Errorf("%w: %d rows", errRowsHeld, n)
 		}
 	}
 	return err
@@ -571,6 +577,11 @@ func (r *Registry) writeBatch(ctx context.Context, deltas []Usage) error {
 	}
 	return r.isolate(ctx, deltas, err)
 }
+
+// errRowsHeld is what Flush reports while rows are held and nothing else went
+// wrong. The held rows were logged when they were refused, so the periodic
+// flush does not repeat it every tick; Stop still sees it.
+var errRowsHeld = errors.New("usage rows held back after the store refused them")
 
 // heldRow is a row the store refused while others landed beside it. It is
 // retried on its own with back-off instead of being dropped: an under-reported
@@ -597,16 +608,25 @@ func (r *Registry) retryHeld(ctx context.Context, due []rowKey) error {
 		r.mu.Lock()
 		h := r.held[k]
 		d := h.delta
+		r.heldInflight = &d
 		r.mu.Unlock()
 
 		err := r.usage.AddUsage(ctx, []Usage{d})
 		r.mu.Lock()
+		r.heldInflight = nil
 		switch {
 		case err == nil:
 			delete(r.held, k)
-		case ctx.Err() == nil:
+		case ctx.Err() != nil:
+			// Cut off, not refused: the row is not blamed again.
+			errs = append(errs, err)
+		default:
 			h.failures++
-			h.retryAt = r.flushSeq + min(1<<(h.failures-1), heldRetryMax)
+			// Cap before shifting: a long-lived poison must not overflow it.
+			h.retryAt = r.flushSeq + heldRetryMax
+			if h.failures <= 5 {
+				h.retryAt = r.flushSeq + min(1<<(h.failures-1), heldRetryMax)
+			}
 			errs = append(errs, err)
 		}
 		r.mu.Unlock()
