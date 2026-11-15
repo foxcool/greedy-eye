@@ -4016,3 +4016,31 @@ func TestFindOrCreateAsset_ProviderNamespaceRefNeedsAuthority(t *testing.T) {
 		require.NoError(t, err)
 	})
 }
+
+// spentResolver confirms contracts but reports its credential as spent, the
+// way a CoinGecko key does once its share of the plan is gone.
+type spentResolver struct{ fakeContractResolver }
+
+func (s *spentResolver) Unusable() (string, bool) { return "plan spent", true }
+
+// TestContractResolver_SpentFirstKeyHandsTheLookupToTheNext: with two CoinGecko
+// accounts, only the first key used to confirm contracts, so a spent first key
+// failed every confirmation while the second had budget.
+func TestContractResolver_SpentFirstKeyHandsTheLookupToTheNext(t *testing.T) {
+	spent := &spentResolver{}
+	fresh := &fakeContractResolver{}
+	h := newHandler(&mockStore{}).WithProviderSource(keySource{
+		coingeckoProvider: {spent, fresh},
+	})
+
+	r, err := h.contractResolver(context.Background())
+	require.NoError(t, err)
+	assert.Same(t, fresh, r, "the usable key confirms")
+
+	h = newHandler(&mockStore{}).WithProviderSource(keySource{
+		coingeckoProvider: {spent},
+	})
+	r, err = h.contractResolver(context.Background())
+	require.NoError(t, err)
+	assert.Same(t, spent, r, "with no usable key the last one answers, so its refusal is what surfaces")
+}
