@@ -52,6 +52,13 @@ func (s *failingWriteStore) UpdateHolding(ctx context.Context, h *entity.Holding
 	return s.PortfolioStore.UpdateHolding(ctx, h, fields)
 }
 
+func (s *failingWriteStore) DeleteHolding(ctx context.Context, id string) error {
+	if err := s.next(); err != nil {
+		return err
+	}
+	return s.PortfolioStore.DeleteHolding(ctx, id)
+}
+
 func (s *failingWriteStore) InHoldingsTx(ctx context.Context, fn func(portfolio.HoldingWriter) error) error {
 	return s.PortfolioStore.InHoldingsTx(ctx, func(w portfolio.HoldingWriter) error {
 		return fn(failingWriter{HoldingWriter: w, s: s})
@@ -75,6 +82,13 @@ func (w failingWriter) UpdateHolding(ctx context.Context, h *entity.Holding, fie
 		return nil, err
 	}
 	return w.HoldingWriter.UpdateHolding(ctx, h, fields)
+}
+
+func (w failingWriter) DeleteHolding(ctx context.Context, id string) error {
+	if err := w.s.next(); err != nil {
+		return err
+	}
+	return w.HoldingWriter.DeleteHolding(ctx, id)
 }
 
 // TestImportPositionsCommitsAllOrNone: a paper fill is one batch that debits
@@ -135,6 +149,72 @@ func TestImportPositionsCommitsAllOrNone(t *testing.T) {
 		resp := batch(s)
 
 		assert.Zero(t, resp.Failed, "%v", resp.Items)
+		assert.Equal(t, map[string]string{quote.ID: "4000", base.ID: "300"}, holdings())
+	})
+}
+
+// TestImportPositionsFullSnapshotDeletesInTheBatch: a full snapshot closes the
+// holdings it does not mention in the transaction of its upserts. When the
+// close fails after the upserts were written, the account reads as it did
+// before the batch: no refreshed balance next to a position that stayed open.
+func TestImportPositionsFullSnapshotDeletesInTheBatch(t *testing.T) {
+	pool := getTestPool(t)
+	ctx := context.Background()
+	s := NewPortfolioStore(pool)
+	assets := NewMarketDataStore(pool)
+	user := createTestUser(t, NewUserStore(pool))
+	quote := createTestAsset(t, assets, "Snapshot Quote")
+	base := createTestAsset(t, assets, "Snapshot Base")
+	stale := createTestAsset(t, assets, "Snapshot Stale")
+
+	account, err := s.CreateAccount(ctx, &entity.Account{UserID: user.ID, Name: "snapshot", Type: entity.AccountTypeManual})
+	require.NoError(t, err)
+	for _, assetID := range []string{quote.ID, stale.ID} {
+		_, err := s.CreateHolding(ctx, entitytest.Holding(entity.Holding{
+			AssetID: assetID, AccountID: account.ID,
+			Amount: decimal.NewFromInt(10000), Decimals: 2,
+		}, entitytest.HoldingState{Source: entity.SourceManual}))
+		require.NoError(t, err)
+	}
+
+	md := marketdata.NewHandler(assets, slog.New(slog.DiscardHandler))
+	snapshot := func(st portfolio.Store) *apiv1.ImportPositionsResponse {
+		decimals := uint32(2)
+		resp, err := portfolio.NewHandler(st, slog.New(slog.DiscardHandler)).WithMarketDataClient(md).
+			ImportPositions(middleware.ContextWithUser(ctx, user), connect.NewRequest(&apiv1.ImportPositionsRequest{
+				AccountId:    account.ID,
+				FullSnapshot: true, // stale is absent: closed on commit
+				Positions: []*apiv1.ImportPositionItem{
+					{AssetId: &quote.ID, Amount: "40", Decimals: &decimals}, // update
+					{AssetId: &base.ID, Amount: "3", Decimals: &decimals},   // create
+				},
+			}))
+		require.NoError(t, err)
+		return resp.Msg
+	}
+	holdings := func() map[string]string {
+		rows, _, err := s.ListHoldings(ctx, portfolio.ListHoldingsOpts{AccountID: account.ID, PageSize: 100})
+		require.NoError(t, err)
+		out := map[string]string{}
+		for _, h := range rows {
+			out[h.AssetID] = h.Amount.String()
+		}
+		return out
+	}
+
+	t.Run("the delete fails: the upserts are unwritten", func(t *testing.T) {
+		resp := snapshot(&failingWriteStore{PortfolioStore: s, failOn: 3})
+
+		assert.Equal(t, int32(3), resp.Failed, "%v", resp.Items)
+		assert.Zero(t, resp.Deleted)
+		assert.Equal(t, map[string]string{quote.ID: "10000", stale.ID: "10000"}, holdings())
+	})
+
+	t.Run("a clean snapshot lands whole", func(t *testing.T) {
+		resp := snapshot(s)
+
+		assert.Zero(t, resp.Failed, "%v", resp.Items)
+		assert.Equal(t, int32(1), resp.Deleted)
 		assert.Equal(t, map[string]string{quote.ID: "4000", base.ID: "300"}, holdings())
 	})
 }
