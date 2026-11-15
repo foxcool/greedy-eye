@@ -317,7 +317,7 @@ the service down.
 
 Without an `api_key`, `tier` and these fields are ignored. Every key-less client
 of a provider draws on one per-IP budget for the whole deployment, so only the
-operator sets it (`defaultLimits` and its overrides); a user's account must not.
+operator sets it (`defaultLimits`); a user's account must not.
 
 Several accounts carrying the same key each keep their own `tier` and fields,
 and all of them hold at once: the slowest rate paces the key and every `quota`
