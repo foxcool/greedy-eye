@@ -115,7 +115,7 @@ func run() error {
 	// No operator overrides from configuration: a custom budget belongs to the
 	// account that owns the key (see accountLimit). Built-in plans live in
 	// internal/adapter/ratelimit.
-	rateLimits := ratelimit.NewRegistry(nil,
+	rateLimits := ratelimit.NewRegistry(
 		ratelimit.WithUsageStore(postgres.NewProviderUsageStore(pool)))
 	if err := rateLimits.Start(context.Background()); err != nil {
 		return fmt.Errorf("restore provider usage: %w", err)

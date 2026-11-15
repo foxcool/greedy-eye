@@ -247,10 +247,9 @@ const flushInterval = 30 * time.Second
 // Registry hands out transports that share a token bucket per credential.
 // The zero value is not usable; call NewRegistry.
 type Registry struct {
-	overrides map[string]Limit
-	usage     UsageStore
-	now       func() time.Time
-	log       *slog.Logger
+	usage UsageStore
+	now   func() time.Time
+	log   *slog.Logger
 	// flushEvery is flushInterval; tests shorten it to catch a flush in flight.
 	flushEvery time.Duration
 
@@ -296,12 +295,10 @@ func WithClock(now func() time.Time) Option {
 	return func(r *Registry) { r.now = now }
 }
 
-// NewRegistry creates a registry. Overrides are keyed by provider slug and
-// replace the built-in limit for that provider on every tier, so operators can
-// dial a provider down (or up, on a paid plan) without a rebuild.
-func NewRegistry(overrides map[string]Limit, opts ...Option) *Registry {
+// NewRegistry creates a registry. A custom budget belongs to the account that
+// owns the key, so it travels on the Credential, not on the registry.
+func NewRegistry(opts ...Option) *Registry {
 	r := &Registry{
-		overrides:  overrides,
 		now:        time.Now,
 		log:        slog.Default(),
 		flushEvery: flushInterval,
@@ -870,26 +867,18 @@ func (r *Registry) bucket(c Credential) *bucket {
 	return b
 }
 
-// limitFor resolves the limit for a credential: the plan tier decides, and an
-// operator override adjusts it field by field.
+// limitFor resolves the limit for a credential: the plan tier decides, and the
+// credential's own Limit adjusts it field by field.
 //
 // Without a key the credential's own Tier and Limit are ignored. Every
 // key-less client of a provider shares one per-IP bucket, user accounts
 // included, so honouring an account's numbers there would let any user raise
-// or lower the budget the whole deployment runs on. Only the operator decides
-// it, through the built-in table and overrides.
+// or lower the budget the whole deployment runs on. Only the built-in table
+// decides it.
 //
-// Field by field, not wholesale, because the two dimensions belong to different
-// people. Rate is a property of this deployment — providers meter it per IP as
-// much as per key, and the process has one address, so throttling a provider
-// after an enforcement notice must reach every credential including a user's
-// own. Volume is that key's plan and that key's money, and an operator dialling
-// their own rate down has no business touching it.
-//
-// Returning the override wholesale did exactly that: the config surface carries
-// no quota, so its zero silently disabled volume accounting for the whole
-// provider — the protection this package exists for. An unset field now means
-// "leave the plan's value alone"; only a value an operator actually wrote wins.
+// Field by field, not wholesale: an unset field means "leave the plan's value
+// alone". Returning a Limit wholesale once let a surface carrying no quota
+// disable volume accounting, the protection this package exists for.
 func (r *Registry) limitFor(c Credential) Limit {
 	limit := fallbackLimit
 	if l, ok := defaultLimits[c.Provider]; ok {
@@ -901,22 +890,17 @@ func (r *Registry) limitFor(c Credential) Limit {
 		}
 	}
 
-	if o, ok := r.overrides[c.Provider]; ok {
-		applyOverride(&limit, o)
-	}
 	if c.APIKey == "" {
 		return limit
 	}
-	// The credential's own override wins last: it is the most specific thing
+	// The credential's own Limit wins last: it is the most specific thing
 	// anyone said about this key.
 	applyOverride(&limit, c.Limit)
 	return limit
 }
 
-// applyOverride merges the fields an operator actually wrote. A zero field is
-// silence, not an instruction — returning an override wholesale is what once
-// let a surface carrying no quota disable volume accounting for a whole
-// provider, which is the protection this package exists for.
+// applyOverride merges the fields a Limit actually sets. A zero field is
+// silence, not an instruction (see limitFor).
 func applyOverride(limit *Limit, o Limit) {
 	if o.RPS > 0 {
 		limit.RPS = o.RPS

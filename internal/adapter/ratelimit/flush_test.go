@@ -72,7 +72,7 @@ func TestFailedFlushIsRetried(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	store := &failingUsageStore{fakeUsageStore: &fakeUsageStore{}, failing: true}
-	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
+	reg := quotaRegistry(t, 100, func() time.Time { return now }, WithUsageStore(store))
 	a := reg.bucket(Credential{Provider: "test", APIKey: "key-a"})
 	b := reg.bucket(Credential{Provider: "test", APIKey: "key-b"})
 
@@ -117,7 +117,7 @@ func TestFailedFlushIsRetried(t *testing.T) {
 func TestFlushFailureIsLogged(t *testing.T) {
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	store := &failingUsageStore{fakeUsageStore: &fakeUsageStore{}, failing: true}
-	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
+	reg := quotaRegistry(t, 100, func() time.Time { return now }, WithUsageStore(store))
 	var buf bytes.Buffer
 	reg.log = slog.New(slog.NewTextHandler(&buf, nil))
 
@@ -135,7 +135,7 @@ func TestFlushRetryUnderConcurrentSpend(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	store := &failingUsageStore{fakeUsageStore: &fakeUsageStore{}}
-	reg := quotaRegistry(1_000_000, func() time.Time { return now }, WithUsageStore(store))
+	reg := quotaRegistry(t, 1_000_000, func() time.Time { return now }, WithUsageStore(store))
 	b := reg.bucket(Credential{Provider: "test", APIKey: "key"})
 
 	const workers, perWorker = 4, 2000
@@ -194,7 +194,7 @@ func TestPoisonedRowDoesNotBlockTheRest(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	store := &poisonedStore{fakeUsageStore: &fakeUsageStore{}, poisoned: fingerprint("key-bad")}
-	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
+	reg := quotaRegistry(t, 100, func() time.Time { return now }, WithUsageStore(store))
 	var buf bytes.Buffer
 	reg.log = slog.New(slog.NewTextHandler(&buf, nil))
 	bad := reg.bucket(Credential{Provider: "test", APIKey: "key-bad"})
@@ -231,7 +231,7 @@ func TestPoisonedRowDoesNotBlockTheRest(t *testing.T) {
 func TestStoreOutageIsNotBlamedOnRows(t *testing.T) {
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	store := &failingUsageStore{fakeUsageStore: &fakeUsageStore{}, failing: true}
-	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
+	reg := quotaRegistry(t, 100, func() time.Time { return now }, WithUsageStore(store))
 	var buf bytes.Buffer
 	reg.log = slog.New(slog.NewTextHandler(&buf, nil))
 	for _, k := range []string{"a", "b", "c"} {
@@ -261,7 +261,7 @@ func (f *flakyStore) AddUsage(ctx context.Context, deltas []Usage) error {
 func TestStopRetriesTheFinalFlush(t *testing.T) {
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	store := &flakyStore{fakeUsageStore: &fakeUsageStore{}, failures: 2}
-	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
+	reg := quotaRegistry(t, 100, func() time.Time { return now }, WithUsageStore(store))
 	require.NoError(t, reg.Start(context.Background()))
 	for range 3 {
 		require.NoError(t, reg.bucket(Credential{Provider: "test", APIKey: "key"}).
@@ -279,7 +279,7 @@ func TestStopRetriesTheFinalFlush(t *testing.T) {
 func TestStopLogsWhatItCouldNotWrite(t *testing.T) {
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	store := &failingUsageStore{fakeUsageStore: &fakeUsageStore{}, failing: true}
-	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
+	reg := quotaRegistry(t, 100, func() time.Time { return now }, WithUsageStore(store))
 	var buf bytes.Buffer
 	reg.log = slog.New(slog.NewTextHandler(&buf, nil))
 	require.NoError(t, reg.Start(context.Background()))
@@ -334,7 +334,7 @@ func TestStopDoesNotWaitOutAHungWrite(t *testing.T) {
 	var released sync.Once
 	release := func() { released.Do(func() { close(store.release) }) }
 	defer release()
-	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
+	reg := quotaRegistry(t, 100, func() time.Time { return now }, WithUsageStore(store))
 	reg.flushEvery = time.Millisecond
 	var buf syncBuffer
 	reg.log = slog.New(slog.NewTextHandler(&buf, nil))
@@ -398,7 +398,7 @@ func (r *racingStore) AddUsage(ctx context.Context, deltas []Usage) error {
 func TestStopWritesSpendReservedDuringTheFinalWrite(t *testing.T) {
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	store := &racingStore{fakeUsageStore: &fakeUsageStore{}}
-	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
+	reg := quotaRegistry(t, 100, func() time.Time { return now }, WithUsageStore(store))
 	require.NoError(t, reg.Start(context.Background()))
 	b := reg.bucket(Credential{Provider: "test", APIKey: "key"})
 	for range 3 {
@@ -421,7 +421,7 @@ func TestStopWritesSpendReservedDuringTheFinalWrite(t *testing.T) {
 func TestStopLogsSpendThatNeverStopsArriving(t *testing.T) {
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	store := &racingStore{fakeUsageStore: &fakeUsageStore{}, every: true}
-	reg := quotaRegistry(1_000_000, func() time.Time { return now }, WithUsageStore(store))
+	reg := quotaRegistry(t, 1_000_000, func() time.Time { return now }, WithUsageStore(store))
 	var buf bytes.Buffer
 	reg.log = slog.New(slog.NewTextHandler(&buf, nil))
 	require.NoError(t, reg.Start(context.Background()))
@@ -471,7 +471,7 @@ func TestShutdownDeadlineIsNotBlamedOnARow(t *testing.T) {
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	start := periodStart(now, QuotaMonth)
 	store := &rowStore{fakeUsageStore: &fakeUsageStore{}, rejected: "fp-rejected", slow: "fp-slow"}
-	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
+	reg := quotaRegistry(t, 100, func() time.Time { return now }, WithUsageStore(store))
 	var buf bytes.Buffer
 	reg.log = slog.New(slog.NewTextHandler(&buf, nil))
 	require.NoError(t, reg.Start(context.Background()))
@@ -568,7 +568,7 @@ func TestPoisonedRowIsKeptOutOfTheBatch(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	store := &writeLogStore{fakeUsageStore: &fakeUsageStore{}, poisoned: fingerprint("key-bad")}
-	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
+	reg := quotaRegistry(t, 100, func() time.Time { return now }, WithUsageStore(store))
 	keys := []string{"key-a", "key-b", "key-c", "key-bad"}
 	spendAll := func() {
 		for _, k := range keys {

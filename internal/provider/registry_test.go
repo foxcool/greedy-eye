@@ -16,7 +16,7 @@ import (
 )
 
 func testRegistry() *Registry {
-	return New(ratelimit.NewRegistry(nil))
+	return New(ratelimit.NewRegistry())
 }
 
 // registeredSlugs is every slug this build can construct a client for.
