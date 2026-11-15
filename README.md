@@ -166,9 +166,14 @@ In progress / next:
 - 📋 Metrics and monitoring beyond the health check
 
 Beyond the feature work above, calling this beta would also need a documented
-upgrade path for someone else's instance (the schema is applied declaratively,
-with no versioned migrations), end-to-end tests in CI, and metrics. Known risks
-and debt: [docs/architecture.md](docs/architecture.md) §11.
+upgrade path for someone else's instance, end-to-end tests in CI, and metrics.
+The schema has an ordered migration catalogue: `schema.hcl` is the authoring
+surface (`make migrate-diff name=...` turns an edit into a file in `migrations/`),
+`make migrate-apply` runs what a database has not run, `make migrate-status`
+shows executed vs pending and `make migrate-drift` what a live database has that
+`schema.hcl` does not. An instance created before the catalogue must be baselined
+once (`make migrate-baseline`). Known risks and debt:
+[docs/architecture.md](docs/architecture.md) §11.
 
 ---
 

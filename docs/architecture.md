@@ -38,6 +38,23 @@ different audiences:
 - Glossary of domain terms
 - Target audience: All stakeholders
 
+**Architecture decisions (§9)**
+
+| ADR | Title | Status |
+|---|---|---|
+| ADR-001 | Modular Monolith vs Microservices | accepted |
+| ADR-002 | Connect-RPC over h2c instead of gRPC-Gateway | accepted (supersedes the original gRPC + gRPC-Gateway decision) |
+| ADR-003 | 3-service domain API instead of 8 services | accepted |
+| ADR-004 | User management delegated to external service (psina) | accepted |
+| ADR-005 | Application-level encryption for accounts.data | accepted |
+| ADR-006 | Composite asset identity (symbol, market, type) | accepted |
+| ADR-007 | The scam verdict belongs to the asset; exclusion is derived | accepted |
+| ADR-008 | A valuation reports what it could not price | accepted |
+| ADR-009 | A quote with no market behind it is not a valuation | accepted |
+| ADR-010 | The base of a pair and the currency of a total are different things | accepted |
+| ADR-011 | Provider spend is split into background and interactive classes, with a reserve for people | accepted |
+| ADR-012 | A trade reaches a chain through a Safe the user controls; GE never holds a key that spends | accepted; not implemented yet |
+
 **Related documents**
 - [providers.md](providers.md) — which external providers can be connected, what
   each needs, and what the account fields mean
@@ -761,7 +778,7 @@ undo the binding (`DeleteAssetExternalRef`).
   stands in only for a slug no account serves: queued behind an account it would bypass that
   account's own limit. `GetAccountHealth` reports a source as one entry, `UNUSABLE` only when
   every key is.
-- **An account can be stood down without being deleted** (`disabled_at`, personal-2cw0). Until
+- **An account can be stood down without being deleted** (`disabled_at`). Until
   then the only way to stop a provider was `DeleteAccount`, which takes the write-only credential
   with it. A disabled account keeps its key and holdings, but nothing uses it: the resolver drops
   it from every candidate list as it is read (so a disabled scoped account no longer claims its slug
@@ -770,7 +787,7 @@ undo the binding (`DeleteAssetExternalRef`).
   `amounts_as_of` — the total may not claim a freshness it no longer has. `GetAccountHealth` reports
   it `DISABLED`, ranked below OK so an owner's choice does not read as a fault. The price source
   it leaves with no enabled account is a different matter: what only it priced goes unpriced, so
-  `sources_state` counts a `DISABLED` source as `DEGRADED` (personal-ol7l). Manual accounts
+  `sources_state` counts a `DISABLED` source as `DEGRADED`. Manual accounts
   refuse the flag: nothing external reads them. The flag is the account's own: broker accounts
   discovered from one token carry it independently, so disabling the token-holding account stops
   discovery and the fan-out skips disabled children, but enabled children keep syncing with their
@@ -1104,18 +1121,18 @@ Cron / API Client → AutomationService/ExecuteRule
   sync or an admin — including the sync a non-admin starts on their own account.
   Adding an asset row is gated the same way: `CreateAsset` is admin-only,
   and `FindOrCreateAsset` creates (or, in a dry run, plans to create) only for the in-process sync
-  or an admin, so anyone else's manual import resolves existing rows only (`personal-a483`).
+  or an admin, so anyone else's manual import resolves existing rows only (rationale at `marketdata.mayCreateAsset`).
   The heuristic verdict on an existing row is re-scored and persisted only by the in-process
   sync (never in a dry run); everyone else, admins included, gets the stored verdict back, and
   the provider flags that feed the score (`provider_spam`, `contract_verified`) are refused from
   any caller but the sync — a caller who heard nothing from a provider would otherwise judge the
-  row for every holder (`personal-ztoc`; rationale at `marketdata.mayReportProviderFlags`).
+  row for every holder (rationale at `marketdata.mayReportProviderFlags`).
   Spending the shared provider plan is gated the same way: `FetchExternalPrices` answers only the
   in-process price sweep, a sync pricing what it touched, and an admin; `ResetSweepSchedule` only
-  an admin. A user's own prices come from syncing (`personal-nywa`; rationale at
+  an admin. A user's own prices come from syncing (rationale at
   `marketdata.mayFetchPrices`).
   The check lives in the handler (`requireAdmin`); the FE hiding a
-  control is presentation, not enforcement. Per-asset RBAC is `personal-rme`.
+  control is presentation, not enforcement. Per-asset RBAC is not built (Debt 5, §11.2).
 
 **Data Protection:**
 - **Encryption at Rest**: the credentials in `accounts.data` are encrypted with AES-256-GCM +
@@ -1290,7 +1307,7 @@ somebody chose, since that would report one currency's number under another curr
     the cap a permanently dead account costs one of 48 daily slots — 2%, the price of finding out
     it came back. The first successful sync clears the deferral outright.
   - The cap is the provider budget: one heavy multi-chain sync costs far more than one price call,
-    and both sweeps draw on the same per-credential allowance (ADR: `personal-a3v`). The job runs
+    and both sweeps draw on the same per-credential allowance (ADR-011). The job runs
     in the background rate-limit class, so it yields the tail of a metered plan to whoever presses
     Sync
   - Each account syncs **under its own owner's identity**. Ownership is attributed, not bypassed:
@@ -1310,9 +1327,8 @@ somebody chose, since that would report one currency's number under another curr
   - **The unit of the run line is the account, and the reason names the part.** The sweep queues,
     budgets and stands down accounts, so an account is the only thing the line can promise
     anything about — but the thing that goes dark alone is a *chain*: Hydration answered 404 for
-    sixteen days inside an account whose other four chains kept it looking fresh
-    (`personal-isy9`). So a chain is never a second unit; it is named in the reason, and a partial
-    note carries **every** complaint rather than the first, because one dead chain out of five and
+    sixteen days inside an account whose other four chains kept it looking fresh. So a chain is never a second unit; it is named in the reason, and a
+    partial note carries **every** complaint rather than the first, because one dead chain out of five and
     two dead chains out of five must not read alike. One vocabulary for every named account —
     `state` (`failed` / `no_fresher` / `partial` / `not_reached` / `standing_down`), `reasons`, and
     `until` where there is a deadline — emitted from `LogSweepReport` alone, so the two halves of a
@@ -1334,7 +1350,7 @@ somebody chose, since that would report one currency's number under another curr
     Deliberately not a failure of one *item* on a live chain — a token with no decimals would
     otherwise make every junk airdrop read as an outage — and deliberately not a schedule: nothing
     stands a chain down, because the account is what the sweep queues
-- The price sweep is budgeted, not exhaustive: it asks each source only for assets whose next attempt is due (`price_fetch_attempts`), oldest first, capped by the share of the credential's remaining plan allowance that one interval affords. Naming `asset_ids` on the RPC makes it a deliberate reconciliation and bypasses both the freshness check and the per-sweep share — when a person is waiting. Background work that names assets is not that: the balance sweep pricing what each sync touched only **narrows** the sweep's own selection to those assets (due only, within the share, never from a provider that reports itself unusable), and what it leaves is counted per source in `FetchExternalPricesResponse.deferred_assets` for the next sweep. Before this the post-sync path spent 77% of prod's CoinGecko plan in October 2026, outside the planner and out of the very remainder the planned sweep is sized from (`personal-ozdu`). Which of the two a call is — and who is spending — travels in the context through `internal/spend`, read by the services and by the rate limiter alike; it lives outside `internal/adapter` because service code imports no adapter
+- The price sweep is budgeted, not exhaustive: it asks each source only for assets whose next attempt is due (`price_fetch_attempts`), oldest first, capped by the share of the credential's remaining plan allowance that one interval affords. Naming `asset_ids` on the RPC makes it a deliberate reconciliation and bypasses both the freshness check and the per-sweep share — when a person is waiting. Background work that names assets is not that: the balance sweep pricing what each sync touched only **narrows** the sweep's own selection to those assets (due only, within the share, never from a provider that reports itself unusable), and what it leaves is counted per source in `FetchExternalPricesResponse.deferred_assets` for the next sweep. Before this the post-sync path spent 77% of prod's CoinGecko plan in October 2026, outside the planner and out of the very remainder the planned sweep is sized from. Which of the two a call is — and who is spending — travels in the context through `internal/spend`, read by the services and by the rate limiter alike; it lives outside `internal/adapter` because service code imports no adapter
 - Active rule schedules are fully reloaded every minute — rule CRUD needs no hooks, mutations take effect within a minute
 - Missed fires during downtime are **skipped, never caught up**: executing a stale trade plan is worse than skipping it
 - Rule jobs call `ExecuteRule` in-process on behalf of the rule owner, so executions are recorded identically to the RPC path
@@ -1451,7 +1467,7 @@ somebody chose, since that would report one currency's number under another curr
   single static key without HKDF (swappable ciphertexts, shared nonce space)
 
 
-  **Second layout: identity in the open, secrets sealed** (added for `personal-gskb`).
+  **Second layout: identity in the open, secrets sealed.**
   The whole-map seal made `accounts.data` opaque to SQL, and that turned out to cost more than
   raw-SQL convenience: no index could hold an invariant over what an account IS. Broker discovery
   decides what to create by what it failed to find, so two overlapping syncs of one token each
@@ -1526,8 +1542,8 @@ somebody chose, since that would report one currency's number under another curr
   What is **not** built: there is no link RPC and nothing writes `origin=manual` or `origin=seed`;
   the constants exist in `entity` and no code path produces them. The source that was expected to
   force the ladder has meanwhile landed without it (T-Invest, 2026-08-10), so the gap is now
-  carried by a live provider rather than anticipated (`personal-avm`)
-- **Price binding** (`personal-avm.1`): a price lands only on an asset bound to an instrument the
+  carried by a live provider rather than anticipated
+- **Price binding**: a price lands only on an asset bound to an instrument the
   source lists, and the handler enforces it rather than each adapter. `PriceProvider.Binding()`
   is required, so an adapter that has not declared one does not compile. Two kinds: where the
   market is the listing (`moex`, `forex`, CoinGecko's curated coin ids on `crypto`, contract
@@ -1545,9 +1561,9 @@ somebody chose, since that would report one currency's number under another curr
   bound in that sweep. A row is a claimant, and a ticker nobody has priced has no incumbent, so a
   row minted ahead of the real one would keep it contested; only the in-process sync or an admin
   may add a row over RPC — the price fetch adds a source's base currency from the adapter's own
-  constant, never the caller's (`personal-a483`; rationale at `marketdata.mayCreateAsset`).
+  constant, never the caller's (rationale at `marketdata.mayCreateAsset`).
   A ref is identity for every holder and `Bound` prices by it, so `FindOrCreateAsset` binds one only for the in-process
-  sync or an admin (`personal-l4tc`; rationale at `marketdata.mayBindRef`). A split deployment
+  sync or an admin (rationale at `marketdata.mayBindRef`). A split deployment
   will need a service identity in place of the in-process mark
 
 ### ADR-007: The scam verdict belongs to the asset; exclusion is derived
@@ -1638,7 +1654,7 @@ somebody chose, since that would report one currency's number under another curr
   - ➕ A price that cannot be realised stops inflating the total, without anyone marking
     `holdings.excluded` by hand
   - ➕ `UnpricedReason` distinguishes "nobody quoted this" from "we do not trust this quote";
-    `personal-tlz` will add `STALE` to the same enum rather than inventing a third state
+    a stale-price state is planned for the same enum rather than a third, separate one
   - ➖ The gate is only as good as the volume the provider reports — an asset whose source
     reports none is not gated at all
   - ➕ The heatmap discloses what it dropped: `GetHeatmapResponse.coverage` carries the same
@@ -1650,10 +1666,10 @@ somebody chose, since that would report one currency's number under another curr
     moment of asking — which included every instrument whose exchange had shut for the night.
     An equity portfolio lost a fifth of itself every evening and recovered every morning, with
     nothing bought or sold, and the rows contradicted themselves while it lasted:
-    `provenance = traded` beside a turnover of zero (`personal-5be7`). A synthesised volume
+    `provenance = traded` beside a turnover of zero. A synthesised volume
     must therefore answer the question this gate asks — *is there a market behind this print* —
     and not a neighbouring one such as *is the session open* or *can this position be exited*;
-    the latter is a liquidity claim and belongs on its own axis (`personal-dkae`)
+    the latter is a liquidity claim and belongs on its own axis
 - **Rejected**: a `volume > 0` floor (does not catch MNEP, which reports real volume);
   gating on a missing market cap (the 11 no-volume assets on dev are mostly Aave receipt
   tokens — aUSDC, aETHUSDC, aWETH — real money with no market of its own, and a naive gate
@@ -2003,7 +2019,7 @@ System Quality
 
 #### Debt 6: No upgrade path for an instance that already has data
 
-> **Closed 2026-09-02** (`personal-znvr`) — deploys run `atlas migrate apply` against the
+> **Closed 2026-09-02** — deploys run `atlas migrate apply` against the
 > ordered files in `migrations/`, baked into the release image beside the binary and
 > recorded in `atlas_schema_revisions` (kept in its own `atlas` schema). An instance can
 > say which schema it is on, a deploy runs only what that instance has not run, and no
@@ -2025,7 +2041,7 @@ System Quality
 - Impact: Blocked anyone else running this — and blocked beta gate 4. Every deploy whose
   `git diff <last-tag>..main -- schema.hcl` was non-empty was read by hand, once, by the only person
   who knew what the plan should say.
-- Resolution Plan: a versioned migration catalogue plus a revisions table (`personal-znvr`),
+- Resolution Plan: a versioned migration catalogue plus a revisions table,
   baselined from the current declarative schema.
 
 > **Closed 2026-08-21** — a valuation no longer reads one page of holdings.
@@ -2061,7 +2077,7 @@ System Quality
 
 ---
 
-**Document Version**: 1.13
-**Last Updated**: 2026-10-10
+**Document Version**: 1.14
+**Last Updated**: 2026-11-15
 **Owner**: foxcool
 **Status**: Active

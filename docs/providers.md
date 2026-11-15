@@ -95,8 +95,7 @@ failing.
 Switching therefore means retiring the old account, not just adding the new one:
 disable it — the key stays, and enabling it switches back — or delete it, or
 take `onchain_lookup` off it. Leaving both active is how "I configured the new
-provider" stops meaning "the new provider is used" (`personal-1y6i`,
-`personal-2cw0`).
+provider" stops meaning "the new provider is used".
 
 ### Accepted `data` fields
 
@@ -120,7 +119,7 @@ host is not available.
 |---|---|---|---|
 | `coingecko` | optional | `api_key`, `tier`, `pro` | Registered keyless by default, so a fresh instance prices crypto with no account; an account with a key replaces it, and the keyless client is never a spare behind that key. It is paced on its own budget, 24 requests a minute, no quota. The keyless tier accepts exactly one contract address per request and about 30 requests a minute. A free demo key raises this to batches of 30 and allows 10 000 calls a month. Name a paid plan with `tier: pro` — one name picks the API host, the auth header and the allowance, which have to agree. `pro: "true"` is the old spelling of the same thing and still works |
 | `binance` | required | `api_key`, `api_secret` | Also serves as an exchange syncer. Prices assets on the global `crypto` market, and only those **bound to a listed pair** in `asset_external_refs` (source `binance`, ref e.g. `BTCUSDT`). The binding is made by discovery during the sweep. Binance is never ambiguous on its own side, so a contest is always between two of *our* assets, and a token minted with a famous ticker would otherwise be handed the real coin's price. When two live assets claim a ticker on the same market, every claimant but the incumbent (the oldest one ever priced) is withheld from every source before any adapter sees it (ADR-006, price binding): it stays unpriced as `AMBIGUOUS_TICKER`, an existing binding is kept but not used, and it is resolved by quarantining the impostor, not by the adapter picking a winner. Each row carries the pair's **24h turnover in the quote asset** (`quoteVolume` from `/api/v3/ticker/24hr`), which is what ADR-009 measures a market by; a pair found trading that reports no turnover is published with an explicit zero, so a book nobody touched stays out of the total while the price stays in the catalogue |
-| `moex` | none | — | MOEX ISS. Prices assets whose `market` is `moex`: shares and exchange-traded funds from the ISS `shares` market, bonds from `bonds`. Quotes are in roubles, so the RUB/USD rate from `cbr` is what carries them into a USD total. Where a security trades on several boards, the one with the most turnover today wins; outside trading hours the previous close is used and dated to its own session, with no turnover attached. A bond quote is a percentage of nominal and is multiplied out; accrued interest is not included (`personal-b7l`). **Delisted securities get no price at all** — `is_traded=0` means ISS reports no current market, and a last trade from years ago is not a valuation |
+| `moex` | none | — | MOEX ISS. Prices assets whose `market` is `moex`: shares and exchange-traded funds from the ISS `shares` market, bonds from `bonds`. Quotes are in roubles, so the RUB/USD rate from `cbr` is what carries them into a USD total. Where a security trades on several boards, the one with the most turnover today wins; outside trading hours the previous close is used and dated to its own session, with no turnover attached. A bond quote is a percentage of nominal and is multiplied out; accrued interest is not included. **Delisted securities get no price at all** — `is_traded=0` means ISS reports no current market, and a last trade from years ago is not a valuation |
 | `tinvest` | required | `api_key` | T-Invest broker API, account type `broker`. Prices assets whose `market` is `spbex` or `moex` — the SPB Exchange has no open endpoint of its own, and MOEX arrives as a second opinion alongside `moex` above. **Needs a trust anchor on the account** (`root_ca` in `accounts.data`): the API host's certificate chain terminates in a root no standard trust store carries, and without it every request fails inside TLS. See below. Identity is the FIGI, bound automatically into `asset_external_refs` when a ticker resolves to exactly one instrument on the venue — an ambiguous ticker is left unbound and unpriced rather than guessed. Each row carries the instrument's own currency, so a dollar-quoted foreign share and a rouble-quoted domestic one come out of one response correctly. An instrument that is not trading right now — halted, blocked, delisted — is published with an explicit **zero turnover**, which keeps it out of the total under ADR-009 while the number stays in the catalogue: the API reports no volume at all, and without that a frozen 2022 print would sail into the sum |
 | `cbr` | none | — | Bank of Russia daily rates. Registered unconditionally, account or not, because nothing about it is per-user. Quotes every currency in the published set in USD, including the rouble, and prices only assets typed `forex` — a token that copied a currency's ticker gets no rate. Prices carry the set's own business day, not the fetch time: a Friday set read on Sunday is two days old and says so. Also serves the key rate (`cbr_key_rate` in `GetMacroRates`) from the publisher's `DailyInfo` web service, dated by its own day. History before the first sweep is loaded once per instance with the admin-only `MarketDataService.BackfillCbrRates` (`from_date`, `to_date`, inclusive, at most 370 days per call — run it a year at a time): it asks `XML_daily.asp?date_req=` for each day and writes the same rows, dated by the set in force (a weekend is the Saturday set). A row already held for an asset and set date is left alone, so re-running a range creates nothing |
 | `fred` | required | `api_key` | FRED (St. Louis Fed), a macro-series publisher rather than a price source: it feeds the `GetMacroRates` RPC (`fed_funds`, the effective federal funds rate, series `DFF`) and prices nothing. A free key from fred.stlouisfed.org goes on a `market_data` account. Without one the series is reported unavailable with a reason; the rest of the call still answers. Reads are cached in memory for three hours |
@@ -190,8 +189,7 @@ prevent.
 `base_url` is an operator field: only an admin may set or change it, on any
 provider that reads it. It sends the account's requests to a host of the
 caller's choosing from inside the server's network, and the sync reports back
-what answered — open to every user, that is a probe of the internal network
-(`personal-5sgx`). A user may still save an account that carries the value an
+what answered — open to every user, that is a probe of the internal network. A user may still save an account that carries the value an
 admin set, or drop it.
 
 What arrives: shares, funds, bonds and cash, each bound by the broker's own
@@ -199,7 +197,7 @@ instrument id (`asset_external_refs`, source `tinvest`) — except cash, which
 resolves to the currency and is bound to nothing, because the broker's id for a
 currency line names a settlement instrument rather than the money. A bond is
 brought in by quantity and is not valued (accrued interest and the bond model are
-`personal-b7l`). A position the broker reports as blocked becomes its own
+not built). A position the broker reports as blocked becomes its own
 `locked` holding beside the liquid part.
 
 The sync's own report says what it could not name (`positions_skipped`) and what
