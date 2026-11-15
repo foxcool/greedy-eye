@@ -474,6 +474,9 @@ func (h *Handler) CancelRuleExecution(ctx context.Context, req *connect.Request[
 	if err != nil {
 		return nil, toConnectError(err)
 	}
+	if _, err := h.ownedRule(ctx, exec.RuleID); err != nil {
+		return nil, err
+	}
 
 	// Only a pending execution can be cancelled. A run is synchronous: in
 	// progress means its trades are being placed and cannot be recalled, and

@@ -467,9 +467,11 @@ func TestCancelRuleExecution_RefusesStatuses(t *testing.T) {
 			e := testExecution("e-1", "r-1")
 			e.Status = st
 			s.On("GetRuleExecution", mock.Anything, "e-1").Return(e, nil)
+			s.On("GetRule", mock.Anything, "r-1").Return(testRule("r-1"), nil)
 			h := newHandler(s)
 
-			_, err := h.CancelRuleExecution(context.Background(), connect.NewRequest(&apiv1.CancelRuleExecutionRequest{ExecutionId: "e-1"}))
+			ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+			_, err := h.CancelRuleExecution(ctx, connect.NewRequest(&apiv1.CancelRuleExecutionRequest{ExecutionId: "e-1"}))
 			require.Error(t, err)
 			assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 			s.AssertNotCalled(t, "UpdateRuleExecution", mock.Anything, mock.Anything, mock.Anything)
@@ -480,12 +482,29 @@ func TestCancelRuleExecution_RefusesStatuses(t *testing.T) {
 func TestCancelRuleExecution_PendingIsCancelled(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetRuleExecution", mock.Anything, "e-1").Return(testExecution("e-1", "r-1"), nil)
+	s.On("GetRule", mock.Anything, "r-1").Return(testRule("r-1"), nil)
 	s.On("UpdateRuleExecution", mock.Anything, mock.MatchedBy(func(e *entity.RuleExecution) bool {
 		return e.Status == entity.ExecutionStatusCancelled && e.CompletedAt != nil
 	}), []string{"status", "completed_at"}).Return(testExecution("e-1", "r-1"), nil)
 	h := newHandler(s)
 
-	_, err := h.CancelRuleExecution(context.Background(), connect.NewRequest(&apiv1.CancelRuleExecutionRequest{ExecutionId: "e-1"}))
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	_, err := h.CancelRuleExecution(ctx, connect.NewRequest(&apiv1.CancelRuleExecutionRequest{ExecutionId: "e-1"}))
 	require.NoError(t, err)
 	s.AssertExpectations(t)
+}
+
+// A pending execution of another user's rule answers like GetRuleExecution
+// does, and is left as it was.
+func TestCancelRuleExecution_ForeignRuleIsRefused(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetRuleExecution", mock.Anything, "e-1").Return(testExecution("e-1", "r-1"), nil)
+	s.On("GetRule", mock.Anything, "r-1").Return(testRule("r-1"), nil)
+	h := newHandler(s)
+
+	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-2"})
+	_, err := h.CancelRuleExecution(ctx, connect.NewRequest(&apiv1.CancelRuleExecutionRequest{ExecutionId: "e-1"}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	s.AssertNotCalled(t, "UpdateRuleExecution", mock.Anything, mock.Anything, mock.Anything)
 }
