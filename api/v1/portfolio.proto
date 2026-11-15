@@ -350,6 +350,16 @@ service PortfolioService {
   }
 
   // --- Account sync ---
+  // SyncAccount reads a wallet, exchange or broker account from its source and
+  // writes the assets and holdings it found. Errors:
+  //   - InvalidArgument: account_id is empty.
+  //   - NotFound / PermissionDenied: the account does not exist or is not the
+  //     caller's.
+  //   - FailedPrecondition: the account is disabled; enable it to sync.
+  //   - Aborted: a sync of this account is already running. It is refused,
+  //     not queued: the sync in flight is about to write the same thing, so
+  //     retry when it finishes.
+  //   - Unimplemented: this instance has no account sync configured.
   rpc SyncAccount(SyncAccountRequest) returns (SyncAccountResponse) {
     option (google.api.http) = {
       post: "/api/v1/accounts/{account_id}/sync"
@@ -518,17 +528,30 @@ message ListUnsolicitedAssetsResponse {
   map<string, bool> unsolicited = 1;
 }
 
+// GetPortfolioPerformance is the price return of the holdings the portfolio
+// has now, from `from` until now. It is not a history of the portfolio: amounts
+// are today's, so buys and sells inside the range do not show. Every holding is
+// counted, excluded (quarantined) ones included. A holding is valued only
+// through a direct pair with the quote currency, with no cross rate and no
+// market-depth check, so one without a direct pair drops out silently; one with
+// no price at or after `from` counts at today's price on both ends.
 message GetPortfolioPerformanceRequest {
   string portfolio_id = 1;
+  // Start of the range. Defaults to 30 days ago.
   google.protobuf.Timestamp from = 2;
+  // Ignored: the range always ends now.
   google.protobuf.Timestamp to = 3;
+  // Despite the name, the quote currency both ends are valued in, not a
+  // benchmark to compare against. Defaults to the display currency.
   string benchmark_asset_id = 4;
 }
 
 message PortfolioPerformanceResponse {
   string portfolio_id = 1;
   double return_percentage = 2;
+  // Not computed: always 0.
   double volatility = 3;
+  // Not computed: always 0.
   double sharpe_ratio = 4;
 }
 

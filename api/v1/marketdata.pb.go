@@ -2941,6 +2941,9 @@ type SourceSchedule struct {
 	NeverAttempted uint32                 `protobuf:"varint,4,opt,name=never_attempted,json=neverAttempted,proto3" json:"never_attempted,omitempty"`
 	// When the earliest deferred asset comes due. Absent when nothing is
 	// deferred, which is not the same as "due now" and must not render as one.
+	// Unaskable assets carry no date here, so a source whose whole population is
+	// unaskable shows unaskable > 0 and no soonest_due, although the sweep knows
+	// when it will reconsider them.
 	SoonestDue *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=soonest_due,json=soonestDue,proto3,oneof" json:"soonest_due,omitempty"`
 	// The far end of the queue. A latest_deferred a week out is the signature of
 	// assets that have hit the back-off ceiling rather than drifted toward it.

@@ -1766,12 +1766,23 @@ func (x *ListUnsolicitedAssetsResponse) GetUnsolicited() map[string]bool {
 	return nil
 }
 
+// GetPortfolioPerformance is the price return of the holdings the portfolio
+// has now, from `from` until now. It is not a history of the portfolio: amounts
+// are today's, so buys and sells inside the range do not show. Every holding is
+// counted, excluded (quarantined) ones included. A holding is valued only
+// through a direct pair with the quote currency, with no cross rate and no
+// market-depth check, so one without a direct pair drops out silently; one with
+// no price at or after `from` counts at today's price on both ends.
 type GetPortfolioPerformanceRequest struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	PortfolioId      string                 `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
-	From             *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"`
-	To               *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=to,proto3" json:"to,omitempty"`
-	BenchmarkAssetId string                 `protobuf:"bytes,4,opt,name=benchmark_asset_id,json=benchmarkAssetId,proto3" json:"benchmark_asset_id,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	PortfolioId string                 `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
+	// Start of the range. Defaults to 30 days ago.
+	From *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"`
+	// Ignored: the range always ends now.
+	To *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=to,proto3" json:"to,omitempty"`
+	// Despite the name, the quote currency both ends are valued in, not a
+	// benchmark to compare against. Defaults to the display currency.
+	BenchmarkAssetId string `protobuf:"bytes,4,opt,name=benchmark_asset_id,json=benchmarkAssetId,proto3" json:"benchmark_asset_id,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -1838,10 +1849,12 @@ type PortfolioPerformanceResponse struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	PortfolioId      string                 `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
 	ReturnPercentage float64                `protobuf:"fixed64,2,opt,name=return_percentage,json=returnPercentage,proto3" json:"return_percentage,omitempty"`
-	Volatility       float64                `protobuf:"fixed64,3,opt,name=volatility,proto3" json:"volatility,omitempty"`
-	SharpeRatio      float64                `protobuf:"fixed64,4,opt,name=sharpe_ratio,json=sharpeRatio,proto3" json:"sharpe_ratio,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Not computed: always 0.
+	Volatility float64 `protobuf:"fixed64,3,opt,name=volatility,proto3" json:"volatility,omitempty"`
+	// Not computed: always 0.
+	SharpeRatio   float64 `protobuf:"fixed64,4,opt,name=sharpe_ratio,json=sharpeRatio,proto3" json:"sharpe_ratio,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PortfolioPerformanceResponse) Reset() {
