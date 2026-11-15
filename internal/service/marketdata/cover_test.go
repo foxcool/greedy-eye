@@ -72,7 +72,7 @@ func TestFetchExternalPrices_MeteredSourceYieldsToDeepTradedQuotes(t *testing.T)
 		Return([]*entity.Asset{paid}, nil)
 	// Reported as the store counts it, not as len(Covered).
 	s.On("CountCoveredTargets", mock.Anything, mock.Anything).Return(5, nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
 
 	p := &fakePriceProvider{budget: coverBudget, hasBudget: true, prices: map[string]bool{"paid-1": true}}
