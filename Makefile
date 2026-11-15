@@ -1,7 +1,8 @@
 # Define makefile variables for frequently used commands
 BUF=$(shell which buf)
-# Use docker compose instead of docker-compose
-COMPOSE=docker compose -p eye --env-file deploy/.env
+# Use docker compose instead of docker-compose. deploy/.env is optional: a fresh
+# clone has none, and the Atlas targets need nothing from it.
+COMPOSE=docker compose -p eye $(if $(wildcard deploy/.env),--env-file deploy/.env)
 # Path to the compose file
 COMPOSE_FILE=deploy/compose.yaml
 
