@@ -247,10 +247,7 @@ func (s *PortfolioStore) DeletePortfolio(ctx context.Context, id string) error {
 }
 
 func (s *PortfolioStore) ListPortfolios(ctx context.Context, opts portfolio.ListPortfoliosOpts) ([]*entity.Portfolio, string, error) {
-	limit := opts.PageSize
-	if limit <= 0 {
-		limit = defaultPageSize
-	}
+	limit := pageLimit(opts.PageSize)
 
 	args := []any{}
 	argIdx := 1
@@ -1137,10 +1134,7 @@ func (s *PortfolioStore) DeleteAccountWithHoldings(ctx context.Context, id strin
 }
 
 func (s *PortfolioStore) ListAccounts(ctx context.Context, opts portfolio.ListAccountsOpts) ([]*entity.Account, string, error) {
-	limit := opts.PageSize
-	if limit <= 0 {
-		limit = defaultPageSize
-	}
+	limit := pageLimit(opts.PageSize)
 
 	args := []any{}
 	argIdx := 1
@@ -2139,10 +2133,7 @@ func (s *PortfolioStore) DeleteHolding(ctx context.Context, id string) error {
 }
 
 func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHoldingsOpts) ([]*entity.Holding, string, error) {
-	limit := opts.PageSize
-	if limit <= 0 {
-		limit = defaultPageSize
-	}
+	limit := pageLimit(opts.PageSize)
 
 	args := []any{}
 	argIdx := 1
@@ -2471,10 +2462,7 @@ func (s *PortfolioStore) UnsolicitedAssets(ctx context.Context, assetIDs []strin
 }
 
 func (s *PortfolioStore) ListTransactions(ctx context.Context, opts portfolio.ListTransactionsOpts) ([]*entity.Transaction, string, error) {
-	limit := opts.PageSize
-	if limit <= 0 {
-		limit = defaultPageSize
-	}
+	limit := pageLimit(opts.PageSize)
 
 	args := []any{}
 	argIdx := 1
