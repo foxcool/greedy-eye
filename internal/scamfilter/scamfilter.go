@@ -15,10 +15,9 @@
 // attacker-controlled token names is false over an exchange's own catalogue, so
 // Input carries the context that disarms it. See VenueListed.
 //
-// Weights and thresholds live in Weights, a parameter of Score, so a caller can
-// score with other values. Every caller today passes DefaultWeights, the
-// starting point from the design note (mind_synced/projects/greedy-eye/scam-filtering.md):
-// nothing reads weights from config, and changing them is a release.
+// Weights and thresholds live in Weights; DefaultWeights holds the values from
+// the design note (mind_synced/projects/greedy-eye/scam-filtering.md). They are
+// not read from config: changing them is a release.
 package scamfilter
 
 import (
@@ -64,8 +63,8 @@ const (
 )
 
 // Weights sets each signal's contribution to the score and the verdict cutoffs.
-// A zero Weights scores nothing; callers pass DefaultWeights. Hard signals (invisible Unicode, mixed script) bypass the score and
-// set a verdict directly, so they carry no weight here.
+// A zero Weights scores nothing. Hard signals (invisible Unicode, mixed script)
+// bypass the score and set a verdict directly, so they carry no weight here.
 type Weights struct {
 	Domain           float64
 	AirdropLexicon   float64
@@ -78,8 +77,8 @@ type Weights struct {
 	SuspectThreshold float64
 }
 
-// DefaultWeights is the starting calibration from the design note and the only
-// one in use; these are the values the fixtures are scored against.
+// DefaultWeights is the calibration from the design note; the fixtures are
+// scored against it.
 func DefaultWeights() Weights {
 	return Weights{
 		Domain:           0.5,

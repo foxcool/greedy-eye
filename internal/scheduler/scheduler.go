@@ -124,8 +124,7 @@ func New(cfg Config, rules RuleStore, exec RuleExecutor, prices PriceFetcher, re
 		if _, err := cron.ParseStandard(cfg.RescoreCron); err != nil {
 			return nil, fmt.Errorf("invalid rescoreCron %q: %w", cfg.RescoreCron, err)
 		}
-		// An empty rescoreCron is the only way to turn rescore off; a schedule
-		// with nothing to run is a wiring mistake, not a quiet opt-out.
+		// Rescore is turned off by an empty rescoreCron, not by a missing rescorer.
 		if rescorer == nil {
 			return nil, fmt.Errorf("rescoreCron %q is set but no rescorer was given", cfg.RescoreCron)
 		}

@@ -185,9 +185,8 @@ type PortfolioServiceClient interface {
 	//   - NotFound / PermissionDenied: the account does not exist or is not the
 	//     caller's.
 	//   - FailedPrecondition: the account is disabled; enable it to sync.
-	//   - Aborted: a sync of this account is already running. It is refused,
-	//     not queued: the sync in flight is about to write the same thing, so
-	//     retry when it finishes.
+	//   - Aborted: a sync of this account is already running; retry when it
+	//     finishes.
 	//   - Unimplemented: this instance has no account sync configured.
 	SyncAccount(context.Context, *connect.Request[v1.SyncAccountRequest]) (*connect.Response[v1.SyncAccountResponse], error)
 	// GetAccountSweepSchedule reports which accounts the balance sweep is holding
@@ -669,9 +668,8 @@ type PortfolioServiceHandler interface {
 	//   - NotFound / PermissionDenied: the account does not exist or is not the
 	//     caller's.
 	//   - FailedPrecondition: the account is disabled; enable it to sync.
-	//   - Aborted: a sync of this account is already running. It is refused,
-	//     not queued: the sync in flight is about to write the same thing, so
-	//     retry when it finishes.
+	//   - Aborted: a sync of this account is already running; retry when it
+	//     finishes.
 	//   - Unimplemented: this instance has no account sync configured.
 	SyncAccount(context.Context, *connect.Request[v1.SyncAccountRequest]) (*connect.Response[v1.SyncAccountResponse], error)
 	// GetAccountSweepSchedule reports which accounts the balance sweep is holding

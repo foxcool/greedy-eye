@@ -1766,13 +1766,10 @@ func (x *ListUnsolicitedAssetsResponse) GetUnsolicited() map[string]bool {
 	return nil
 }
 
-// GetPortfolioPerformance is the price return of the holdings the portfolio
-// has now, from `from` until now. It is not a history of the portfolio: amounts
-// are today's, so buys and sells inside the range do not show. Every holding is
-// counted, excluded (quarantined) ones included. A holding is valued only
-// through a direct pair with the quote currency, with no cross rate and no
-// market-depth check, so one without a direct pair drops out silently; one with
-// no price at or after `from` counts at today's price on both ends.
+// GetPortfolioPerformance is the price return of today's holdings since `from`:
+// trades inside the range do not show. Excluded holdings are counted. Only
+// direct pairs with the quote currency are used, so a holding without one drops
+// out silently; one with no price since `from` counts as 0% return.
 type GetPortfolioPerformanceRequest struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	PortfolioId string                 `protobuf:"bytes,1,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
@@ -1780,8 +1777,8 @@ type GetPortfolioPerformanceRequest struct {
 	From *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"`
 	// Ignored: the range always ends now.
 	To *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=to,proto3" json:"to,omitempty"`
-	// Despite the name, the quote currency both ends are valued in, not a
-	// benchmark to compare against. Defaults to the display currency.
+	// Despite the name, the quote currency, not a benchmark. Defaults to the
+	// display currency.
 	BenchmarkAssetId string `protobuf:"bytes,4,opt,name=benchmark_asset_id,json=benchmarkAssetId,proto3" json:"benchmark_asset_id,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache

@@ -3,10 +3,8 @@
 // constraint cannot hold under the tags it does list.
 //
 // Why: golangci-lint only loads files whose constraints hold under the
-// configured tags, so such a file is skipped without a word. Constraints are
-// parsed as expressions, so "!integration" and "integration && linux" both
-// count as a use of "integration" — and "!integration", with integration
-// listed, is a file the linter never loads.
+// configured tags and skips the rest silently. "!integration" with integration
+// listed is such a file.
 package main
 
 import (
@@ -104,16 +102,14 @@ func fileConstraints(name string, src []byte) ([]constraint.Expr, error) {
 	return exprs, nil
 }
 
-// maxFreeTags bounds the toolchain tags satisfiable tries every value of. A
-// constraint naming more is assumed to hold rather than searched exhaustively;
-// real ones name two or three.
+// maxFreeTags bounds the brute force in satisfiable; a constraint naming more
+// toolchain tags is assumed to hold.
 const maxFreeTags = 12
 
-// satisfiable reports whether e can hold when every custom tag is set exactly
-// as listed says. Toolchain tags are free: which GOOS the linter runs on is not
-// this check's business, so a file for another platform is not an alarm. GOOS
-// values are tried as independent, which can call an impossible constraint
-// such as "linux && darwin" satisfiable — a miss, never a false alarm.
+// satisfiable reports whether e can hold with custom tags set as listed says.
+// Toolchain tags are free, so a file for another platform is not an alarm.
+// They are tried as independent, so "linux && darwin" passes: a miss, never a
+// false alarm.
 func satisfiable(e constraint.Expr, listed map[string]bool) bool {
 	var free []string
 	seen := map[string]bool{}
@@ -177,8 +173,7 @@ func configuredTags(fsys fs.FS, path string) (map[string]bool, error) {
 }
 
 // missing maps each unlisted tag to the files that use it, and lists the
-// files whose constraint cannot hold under the listed tags: the linter skips
-// both.
+// files whose constraint cannot hold under the listed tags.
 func missing(fsys fs.FS, listed map[string]bool) (map[string][]string, []string, error) {
 	out := map[string][]string{}
 	var excluded []string

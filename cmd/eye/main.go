@@ -123,8 +123,7 @@ func run() error {
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		// Stop names the spend it could not persist on every error path, so
-		// logging the error here again would report one loss twice.
+		// Stop already logs the spend it could not persist.
 		_ = rateLimits.Stop(ctx)
 	}()
 

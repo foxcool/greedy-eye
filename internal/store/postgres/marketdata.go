@@ -20,11 +20,8 @@ import (
 
 const defaultPageSize = 20
 
-// maxPageSize bounds every list page. page_size comes straight from the client
-// and sizes the result slice up front, so without a ceiling one request can
-// make the server allocate whatever it asks for. 1000 is the largest page an
-// internal caller asks for (a portfolio's holdings in one read); a longer list
-// still arrives whole, over more pages.
+// maxPageSize bounds a list page: page_size comes from the client and sizes the
+// result slice. 1000 is the largest page an internal caller asks for.
 const maxPageSize = 1000
 
 // pageLimit turns a requested page size into the one a list query runs with.
