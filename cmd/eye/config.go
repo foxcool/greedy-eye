@@ -70,6 +70,10 @@ type Config struct {
 		// which leaves amounts to be refreshed by hand while the price sweep
 		// keeps re-pricing them hourly.
 		BalanceSyncCron string `koanf:"balancesynccron"`
+		// ConfirmCron is the cron spec for checking rule executions that wait
+		// on a venue: a proposal for signatures, a transaction for its block.
+		// Empty disables it. Lowercase key, as above.
+		ConfirmCron string `koanf:"confirmcron"`
 		// BalanceMaxAge is how old an account's newest holding may be before
 		// the sweep re-reads it. Zero uses the service default (12h): an
 		// amount changes when its owner moves money, not when a market ticks.
@@ -128,6 +132,9 @@ func getConfig() (*Config, error) {
 		// is due only once its balances are older than balancemaxage (12h). What
 		// the cron sets is how often the system gets a chance to catch up.
 		"scheduler.balancesynccron": "30 * * * *",
+		// Every five minutes: a pass reads only executions that are waiting,
+		// and a signed trade should not look unsigned for long.
+		"scheduler.confirmcron": "*/5 * * * *",
 		"services": []any{
 			map[string]any{"type": ServiceConfigTypeMarketData},
 			map[string]any{"type": ServiceConfigTypePortfolio},

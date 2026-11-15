@@ -24,14 +24,17 @@ type Key struct {
 
 func (k Key) String() string { return fmt.Sprintf("%s:%d", k.ExecutionID, k.Index) }
 
-// OutcomeStatus is a venue's answer to a trade. Only terminal answers exist
-// so far; the zero value stands for anything else and the core refuses it
-// (see Apply).
+// OutcomeStatus is a venue's answer to a trade. Filled and rejected are
+// final; the others say the trade is waiting on someone else — a signature,
+// then a block — and a WaitingVenue is asked again later.
 type OutcomeStatus int
 
 const (
 	OutcomeFilled OutcomeStatus = iota + 1
 	OutcomeRejected
+	OutcomePendingSignature
+	OutcomeSubmitted
+	OutcomeFailed
 )
 
 // Fill is what a filled trade did, in asset units.
@@ -49,12 +52,24 @@ type Outcome struct {
 	Reason string
 	// HoldingIDs are the holdings the venue changed.
 	HoldingIDs []string
+	// VenueRef is how the venue finds the trade again (a Safe's safeTxHash);
+	// TxHash is the chain transaction once there is one.
+	VenueRef string
+	TxHash   string
 }
 
 // Venue places trades. An error means the venue could not answer; the trade
 // is then rejected with it.
 type Venue interface {
 	Submit(ctx context.Context, account Account, trade Trade, key Key) (Outcome, error)
+}
+
+// WaitingVenue is a venue whose trades can wait after Submit. Check answers
+// where a waiting trade is now; answering the state it is already in leaves
+// it as it is.
+type WaitingVenue interface {
+	Venue
+	Check(ctx context.Context, account Account, key Key, r TradeResult) (Outcome, error)
 }
 
 // Venues is the registry of venues by account type.

@@ -23,11 +23,15 @@ import (
 const dryRunExecutionID = "dry-run"
 
 // prepared is a rule ready to run: the account it trades on, the snapshot its
-// plan was made from, and the plan.
+// plan was made from, the plan, and the account's trading policy. A policy the
+// account data cannot form is kept as an error and rejects every trade, so
+// the run is recorded with the reason instead of failing before it starts.
 type prepared struct {
-	account execution.Account
-	snap    execution.Snapshot
-	plan    execution.TradePlan
+	account   execution.Account
+	snap      execution.Snapshot
+	plan      execution.TradePlan
+	policy    execution.Policy
+	policyErr error
 }
 
 // ruleEngine returns the engine of the rule's type, or CodeUnimplemented.
@@ -99,10 +103,13 @@ func (h *Handler) prepare(ctx context.Context, eng execution.Engine, rule *entit
 	if err != nil {
 		return prepared{}, fmt.Errorf("plan: %w", err)
 	}
+	policy, policyErr := execution.ParsePolicy(acct.Msg.GetType(), acct.Msg.GetData())
 	return prepared{
-		account: execution.Account{ID: acct.Msg.GetId(), Type: acct.Msg.GetType()},
-		snap:    snap,
-		plan:    plan,
+		account:   execution.Account{ID: acct.Msg.GetId(), Type: acct.Msg.GetType()},
+		snap:      snap,
+		plan:      plan,
+		policy:    policy,
+		policyErr: policyErr,
 	}, nil
 }
 
@@ -239,6 +246,13 @@ const (
 
 // run creates the execution, submits each trade and records the result.
 func (h *Handler) run(ctx context.Context, rule *entity.Rule, p prepared) (*entity.RuleExecution, error) {
+	blocked, err := h.supersede(ctx, rule)
+	if err != nil {
+		return nil, err
+	}
+	if blocked != "" {
+		return h.recordFailure(ctx, rule, errors.New(blocked))
+	}
 	exec, err := h.store.CreateRuleExecution(ctx, newExecution(rule, entity.ExecutionStatusInProgress))
 	if err != nil {
 		return nil, toConnectError(err)
@@ -246,14 +260,14 @@ func (h *Handler) run(ctx context.Context, rule *entity.Rule, p prepared) (*enti
 
 	detached := context.WithoutCancel(ctx)
 	submitCtx, cancelSubmit := context.WithTimeout(detached, h.submitTimeout)
-	results, err := h.submit(submitCtx, p.account, exec.ID, execution.Planned(p.plan))
+	results, err := h.submit(submitCtx, p, exec.ID, execution.Planned(p.plan))
 	cancelSubmit()
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	recordCtx, cancelRecord := context.WithTimeout(detached, recordTimeout)
 	defer cancelRecord()
-	txIDs, journalErr := h.journal(recordCtx, p.account.ID, exec.ID, results)
+	txIDs, journalErr := h.journal(recordCtx, p.account, exec.ID, results)
 	status, reason := execution.ExecutionStatus(results)
 	if journalErr != nil {
 		status, reason = entity.ExecutionStatusFailed, journalMissing(journalErr, reason)
@@ -262,10 +276,12 @@ func (h *Handler) run(ctx context.Context, rule *entity.Rule, p prepared) (*enti
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	now := time.Now()
 	exec.Status = status
 	exec.ErrorMessage = reason
-	exec.CompletedAt = &now
+	if status != entity.ExecutionStatusPending {
+		now := time.Now()
+		exec.CompletedAt = &now
+	}
 	exec.AffectedHoldingIDs = affectedHoldings(results)
 	exec.CreatedTransactionIDs = txIDs
 	exec.TransactionsCreated = int32(len(txIDs)) // #nosec G115 -- one per trade of a plan
@@ -301,18 +317,28 @@ func journalMissing(journalErr error, tradeReason string) string {
 	return strings.Join(parts, "; ")
 }
 
-// submit places the trades in order on the account's venue. After a rejected
-// trade the rest are not placed: a plan is not meant to run in part.
-func (h *Handler) submit(ctx context.Context, account execution.Account, executionID string, results []execution.TradeResult) ([]execution.TradeResult, error) {
+// submit places the trades in order on the account's venue, after the
+// account's policy has allowed each one. After a rejected trade the rest are
+// not placed: a plan is not meant to run in part.
+func (h *Handler) submit(ctx context.Context, p prepared, executionID string, results []execution.TradeResult) ([]execution.TradeResult, error) {
+	account := p.account
 	venue, ok := h.venues.Lookup(account.Type)
 	halted := ""
 	for i := range results {
 		var err error
+		var refused error
+		if p.policyErr != nil {
+			refused = fmt.Errorf("policy: %w", p.policyErr)
+		} else {
+			refused = p.policy.Check(results[i].Trade)
+		}
 		switch {
 		case !ok:
 			results[i], err = execution.Reject(results[i], fmt.Sprintf("no venue for account type %s", account.Type))
 		case halted != "":
 			results[i], err = execution.Reject(results[i], halted)
+		case refused != nil:
+			results[i], err = execution.Reject(results[i], refused.Error())
 		default:
 			outcome, submitErr := venue.Submit(ctx, account, results[i].Trade, execution.Key{ExecutionID: executionID, Index: i})
 			results[i], err = execution.Settle(results[i], outcome, submitErr)
@@ -327,9 +353,16 @@ func (h *Handler) submit(ctx context.Context, account execution.Account, executi
 	return results, nil
 }
 
-// journal records every filled trade as a TRADE transaction on the account,
-// whatever venue filled it, under import_id = the execution id.
-func (h *Handler) journal(ctx context.Context, accountID, executionID string, results []execution.TradeResult) ([]string, error) {
+// journal records every filled trade of a manual account as a TRADE
+// transaction under import_id = the execution id. Other accounts are not
+// journaled here: ImportTransactions takes manual accounts only, and a
+// chain account's holdings come from its sync (ADR-012); its trades wait for
+// the ledger.
+func (h *Handler) journal(ctx context.Context, account execution.Account, executionID string, results []execution.TradeResult) ([]string, error) {
+	if account.Type != apiv1.AccountType_ACCOUNT_TYPE_MANUAL {
+		return nil, nil
+	}
+	accountID := account.ID
 	var items []*apiv1.ImportTransactionItem
 	for i, r := range results {
 		if r.State == execution.StateFilled {

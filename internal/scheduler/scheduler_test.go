@@ -386,3 +386,29 @@ func TestRunRule_UnimplementedIsExpected(t *testing.T) {
 	assert.Contains(t, out, "code=unimplemented")
 	assert.NotContains(t, out, "level=ERROR")
 }
+
+type fakeConfirmer struct{ calls int }
+
+func (f *fakeConfirmer) ConfirmWaiting(context.Context) (int, error) {
+	f.calls++
+	return 0, nil
+}
+
+func TestStart_ConfirmCronWithoutConfirmer(t *testing.T) {
+	s, err := New(Config{ConfirmCron: "*/5 * * * *"}, &mockRuleStore{}, &fakeExecutor{}, &fakeFetcher{}, nil, testLogger())
+	require.NoError(t, err)
+	assert.ErrorContains(t, s.Start(), "no confirmer")
+}
+
+func TestConfirmWaiting_CallsTheConfirmer(t *testing.T) {
+	c := &fakeConfirmer{}
+	s, err := New(Config{ConfirmCron: "*/5 * * * *"}, &mockRuleStore{}, &fakeExecutor{}, &fakeFetcher{}, nil, testLogger())
+	require.NoError(t, err)
+	s.WithConfirmer(c).confirmWaiting()
+	assert.Equal(t, 1, c.calls)
+}
+
+func TestNew_InvalidConfirmCron(t *testing.T) {
+	_, err := New(Config{ConfirmCron: "not a cron"}, &mockRuleStore{}, &fakeExecutor{}, &fakeFetcher{}, nil, testLogger())
+	assert.Error(t, err)
+}
