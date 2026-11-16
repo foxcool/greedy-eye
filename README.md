@@ -73,7 +73,9 @@ Go architecture for financial data.
 ### Run your own instance
 
 The whole stack (backend, frontend, auth, databases) from published images,
-on any machine with Docker:
+on a machine with Docker. The frontend image is amd64 only for now: Docker
+Desktop on Apple silicon runs it emulated, an arm64 Linux host needs QEMU
+(binfmt) installed.
 
 ```bash
 curl -O https://raw.githubusercontent.com/foxcool/greedy-eye/main/deploy/selfhost/compose.yaml
@@ -84,7 +86,8 @@ docker compose up -d
 ```
 
 It answers on 127.0.0.1 only. Sign-up cannot be closed yet, so reach the
-instance from elsewhere through a VPN, not an open port. Wallets on TON,
+instance from elsewhere through a VPN, not an open port: set `EYE_BIND` in
+`.env` to the host's VPN address (`env.example` lists what else to set). Wallets on TON,
 Bitcoin, Cosmos and Tezos sync with no API keys; see
 [docs/providers.md](docs/providers.md) for the rest.
 [deploy/selfhost/compose.yaml](deploy/selfhost/compose.yaml) explains each

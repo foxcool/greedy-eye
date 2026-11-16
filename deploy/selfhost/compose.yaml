@@ -15,7 +15,8 @@
 # Reachable from this machine only: the one published port is bound to
 # 127.0.0.1. Anyone who can reach the auth service can register, and there is
 # no setting yet to close sign-up, so put the instance behind a VPN rather than
-# opening the port to the internet.
+# opening the port to the internet: set EYE_BIND to this host's VPN address
+# (e.g. its Tailscale IP) to reach it from your other VPN devices.
 
 name: greedy-eye
 
@@ -34,7 +35,7 @@ services:
       - source: routes
         target: /etc/traefik/routes.yaml
     ports:
-      - "127.0.0.1:${EYE_PORT:-8080}:80"
+      - "${EYE_BIND:-127.0.0.1}:${EYE_PORT:-8080}:80"
 
   eye:
     image: ghcr.io/foxcool/greedy-eye:${EYE_VERSION:-0.25.0}
