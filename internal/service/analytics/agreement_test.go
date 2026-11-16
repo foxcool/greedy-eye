@@ -66,6 +66,10 @@ func (m agreementMD) GetLatestPrice(ctx context.Context, req *connect.Request[ap
 	return m.inner.GetLatestPrice(ctx, req)
 }
 
+func (m agreementMD) GetPrices(ctx context.Context, req *connect.Request[apiv1.GetPricesRequest]) (*connect.Response[apiv1.GetPricesResponse], error) {
+	return m.inner.GetPrices(ctx, req)
+}
+
 func (m agreementMD) ListPriceHistory(ctx context.Context, req *connect.Request[apiv1.ListPriceHistoryRequest]) (*connect.Response[apiv1.ListPriceHistoryResponse], error) {
 	return m.inner.ListPriceHistory(ctx, req)
 }

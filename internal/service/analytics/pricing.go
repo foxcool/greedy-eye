@@ -2,8 +2,6 @@ package analytics
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"slices"
 	"time"
 
@@ -48,7 +46,7 @@ type assetPricing struct {
 // among the ways to express the asset the FRESHEST candidate wins, and the
 // market-depth gate reads every candidate that reports a volume rather than only
 // the chosen one. See that package for why each is the way it is. It runs here
-// unchanged, against the prices collected in steps 2-3 (prefetchedPrices), so
+// unchanged, against the prices collected in steps 2-3 (quoting.Prefetch), so
 // the batch cannot price an asset differently from the per-pair reads it
 // replaces.
 //
@@ -68,28 +66,8 @@ func (h *Handler) priceAssets(ctx context.Context, assetIDs []string, quoteAsset
 	}
 
 	// Steps 2 and 3: exactly the pairs quoting.Candidates asks about.
-	prices := prefetchedPrices{}
-	var lookups []*apiv1.PriceLookup
-	for _, id := range assetIDs {
-		if id == quoteAssetID {
-			continue // identity: Candidates asks nothing
-		}
-		lookups = append(lookups, &apiv1.PriceLookup{AssetId: id}, &apiv1.PriceLookup{AssetId: id, BaseAssetId: quoteAssetID})
-	}
-	if err := h.fetchPrices(ctx, prices, lookups); err != nil {
-		return nil, err
-	}
-	lookups = nil
-	for _, id := range assetIDs {
-		latest := prices[priceKey{asset: id}]
-		if latest == nil || latest.BaseAssetId == "" || latest.BaseAssetId == quoteAssetID {
-			continue
-		}
-		lookups = append(lookups,
-			&apiv1.PriceLookup{AssetId: latest.BaseAssetId, BaseAssetId: quoteAssetID},
-			&apiv1.PriceLookup{AssetId: quoteAssetID, BaseAssetId: latest.BaseAssetId})
-	}
-	if err := h.fetchPrices(ctx, prices, lookups); err != nil {
+	prices, err := quoting.Prefetch(ctx, h.mdClient, assetIDs, quoteAssetID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -116,18 +94,18 @@ func (h *Handler) priceAssets(ctx context.Context, assetIDs []string, quoteAsset
 	// Step 4. Change is read in the pair the price came from: the conversion
 	// rate cancels out only approximately, and it is the asset that is being
 	// asked about, not the currency it is converted through.
-	lookups = nil
+	var lookups []*apiv1.PriceLookup
 	for _, id := range assetIDs {
 		if b, ok := best[id]; ok {
 			lookups = append(lookups, &apiv1.PriceLookup{AssetId: id, BaseAssetId: b.BaseID, From: timestamppb.New(from)})
 		}
 	}
-	history := prefetchedPrices{}
-	if err := h.fetchPrices(ctx, history, lookups); err != nil {
+	history := quoting.Prefetched{}
+	if err := history.Fetch(ctx, h.mdClient, lookups); err != nil {
 		return nil, err
 	}
 	for id, b := range best {
-		row := history[priceKey{asset: id, base: b.BaseID, windowed: true}]
+		row := history[quoting.PriceKey{Asset: id, Base: b.BaseID, Windowed: true}]
 		if row == nil {
 			continue // no history: change stays 0
 		}
@@ -142,29 +120,10 @@ func (h *Handler) priceAssets(ctx context.Context, assetIDs []string, quoteAsset
 	return out, nil
 }
 
-// maxBatch is the most ids or lookups one market-data request carries, the
-// bound both ListAssets and GetPrices enforce. A set larger than that costs
-// one more call per batch, not one per asset.
+// maxBatch is the most ids one ListAssets request carries, the bound market
+// data enforces. A set larger than that costs one more call per batch, not one
+// per asset.
 const maxBatch = 1000
-
-// fetchPrices answers lookups through GetPrices and records every answer —
-// including "no price" — in into.
-func (h *Handler) fetchPrices(ctx context.Context, into prefetchedPrices, lookups []*apiv1.PriceLookup) error {
-	for chunk := range slices.Chunk(lookups, maxBatch) {
-		resp, err := h.mdClient.GetPrices(ctx, connect.NewRequest(&apiv1.GetPricesRequest{Lookups: chunk}))
-		if err != nil {
-			return err
-		}
-		if len(resp.Msg.GetResults()) != len(chunk) {
-			return connect.NewError(connect.CodeInternal,
-				fmt.Errorf("market data answered %d of %d price lookups", len(resp.Msg.GetResults()), len(chunk)))
-		}
-		for i, r := range resp.Msg.GetResults() {
-			into[keyOf(chunk[i])] = r.GetPrice()
-		}
-	}
-	return nil
-}
 
 // resolveLabels names each asset by symbol, falling back to name; an asset
 // the catalogue does not return keeps its ID as label.
@@ -196,36 +155,6 @@ func (h *Handler) resolveLabels(ctx context.Context, out map[string]*assetPricin
 		}
 	}
 	return nil
-}
-
-// priceKey identifies one price lookup: a pair, latest unless windowed.
-type priceKey struct {
-	asset, base string
-	windowed    bool
-}
-
-func keyOf(l *apiv1.PriceLookup) priceKey {
-	return priceKey{asset: l.GetAssetId(), base: l.GetBaseAssetId(), windowed: l.From != nil}
-}
-
-// prefetchedPrices serves quoting.PriceReader from answers already collected,
-// so the shared pricing rule runs over a batch without a hop per pair. A pair
-// asked and found priceless answers NotFound, as the RPC would. A pair never
-// asked is a bug in priceAssets' lookup set, and fails loudly rather than
-// reading as "no price" and silently dropping the asset off the map.
-type prefetchedPrices map[priceKey]*apiv1.Price
-
-func (p prefetchedPrices) GetLatestPrice(_ context.Context, req *connect.Request[apiv1.GetLatestPriceRequest]) (*connect.Response[apiv1.Price], error) {
-	row, asked := p[priceKey{asset: req.Msg.GetAssetId(), base: req.Msg.GetBaseAssetId()}]
-	switch {
-	case !asked:
-		return nil, connect.NewError(connect.CodeInternal,
-			fmt.Errorf("price %s/%s was not collected before pricing", req.Msg.GetAssetId(), req.Msg.GetBaseAssetId()))
-	case row == nil:
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("no price"))
-	default:
-		return connect.NewResponse(row), nil
-	}
 }
 
 // markThin records that the market-depth gate fired on this asset. A thin quote

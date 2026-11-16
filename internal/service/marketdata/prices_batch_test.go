@@ -26,9 +26,14 @@ func TestGetPrices_AnswersEachLookupInOrder(t *testing.T) {
 	)
 	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	s := &mockStore{}
-	s.On("GetLatestPrice", mock.Anything, eth, "", "").Return(&entity.StoredPrice{ID: "any", AssetID: eth, BaseAssetID: btc}, nil)
-	s.On("GetLatestPrice", mock.Anything, eth, usd, "").Return(&entity.StoredPrice{ID: "direct", AssetID: eth, BaseAssetID: usd}, nil)
-	s.On("GetLatestPrice", mock.Anything, none, "", "").Return(nil, fmt.Errorf("price: %w", store.ErrNotFound))
+	s.On("LatestPrices", mock.Anything, []PricePair{{AssetID: eth}, {AssetID: eth, BaseAssetID: usd}, {AssetID: none}}).
+		Return(func([]PricePair) []*entity.StoredPrice {
+			return []*entity.StoredPrice{
+				{ID: "any", AssetID: eth, BaseAssetID: btc},
+				{ID: "direct", AssetID: eth, BaseAssetID: usd},
+				nil, // no price for this pair
+			}
+		}, nil)
 	s.On("ListPriceHistory", mock.Anything, ListPriceHistoryOpts{AssetID: eth, BaseAssetID: btc, From: &from, PageSize: 1}).
 		Return([]*entity.StoredPrice{{ID: "then", AssetID: eth, BaseAssetID: btc}}, "", nil)
 	s.On("ListPriceHistory", mock.Anything, ListPriceHistoryOpts{AssetID: none, BaseAssetID: btc, From: &from, PageSize: 1}).
@@ -59,7 +64,7 @@ func TestGetPrices_AnswersEachLookupInOrder(t *testing.T) {
 func TestGetPrices_StoreFailureFailsTheBatch(t *testing.T) {
 	const eth = "00000000-0000-0000-0000-0000000000e1"
 	s := &mockStore{}
-	s.On("GetLatestPrice", mock.Anything, eth, "", "").Return(nil, errors.New("connection reset"))
+	s.On("LatestPrices", mock.Anything, []PricePair{{AssetID: eth}}).Return(nil, errors.New("connection reset"))
 	h := newHandler(s)
 
 	_, err := h.GetPrices(context.Background(), connect.NewRequest(&apiv1.GetPricesRequest{
@@ -111,4 +116,98 @@ func TestGetPrices_WindowedLookupResolvesTicker(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, "then", resp.Msg.Results[0].GetPrice().GetId())
+}
+
+// Latest lookups are answered by one set read: the store work for a batch
+// must not grow with the number of lookups in it.
+func TestGetPrices_LatestLookupsCostOneStoreRead(t *testing.T) {
+	storeReads := func(n int) int {
+		s := &mockStore{}
+		answer := func(pairs []PricePair) []*entity.StoredPrice {
+			out := make([]*entity.StoredPrice, len(pairs))
+			for i, p := range pairs {
+				out[i] = &entity.StoredPrice{ID: "p-" + p.AssetID, AssetID: p.AssetID, BaseAssetID: p.BaseAssetID}
+			}
+			return out
+		}
+		s.On("LatestPrices", mock.Anything, mock.Anything).Return(answer, nil)
+		s.On("GetLatestPrice", mock.Anything, mock.Anything, mock.Anything, "").
+			Return(&entity.StoredPrice{ID: "single"}, nil)
+		h := newHandler(s)
+
+		lookups := make([]*apiv1.PriceLookup, 0, 2*n)
+		for i := range n {
+			id := fmt.Sprintf("00000000-0000-0000-0000-%012d", i)
+			lookups = append(lookups, &apiv1.PriceLookup{AssetId: id}, &apiv1.PriceLookup{AssetId: id, BaseAssetId: "00000000-0000-0000-0000-0000000000d1"})
+		}
+		resp, err := h.GetPrices(context.Background(), connect.NewRequest(&apiv1.GetPricesRequest{Lookups: lookups}))
+		require.NoError(t, err)
+		require.Len(t, resp.Msg.Results, len(lookups))
+		return len(s.Calls)
+	}
+	assert.Equal(t, storeReads(3), storeReads(300), "store reads for 3 assets vs 300")
+}
+
+// A ticker is resolved once per batch however many lookups name it, and one
+// the catalogue does not know leaves its lookup without a price, as
+// GetLatestPrice's NotFound did.
+func TestGetPrices_LatestLookupResolvesTickers(t *testing.T) {
+	const (
+		eth = "00000000-0000-0000-0000-0000000000e1"
+		usd = "00000000-0000-0000-0000-0000000000d1"
+	)
+	s := &mockStore{}
+	// USD is the display currency: it resolves by identity (forex), once per batch.
+	s.On("GetOrCreateAssetBySymbol", mock.Anything, "USD", "USD", entity.AssetTypeForex).
+		Return(&entity.Asset{ID: usd, Symbol: "USD", Market: "forex", Type: entity.AssetTypeForex}, nil).Once()
+	s.On("GetAssetBySymbol", mock.Anything, "NOPE").Return(nil, fmt.Errorf("asset: %w", store.ErrNotFound)).Once()
+	s.On("LatestPrices", mock.Anything, []PricePair{{AssetID: eth, BaseAssetID: usd}, {AssetID: usd}}).
+		Return(func([]PricePair) []*entity.StoredPrice {
+			return []*entity.StoredPrice{{ID: "eth-usd", AssetID: eth, BaseAssetID: usd}, nil}
+		}, nil)
+	h := newHandler(s)
+
+	resp, err := h.GetPrices(context.Background(), connect.NewRequest(&apiv1.GetPricesRequest{
+		Lookups: []*apiv1.PriceLookup{
+			{AssetId: eth, BaseAssetId: "USD"},
+			{AssetId: "NOPE"},
+			{AssetId: "USD"},
+			{AssetId: eth, BaseAssetId: "NOPE"},
+		},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "eth-usd", resp.Msg.Results[0].GetPrice().GetId())
+	assert.Nil(t, resp.Msg.Results[1].Price, "unknown ticker: no price")
+	assert.Nil(t, resp.Msg.Results[2].Price)
+	assert.Nil(t, resp.Msg.Results[3].Price, "unknown base: no price")
+	s.AssertExpectations(t)
+}
+
+// A resolution failure other than "unknown" fails the batch, as it failed
+// GetLatestPrice.
+func TestGetPrices_TickerResolutionFailureFailsTheBatch(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAssetBySymbol", mock.Anything, "BTC").Return(nil, errors.New("connection reset"))
+	h := newHandler(s)
+
+	_, err := h.GetPrices(context.Background(), connect.NewRequest(&apiv1.GetPricesRequest{
+		Lookups: []*apiv1.PriceLookup{{AssetId: "BTC"}},
+	}))
+	assert.Equal(t, connect.CodeInternal, connect.CodeOf(err))
+}
+
+// An unknown asset settles its lookup before the base is looked at, as
+// GetLatestPrice does: a base that would fail to resolve must not fail the
+// batch for a lookup that already has its answer.
+func TestGetPrices_UnknownAssetSkipsBaseResolution(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAssetBySymbol", mock.Anything, "NOPE").Return(nil, fmt.Errorf("asset: %w", store.ErrNotFound))
+	// BROKEN is not stubbed: resolving it panics the mock.
+	h := newHandler(s)
+
+	resp, err := h.GetPrices(context.Background(), connect.NewRequest(&apiv1.GetPricesRequest{
+		Lookups: []*apiv1.PriceLookup{{AssetId: "NOPE", BaseAssetId: "BROKEN"}},
+	}))
+	require.NoError(t, err)
+	assert.Nil(t, resp.Msg.Results[0].Price)
 }

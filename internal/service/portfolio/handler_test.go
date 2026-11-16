@@ -2320,6 +2320,19 @@ func (m *mockMDClient) GetAsset(ctx context.Context, req *connect.Request[apiv1.
 	return nil, args.Error(1)
 }
 
+// stubbed reports whether an expectation for method matches these arguments.
+func (m *mockMDClient) stubbed(method string, args ...any) bool {
+	for _, c := range m.ExpectedCalls {
+		if c.Method != method {
+			continue
+		}
+		if _, diffs := c.Arguments.Diff(args); diffs == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *mockMDClient) expects(method string) bool {
 	for _, c := range m.ExpectedCalls {
 		if c.Method == method {
@@ -2363,6 +2376,40 @@ func (m *mockMDClient) GetLatestPrice(ctx context.Context, req *connect.Request[
 		return v.(*connect.Response[apiv1.Price]), args.Error(1)
 	}
 	return nil, args.Error(1)
+}
+
+// GetPrices answers each lookup through the GetLatestPrice expectations, the
+// way the server answers a batch: NotFound is a lookup without a price, any
+// other error fails the batch. Tests keep stubbing pairs, and every stubbed
+// pair the batch asked is recorded as a GetLatestPrice call for them to
+// inspect.
+//
+// A pair no expectation matches answers "no price" instead of panicking: a
+// batch collects every pair the pricing rule MIGHT read (both directions of a
+// rate, say), and a test stubs only the ones its path does read.
+func (m *mockMDClient) GetPrices(ctx context.Context, req *connect.Request[apiv1.GetPricesRequest]) (*connect.Response[apiv1.GetPricesResponse], error) {
+	resp := &apiv1.GetPricesResponse{}
+	for _, l := range req.Msg.GetLookups() {
+		if l.From != nil {
+			return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mock: windowed lookups are not stubbed"))
+		}
+		r := &apiv1.PriceLookupResult{Lookup: l}
+		single := connect.NewRequest(&apiv1.GetLatestPriceRequest{AssetId: l.GetAssetId(), BaseAssetId: l.GetBaseAssetId()})
+		if !m.stubbed("GetLatestPrice", ctx, single) {
+			resp.Results = append(resp.Results, r)
+			continue
+		}
+		p, err := m.GetLatestPrice(ctx, single)
+		switch {
+		case connect.CodeOf(err) == connect.CodeNotFound:
+		case err != nil:
+			return nil, err
+		default:
+			r.Price = p.Msg
+		}
+		resp.Results = append(resp.Results, r)
+	}
+	return connect.NewResponse(resp), nil
 }
 
 // latestIn matches a price lookup for `asset` that either names `base` or asks
