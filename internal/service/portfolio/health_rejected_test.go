@@ -62,7 +62,7 @@ func TestAccountHealthNamesARejectedKey(t *testing.T) {
 		accounts = append(accounts, a)
 	}
 
-	limits := ratelimit.NewRegistry(nil)
+	limits := ratelimit.NewRegistry()
 	resolver := credentials.NewResolver(credentials.Config{
 		Source: accounts,
 		PriceProviders: map[string]credentials.PriceProviderFactory{

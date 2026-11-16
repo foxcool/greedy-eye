@@ -65,6 +65,9 @@ type Outcome struct {
 // is then rejected with it.
 type Venue interface {
 	Submit(ctx context.Context, account Account, trade Trade, key Key) (Outcome, error)
+	// Preview answers as Submit would right now, without placing the trade:
+	// the decision SimulateRule reports is the one a run acts on.
+	Preview(ctx context.Context, account Account, trade Trade) (Outcome, error)
 }
 
 // WaitingVenue is a venue whose trades can wait after Submit. Check answers

@@ -318,6 +318,10 @@ func journalMissing(journalErr error, tradeReason string) string {
 	return strings.Join(parts, "; ")
 }
 
+func noVenue(account execution.Account) string {
+	return fmt.Sprintf("no venue for account type %s", account.Type)
+}
+
 // submit places the trades in order on the account's venue, after the
 // account's policy has allowed each one. After a rejected trade the rest are
 // not placed: a plan is not meant to run in part.
@@ -335,7 +339,7 @@ func (h *Handler) submit(ctx context.Context, p prepared, executionID string, re
 		}
 		switch {
 		case !ok:
-			results[i], err = execution.Reject(results[i], fmt.Sprintf("no venue for account type %s", account.Type))
+			results[i], err = execution.Reject(results[i], noVenue(account))
 		case halted != "":
 			results[i], err = execution.Reject(results[i], halted)
 		case refused != nil:
@@ -429,8 +433,39 @@ func (h *Handler) SimulateRule(ctx context.Context, req *connect.Request[apiv1.S
 	if err != nil {
 		return connect.NewResponse(&apiv1.SimulateRuleResponse{ErrorMessage: err.Error()}), nil
 	}
+	outcomes, err := h.preview(ctx, p)
+	if err != nil {
+		return connect.NewResponse(&apiv1.SimulateRuleResponse{ErrorMessage: err.Error()}), nil
+	}
+	var warnings []string
+	for i, o := range outcomes {
+		if o.Status != execution.OutcomeFilled {
+			warnings = append(warnings, fmt.Sprintf("trade %d would be rejected: %s", i, o.Reason))
+		}
+	}
 	return connect.NewResponse(&apiv1.SimulateRuleResponse{
-		Success: true,
-		Result:  eng.Simulate(rule, p.snap, p.plan),
+		Success:  true,
+		Result:   eng.Simulate(rule, p.snap, p.plan, outcomes),
+		Warnings: warnings,
 	}), nil
+}
+
+// preview asks the account's venue how it would answer each trade, placing
+// none. Each trade is previewed against the holdings as they are, not after
+// the fills of the trades before it.
+func (h *Handler) preview(ctx context.Context, p prepared) ([]execution.Outcome, error) {
+	venue, ok := h.venues.Lookup(p.account.Type)
+	outcomes := make([]execution.Outcome, len(p.plan.Trades))
+	for i, t := range p.plan.Trades {
+		if !ok {
+			outcomes[i] = execution.Outcome{Status: execution.OutcomeRejected, Reason: noVenue(p.account)}
+			continue
+		}
+		o, err := venue.Preview(ctx, p.account, t)
+		if err != nil {
+			return nil, fmt.Errorf("preview trade %d: %w", i, err)
+		}
+		outcomes[i] = o
+	}
+	return outcomes, nil
 }

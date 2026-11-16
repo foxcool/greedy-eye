@@ -553,6 +553,13 @@ table "holdings" {
     columns = [column.account_id, column.asset_id, column.chain, column.liquidity]
   }
 
+  # An author only for an exclusion that exists (entity.Holding.SetExcluded).
+  # Held here as well as in code because a stale author on an included row reads
+  # as a person's decision the next time something raises the flag.
+  check "holding_exclusion_author_requires_exclusion" {
+    expr = "excluded OR ((excluded_source)::text = ''::text)"
+  }
+
   foreign_key "holdings_accounts_holdings" {
     columns     = [column.account_id]
     ref_columns = [table.accounts.column.id]

@@ -107,7 +107,9 @@ type Store interface {
 
 	// Prices
 	CreatePrice(ctx context.Context, price *entity.StoredPrice) (*entity.StoredPrice, error)
-	CreatePrices(ctx context.Context, prices []*entity.StoredPrice) (int, error)
+	// CreatePrices reports the rows it inserted apart from the rows it found
+	// already held unchanged; a failed row counts as neither.
+	CreatePrices(ctx context.Context, prices []*entity.StoredPrice) (inserted, held int, err error)
 	// GetLatestPrice returns the asset's most recent price. An empty baseAssetID or
 	// sourceID means "any" for that filter; omitting baseAssetID yields the price in
 	// whatever pair the asset trades against (used for cross-rate valuation).

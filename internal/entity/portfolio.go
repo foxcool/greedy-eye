@@ -188,9 +188,10 @@ const (
 	// ExcludedByQuarantine is an exclusion derived from a scam or impersonation
 	// identity verdict. It lasts exactly as long as the verdict behind it.
 	ExcludedByQuarantine ExclusionSource = "quarantine"
-	// ExcludedByUser is a person's own decision, terminal in both directions the
-	// way a user identity verdict is terminal against rescoring: no sync raises
-	// it and no sync lowers it.
+	// ExcludedByUser is a person's exclusion, terminal against sync the way a
+	// user identity verdict is terminal against rescoring: no sync lowers it.
+	// It exists only while the holding is excluded; a person's re-inclusion
+	// carries no author and so is not protected from a later quarantine.
 	ExcludedByUser ExclusionSource = "user"
 )
 

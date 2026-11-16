@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -90,4 +91,73 @@ func TestBackfillCbrRates_RerunCreatesNothing(t *testing.T) {
 	assert.Equal(t, "1080506", rubRows[0].Last.String())
 	assert.Len(t, history(eur.ID), 1)
 	assert.Empty(t, history(token.ID))
+}
+
+// TestBackfillCbrRates_OverlappingCallsCountEachRowOnce holds two backfills of
+// one range inside the feed until both have asked, so neither can see the
+// other's rows before writing. Whatever the interleaving, the rows the two
+// report creating must add up to the rows that now exist.
+func TestBackfillCbrRates_OverlappingCallsCountEachRowOnce(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	body, err := os.ReadFile(filepath.Join("..", "..", "adapter", "cbr", "testdata", "daily_2024-02-17.xml"))
+	require.NoError(t, err)
+	const callers = 2
+	var arrived sync.WaitGroup
+	arrived.Add(callers)
+	feed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		arrived.Done()
+		arrived.Wait()
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(feed.Close)
+
+	var assets []*entity.Asset
+	for _, symbol := range []string{"USD", "RUB", "EUR"} {
+		a, err := s.CreateAsset(ctx, &entity.Asset{Symbol: symbol, Name: symbol, Type: entity.AssetTypeForex, Market: entity.MarketForex})
+		require.NoError(t, err)
+		assets = append(assets, a)
+	}
+
+	h := marketdata.NewHandler(s, slog.New(slog.DiscardHandler)).
+		WithProvider(cbr.ProviderName, cbr.NewProvider(cbr.NewClient(cbr.Config{BaseURL: feed.URL})))
+	admin := middleware.ContextWithUser(ctx, &entity.User{ID: "admin-1", Roles: []string{"admin"}})
+
+	responses := make([]*apiv1.BackfillCbrRatesResponse, callers)
+	var wg sync.WaitGroup
+	for i := range responses {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp, err := h.BackfillCbrRates(admin, connect.NewRequest(&apiv1.BackfillCbrRatesRequest{
+				FromDate: "2024-02-17", ToDate: "2024-02-17",
+			}))
+			if assert.NoError(t, err) {
+				responses[i] = resp.Msg
+			}
+		}()
+	}
+	wg.Wait()
+
+	var created, held uint32
+	for _, resp := range responses {
+		require.NotNil(t, resp)
+		require.Empty(t, resp.Errors)
+		created += resp.PricesCreated
+		held += resp.PricesHeld
+	}
+
+	var rows int
+	for _, a := range assets {
+		page, _, err := s.ListPriceHistory(ctx, marketdata.ListPriceHistoryOpts{
+			AssetID: a.ID, BaseAssetID: assets[0].ID, SourceID: cbr.ProviderName, PageSize: 100,
+		})
+		require.NoError(t, err)
+		rows += len(page)
+	}
+	require.Equal(t, 2, rows, "one row each for RUB and EUR")
+	assert.Equal(t, uint32(rows), created, "prices_created sums to the rows actually added")
+	assert.Equal(t, uint32(rows), held, "the loser of each row reports it held")
 }

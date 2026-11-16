@@ -835,8 +835,21 @@ func (s *MarketDataStore) ListAssets(ctx context.Context, opts marketdata.ListAs
 	}
 
 	if len(opts.IDs) > 0 {
+		// An id that is not a uuid names no asset; casting it would fail the
+		// whole read instead of leaving that one id unmatched for the caller.
+		// Parsed ids are passed in canonical form: uuid.Parse accepts the urn
+		// form, which the uuid cast does not.
+		ids := make([]string, 0, len(opts.IDs))
+		for _, id := range opts.IDs {
+			if u, err := uuid.Parse(id); err == nil {
+				ids = append(ids, u.String())
+			}
+		}
+		if len(ids) == 0 {
+			return []*entity.Asset{}, "", nil
+		}
 		whereClauses = append(whereClauses, fmt.Sprintf("id = ANY($%d::uuid[])", argIdx))
-		args = append(args, opts.IDs)
+		args = append(args, ids)
 		argIdx++
 	}
 
@@ -1314,24 +1327,33 @@ func (s *MarketDataStore) ResetPriceAttempts(ctx context.Context, sourceID strin
 	return freed, nil
 }
 
-// CreatePrice creates a new price record.
+// CreatePrice creates a new price record. A row already held unchanged is
+// returned as if written; CreatePrices is the call that tells the two apart.
 func (s *MarketDataStore) CreatePrice(ctx context.Context, price *entity.StoredPrice) (*entity.StoredPrice, error) {
+	stored, _, err := s.createPrice(ctx, price)
+	return stored, err
+}
+
+// createPrice writes one price and reports whether this call inserted the row
+// (false: it was already held, see priceAlreadyHeld). The answer comes from the
+// INSERT itself, so concurrent writers of one row see exactly one true.
+func (s *MarketDataStore) createPrice(ctx context.Context, price *entity.StoredPrice) (stored *entity.StoredPrice, inserted bool, err error) {
 	if price == nil {
-		return nil, fmt.Errorf("%w: price is required", store.ErrInvalidArgument)
+		return nil, false, fmt.Errorf("%w: price is required", store.ErrInvalidArgument)
 	}
 	if price.AssetID == "" || price.BaseAssetID == "" || price.SourceID == "" {
-		return nil, fmt.Errorf("%w: asset_id, base_asset_id, and source_id are required", store.ErrInvalidArgument)
+		return nil, false, fmt.Errorf("%w: asset_id, base_asset_id, and source_id are required", store.ErrInvalidArgument)
 	}
 	if !isValidUUID(price.AssetID) {
-		return nil, fmt.Errorf("%w: invalid asset_id format", store.ErrInvalidArgument)
+		return nil, false, fmt.Errorf("%w: invalid asset_id format", store.ErrInvalidArgument)
 	}
 	if !isValidUUID(price.BaseAssetID) {
-		return nil, fmt.Errorf("%w: invalid base_asset_id format", store.ErrInvalidArgument)
+		return nil, false, fmt.Errorf("%w: invalid base_asset_id format", store.ErrInvalidArgument)
 	}
 
 	id, err := uuid.NewV7()
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate ID: %w", err)
+		return nil, false, fmt.Errorf("failed to generate ID: %w", err)
 	}
 	price.ID = id.String()
 
@@ -1363,16 +1385,17 @@ func (s *MarketDataStore) CreatePrice(ctx context.Context, price *entity.StoredP
 		provenanceValue(price.Provenance),
 	).Scan(&price.Timestamp)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return s.priceAlreadyHeld(ctx, price)
+		held, err := s.priceAlreadyHeld(ctx, price)
+		return held, false, err
 	}
 	if err != nil {
 		if isConstraintError(err) {
-			return nil, fmt.Errorf("%w: price constraint failed: %v", store.ErrConstraint, err)
+			return nil, false, fmt.Errorf("%w: price constraint failed: %v", store.ErrConstraint, err)
 		}
-		return nil, fmt.Errorf("failed to create price: %w", err)
+		return nil, false, fmt.Errorf("failed to create price: %w", err)
 	}
 
-	return price, nil
+	return price, true, nil
 }
 
 // priceAlreadyHeld settles a write that found its (asset, source, instant, pair)
@@ -1405,24 +1428,29 @@ func scaledPrice(p *entity.StoredPrice) decimal.Decimal {
 	return p.Last.Shift(-int32(p.Decimals)) // #nosec G115 -- decimals is a small scale factor
 }
 
-// CreatePrices creates multiple prices in bulk.
-// Individual failures are counted and returned as a combined error so callers
-// can surface partial success instead of silently dropping records. A quote
-// already held unchanged counts as stored (see priceAlreadyHeld).
-func (s *MarketDataStore) CreatePrices(ctx context.Context, prices []*entity.StoredPrice) (int, error) {
-	count := 0
+// CreatePrices creates multiple prices in bulk and reports how many rows this
+// call inserted and how many it found already held unchanged (see
+// priceAlreadyHeld). The two are separate so a caller can tell what it added
+// from what was there; a sweep re-delivering a daily fixing reports it held.
+// Individual failures are counted in neither and returned as a combined error
+// so callers can surface partial success instead of silently dropping records.
+func (s *MarketDataStore) CreatePrices(ctx context.Context, prices []*entity.StoredPrice) (inserted, held int, err error) {
 	var errs []string
 	for _, p := range prices {
-		if _, err := s.CreatePrice(ctx, p); err != nil {
-			errs = append(errs, fmt.Sprintf("%s/%s: %v", p.AssetID, p.BaseAssetID, err))
-		} else {
-			count++
+		_, wrote, werr := s.createPrice(ctx, p)
+		switch {
+		case werr != nil:
+			errs = append(errs, fmt.Sprintf("%s/%s: %v", p.AssetID, p.BaseAssetID, werr))
+		case wrote:
+			inserted++
+		default:
+			held++
 		}
 	}
 	if len(errs) > 0 {
-		return count, fmt.Errorf("%d price(s) failed: %s", len(errs), strings.Join(errs, "; "))
+		return inserted, held, fmt.Errorf("%d price(s) failed: %s", len(errs), strings.Join(errs, "; "))
 	}
-	return count, nil
+	return inserted, held, nil
 }
 
 // GetLatestPrice returns the most recent price for asset/base/source.

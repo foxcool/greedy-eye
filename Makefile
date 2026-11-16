@@ -9,7 +9,7 @@ COMPOSE_FILE=deploy/compose.yaml
 .PHONY: gen go-gen up debug down logs clean buf-gen docs-api \
         test test-unit test-integration test-smoke test-smoke-loopback schema-diff \
         migrate-apply migrate-diff migrate-status migrate-baseline migrate-drift \
-        lint tag-check fmt-check vet check
+        lint gosec tag-check fmt-check vet check
 
 # Generate all code
 gen: buf-gen go-gen
@@ -144,7 +144,10 @@ fmt-check:
 # Modules and golangci-lint's analysis cache live in named volumes, not the host
 # caches: runs after the first download and re-analyse nothing unchanged, and
 # the container cannot write into the host's caches.
+# The digest is the multi-arch index of that exact tag, so a re-pushed tag
+# cannot change what runs. Move both together.
 GOLANGCI_LINT_VERSION = v2.15.0
+GOLANGCI_LINT_DIGEST = sha256:fbfcfd12a6f8d7f1b97b3362ca80fc2a244d46863148c73cb88e7793af96c481
 LINT_MODCACHE ?= greedy-eye-lint-gomod
 LINT_CACHE ?= greedy-eye-lint-cache
 
@@ -154,7 +157,23 @@ tag-check:
 	go run ./internal/tools/tagcheck
 
 lint: fmt-check tag-check
-	docker run --rm -v $(PWD):/app -v $(LINT_MODCACHE):/go/pkg/mod -v $(LINT_CACHE):/root/.cache -w /app golangci/golangci-lint:$(GOLANGCI_LINT_VERSION) golangci-lint run -v
+	docker run --rm -v $(PWD):/app -v $(LINT_MODCACHE):/go/pkg/mod -v $(LINT_CACHE):/root/.cache -w /app golangci/golangci-lint:$(GOLANGCI_LINT_VERSION)@$(GOLANGCI_LINT_DIGEST) golangci-lint run -v
+
+# Static security scan with CI's arguments (security.yml runs this target).
+# Not part of `check`. The release is pinned by tag and by the digest of its
+# multi-arch index, so a moved tag or new default rules cannot change the
+# result without a commit here. GOTOOLCHAIN=auto lets the scanner fetch the Go
+# version go.mod asks for; without it a toolchain mismatch scans zero files
+# and still exits 0, so the target fails unless the summary shows Files > 0.
+GOSEC_VERSION = 2.30.0
+GOSEC_DIGEST = sha256:7bcf1edbab3e80d8006a28d53e7031a9c9775be8eec30679e4adc1f51d272121
+GOSEC_CACHE ?= greedy-eye-gosec-gomod
+
+gosec:
+	@out="$$(docker run --rm -e GOTOOLCHAIN=auto -v $(PWD):/app -v $(GOSEC_CACHE):/go/pkg/mod -w /app ghcr.io/securego/gosec:$(GOSEC_VERSION)@$(GOSEC_DIGEST) -exclude-generated ./... 2>&1)"; \
+	status=$$?; echo "$$out"; \
+	if [ $$status -eq 0 ] && ! echo "$$out" | grep -Eq 'Files +: +[1-9]'; then echo "gosec scanned no files"; exit 1; fi; \
+	exit $$status
 
 # Pre-commit check: vet + lint + unit tests
 check: vet lint test-unit

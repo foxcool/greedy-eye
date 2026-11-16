@@ -526,13 +526,13 @@ func (h *Handler) CreatePrices(ctx context.Context, req *connect.Request[apiv1.C
 		prices = append(prices, price)
 	}
 
-	count, err := h.store.CreatePrices(ctx, prices)
+	inserted, _, err := h.store.CreatePrices(ctx, prices)
 	if err != nil {
 		return nil, toConnectError(err)
 	}
 
 	return connect.NewResponse(&apiv1.CreatePricesResponse{
-		CreatedCount: int32(count), // #nosec G115 -- count of rows created, bounded by request size
+		CreatedCount: int32(inserted), // #nosec G115 -- count of rows created, bounded by request size
 	}), nil
 }
 
@@ -581,11 +581,38 @@ func (h *Handler) resolveAssetID(ctx context.Context, id string) (string, error)
 	if _, err := uuid.Parse(id); err == nil {
 		return id, nil
 	}
+	if strings.EqualFold(id, pricefresh.DefaultDisplayCurrency) {
+		return h.displayCurrency(ctx)
+	}
 	asset, err := h.store.GetAssetBySymbol(ctx, id) // store normalizes symbol case
 	if err != nil {
 		return "", fmt.Errorf("resolve asset %q: %w", id, err)
 	}
 	return asset.ID, nil
+}
+
+// displayCurrency resolves the default display currency by its full identity,
+// forex USD, the row the price sweep creates as a provider's base. Two reasons
+// it does not take the symbol-only lookup every other ticker takes:
+//   - that lookup returns whatever row holds the symbol, so a crypto or contract
+//     token named "USD" — airdrop spam is full of them — could become the
+//     currency every total is expressed in;
+//   - nothing created USD before a price landed, so a new instance answered not
+//     found for its own currency: an empty portfolio could not be valued and
+//     the dashboard opened on an error. It is created here on first use.
+//
+// Only this one symbol is created on a read; any other unknown ticker stays
+// not found.
+func (h *Handler) displayCurrency(ctx context.Context) (string, error) {
+	symbol := pricefresh.DefaultDisplayCurrency
+	id, refused, err := h.quoteBase(ctx, symbol, entity.AssetTypeForex)
+	if refused != nil {
+		return "", fmt.Errorf("resolve asset %q: %w", symbol, refused)
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolve asset %q: %w", symbol, err)
+	}
+	return id, nil
 }
 
 // ListPriceHistory returns price history for an asset pair.
@@ -1490,6 +1517,24 @@ func quotableIdentity(symbol, market string, typ entity.AssetType) error {
 	}
 }
 
+// quoteBase finds or creates symbol as a quote currency of type typ, guarded by
+// quotableIdentity before the catalogue is asked and by quotableBase after.
+// refused and err come back apart because callers treat them apart: a refusal
+// is a fact about the identity, worth remembering; a store error is not.
+func (h *Handler) quoteBase(ctx context.Context, symbol string, typ entity.AssetType) (id string, refused, err error) {
+	if r := quotableIdentity(symbol, entity.DefaultMarket(typ), typ); r != nil {
+		return "", r, nil
+	}
+	a, err := h.store.GetOrCreateAssetBySymbol(ctx, symbol, symbol, typ)
+	if err != nil {
+		return "", nil, err
+	}
+	if r := quotableBase(a); r != nil {
+		return "", r, nil
+	}
+	return a.ID, nil, nil
+}
+
 // quarantineVerdicts are excluded from unattended pricing: their holdings are
 // already excluded from the portfolio sums, so a price for them buys nothing.
 var quarantineVerdicts = []string{
@@ -1545,23 +1590,35 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	// Reconciliation reads exactly the assets it names. Paging the catalogue and
 	// filtering in Go is both wasteful and lossy — the discarded page token used
 	// to cap the whole sweep at 500 assets.
+	//
+	// Background work reads them too, only to tell ids that exist from ids that
+	// do not: an id with no asset is named back as unknown, not counted as left
+	// to a sweep that will never price it.
 	var named []*entity.Asset
 	var unknownAssets string
-	if len(req.Msg.AssetIds) > 0 && backgroundIDs == nil {
-		var err error
-		named, err = h.namedAssets(ctx, req.Msg.AssetIds)
+	if len(req.Msg.AssetIds) > 0 {
+		found, err := h.namedAssets(ctx, req.Msg.AssetIds)
 		if err != nil {
 			return nil, toConnectError(err)
 		}
 		// A typo'd or deleted id must not read as "priced, nothing to report":
 		// the caller named it, so the response names it back.
-		if unknown := unknownIDs(req.Msg.AssetIds, named); len(unknown) > 0 {
+		unknown := unknownIDs(req.Msg.AssetIds, found)
+		if len(unknown) > 0 {
 			unknownAssets = "unknown asset_ids: " + strings.Join(unknown, ", ")
 		}
-		if len(named) == 0 {
+		if backgroundIDs == nil {
+			named = found
+		} else {
+			backgroundIDs = slices.DeleteFunc(backgroundIDs, func(id string) bool {
+				return slices.Contains(unknown, id)
+			})
+		}
+		if len(found) == 0 {
 			// Falling through would select as an unattended sweep (named is
-			// nil), so the request ends here, saying what every source in
-			// scope did: nothing, because there was nothing to ask.
+			// nil, backgroundIDs empty), so the request ends here, saying what
+			// every source in scope did: nothing, because there was nothing
+			// to ask.
 			for id := range providers {
 				if len(req.Msg.SourceIds) == 0 || slices.Contains(req.Msg.SourceIds, id) {
 					idleSources[id] = string(outcomeNoAssets)
@@ -1758,18 +1815,15 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 				baseRefused[key] = err
 				return "", err
 			}
-			if err := quotableIdentity(key.symbol, entity.DefaultMarket(key.typ), key.typ); err != nil {
-				return refuse(err)
+			id, refused, err := h.quoteBase(ctx, key.symbol, key.typ)
+			if refused != nil {
+				return refuse(refused)
 			}
-			baseAsset, err := h.store.GetOrCreateAssetBySymbol(ctx, key.symbol, key.symbol, key.typ)
 			if err != nil {
 				return "", fmt.Errorf("resolve base asset %s: %w", key.symbol, err)
 			}
-			if err := quotableBase(baseAsset); err != nil {
-				return refuse(err)
-			}
-			baseAssetCache[key] = baseAsset.ID
-			return baseAsset.ID, nil
+			baseAssetCache[key] = id
+			return id, nil
 		}
 
 		// Resolved before the provider is asked: a bad base fails the whole
@@ -1860,7 +1914,7 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	var stored int
 	if len(allPrices) > 0 {
 		var err error
-		stored, err = h.store.CreatePrices(ctx, allPrices)
+		stored, _, err = h.store.CreatePrices(ctx, allPrices)
 		if err != nil {
 			// Partial failures are non-fatal: surface them in the response errors field.
 			h.log.Warn("some prices failed to store", "error", err)

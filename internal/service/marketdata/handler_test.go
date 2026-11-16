@@ -256,9 +256,9 @@ func (m *mockStore) CreatePrice(ctx context.Context, price *entity.StoredPrice) 
 	return nil, args.Error(1)
 }
 
-func (m *mockStore) CreatePrices(ctx context.Context, prices []*entity.StoredPrice) (int, error) {
+func (m *mockStore) CreatePrices(ctx context.Context, prices []*entity.StoredPrice) (int, int, error) {
 	args := m.Called(ctx, prices)
-	return args.Int(0), args.Error(1)
+	return args.Int(0), args.Int(1), args.Error(2)
 }
 
 func (m *mockStore) GetLatestPrice(ctx context.Context, assetID, baseAssetID, sourceID string) (*entity.StoredPrice, error) {
@@ -477,15 +477,59 @@ func TestGetAsset_SurvivesUnreadableBindings(t *testing.T) {
 // endpoint was the one that did not.
 func TestGetAsset_ResolvesATicker(t *testing.T) {
 	s := &mockStore{}
-	s.On("GetAssetBySymbol", mock.Anything, "USD").Return(testAsset("id-usd"), nil)
-	s.On("GetAsset", mock.Anything, "id-usd").Return(testAsset("id-usd"), nil)
+	s.On("GetAssetBySymbol", mock.Anything, "BTC").Return(testAsset("id-btc"), nil)
+	s.On("GetAsset", mock.Anything, "id-btc").Return(testAsset("id-btc"), nil)
+	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-btc"}).Return(nil, nil)
+	expectRiskFlags(s)
+	h := newHandler(s)
+
+	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "BTC"}))
+	require.NoError(t, err)
+	assert.Equal(t, "id-btc", resp.Msg.Id, "the caller gets the id price rows are keyed by")
+}
+
+// The display currency is resolved by identity, forex USD, never by the
+// symbol alone: the symbol lookup would hand back whatever row holds "USD",
+// and airdrop spam mints such tokens. On a new instance the forex row does not
+// exist yet; it is created the way the price sweep would create it.
+func TestGetAsset_DisplayCurrencyResolvesByIdentity(t *testing.T) {
+	s := &mockStore{}
+	usd := testAsset("id-usd")
+	usd.Symbol, usd.Type, usd.Market = "USD", entity.AssetTypeForex, entity.DefaultMarket(entity.AssetTypeForex)
+	s.On("GetOrCreateAssetBySymbol", mock.Anything, "USD", "USD", entity.AssetTypeForex).Return(usd, nil).Once()
+	s.On("GetAsset", mock.Anything, "id-usd").Return(usd, nil)
 	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-usd"}).Return(nil, nil)
 	expectRiskFlags(s)
 	h := newHandler(s)
 
-	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "USD"}))
+	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "usd"}))
 	require.NoError(t, err)
-	assert.Equal(t, "id-usd", resp.Msg.Id, "the caller gets the id price rows are keyed by")
+	assert.Equal(t, "id-usd", resp.Msg.Id)
+	// A counterfeit "USD" token would have come back from here; it is not asked.
+	s.AssertNotCalled(t, "GetAssetBySymbol", mock.Anything, mock.Anything)
+	s.AssertExpectations(t)
+}
+
+func TestGetAsset_DisplayCurrencyRefusesAContractRow(t *testing.T) {
+	s := &mockStore{}
+	fake := testAsset("id-fake-usd")
+	fake.Symbol, fake.Type, fake.Market = "USD", entity.AssetTypeForex, entity.OnchainPrefix+"ethereum:0xdead"
+	s.On("GetOrCreateAssetBySymbol", mock.Anything, "USD", "USD", entity.AssetTypeForex).Return(fake, nil)
+	h := newHandler(s)
+
+	_, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "USD"}))
+	require.Error(t, err, "a row on a contract market must not become the display currency")
+}
+
+func TestGetAsset_UnknownTickerIsNotCreated(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAssetBySymbol", mock.Anything, "EUR").Return(nil, store.ErrNotFound)
+	h := newHandler(s)
+
+	_, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "EUR"}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	s.AssertNotCalled(t, "GetOrCreateAssetBySymbol", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 // --- Tests: DeleteAsset ---
@@ -768,14 +812,14 @@ func TestGetLatestPrice_SymbolResolved(t *testing.T) {
 	const assetUUID = "00000000-0000-0000-0000-0000000000a1"
 	s := &mockStore{}
 	// Handler passes the symbol through verbatim; the real store normalizes case.
-	s.On("GetAssetBySymbol", mock.Anything, "usd").Return(&entity.Asset{ID: resolvedUUID}, nil)
+	s.On("GetAssetBySymbol", mock.Anything, "eur").Return(&entity.Asset{ID: resolvedUUID}, nil)
 	s.On("GetLatestPrice", mock.Anything, assetUUID, resolvedUUID, "").Return(&entity.StoredPrice{
 		ID: "p-2", AssetID: assetUUID, BaseAssetID: resolvedUUID,
 	}, nil)
 	h := newHandler(s)
 
 	resp, err := h.GetLatestPrice(context.Background(), connect.NewRequest(&apiv1.GetLatestPriceRequest{
-		AssetId: assetUUID, BaseAssetId: "usd", // lowercase symbol, not UUID
+		AssetId: assetUUID, BaseAssetId: "eur", // lowercase symbol, not UUID
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, "p-2", resp.Msg.Id)
@@ -1963,7 +2007,7 @@ func TestFetchExternalPrices_RowBaseOverridesProviderDefault(t *testing.T) {
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
 
 	var stored []*entity.StoredPrice
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(2, nil).
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(2, 0, nil).
 		Run(func(args mock.Arguments) { stored = args.Get(1).([]*entity.StoredPrice) })
 
 	p := &perRowBaseProvider{rowBase: map[string]string{"rub-quoted": "RUB"}}
@@ -2065,7 +2109,7 @@ func TestFetchExternalPrices_PersistsDiscoveredRefs(t *testing.T) {
 	expectExternalRefs(s)
 	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{a}, "", nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 	s.On("CreateAssetExternalRef", mock.Anything, mock.MatchedBy(func(r *entity.AssetExternalRef) bool {
 		return r.AssetID == "unbound-1" && r.Source == "broker" && r.Ref == "FIGI-1"
 	})).Return(&entity.AssetExternalRef{
@@ -2094,7 +2138,7 @@ func TestFetchExternalPrices_DuplicateRefIsNotAnError(t *testing.T) {
 	expectExternalRefs(s)
 	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{a}, "", nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 	s.On("CreateAssetExternalRef", mock.Anything, mock.Anything).
 		Return(nil, fmt.Errorf("%w: already bound", store.ErrConstraint))
 
@@ -2118,7 +2162,7 @@ func TestFetchExternalPrices_PlainProviderDiscoversNothing(t *testing.T) {
 	expectExternalRefs(s)
 	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{a}, "", nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 
 	h := newHandler(s).WithProvider("fake", &fakePriceProvider{prices: map[string]bool{"plain-1": true}})
 
@@ -2139,7 +2183,7 @@ func TestFetchExternalPrices_SweepSelectsDueAssets(t *testing.T) {
 	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {
 		return o.SourceID == "fake" && len(o.Symbols) == 0
 	})).Return([]*entity.Asset{due}, nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.MatchedBy(func(o RecordAttemptsOpts) bool {
 		return o.SourceID == "fake" && assert.ObjectsAreEqual([]string{"due-1"}, o.Priced) && len(o.Missed) == 0
 	})).Return(nil)
@@ -2168,7 +2212,7 @@ func TestFetchExternalPrices_ExplicitIDsBypassSelection(t *testing.T) {
 	s.On("ListAssets", mock.Anything, mock.MatchedBy(func(o ListAssetsOpts) bool {
 		return len(o.IDs) == 1 && o.IDs[0] == "named-1"
 	})).Return([]*entity.Asset{named}, "", nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
 
 	p := &fakePriceProvider{prices: map[string]bool{"named-1": true}}
@@ -2198,7 +2242,7 @@ func TestFetchExternalPrices_BudgetCapsTheSweep(t *testing.T) {
 	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {
 		return len(o.ExcludeSymbols) == 1 && o.Limit == 60
 	})).Return([]*entity.Asset{paid}, nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(2, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(2, 0, nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
 
 	p := &fakePriceProvider{
@@ -2234,7 +2278,7 @@ func TestFetchExternalPrices_ZeroBudgetStillPricesFreeTier(t *testing.T) {
 	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {
 		return len(o.Symbols) == 1
 	})).Return([]*entity.Asset{free}, nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
 
 	p := &fakePriceProvider{
@@ -2263,7 +2307,7 @@ func TestFetchExternalPrices_MissesAreRecorded(t *testing.T) {
 	expectExternalRefs(s)
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
 		Return([]*entity.Asset{priced, unlisted}, nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.MatchedBy(func(o RecordAttemptsOpts) bool {
 		return assert.ObjectsAreEqual([]string{"priced-1"}, o.Priced) &&
 			assert.ObjectsAreEqual([]string{"unlisted-1"}, o.Missed) &&
@@ -2385,7 +2429,7 @@ func TestFetchExternalPrices_SkipsUnusableProvider(t *testing.T) {
 	expectExternalRefs(s)
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 
 	spent := &stuckProvider{reason: "share spent"}
 	working := &fakePriceProvider{}
@@ -2411,7 +2455,7 @@ func TestFetchExternalPrices_ReconciliationIgnoresHealth(t *testing.T) {
 	expectExternalRefs(s)
 	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{a}, "", nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 
 	p := &stuckProvider{reason: "share spent"}
 	h := newHandler(s).WithProvider("coingecko", p)
@@ -2449,7 +2493,7 @@ func TestFetchExternalPrices_SpentKeyHandsTheSweepToTheNext(t *testing.T) {
 	s.On("RecordPriceAttempts", mock.Anything, mock.MatchedBy(func(o RecordAttemptsOpts) bool {
 		return o.SourceID == "coingecko" && assert.ObjectsAreEqual([]string{"a1"}, o.Priced) && len(o.Missed) == 0
 	})).Return(nil).Once()
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 
 	first := &fakePriceProvider{fetchError: errSpentMidFetch}
 	second := &fakePriceProvider{prices: map[string]bool{"a1": true}}
@@ -2470,11 +2514,12 @@ func TestFetchExternalPrices_SpentKeyHandsTheSweepToTheNext(t *testing.T) {
 // before the sweep is not asked, and the one behind it is.
 func TestFetchExternalPrices_UnusableKeyIsPassedForTheNext(t *testing.T) {
 	s := &mockStore{}
+	expectKnownAssets(s, "a1")
 	expectBaseAsset(s)
 	expectExternalRefs(s)
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 
 	spent := &stuckProvider{reason: "share spent"}
 	next := &fakePriceProvider{prices: map[string]bool{"a1": true}}
@@ -2554,12 +2599,13 @@ func TestFetchExternalPrices_MidFetchRefusalSurvivesSpentKeysBehind(t *testing.T
 // the key that takes over and asks for all of them must not report those.
 func TestFetchExternalPrices_TakeoverKeyReplacesDeferredCount(t *testing.T) {
 	s := &mockStore{}
+	expectKnownAssets(s, "a1", "a2")
 	expectBaseAsset(s)
 	expectExternalRefs(s)
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil).Once()
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1"), testAsset("a2")}, nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(2, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(2, 0, nil)
 
 	first := &fakePriceProvider{fetchError: errSpentMidFetch}
 	second := &fakePriceProvider{prices: map[string]bool{"a1": true, "a2": true}}
@@ -2628,7 +2674,7 @@ func TestFetchExternalPrices_PartialFetchBeforeRefusalIsKept(t *testing.T) {
 		Return([]*entity.Asset{testAsset("a1"), testAsset("a2"), testAsset("a3")}, nil)
 	s.On("RecordPriceAttempts", mock.Anything, attemptsFor("a1")).Return(nil).Once()
 	s.On("RecordPriceAttempts", mock.Anything, attemptsFor("a2", "a3")).Return(nil).Once()
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(3, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(3, 0, nil)
 
 	first := &partialProvider{fakePriceProvider{prices: map[string]bool{"a1": true}}, errSpentMidFetch}
 	second := &fakePriceProvider{prices: map[string]bool{"a1": true, "a2": true, "a3": true}}
@@ -2655,7 +2701,7 @@ func TestFetchExternalPrices_LastKeyRefusedMidFetchKeepsItsPrices(t *testing.T) 
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
 		Return([]*entity.Asset{testAsset("a1"), testAsset("a2"), testAsset("a3")}, nil)
 	s.On("RecordPriceAttempts", mock.Anything, attemptsFor("a1")).Return(nil).Once()
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 
 	only := &partialProvider{fakePriceProvider{prices: map[string]bool{"a1": true}}, errSpentMidFetch}
 	h := newHandler(s).WithProviderSource(keySource{"coingecko": {only}})
@@ -2680,7 +2726,7 @@ func TestFetchExternalPrices_PartialRefusalBeforeSpentKeysIsKept(t *testing.T) {
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
 		Return([]*entity.Asset{testAsset("a1"), testAsset("a2")}, nil)
 	s.On("RecordPriceAttempts", mock.Anything, attemptsFor("a1")).Return(nil).Once()
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 
 	first := &partialProvider{fakePriceProvider{prices: map[string]bool{"a1": true}}, errSpentMidFetch}
 	spent := &stuckProvider{reason: "share spent"}
@@ -2708,7 +2754,7 @@ func TestFetchExternalPrices_NothingLeftAfterRefusalIsNotIdle(t *testing.T) {
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{}, nil)
 	s.On("SweepSchedule", mock.Anything, mock.Anything).Return([]*entity.SourceSchedule{{SourceID: "coingecko"}}, nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 
 	first := &partialProvider{fakePriceProvider{prices: map[string]bool{"a1": true}}, errSpentMidFetch}
 	second := &fakePriceProvider{}
@@ -2753,6 +2799,7 @@ func TestFetchExternalPrices_RefusalSurvivesANextKeyThatAsksNothing(t *testing.T
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			s := &mockStore{}
+			expectKnownAssets(s, tc.ids...)
 			expectBaseAsset(s)
 			expectExternalRefs(s)
 			s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
@@ -2760,7 +2807,7 @@ func TestFetchExternalPrices_RefusalSurvivesANextKeyThatAsksNothing(t *testing.T
 			s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return(tc.next, nil)
 			s.On("SweepSchedule", mock.Anything, mock.Anything).Return([]*entity.SourceSchedule{{SourceID: "coingecko"}}, nil).Maybe()
 			s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil).Maybe()
-			s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil).Maybe()
+			s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil).Maybe()
 
 			second := &fakePriceProvider{}
 			h := newHandler(s).WithProviderSource(keySource{"coingecko": {tc.first, second}})
@@ -2782,6 +2829,7 @@ func TestFetchExternalPrices_RefusalSurvivesANextKeyThatAsksNothing(t *testing.T
 // left to the sweep.
 func TestFetchExternalPrices_PricedBeforeRefusalIsNotDeferred(t *testing.T) {
 	s := &mockStore{}
+	expectKnownAssets(s, "a1", "a2", "a3")
 	expectBaseAsset(s)
 	expectExternalRefs(s)
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
@@ -2789,7 +2837,7 @@ func TestFetchExternalPrices_PricedBeforeRefusalIsNotDeferred(t *testing.T) {
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
 		Return([]*entity.Asset{testAsset("a2"), testAsset("a3")}, nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(3, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(3, 0, nil)
 
 	first := &partialProvider{fakePriceProvider{prices: map[string]bool{"a1": true}}, errSpentMidFetch}
 	second := &fakePriceProvider{prices: map[string]bool{"a2": true, "a3": true}}
@@ -2816,7 +2864,7 @@ func TestFetchExternalPrices_RejectedKeyHandsTheSweepToTheNext(t *testing.T) {
 	expectExternalRefs(s)
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil)
 	s.On("RecordPriceAttempts", mock.Anything, attemptsFor("a1")).Return(nil).Once()
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 
 	revoked := &fakePriceProvider{fetchError: errRejected}
 	next := &fakePriceProvider{prices: map[string]bool{"a1": true}}
@@ -2881,6 +2929,21 @@ func TestGetSweepSchedule_NamesASkipOnlyWhenEveryKeyIsSpent(t *testing.T) {
 
 // --- Tests: background work that names its assets is still background (personal-ozdu) ---
 
+// expectKnownAssets lets FetchExternalPrices find every id it names, so a
+// test of what happens to existing assets is not about unknown ids.
+func expectKnownAssets(s *mockStore, ids ...string) {
+	if len(ids) == 0 {
+		return
+	}
+	assets := make([]*entity.Asset, 0, len(ids))
+	for _, id := range ids {
+		assets = append(assets, testAsset(id))
+	}
+	s.On("ListAssets", mock.Anything, mock.MatchedBy(func(o ListAssetsOpts) bool {
+		return assert.ObjectsAreEqual(ids, o.IDs)
+	})).Return(assets, "", nil)
+}
+
 func backgroundCtx() context.Context {
 	return spend.WithClass(syncContext(), spend.ClassBackground)
 }
@@ -2897,13 +2960,14 @@ func TestFetchExternalPrices_BackgroundNamedIsPlanned(t *testing.T) {
 	named := []string{"new-1", "fresh-1", "tail-1"}
 
 	s := &mockStore{}
+	expectKnownAssets(s, named...)
 	s.On("FreshTradedQuotes", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 	expectBaseAsset(s)
 	expectExternalRefs(s)
 	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {
 		return o.SourceID == "fake" && o.Limit == 1 && assert.ObjectsAreEqual(named, o.IDs)
 	})).Return([]*entity.Asset{newAsset}, nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
 
 	p := &fakePriceProvider{budget: 1, hasBudget: true, prices: map[string]bool{"new-1": true}}
@@ -2923,6 +2987,7 @@ func TestFetchExternalPrices_BackgroundNamedIsPlanned(t *testing.T) {
 // everything named for it is reported as left over.
 func TestFetchExternalPrices_BackgroundNamedRespectsHealth(t *testing.T) {
 	s := &mockStore{}
+	expectKnownAssets(s, "a1", "a2")
 	p := &stuckProvider{reason: "share spent"}
 	h := newHandler(s).WithProvider("coingecko", p)
 
@@ -2940,6 +3005,7 @@ func TestFetchExternalPrices_BackgroundNamedRespectsHealth(t *testing.T) {
 // schedule is not consulted to explain it.
 func TestFetchExternalPrices_BackgroundNamedNothingDueIsNotAnIdleSource(t *testing.T) {
 	s := &mockStore{}
+	expectKnownAssets(s, "a1")
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{}, nil)
 
 	p := &fakePriceProvider{}
@@ -2952,6 +3018,43 @@ func TestFetchExternalPrices_BackgroundNamedNothingDueIsNotAnIdleSource(t *testi
 	assert.Empty(t, resp.Msg.GetIdleSources())
 	assert.Equal(t, int32(1), resp.Msg.GetDeferredAssets()["fake"])
 	s.AssertNotCalled(t, "SweepSchedule", mock.Anything, mock.Anything)
+}
+
+// An id with no asset behind it is not work the sweep will do later: it was
+// counted in deferred_assets and never named. Background work reports it in
+// errors, the way reconciliation does, and narrows the selection to the rest.
+func TestFetchExternalPrices_BackgroundUnknownIDsAreNamedNotDeferred(t *testing.T) {
+	s := &mockStore{}
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, "", nil)
+	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {
+		return assert.ObjectsAreEqual([]string{"a1"}, o.IDs)
+	})).Return([]*entity.Asset{}, nil)
+
+	h := newHandler(s).WithProvider("fake", &fakePriceProvider{})
+	resp, err := h.FetchExternalPrices(backgroundCtx(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a1", "ghost", "not-a-uuid"}}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+	assert.Equal(t, []string{"unknown asset_ids: ghost, not-a-uuid"}, resp.Msg.GetErrors())
+	assert.Equal(t, int32(1), resp.Msg.GetDeferredAssets()["fake"], "only the existing asset is left to the sweep")
+}
+
+// Every id unknown leaves nothing to narrow the sweep to, and an empty list
+// would select like an unattended sweep: the call ends before any selection.
+func TestFetchExternalPrices_BackgroundAllUnknownSelectsNothing(t *testing.T) {
+	s := &mockStore{}
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{}, "", nil)
+	p := &fakePriceProvider{}
+	h := newHandler(s).WithProvider("fake", p)
+
+	resp, err := h.FetchExternalPrices(backgroundCtx(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"ghost"}}))
+	require.NoError(t, err)
+	s.AssertNotCalled(t, "ListStalePricingTargets", mock.Anything, mock.Anything)
+	assert.Empty(t, p.asked)
+	assert.Equal(t, []string{"unknown asset_ids: ghost"}, resp.Msg.GetErrors())
+	assert.Empty(t, resp.Msg.GetDeferredAssets())
+	assert.Equal(t, map[string]string{"fake": "no_assets"}, resp.Msg.GetIdleSources())
 }
 
 // --- Tests: an empty sweep says which silence it is (personal-2du9) ---
@@ -3124,7 +3227,7 @@ func TestFetchExternalPrices_KnownAndUnknownAssetIds(t *testing.T) {
 	expectExternalRefs(s)
 	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, "", nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 	p := &fakePriceProvider{prices: map[string]bool{"a1": true}}
 	h := newHandler(s).WithProvider("fake", p)
 
@@ -3147,7 +3250,7 @@ func TestFetchExternalPrices_NonCanonicalKnownIdIsNotUnknown(t *testing.T) {
 	expectExternalRefs(s)
 	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset(id)}, "", nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 	h := newHandler(s).WithProvider("fake", &fakePriceProvider{prices: map[string]bool{id: true}})
 
 	resp, err := h.FetchExternalPrices(syncContext(), connect.NewRequest(
@@ -3172,6 +3275,7 @@ func TestFetchExternalPrices_UnknownAssetsOnlyIdleTheNamedSources(t *testing.T) 
 // source cannot work) and has everything named left to the sweep.
 func TestFetchExternalPrices_BackgroundUnusableSourceIsIdleAndDeferred(t *testing.T) {
 	s := &mockStore{}
+	expectKnownAssets(s, "a1", "a2")
 	h := newHandler(s).WithProvider("coingecko", &stuckProvider{reason: "share spent"})
 
 	resp, err := h.FetchExternalPrices(backgroundCtx(), connect.NewRequest(
@@ -3204,7 +3308,7 @@ func TestFetchExternalPrices_UnusableKeyBeforeUsableKeyIsNotIdle(t *testing.T) {
 	expectExternalRefs(s)
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 	h := newHandler(s).WithProviderSource(keySource{"coingecko": {
 		&stuckProvider{reason: "share spent"},
 		&fakePriceProvider{prices: map[string]bool{"a1": true}},
@@ -3227,7 +3331,7 @@ func TestFetchExternalPrices_WorkingSweepReportsNoIdleSource(t *testing.T) {
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
 		Return([]*entity.Asset{asset}, nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil).Maybe()
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil).Maybe()
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil).Maybe()
 
 	h := newHandler(s).WithProvider("fake", &fakePriceProvider{prices: map[string]bool{"asset-1": true}})
 
@@ -3483,7 +3587,7 @@ func TestFetchExternalPrices_UnaskedAssetsAreNotRecordedAsMisses(t *testing.T) {
 	foreign := &entity.Asset{ID: "asset-foreign", Symbol: "SBER", Market: entity.MarketCrypto}
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
 		Return([]*entity.Asset{covered, foreign}, nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil).Maybe()
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil).Maybe()
 
 	var recorded RecordAttemptsOpts
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).
@@ -3526,7 +3630,7 @@ func TestFetchExternalPrices_AttemptStampedAtSweepStart(t *testing.T) {
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) { selected = args.Get(1).(StalePricingOpts) }).
 		Return([]*entity.Asset{testAsset("asset-1")}, nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 	var recorded RecordAttemptsOpts
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) { recorded = args.Get(1).(RecordAttemptsOpts) }).
@@ -3573,7 +3677,7 @@ func TestFetchExternalPrices_GenuineMissIsStillRecorded(t *testing.T) {
 	silent := &entity.Asset{ID: "asset-silent", Symbol: "XYZ", Market: entity.MarketCrypto}
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
 		Return([]*entity.Asset{priced, silent}, nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil).Maybe()
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil).Maybe()
 
 	var recorded RecordAttemptsOpts
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).
@@ -3667,7 +3771,7 @@ func unaskedSweep(t *testing.T, fetchError error) (*mockStore, StalePricingOpts,
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) { selected = args.Get(1).(StalePricingOpts) }).
 		Return([]*entity.Asset{asked, unbound, unasked}, nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil).Maybe()
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil).Maybe()
 	var recorded *RecordAttemptsOpts
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) { o := args.Get(1).(RecordAttemptsOpts); recorded = &o }).
@@ -3844,7 +3948,7 @@ func fetchNamed(t *testing.T, p PriceProvider, assets []*entity.Asset, contested
 	s.On("ListAssets", mock.Anything, mock.Anything).Return(assets, "", nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil).Maybe()
 	s.On("DeferUnaskedPricing", mock.Anything, mock.Anything).Return(nil).Maybe()
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(len(assets), nil).Maybe()
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(len(assets), 0, nil).Maybe()
 
 	resp, err := newHandler(s).WithProvider("venue", p).FetchExternalPrices(syncContext(),
 		connect.NewRequest(&apiv1.FetchExternalPricesRequest{AssetIds: assetIDs(assets)}))
@@ -3925,7 +4029,7 @@ func TestFetchExternalPrices_ContestAskedOncePerAsset(t *testing.T) {
 	s.On("ContestedAssets", mock.Anything, []string{"a"}, quarantineVerdicts).Return(map[string]bool{}, nil).Once()
 	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{marketAsset("a", "A", "moex")}, "", nil)
 	s.On("RecordPriceAttempts", mock.Anything, mock.Anything).Return(nil)
-	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, nil)
+	s.On("CreatePrices", mock.Anything, mock.Anything).Return(1, 0, nil)
 
 	moex := entity.PriceBinding{Markets: []string{"moex"}}
 	h := newHandler(s).

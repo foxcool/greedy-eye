@@ -725,6 +725,12 @@ func (e *unreadableAccountError) Unwrap() []error {
 	return []error{store.ErrUnreadable, e.err}
 }
 
+// UnreadableAccount names the row for store.UnreadableAccountOf.
+func (e *unreadableAccountError) UnreadableAccount() *entity.UnreadableAccount {
+	a := e.account
+	return &a
+}
+
 // skipAndLogUnreadable reports whether a list should leave out the row
 // scanAccount failed with, and if so logs it by id and class only.
 func (s *PortfolioStore) skipAndLogUnreadable(err error) bool {
@@ -1875,6 +1881,10 @@ func (t *holdingTx) UpdateHolding(ctx context.Context, h *entity.Holding, fields
 	return h, nil
 }
 
+func (t *holdingTx) DeleteHolding(ctx context.Context, id string) error {
+	return deleteHolding(ctx, t.tx, id)
+}
+
 // InHoldingsTx runs fn against a transactional holdings writer. A sync rewrites
 // a snapshot of an account's positions, and it is a long enough operation to be
 // interrupted in the middle: prod 2026-07-25 logged SyncAccount dying at the
@@ -2113,6 +2123,10 @@ func updateHolding(ctx context.Context, q holdingExecutor, h *entity.Holding, fi
 }
 
 func (s *PortfolioStore) DeleteHolding(ctx context.Context, id string) error {
+	return deleteHolding(ctx, s.pool, id)
+}
+
+func deleteHolding(ctx context.Context, q holdingExecutor, id string) error {
 	if id == "" {
 		return fmt.Errorf("%w: holding ID is required", store.ErrInvalidArgument)
 	}
@@ -2120,7 +2134,7 @@ func (s *PortfolioStore) DeleteHolding(ctx context.Context, id string) error {
 		return fmt.Errorf("%w: invalid holding ID format", store.ErrInvalidArgument)
 	}
 
-	result, err := s.pool.Exec(ctx, "DELETE FROM holdings WHERE id = $1", id)
+	result, err := q.Exec(ctx, "DELETE FROM holdings WHERE id = $1", id)
 	if err != nil {
 		return fmt.Errorf("failed to delete holding: %w", err)
 	}

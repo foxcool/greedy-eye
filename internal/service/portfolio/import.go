@@ -60,7 +60,16 @@ func resolveImportID(raw *string) (string, error) {
 // source=llm_import and the batch import_id.
 //
 // A commit writes the batch's holdings all or none (see applyPositionWrites):
-// the plan reports failures per item, the commit does not land part of it.
+// the plan reports failures per item, the commit does not land part of it. A
+// full snapshot's deletions are part of that same set.
+//
+// Catalogue assets are not. An asset the batch has to create is created by
+// the market-data service while the batch is planned, before the holdings
+// transaction opens; that service owns the catalogue and may run as another
+// process with its own store, so its write cannot join this transaction. A
+// batch that rolls back therefore keeps the assets it created: AssetsCreated
+// still counts them and each such item's error says the asset stayed. An
+// unheld catalogue row is reused by the next import of the same identity.
 func (h *Handler) ImportPositions(ctx context.Context, req *connect.Request[apiv1.ImportPositionsRequest]) (*connect.Response[apiv1.ImportPositionsResponse], error) {
 	if h.mdClient == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("asset resolution not configured"))
@@ -98,8 +107,17 @@ func (h *Handler) ImportPositions(ctx context.Context, req *connect.Request[apiv
 			writes = append(writes, *write)
 		}
 	}
+	if req.Msg.FullSnapshot {
+		// A batch with failures is not a trustworthy snapshot: a position that
+		// merely failed to parse must not be closed as "absent".
+		if slices.ContainsFunc(resp.Items, func(r *apiv1.ImportPositionResult) bool { return r.Error != nil }) {
+			resp.DeletionsSuppressed = true
+		} else {
+			writes = append(writes, h.planAbsentHoldings(ctx, resp, holdingByAsset, seenAssets)...)
+		}
+	}
 	if !req.Msg.DryRun {
-		h.applyPositionWrites(ctx, account.ID, resp.Items, writes, holdingByAsset)
+		h.applyPositionWrites(ctx, account.ID, resp.Items, writes)
 	}
 
 	for _, result := range resp.Items {
@@ -110,6 +128,8 @@ func (h *Handler) ImportPositions(ctx context.Context, req *connect.Request[apiv
 			resp.Created++
 		case result.Action == apiv1.ImportAction_IMPORT_ACTION_UPDATE:
 			resp.Updated++
+		case result.Action == apiv1.ImportAction_IMPORT_ACTION_DELETE:
+			resp.Deleted++
 		default:
 			resp.Skipped++
 		}
@@ -118,29 +138,19 @@ func (h *Handler) ImportPositions(ctx context.Context, req *connect.Request[apiv
 		}
 	}
 
-	if req.Msg.FullSnapshot {
-		// A batch with failures is not a trustworthy snapshot: a position that
-		// merely failed to parse must not be closed as "absent".
-		if resp.Failed > 0 {
-			resp.DeletionsSuppressed = true
-		} else {
-			h.reconcileAbsentHoldings(ctx, req.Msg.DryRun, resp, holdingByAsset, seenAssets)
-		}
-	}
-
 	return connect.NewResponse(resp), nil
 }
 
-// reconcileAbsentHoldings plans (and on commit performs) closing of account
-// holdings that a full-snapshot batch did not mention. Excluded holdings are
-// deliberate user curation and are never touched.
-func (h *Handler) reconcileAbsentHoldings(
+// planAbsentHoldings plans closing the account holdings that a full-snapshot
+// batch did not mention and returns the deletes a commit lands together with
+// the batch's upserts. Excluded holdings are deliberate user curation and are
+// never touched.
+func (h *Handler) planAbsentHoldings(
 	ctx context.Context,
-	dryRun bool,
 	resp *apiv1.ImportPositionsResponse,
 	holdingByAsset map[string]*entity.Holding,
 	seenAssets map[string]bool,
-) {
+) []positionWrite {
 	// Stable order: map iteration would shuffle the plan between calls.
 	assetIDs := make([]string, 0, len(holdingByAsset))
 	for assetID := range holdingByAsset {
@@ -150,6 +160,7 @@ func (h *Handler) reconcileAbsentHoldings(
 	}
 	slices.Sort(assetIDs)
 
+	deletes := make([]positionWrite, 0, len(assetIDs))
 	for _, assetID := range assetIDs {
 		hld := holdingByAsset[assetID]
 		prev := hld.Amount.String()
@@ -161,18 +172,10 @@ func (h *Handler) reconcileAbsentHoldings(
 			PreviousAmount: &prev,
 			Symbol:         h.assetSymbol(ctx, assetID),
 		}
-		if !dryRun {
-			if err := h.store.DeleteHolding(ctx, hld.ID); err != nil {
-				msg := fmt.Sprintf("delete holding: %v", err)
-				result.Error = &msg
-				resp.Items = append(resp.Items, result)
-				resp.Failed++
-				continue
-			}
-		}
 		resp.Items = append(resp.Items, result)
-		resp.Deleted++
+		deletes = append(deletes, positionWrite{result: result, holding: hld, delete: true})
 	}
+	return deletes
 }
 
 // assetSymbol resolves an asset id to its symbol for plan readability;
@@ -185,11 +188,13 @@ func (h *Handler) assetSymbol(ctx context.Context, assetID string) string {
 	return resp.Msg.GetSymbol()
 }
 
-// positionWrite is one holding write of a committed batch: a holding to
-// create when holding.ID is empty, otherwise the refreshed copy to update.
+// positionWrite is one holding write of a committed batch: the holding to
+// close when delete is set, a holding to create when holding.ID is empty,
+// otherwise the refreshed copy to update.
 type positionWrite struct {
 	result  *apiv1.ImportPositionResult
 	holding *entity.Holding
+	delete  bool
 }
 
 // importOnePosition validates, resolves and plans a single batch item, and
@@ -276,24 +281,24 @@ func (h *Handler) importOnePosition(
 
 // applyPositionWrites lands a committed batch in one holdings transaction, so
 // a caller writing related positions together (the paper venue debits the
-// quote and credits the base in one batch) never sees one without the other.
-// A batch with a failed item writes nothing, and a write that fails rolls the
-// rest back; every planned item then carries an error saying it was not
-// applied.
-func (h *Handler) applyPositionWrites(ctx context.Context, accountID string, items []*apiv1.ImportPositionResult, writes []positionWrite, holdingByAsset map[string]*entity.Holding) {
+// quote and credits the base in one batch) never sees one without the other,
+// and a full snapshot never refreshes balances while leaving open a position
+// it closed. A batch with a failed item writes nothing, and a write that fails
+// rolls the rest back; every planned item then carries an error saying it was
+// not applied.
+func (h *Handler) applyPositionWrites(ctx context.Context, accountID string, items []*apiv1.ImportPositionResult, writes []positionWrite) {
 	if len(writes) == 0 {
 		return
 	}
 	for _, item := range items {
 		if item.Error != nil {
 			for _, w := range writes {
-				setImportError(w.result, errors.New("not applied: another item in the batch failed"))
+				setNotApplied(w, errors.New("not applied: another item in the batch failed"))
 			}
 			return
 		}
 	}
 	failedAt := -1
-	written := make([]*entity.Holding, len(writes))
 	err := h.store.InHoldingsTx(ctx, func(tw HoldingWriter) error {
 		// Not account.PortfolioID, read before the batch: see
 		// HoldingWriter.LockAccountPortfolio.
@@ -302,19 +307,23 @@ func (h *Handler) applyPositionWrites(ctx context.Context, accountID string, ite
 			return fmt.Errorf("lock account portfolio: %w", err)
 		}
 		for i, w := range writes {
-			if w.holding.ID == "" {
+			switch {
+			case w.delete:
+				if err := tw.DeleteHolding(ctx, w.holding.ID); err != nil {
+					failedAt = i
+					return fmt.Errorf("delete holding: %w", err)
+				}
+			case w.holding.ID == "":
 				w.holding.PortfolioID = portfolioID
-				written[i], err = tw.CreateHolding(ctx, w.holding)
-				if err != nil {
+				if _, err := tw.CreateHolding(ctx, w.holding); err != nil {
 					failedAt = i
 					return fmt.Errorf("create holding: %w", err)
 				}
-				continue
-			}
-			written[i], err = tw.UpdateHolding(ctx, w.holding, []string{"amount", "decimals"})
-			if err != nil {
-				failedAt = i
-				return fmt.Errorf("update holding: %w", err)
+			default:
+				if _, err := tw.UpdateHolding(ctx, w.holding, []string{"amount", "decimals"}); err != nil {
+					failedAt = i
+					return fmt.Errorf("update holding: %w", err)
+				}
 			}
 		}
 		return nil
@@ -322,16 +331,21 @@ func (h *Handler) applyPositionWrites(ctx context.Context, accountID string, ite
 	if err != nil {
 		for i, w := range writes {
 			if i == failedAt {
-				setImportError(w.result, err)
+				setNotApplied(w, err)
 				continue
 			}
-			setImportError(w.result, fmt.Errorf("not applied, batch rolled back: %w", err))
+			setNotApplied(w, fmt.Errorf("not applied, batch rolled back: %w", err))
 		}
-		return
 	}
-	for i, w := range writes {
-		holdingByAsset[w.holding.AssetID] = written[i]
+}
+
+// setNotApplied marks a write of a batch that did not land. An asset created
+// for it stays: see ImportPositions.
+func setNotApplied(w positionWrite, err error) {
+	if w.result.AssetCreated {
+		err = fmt.Errorf("%w; the asset created for it stays in the catalogue", err)
 	}
+	setImportError(w.result, err)
 }
 
 func setImportError(result *apiv1.ImportPositionResult, err error) {

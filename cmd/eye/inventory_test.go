@@ -35,7 +35,7 @@ func (emptySource) ListCapabilityOwners(context.Context, entity.AccountCapabilit
 // main wires it, so a provider added to the registry shows up in it with no
 // second list to remember.
 func TestStartupInventoryIsOneLineNamingEveryProvider(t *testing.T) {
-	providers := provider.New(ratelimit.NewRegistry(nil))
+	providers := provider.New(ratelimit.NewRegistry())
 	resolver := credentials.NewResolver(credentials.Config{
 		Source:                emptySource{},
 		WalletSyncers:         providers.WalletSyncers(),

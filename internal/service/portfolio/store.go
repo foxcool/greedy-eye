@@ -7,9 +7,10 @@ import (
 	"github.com/foxcool/greedy-eye/internal/entity"
 )
 
-// HoldingWriter is the subset of holdings writes a sync performs. It exists so
-// the whole set can be handed to one transaction: a sync rewrites a snapshot,
-// and half a snapshot is not a smaller truth, it is a wrong one.
+// HoldingWriter is the subset of holdings writes a sync or a batch import
+// performs. It exists so the whole set can be handed to one transaction: a sync
+// rewrites a snapshot, and half a snapshot is not a smaller truth, it is a
+// wrong one.
 type HoldingWriter interface {
 	// LockAccountPortfolio returns the account's portfolio and holds it until
 	// the transaction ends. A new holding stamped with an account's portfolio
@@ -26,6 +27,7 @@ type HoldingWriter interface {
 	LockAccountPortfolio(ctx context.Context, accountID string) (string, error)
 	CreateHolding(ctx context.Context, h *entity.Holding) (*entity.Holding, error)
 	UpdateHolding(ctx context.Context, h *entity.Holding, fields []string) (*entity.Holding, error)
+	DeleteHolding(ctx context.Context, id string) error
 }
 
 // Store defines the data access contract for PortfolioService.

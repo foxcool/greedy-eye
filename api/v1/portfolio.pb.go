@@ -2295,7 +2295,9 @@ type ImportPositionResult struct {
 	Decimals uint32 `protobuf:"varint,5,opt,name=decimals,proto3" json:"decimals,omitempty"`
 	// Previous raw amount for IMPORT_ACTION_UPDATE.
 	PreviousAmount *string `protobuf:"bytes,6,opt,name=previous_amount,json=previousAmount,proto3,oneof" json:"previous_amount,omitempty"`
-	// The asset was (or would be) created as part of the import.
+	// The asset was (or would be) created as part of the import. The catalogue
+	// is not part of the holdings transaction: an asset created for a commit
+	// that rolls back stays, and this stays true.
 	AssetCreated bool `protobuf:"varint,7,opt,name=asset_created,json=assetCreated,proto3" json:"asset_created,omitempty"`
 	// Per-item failure; the rest of the batch still proceeds.
 	Error         *string `protobuf:"bytes,8,opt,name=error,proto3,oneof" json:"error,omitempty"`
@@ -2390,15 +2392,17 @@ func (x *ImportPositionResult) GetError() string {
 }
 
 type ImportPositionsResponse struct {
-	state         protoimpl.MessageState  `protogen:"open.v1"`
-	ImportId      string                  `protobuf:"bytes,1,opt,name=import_id,json=importId,proto3" json:"import_id,omitempty"`
-	DryRun        bool                    `protobuf:"varint,2,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
-	Items         []*ImportPositionResult `protobuf:"bytes,3,rep,name=items,proto3" json:"items,omitempty"`
-	Created       int32                   `protobuf:"varint,4,opt,name=created,proto3" json:"created,omitempty"`
-	Updated       int32                   `protobuf:"varint,5,opt,name=updated,proto3" json:"updated,omitempty"`
-	Skipped       int32                   `protobuf:"varint,6,opt,name=skipped,proto3" json:"skipped,omitempty"`
-	Failed        int32                   `protobuf:"varint,7,opt,name=failed,proto3" json:"failed,omitempty"`
-	AssetsCreated int32                   `protobuf:"varint,8,opt,name=assets_created,json=assetsCreated,proto3" json:"assets_created,omitempty"`
+	state    protoimpl.MessageState  `protogen:"open.v1"`
+	ImportId string                  `protobuf:"bytes,1,opt,name=import_id,json=importId,proto3" json:"import_id,omitempty"`
+	DryRun   bool                    `protobuf:"varint,2,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	Items    []*ImportPositionResult `protobuf:"bytes,3,rep,name=items,proto3" json:"items,omitempty"`
+	Created  int32                   `protobuf:"varint,4,opt,name=created,proto3" json:"created,omitempty"`
+	Updated  int32                   `protobuf:"varint,5,opt,name=updated,proto3" json:"updated,omitempty"`
+	Skipped  int32                   `protobuf:"varint,6,opt,name=skipped,proto3" json:"skipped,omitempty"`
+	Failed   int32                   `protobuf:"varint,7,opt,name=failed,proto3" json:"failed,omitempty"`
+	// Catalogue assets created by the batch, counted even when the commit rolls
+	// back: those assets survive it (see asset_created).
+	AssetsCreated int32 `protobuf:"varint,8,opt,name=assets_created,json=assetsCreated,proto3" json:"assets_created,omitempty"`
 	// Holdings closed by a full-snapshot reconcile.
 	Deleted int32 `protobuf:"varint,9,opt,name=deleted,proto3" json:"deleted,omitempty"`
 	// full_snapshot was requested but deletions were suppressed because some
