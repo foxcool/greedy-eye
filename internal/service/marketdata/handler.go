@@ -1545,23 +1545,35 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	// Reconciliation reads exactly the assets it names. Paging the catalogue and
 	// filtering in Go is both wasteful and lossy — the discarded page token used
 	// to cap the whole sweep at 500 assets.
+	//
+	// Background work reads them too, only to tell ids that exist from ids that
+	// do not: an id with no asset is named back as unknown, not counted as left
+	// to a sweep that will never price it.
 	var named []*entity.Asset
 	var unknownAssets string
-	if len(req.Msg.AssetIds) > 0 && backgroundIDs == nil {
-		var err error
-		named, err = h.namedAssets(ctx, req.Msg.AssetIds)
+	if len(req.Msg.AssetIds) > 0 {
+		found, err := h.namedAssets(ctx, req.Msg.AssetIds)
 		if err != nil {
 			return nil, toConnectError(err)
 		}
 		// A typo'd or deleted id must not read as "priced, nothing to report":
 		// the caller named it, so the response names it back.
-		if unknown := unknownIDs(req.Msg.AssetIds, named); len(unknown) > 0 {
+		unknown := unknownIDs(req.Msg.AssetIds, found)
+		if len(unknown) > 0 {
 			unknownAssets = "unknown asset_ids: " + strings.Join(unknown, ", ")
 		}
-		if len(named) == 0 {
+		if backgroundIDs == nil {
+			named = found
+		} else {
+			backgroundIDs = slices.DeleteFunc(backgroundIDs, func(id string) bool {
+				return slices.Contains(unknown, id)
+			})
+		}
+		if len(found) == 0 {
 			// Falling through would select as an unattended sweep (named is
-			// nil), so the request ends here, saying what every source in
-			// scope did: nothing, because there was nothing to ask.
+			// nil, backgroundIDs empty), so the request ends here, saying what
+			// every source in scope did: nothing, because there was nothing
+			// to ask.
 			for id := range providers {
 				if len(req.Msg.SourceIds) == 0 || slices.Contains(req.Msg.SourceIds, id) {
 					idleSources[id] = string(outcomeNoAssets)

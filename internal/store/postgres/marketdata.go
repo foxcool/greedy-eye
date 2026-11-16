@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -835,8 +836,14 @@ func (s *MarketDataStore) ListAssets(ctx context.Context, opts marketdata.ListAs
 	}
 
 	if len(opts.IDs) > 0 {
+		// An id that is not a uuid names no asset; casting it would fail the
+		// whole read instead of leaving that one id unmatched for the caller.
+		ids := slices.DeleteFunc(slices.Clone(opts.IDs), func(id string) bool { return !isValidUUID(id) })
+		if len(ids) == 0 {
+			return []*entity.Asset{}, "", nil
+		}
 		whereClauses = append(whereClauses, fmt.Sprintf("id = ANY($%d::uuid[])", argIdx))
-		args = append(args, opts.IDs)
+		args = append(args, ids)
 		argIdx++
 	}
 

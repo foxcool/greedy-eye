@@ -2470,6 +2470,7 @@ func TestFetchExternalPrices_SpentKeyHandsTheSweepToTheNext(t *testing.T) {
 // before the sweep is not asked, and the one behind it is.
 func TestFetchExternalPrices_UnusableKeyIsPassedForTheNext(t *testing.T) {
 	s := &mockStore{}
+	expectKnownAssets(s, "a1")
 	expectBaseAsset(s)
 	expectExternalRefs(s)
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil)
@@ -2554,6 +2555,7 @@ func TestFetchExternalPrices_MidFetchRefusalSurvivesSpentKeysBehind(t *testing.T
 // the key that takes over and asks for all of them must not report those.
 func TestFetchExternalPrices_TakeoverKeyReplacesDeferredCount(t *testing.T) {
 	s := &mockStore{}
+	expectKnownAssets(s, "a1", "a2")
 	expectBaseAsset(s)
 	expectExternalRefs(s)
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, nil).Once()
@@ -2753,6 +2755,7 @@ func TestFetchExternalPrices_RefusalSurvivesANextKeyThatAsksNothing(t *testing.T
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			s := &mockStore{}
+			expectKnownAssets(s, tc.ids...)
 			expectBaseAsset(s)
 			expectExternalRefs(s)
 			s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
@@ -2782,6 +2785,7 @@ func TestFetchExternalPrices_RefusalSurvivesANextKeyThatAsksNothing(t *testing.T
 // left to the sweep.
 func TestFetchExternalPrices_PricedBeforeRefusalIsNotDeferred(t *testing.T) {
 	s := &mockStore{}
+	expectKnownAssets(s, "a1", "a2", "a3")
 	expectBaseAsset(s)
 	expectExternalRefs(s)
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).
@@ -2881,6 +2885,21 @@ func TestGetSweepSchedule_NamesASkipOnlyWhenEveryKeyIsSpent(t *testing.T) {
 
 // --- Tests: background work that names its assets is still background (personal-ozdu) ---
 
+// expectKnownAssets lets FetchExternalPrices find every id it names, so a
+// test of what happens to existing assets is not about unknown ids.
+func expectKnownAssets(s *mockStore, ids ...string) {
+	if len(ids) == 0 {
+		return
+	}
+	assets := make([]*entity.Asset, 0, len(ids))
+	for _, id := range ids {
+		assets = append(assets, testAsset(id))
+	}
+	s.On("ListAssets", mock.Anything, mock.MatchedBy(func(o ListAssetsOpts) bool {
+		return assert.ObjectsAreEqual(ids, o.IDs)
+	})).Return(assets, "", nil)
+}
+
 func backgroundCtx() context.Context {
 	return spend.WithClass(syncContext(), spend.ClassBackground)
 }
@@ -2897,6 +2916,7 @@ func TestFetchExternalPrices_BackgroundNamedIsPlanned(t *testing.T) {
 	named := []string{"new-1", "fresh-1", "tail-1"}
 
 	s := &mockStore{}
+	expectKnownAssets(s, named...)
 	s.On("FreshTradedQuotes", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 	expectBaseAsset(s)
 	expectExternalRefs(s)
@@ -2923,6 +2943,7 @@ func TestFetchExternalPrices_BackgroundNamedIsPlanned(t *testing.T) {
 // everything named for it is reported as left over.
 func TestFetchExternalPrices_BackgroundNamedRespectsHealth(t *testing.T) {
 	s := &mockStore{}
+	expectKnownAssets(s, "a1", "a2")
 	p := &stuckProvider{reason: "share spent"}
 	h := newHandler(s).WithProvider("coingecko", p)
 
@@ -2940,6 +2961,7 @@ func TestFetchExternalPrices_BackgroundNamedRespectsHealth(t *testing.T) {
 // schedule is not consulted to explain it.
 func TestFetchExternalPrices_BackgroundNamedNothingDueIsNotAnIdleSource(t *testing.T) {
 	s := &mockStore{}
+	expectKnownAssets(s, "a1")
 	s.On("ListStalePricingTargets", mock.Anything, mock.Anything).Return([]*entity.Asset{}, nil)
 
 	p := &fakePriceProvider{}
@@ -2952,6 +2974,43 @@ func TestFetchExternalPrices_BackgroundNamedNothingDueIsNotAnIdleSource(t *testi
 	assert.Empty(t, resp.Msg.GetIdleSources())
 	assert.Equal(t, int32(1), resp.Msg.GetDeferredAssets()["fake"])
 	s.AssertNotCalled(t, "SweepSchedule", mock.Anything, mock.Anything)
+}
+
+// An id with no asset behind it is not work the sweep will do later: it was
+// counted in deferred_assets and never named. Background work reports it in
+// errors, the way reconciliation does, and narrows the selection to the rest.
+func TestFetchExternalPrices_BackgroundUnknownIDsAreNamedNotDeferred(t *testing.T) {
+	s := &mockStore{}
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{testAsset("a1")}, "", nil)
+	s.On("ListStalePricingTargets", mock.Anything, mock.MatchedBy(func(o StalePricingOpts) bool {
+		return assert.ObjectsAreEqual([]string{"a1"}, o.IDs)
+	})).Return([]*entity.Asset{}, nil)
+
+	h := newHandler(s).WithProvider("fake", &fakePriceProvider{})
+	resp, err := h.FetchExternalPrices(backgroundCtx(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"a1", "ghost", "not-a-uuid"}}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+	assert.Equal(t, []string{"unknown asset_ids: ghost, not-a-uuid"}, resp.Msg.GetErrors())
+	assert.Equal(t, int32(1), resp.Msg.GetDeferredAssets()["fake"], "only the existing asset is left to the sweep")
+}
+
+// Every id unknown leaves nothing to narrow the sweep to, and an empty list
+// would select like an unattended sweep: the call ends before any selection.
+func TestFetchExternalPrices_BackgroundAllUnknownSelectsNothing(t *testing.T) {
+	s := &mockStore{}
+	s.On("ListAssets", mock.Anything, mock.Anything).Return([]*entity.Asset{}, "", nil)
+	p := &fakePriceProvider{}
+	h := newHandler(s).WithProvider("fake", p)
+
+	resp, err := h.FetchExternalPrices(backgroundCtx(), connect.NewRequest(
+		&apiv1.FetchExternalPricesRequest{AssetIds: []string{"ghost"}}))
+	require.NoError(t, err)
+	s.AssertNotCalled(t, "ListStalePricingTargets", mock.Anything, mock.Anything)
+	assert.Empty(t, p.asked)
+	assert.Equal(t, []string{"unknown asset_ids: ghost"}, resp.Msg.GetErrors())
+	assert.Empty(t, resp.Msg.GetDeferredAssets())
+	assert.Equal(t, map[string]string{"fake": "no_assets"}, resp.Msg.GetIdleSources())
 }
 
 // --- Tests: an empty sweep says which silence it is (personal-2du9) ---
@@ -3172,6 +3231,7 @@ func TestFetchExternalPrices_UnknownAssetsOnlyIdleTheNamedSources(t *testing.T) 
 // source cannot work) and has everything named left to the sweep.
 func TestFetchExternalPrices_BackgroundUnusableSourceIsIdleAndDeferred(t *testing.T) {
 	s := &mockStore{}
+	expectKnownAssets(s, "a1", "a2")
 	h := newHandler(s).WithProvider("coingecko", &stuckProvider{reason: "share spent"})
 
 	resp, err := h.FetchExternalPrices(backgroundCtx(), connect.NewRequest(
