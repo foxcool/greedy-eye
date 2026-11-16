@@ -121,4 +121,14 @@ func TestListUnpricedHoldings_ReasonFilterFillsPages(t *testing.T) {
 		}
 	}
 	assert.Equal(t, wantIDs, got, "every matching row exactly once, in cursor order")
+
+	// Symbols are looked up only for rows returned, not for every unpriced row
+	// the filter scanned past.
+	lookups := 0
+	for _, c := range md.Calls {
+		if c.Method == "GetAsset" && c.Arguments.Get(1).(*connect.Request[apiv1.GetAssetRequest]).Msg.Id != "USD" {
+			lookups++
+		}
+	}
+	assert.Equal(t, len(wantIDs), lookups, "one asset lookup per returned row")
 }

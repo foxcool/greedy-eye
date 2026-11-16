@@ -540,25 +540,37 @@ func (h *Handler) describeUnpriced(ctx context.Context, holdings []unpricedHoldi
 // call: the asset_id still identifies the position, and losing a whole valuation
 // over a display label would be a worse trade than a missing name.
 func (h *Handler) labelUnpriced(ctx context.Context, listed []unpricedHolding) []*apiv1.UnpricedHolding {
+	out := h.classifyUnpriced(ctx, listed)
+	h.resolveSymbols(ctx, out)
+	return out
+}
+
+// classifyUnpriced is labelUnpriced without the symbols: it settles each row's
+// final reason, which is all a reason filter needs, so rows the filter drops
+// cost no asset lookup.
+func (h *Handler) classifyUnpriced(ctx context.Context, listed []unpricedHolding) []*apiv1.UnpricedHolding {
 	if len(listed) == 0 {
 		return nil
 	}
-
 	out := make([]*apiv1.UnpricedHolding, 0, len(listed))
 	for _, u := range listed {
-		hld := u.holding
-		item := &apiv1.UnpricedHolding{HoldingId: hld.ID, AssetId: hld.AssetID, Reason: u.reason}
-		resp, err := h.mdClient.GetAsset(ctx, connect.NewRequest(&apiv1.GetAssetRequest{Id: hld.AssetID}))
-		if err != nil {
-			h.log.WarnContext(ctx, "unpriced holding: asset lookup failed, reporting without a symbol",
-				"asset_id", hld.AssetID, "holding_id", hld.ID, "error", err)
-		} else {
-			item.Symbol = resp.Msg.GetSymbol()
-		}
-		out = append(out, item)
+		out = append(out, &apiv1.UnpricedHolding{HoldingId: u.holding.ID, AssetId: u.holding.AssetID, Reason: u.reason})
 	}
 	quoting.SharpenNoQuote(out, h.pricingStatuses(ctx, out))
 	return out
+}
+
+// resolveSymbols fills in display symbols, one asset lookup per row.
+func (h *Handler) resolveSymbols(ctx context.Context, out []*apiv1.UnpricedHolding) {
+	for _, item := range out {
+		resp, err := h.mdClient.GetAsset(ctx, connect.NewRequest(&apiv1.GetAssetRequest{Id: item.GetAssetId()}))
+		if err != nil {
+			h.log.WarnContext(ctx, "unpriced holding: asset lookup failed, reporting without a symbol",
+				"asset_id", item.GetAssetId(), "holding_id", item.GetHoldingId(), "error", err)
+			continue
+		}
+		item.Symbol = resp.Msg.GetSymbol()
+	}
 }
 
 // pricingStatuses reads, in one batched call, what the attempt log and the
@@ -994,9 +1006,10 @@ func (h *Handler) ListUnpricedHoldings(ctx context.Context, req *connect.Request
 	// the store is exhausted. Stopping on unfiltered rows first handed back
 	// short or empty pages that still carried a token.
 	//
-	// Cost per request: each holding the walk reaches is priced and labelled at
-	// most once, so a rare reason costs one pass over the caller's holdings, the
-	// same walk a valuation makes; the response is bounded by maxUnpricedPageSize.
+	// Cost per request: each holding the walk reaches is priced at most once,
+	// so a rare reason costs one pass over the caller's holdings, the same walk
+	// a valuation makes, plus one batched status read per store page. Asset
+	// lookups are bounded by the response, which maxUnpricedPageSize caps.
 	var (
 		out  []*apiv1.UnpricedHolding
 		next string
@@ -1024,11 +1037,11 @@ func (h *Handler) ListUnpricedHoldings(ctx context.Context, req *connect.Request
 			}
 			found = append(found, unpricedHolding{holding: hld, reason: priced.outcome.Reason()})
 		}
-		// Filter only after labelling: the pricing path only tells NO_QUOTE from
-		// THIN_MARKET, and NEVER_PRICED is a refinement labelUnpriced makes from
-		// the attempt log. Matching the provisional value made reason=never_priced
+		// Filter only after classifying: the pricing path only tells NO_QUOTE
+		// from THIN_MARKET, and NEVER_PRICED is a refinement made from the
+		// attempt log. Matching the provisional value made reason=never_priced
 		// return nothing, and reason=no_quote return rows that are NEVER_PRICED.
-		for _, u := range h.labelUnpriced(ctx, found) {
+		for _, u := range h.classifyUnpriced(ctx, found) {
 			if reason == apiv1.UnpricedReason_UNPRICED_REASON_UNSPECIFIED || u.GetReason() == reason {
 				out = append(out, u)
 			}
@@ -1054,6 +1067,9 @@ func (h *Handler) ListUnpricedHoldings(ctx context.Context, req *connect.Request
 		out = out[:want]
 		next = base64.StdEncoding.EncodeToString([]byte(out[len(out)-1].GetHoldingId()))
 	}
+	// Symbols only for rows actually returned: a rare reason scans far more
+	// rows than it returns.
+	h.resolveSymbols(ctx, out)
 
 	return connect.NewResponse(&apiv1.ListUnpricedHoldingsResponse{
 		Holdings:      out,
