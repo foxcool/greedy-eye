@@ -4337,9 +4337,25 @@ func (s *stagingStore) InHoldingsTx(_ context.Context, fn func(HoldingWriter) er
 	return nil
 }
 
+func (s *stagingStore) DeleteHolding(ctx context.Context, id string) error {
+	err := s.mockStore.DeleteHolding(ctx, id)
+	if err == nil {
+		s.committed = append(s.committed, "delete "+id)
+	}
+	return err
+}
+
 type stagingWriter struct {
 	*mockStore
 	staged []string
+}
+
+func (w *stagingWriter) DeleteHolding(ctx context.Context, id string) error {
+	err := w.mockStore.DeleteHolding(ctx, id)
+	if err == nil {
+		w.staged = append(w.staged, "delete "+id)
+	}
+	return err
 }
 
 func (w *stagingWriter) CreateHolding(ctx context.Context, h *entity.Holding) (*entity.Holding, error) {
@@ -4439,4 +4455,75 @@ func TestImportPositions_CleanBatchCommitsEveryItem(t *testing.T) {
 	assert.Zero(t, resp.Msg.Failed)
 	assert.Equal(t, int32(1), resp.Msg.Updated)
 	assert.Equal(t, int32(1), resp.Msg.Created)
+}
+
+// TestImportPositions_FailedDeleteLeavesTheSnapshotUnapplied: a full snapshot
+// closes the holdings it does not mention in the same transaction as its
+// upserts, so a delete that fails takes the upserts down with it instead of
+// leaving a refreshed balance next to a position that should have closed.
+func TestImportPositions_FailedDeleteLeavesTheSnapshotUnapplied(t *testing.T) {
+	const absentAssetID = "01926d35-6a1e-7005-8005-00000000000a"
+
+	s := &stagingStore{mockStore: &mockStore{}}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
+	absent := testHolding(testHoldingID2)
+	absent.AssetID = absentAssetID
+	s.On("ListHoldings", mock.Anything, mock.Anything).
+		Return([]*entity.Holding{testHolding(testHoldingID), absent}, "", nil)
+	s.On("UpdateHolding", mock.Anything, mock.Anything, mock.Anything).Return(testHolding(testHoldingID), nil)
+	s.On("DeleteHolding", mock.Anything, testHoldingID2).Return(errors.New("disk full"))
+
+	md := &mockMDClient{}
+	md.On("GetAsset", mock.Anything, assetReq(testAssetID)).Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+	md.On("GetAsset", mock.Anything, assetReq(absentAssetID)).Return(connect.NewResponse(&apiv1.Asset{Id: absentAssetID}), nil)
+	h := newHandler(s).WithMarketDataClient(md)
+
+	quote := testAssetID
+	resp, err := h.ImportPositions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportPositionsRequest{
+		AccountId:    testAccountID,
+		FullSnapshot: true,
+		Positions:    []*apiv1.ImportPositionItem{{AssetId: &quote, Amount: "0.0004"}}, // 100000 -> 40000: UPDATE
+	}))
+	require.NoError(t, err)
+
+	assert.Empty(t, s.committed, "the update must roll back with the failed delete")
+	assert.Equal(t, int32(2), resp.Msg.Failed, "%v", resp.Msg.Items)
+	assert.Zero(t, resp.Msg.Updated)
+	assert.Zero(t, resp.Msg.Deleted)
+	require.Len(t, resp.Msg.Items, 2)
+	require.NotNil(t, resp.Msg.Items[0].Error)
+	assert.Contains(t, *resp.Msg.Items[0].Error, "not applied")
+	require.NotNil(t, resp.Msg.Items[1].Error)
+	assert.Equal(t, apiv1.ImportAction_IMPORT_ACTION_DELETE, resp.Msg.Items[1].Action)
+	assert.Contains(t, *resp.Msg.Items[1].Error, "disk full")
+}
+
+// TestImportPositions_RolledBackBatchKeepsItsCatalogueAssets: the catalogue is
+// another service and does not join the holdings transaction, so an asset
+// created for a batch that rolls back stays. The response says so instead of
+// pretending the batch left no trace.
+func TestImportPositions_RolledBackBatchKeepsItsCatalogueAssets(t *testing.T) {
+	const newAssetID = "01926d35-6a1e-7005-8005-000000000002"
+
+	s := &stagingStore{mockStore: &mockStore{}}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(nil, errors.New("disk full"))
+
+	md := &mockMDClient{}
+	md.On("FindOrCreateAsset", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: &apiv1.Asset{Id: newAssetID}, Created: true}), nil)
+	h := newHandler(s).WithMarketDataClient(md)
+
+	resp, err := h.ImportPositions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportPositionsRequest{
+		AccountId: testAccountID,
+		Positions: []*apiv1.ImportPositionItem{{Symbol: "DOT", Amount: "5"}},
+	}))
+	require.NoError(t, err)
+
+	assert.Empty(t, s.committed)
+	assert.Equal(t, int32(1), resp.Msg.Failed)
+	assert.Equal(t, int32(1), resp.Msg.AssetsCreated, "the asset exists, rollback or not")
+	require.NotNil(t, resp.Msg.Items[0].Error)
+	assert.Contains(t, *resp.Msg.Items[0].Error, "stays in the catalogue")
 }
