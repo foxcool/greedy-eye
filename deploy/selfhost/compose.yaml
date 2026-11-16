@@ -1,0 +1,234 @@
+# Self-hosted Greedy Eye: the whole stack on one machine with one command.
+#
+#   cp env.example .env     # then fill in the three secrets it asks for
+#   docker compose up -d
+#   open http://eye.localhost:8080
+#
+# eye.localhost, not localhost: Chrome and Firefox resolve any *.localhost name
+# to this machine, and psina 0.6 drops its own session cookie when the cookie
+# domain is a single label such as "localhost". Safari does not resolve
+# *.localhost; add "127.0.0.1 eye.localhost" to /etc/hosts for it.
+#
+# Same stack as the production deploy (backend, frontend, auth, two databases,
+# both migrations), with a reverse proxy inside instead of a shared one.
+#
+# Reachable from this machine only: the one published port is bound to
+# 127.0.0.1. Anyone who can reach the auth service can register, and there is
+# no setting yet to close sign-up, so put the instance behind a VPN rather than
+# opening the port to the internet: set EYE_BIND to this host's VPN address
+# (e.g. its Tailscale IP) to reach it from your other VPN devices.
+
+name: greedy-eye
+
+services:
+  # Routes come from the file below, not from container labels: labels would
+  # also be picked up by any other Traefik on this host that watches Docker,
+  # and this proxy needs no access to the Docker socket.
+  proxy:
+    image: traefik:v3.7.15
+    restart: unless-stopped
+    command:
+      - --entrypoints.web.address=:80
+      - --providers.file.filename=/etc/traefik/routes.yaml
+      - --log.level=WARN
+    configs:
+      - source: routes
+        target: /etc/traefik/routes.yaml
+    ports:
+      - "${EYE_BIND:-127.0.0.1}:${EYE_PORT:-8080}:80"
+
+  eye:
+    image: ghcr.io/foxcool/greedy-eye:${EYE_VERSION:-0.25.0}
+    restart: unless-stopped
+    environment:
+      EYE_LOGGING_LEVEL: ${EYE_LOG_LEVEL:-INFO}
+      EYE_DB_URL: "postgres://greedy_eye:${EYE_DB_PASSWORD:?set EYE_DB_PASSWORD in .env}@eye-postgres:5432/greedy_eye?sslmode=disable"
+      # Encrypts provider API keys stored in the database. Without it they sit
+      # there in plaintext; losing it means re-issuing every key.
+      EYE_SECURITY_MASTERKEY: ${EYE_SECURITY_MASTERKEY:?set EYE_SECURITY_MASTERKEY in .env (openssl rand -base64 32)}
+    depends_on:
+      eye-postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # Runs the migrations baked into the image, then exits. Only files this
+  # database has not run yet; it never drops anything on its own.
+  migrate:
+    image: ghcr.io/foxcool/greedy-eye:${EYE_VERSION:-0.25.0}
+    entrypoint: ["atlas"]
+    command:
+      - migrate
+      - apply
+      - --url
+      - "postgres://greedy_eye:${EYE_DB_PASSWORD:?set EYE_DB_PASSWORD in .env}@eye-postgres:5432/greedy_eye?sslmode=disable"
+      - --dir
+      - file:///migrations
+      - --revisions-schema
+      - atlas
+    depends_on:
+      eye-postgres:
+        condition: service_healthy
+
+  eye-postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: greedy_eye
+      POSTGRES_PASSWORD: ${EYE_DB_PASSWORD:?set EYE_DB_PASSWORD in .env}
+      POSTGRES_DB: greedy_eye
+    volumes:
+      - eye_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U greedy_eye -d greedy_eye"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  eye-fe:
+    image: ghcr.io/foxcool/greedy-eye-fe:${EYE_FE_VERSION:-0.11.0}
+    # shortcut: the frontend image is published for amd64 only. Docker Desktop
+    # on Apple silicon runs it emulated; an arm64 Linux host needs qemu binfmt.
+    # Drop this line once the image is built for arm64 too.
+    platform: linux/amd64
+    restart: unless-stopped
+
+  psina:
+    image: ghcr.io/foxcool/psina:${PSINA_VERSION:-0.6.0}
+    restart: unless-stopped
+    environment:
+      PSINA_DB_URL: "postgres://psina:${PSINA_DB_PASSWORD:?set PSINA_DB_PASSWORD in .env}@psina-postgres:5432/psina?sslmode=disable"
+      PSINA_SERVER_PORT: "8080"
+      PSINA_LOGGER_LEVEL: info
+      PSINA_COOKIE_ENABLED: "true"
+      # The host the browser uses to open the instance. It needs a dot: see
+      # the note at the top of this file.
+      PSINA_COOKIE_DOMAIN: ${EYE_HOST:-eye.localhost}
+      PSINA_COOKIE_SECURE: ${EYE_COOKIE_SECURE:-true}
+      PSINA_COOKIE_SAMESITE: strict
+      PSINA_JWT_ALGORITHM: ES256
+      PSINA_JWT_PRIVATEKEYPATH: /keys/jwt.pem
+    volumes:
+      - psina_keys:/keys:ro
+    depends_on:
+      psina-postgres:
+        condition: service_healthy
+      psina-migrate:
+        condition: service_completed_successfully
+      psina-keygen:
+        condition: service_completed_successfully
+
+  # Creates the key psina signs sessions with, once. Without a key psina makes
+  # a temporary one and every session ends at the next restart. Losing the
+  # volume only signs everyone out.
+  psina-keygen:
+    image: alpine:3.22
+    entrypoint: ["sh", "-c"]
+    command:
+      - >
+        test -s /keys/jwt.pem && exit 0;
+        apk add --no-cache -q openssl &&
+        openssl ecparam -name prime256v1 -genkey -noout -out /keys/jwt.pem &&
+        chmod 444 /keys/jwt.pem
+    volumes:
+      - psina_keys:/keys
+
+  psina-migrate:
+    image: ghcr.io/foxcool/psina:${PSINA_VERSION:-0.6.0}
+    entrypoint: ["atlas"]
+    command:
+      - schema
+      - apply
+      - --url
+      - "postgres://psina:${PSINA_DB_PASSWORD:?set PSINA_DB_PASSWORD in .env}@psina-postgres:5432/psina?sslmode=disable"
+      - --to
+      - file:///schema.hcl
+      - --dev-url
+      - "postgres://psina:${PSINA_DB_PASSWORD:?set PSINA_DB_PASSWORD in .env}@psina-postgres:5432/atlas_dev?sslmode=disable"
+      - --auto-approve
+    depends_on:
+      psina-postgres:
+        condition: service_healthy
+
+  psina-postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: psina
+      POSTGRES_PASSWORD: ${PSINA_DB_PASSWORD:?set PSINA_DB_PASSWORD in .env}
+      POSTGRES_DB: psina
+    volumes:
+      - psina_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # The schema migration diffs against a scratch database; make it here.
+      test: ["CMD-SHELL", "pg_isready -U psina -d psina && (psql -U psina -d atlas_dev -c 'SELECT 1' >/dev/null 2>&1 || psql -U psina -c 'CREATE DATABASE atlas_dev WITH OWNER psina')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+configs:
+  # `$$` is a literal `$` here: compose interpolates this text.
+  routes:
+    content: |
+      http:
+        routers:
+          # Backend API: every call needs a session that psina accepts.
+          eye:
+            rule: PathPrefix(`/eye.v1.`)
+            entryPoints: [web]
+            priority: 30
+            middlewares: [trust-strip, psina-auth]
+            service: eye
+          # Sign-in, sign-up, sessions and the signing keys.
+          psina:
+            rule: PathPrefix(`/auth.v1.`) || PathPrefix(`/.well-known`)
+            entryPoints: [web]
+            priority: 30
+            service: psina
+          # The login page must load before there is a session, so the
+          # frontend is not behind psina-auth; every API call it makes is.
+          eye-fe:
+            rule: PathPrefix(`/app`) || PathPrefix(`/_next`) || PathPrefix(`/__nextjs_font`)
+            entryPoints: [web]
+            priority: 20
+            service: eye-fe
+          root:
+            rule: Path(`/`)
+            entryPoints: [web]
+            middlewares: [to-app]
+            service: eye-fe
+        middlewares:
+          # Service-to-service headers never come from outside; an empty
+          # value removes the header (docs/architecture.md, section 8.1).
+          trust-strip:
+            headers:
+              customRequestHeaders:
+                X-Service-Token: ""
+                X-Sync-Authority: ""
+                X-Spend-Class: ""
+                X-Spend-Caller: ""
+          # psina checks the session and answers with who the caller is.
+          psina-auth:
+            forwardAuth:
+              address: http://psina:8080/verify
+              authRequestHeaders: [Authorization, Cookie]
+              authResponseHeaders: [X-User-Id, X-User-Email, X-User-Roles]
+          to-app:
+            redirectRegex:
+              regex: "^(https?://[^/]+)/?$$"
+              replacement: "$${1}/app"
+        services:
+          eye:
+            loadBalancer:
+              servers: [{url: "h2c://eye:8080"}]
+          psina:
+            loadBalancer:
+              servers: [{url: "h2c://psina:8080"}]
+          eye-fe:
+            loadBalancer:
+              servers: [{url: "http://eye-fe:3000"}]
+
+volumes:
+  eye_postgres_data:
+  psina_postgres_data:
+  psina_keys:
