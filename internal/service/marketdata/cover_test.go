@@ -41,9 +41,12 @@ func quoteWithVolume(assetID, baseID string, volume int64) *entity.StoredPrice {
 func coverStore(t *testing.T) *mockStore {
 	t.Helper()
 	s := &mockStore{}
+	// The display currency resolves by identity (forex USD); registered before
+	// expectBaseAsset so this id, the one the quotes are priced in, wins.
+	s.On("GetOrCreateAssetBySymbol", mock.Anything, "USD", "USD", entity.AssetTypeForex).
+		Return(&entity.Asset{ID: coverUSD, Symbol: "USD", Market: "forex", Type: entity.AssetTypeForex}, nil)
 	expectBaseAsset(s)
 	expectExternalRefs(s)
-	s.On("GetAssetBySymbol", mock.Anything, "USD").Return(&entity.Asset{ID: coverUSD, Symbol: "USD"}, nil)
 	s.On("FreshTradedQuotes", mock.Anything, "fake", mock.Anything).Return([]*entity.StoredPrice{
 		quoteWithVolume(coverDeep, coverUSD, 5_000_000),
 		quoteWithVolume(coverThin, coverUSD, 40_000),

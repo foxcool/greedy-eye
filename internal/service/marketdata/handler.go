@@ -581,21 +581,28 @@ func (h *Handler) resolveAssetID(ctx context.Context, id string) (string, error)
 	if _, err := uuid.Parse(id); err == nil {
 		return id, nil
 	}
-	asset, err := h.store.GetAssetBySymbol(ctx, id) // store normalizes symbol case
-	if errors.Is(err, store.ErrNotFound) && strings.EqualFold(id, pricefresh.DefaultDisplayCurrency) {
+	if strings.EqualFold(id, pricefresh.DefaultDisplayCurrency) {
 		return h.displayCurrency(ctx)
 	}
+	asset, err := h.store.GetAssetBySymbol(ctx, id) // store normalizes symbol case
 	if err != nil {
 		return "", fmt.Errorf("resolve asset %q: %w", id, err)
 	}
 	return asset.ID, nil
 }
 
-// displayCurrency creates the default display currency on first use, as the
-// price sweep creates a provider's base. Nothing else made it before a price
-// landed, so a new instance answered not found for its own currency: an empty
-// portfolio could not be valued and the dashboard opened on an error. Only this
-// one symbol is created on a read; any other unknown ticker stays not found.
+// displayCurrency resolves the default display currency by its full identity,
+// forex USD, the row the price sweep creates as a provider's base. Two reasons
+// it does not take the symbol-only lookup every other ticker takes:
+//   - that lookup returns whatever row holds the symbol, so a crypto or contract
+//     token named "USD" — airdrop spam is full of them — could become the
+//     currency every total is expressed in;
+//   - nothing created USD before a price landed, so a new instance answered not
+//     found for its own currency: an empty portfolio could not be valued and
+//     the dashboard opened on an error. It is created here on first use.
+//
+// Only this one symbol is created on a read; any other unknown ticker stays
+// not found.
 func (h *Handler) displayCurrency(ctx context.Context) (string, error) {
 	symbol := pricefresh.DefaultDisplayCurrency
 	id, refused, err := h.quoteBase(ctx, symbol, entity.AssetTypeForex)

@@ -477,22 +477,23 @@ func TestGetAsset_SurvivesUnreadableBindings(t *testing.T) {
 // endpoint was the one that did not.
 func TestGetAsset_ResolvesATicker(t *testing.T) {
 	s := &mockStore{}
-	s.On("GetAssetBySymbol", mock.Anything, "USD").Return(testAsset("id-usd"), nil)
-	s.On("GetAsset", mock.Anything, "id-usd").Return(testAsset("id-usd"), nil)
-	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-usd"}).Return(nil, nil)
+	s.On("GetAssetBySymbol", mock.Anything, "BTC").Return(testAsset("id-btc"), nil)
+	s.On("GetAsset", mock.Anything, "id-btc").Return(testAsset("id-btc"), nil)
+	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-btc"}).Return(nil, nil)
 	expectRiskFlags(s)
 	h := newHandler(s)
 
-	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "USD"}))
+	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "BTC"}))
 	require.NoError(t, err)
-	assert.Equal(t, "id-usd", resp.Msg.Id, "the caller gets the id price rows are keyed by")
+	assert.Equal(t, "id-btc", resp.Msg.Id, "the caller gets the id price rows are keyed by")
 }
 
-// A new instance has no USD until a price lands, and a valuation asks for it
-// by ticker first. It is created the way the sweep would create it.
-func TestGetAsset_CreatesTheDisplayCurrencyOnFirstUse(t *testing.T) {
+// The display currency is resolved by identity, forex USD, never by the
+// symbol alone: the symbol lookup would hand back whatever row holds "USD",
+// and airdrop spam mints such tokens. On a new instance the forex row does not
+// exist yet; it is created the way the price sweep would create it.
+func TestGetAsset_DisplayCurrencyResolvesByIdentity(t *testing.T) {
 	s := &mockStore{}
-	s.On("GetAssetBySymbol", mock.Anything, "usd").Return(nil, store.ErrNotFound)
 	usd := testAsset("id-usd")
 	usd.Symbol, usd.Type, usd.Market = "USD", entity.AssetTypeForex, entity.DefaultMarket(entity.AssetTypeForex)
 	s.On("GetOrCreateAssetBySymbol", mock.Anything, "USD", "USD", entity.AssetTypeForex).Return(usd, nil).Once()
@@ -504,7 +505,20 @@ func TestGetAsset_CreatesTheDisplayCurrencyOnFirstUse(t *testing.T) {
 	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "usd"}))
 	require.NoError(t, err)
 	assert.Equal(t, "id-usd", resp.Msg.Id)
+	// A counterfeit "USD" token would have come back from here; it is not asked.
+	s.AssertNotCalled(t, "GetAssetBySymbol", mock.Anything, mock.Anything)
 	s.AssertExpectations(t)
+}
+
+func TestGetAsset_DisplayCurrencyRefusesAContractRow(t *testing.T) {
+	s := &mockStore{}
+	fake := testAsset("id-fake-usd")
+	fake.Symbol, fake.Type, fake.Market = "USD", entity.AssetTypeForex, entity.OnchainPrefix+"ethereum:0xdead"
+	s.On("GetOrCreateAssetBySymbol", mock.Anything, "USD", "USD", entity.AssetTypeForex).Return(fake, nil)
+	h := newHandler(s)
+
+	_, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "USD"}))
+	require.Error(t, err, "a row on a contract market must not become the display currency")
 }
 
 func TestGetAsset_UnknownTickerIsNotCreated(t *testing.T) {
@@ -798,14 +812,14 @@ func TestGetLatestPrice_SymbolResolved(t *testing.T) {
 	const assetUUID = "00000000-0000-0000-0000-0000000000a1"
 	s := &mockStore{}
 	// Handler passes the symbol through verbatim; the real store normalizes case.
-	s.On("GetAssetBySymbol", mock.Anything, "usd").Return(&entity.Asset{ID: resolvedUUID}, nil)
+	s.On("GetAssetBySymbol", mock.Anything, "eur").Return(&entity.Asset{ID: resolvedUUID}, nil)
 	s.On("GetLatestPrice", mock.Anything, assetUUID, resolvedUUID, "").Return(&entity.StoredPrice{
 		ID: "p-2", AssetID: assetUUID, BaseAssetID: resolvedUUID,
 	}, nil)
 	h := newHandler(s)
 
 	resp, err := h.GetLatestPrice(context.Background(), connect.NewRequest(&apiv1.GetLatestPriceRequest{
-		AssetId: assetUUID, BaseAssetId: "usd", // lowercase symbol, not UUID
+		AssetId: assetUUID, BaseAssetId: "eur", // lowercase symbol, not UUID
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, "p-2", resp.Msg.Id)
