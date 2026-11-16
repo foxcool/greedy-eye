@@ -8,12 +8,14 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"go/build/constraint"
 	"go/parser"
 	"go/token"
 	"io/fs"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 
@@ -22,14 +24,41 @@ import (
 
 // Tags the toolchain defines itself; they are never listed in build-tags.
 // race, msan, asan and purego are not here: the linter does not set them, so a
-// file behind one is unlinted and has to be listed.
-// shortcut: hand-kept lists; a GOOS/GOARCH added by a new Go release shows up
-// as a false alarm naming the tag, extend the lists then.
+// file behind one is unlisted and has to be listed.
+//
+// GOOS and GOARCH names come from `go tool dist list` of the toolchain that
+// runs tagcheck, so a platform added by a new Go release needs no edit here.
+// "unix" is a build tag but not a GOOS, so dist list never names it.
 var (
-	knownOS   = set("aix android darwin dragonfly freebsd hurd illumos ios js linux nacl netbsd openbsd plan9 solaris wasip1 windows zos unix")
-	knownArch = set("386 amd64 amd64p32 arm armbe arm64 arm64be loong64 mips mipsle mips64 mips64le mips64p32 mips64p32le ppc ppc64 ppc64le riscv riscv64 s390 s390x sparc sparc64 wasm")
-	knownMisc = set("cgo gc gccgo ignore")
+	platformTags = map[string]bool{}
+	knownMisc    = set("cgo gc gccgo ignore unix")
 )
+
+// parsePlatforms returns the GOOS and GOARCH names in the output of
+// `go tool dist list`, one os/arch pair per line.
+func parsePlatforms(out string) (map[string]bool, error) {
+	m := map[string]bool{}
+	for _, line := range strings.Fields(out) {
+		goos, goarch, ok := strings.Cut(line, "/")
+		if !ok || goos == "" || goarch == "" {
+			return nil, fmt.Errorf("unexpected line %q in go tool dist list", line)
+		}
+		m[goos], m[goarch] = true, true
+	}
+	if len(m) == 0 {
+		return nil, errors.New("go tool dist list printed nothing")
+	}
+	return m, nil
+}
+
+func loadPlatforms() error {
+	out, err := exec.Command("go", "tool", "dist", "list").Output()
+	if err != nil {
+		return fmt.Errorf("go tool dist list: %w", err)
+	}
+	platformTags, err = parsePlatforms(string(out))
+	return err
+}
 
 func set(s string) map[string]bool {
 	m := map[string]bool{}
@@ -40,7 +69,7 @@ func set(s string) map[string]bool {
 }
 
 func isToolchainTag(tag string) bool {
-	return knownOS[tag] || knownArch[tag] || knownMisc[tag] ||
+	return platformTags[tag] || knownMisc[tag] ||
 		strings.HasPrefix(tag, "go1.") || strings.HasPrefix(tag, "goexperiment.")
 }
 
@@ -234,6 +263,10 @@ func run() int {
 		return 2
 	}
 	defer func() { _ = root.Close() }()
+	if err := loadPlatforms(); err != nil {
+		fmt.Fprintln(os.Stderr, "tagcheck:", err)
+		return 2
+	}
 	listed, err := configuredTags(root.FS(), cfgPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "tagcheck:", err)

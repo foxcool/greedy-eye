@@ -7,7 +7,55 @@ import (
 	"testing"
 )
 
+// usePlatforms replaces the GOOS/GOARCH names with those of a fake
+// `go tool dist list` for one test.
+func usePlatforms(t *testing.T, list string) {
+	t.Helper()
+	m, err := parsePlatforms(list)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := platformTags
+	platformTags = m
+	t.Cleanup(func() { platformTags = old })
+}
+
+const fakeDistList = "linux/amd64\ndarwin/arm64\nwindows/386\nfreebsd/riscv64\n"
+
+func TestParsePlatforms(t *testing.T) {
+	got, err := parsePlatforms(fakeDistList)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := set("linux amd64 darwin arm64 windows 386 freebsd riscv64")
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for _, bad := range []string{"", "linux", "linux/"} {
+		if _, err := parsePlatforms(bad); err == nil {
+			t.Fatalf("want error for %q", bad)
+		}
+	}
+}
+
+// A platform the list does not name is a custom tag: that is how a GOOS added
+// by a new release surfaces, and why the list has to come from the toolchain.
+func TestPlatformComesFromTheList(t *testing.T) {
+	src := []byte("//go:build newos && linux\n\npackage x\n")
+	usePlatforms(t, fakeDistList)
+	got, err := fileTags("x.go", src)
+	if err != nil || !reflect.DeepEqual(got, []string{"newos"}) {
+		t.Fatalf("got %v, %v; want [newos]", got, err)
+	}
+	usePlatforms(t, fakeDistList+"newos/amd64\n")
+	got, err = fileTags("x.go", src)
+	if err != nil || got != nil {
+		t.Fatalf("got %v, %v; want none", got, err)
+	}
+}
+
 func TestFileTags(t *testing.T) {
+	usePlatforms(t, fakeDistList)
 	cases := []struct {
 		name string
 		src  string
@@ -37,12 +85,14 @@ func TestFileTags(t *testing.T) {
 }
 
 func TestFileTagsRejectsBadConstraint(t *testing.T) {
+	usePlatforms(t, fakeDistList)
 	if _, err := fileTags("x.go", []byte("//go:build integration &&\n\npackage x\n")); err == nil {
 		t.Fatal("want error for a malformed constraint")
 	}
 }
 
 func TestMissing(t *testing.T) {
+	usePlatforms(t, fakeDistList)
 	dir := t.TempDir()
 	write := func(rel, src string) {
 		t.Helper()
@@ -75,6 +125,7 @@ func TestMissing(t *testing.T) {
 // TestMissingReportsANegatedListedTag: "!integration" with integration listed
 // is a file the linter never loads, although every tag it names is listed.
 func TestMissingReportsANegatedListedTag(t *testing.T) {
+	usePlatforms(t, fakeDistList)
 	dir := t.TempDir()
 	for rel, src := range map[string]string{
 		"a/unit.go":      "//go:build !integration\n\npackage a\n",
