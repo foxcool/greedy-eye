@@ -9,10 +9,12 @@ import (
 	"time"
 
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/execution"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -645,4 +647,47 @@ func TestListRuleExecutions(t *testing.T) {
 			assert.False(t, ids1[e.ID], "pagination returned duplicate execution")
 		}
 	})
+}
+
+// TestWaitingExecutionSurvivesARestart: an execution waiting on a venue keeps
+// each trade's state and the venue's reference in its summary, and the
+// confirmation job finds it again by status alone, for every user.
+func TestWaitingExecutionSurvivesARestart(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewAutomationStore(pool)
+	userID := insertTestUser(t, pool)
+	portfolioID := insertTestPortfolio(t, pool, userID)
+	rule := createTestAutomationRule(t, s, portfolioID, userID)
+
+	summary, err := execution.Summary([]execution.TradeResult{{
+		Trade: execution.Trade{Side: execution.SideBuy, AssetID: "weth", QuoteAssetID: "usdc",
+			QuoteAmount: decimal.NewFromInt(25), Price: decimal.NewFromInt(3400), PriceAsOf: time.Now()},
+		State:    execution.StatePendingSignature,
+		VenueRef: "0x5afe7c",
+	}})
+	require.NoError(t, err)
+	created, err := s.CreateRuleExecution(context.Background(), &entity.RuleExecution{
+		RuleID: rule.ID, PortfolioID: portfolioID, UserID: userID,
+		Status: entity.ExecutionStatusPending, StartedAt: time.Now(), ExecutionSummary: summary,
+	})
+	require.NoError(t, err)
+	assert.Nil(t, created.CompletedAt)
+
+	// A new store on the same database stands in for a restarted process.
+	waiting, _, err := NewAutomationStore(pool).ListRuleExecutions(context.Background(),
+		automation.ListRuleExecutionsOpts{Status: entity.ExecutionStatusPending, PageSize: maxPageSize})
+	require.NoError(t, err)
+	var found *entity.RuleExecution
+	for _, e := range waiting { // other tests share the database
+		if e.ID == created.ID {
+			found = e
+		}
+	}
+	require.NotNil(t, found, "a pending execution is found by status without a user")
+
+	results, err := execution.ParseSummary(found.ExecutionSummary)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, execution.StatePendingSignature, results[0].State)
+	assert.Equal(t, "0x5afe7c", results[0].VenueRef)
 }

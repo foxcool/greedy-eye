@@ -405,13 +405,34 @@ graph TB
 - Engines: `dca` (buy a base asset for a fixed quote amount at the direct pair's latest price;
   a price missing or more than an hour old fails the plan). Venues: a `manual` account trades
   on paper — the paper venue is the only thing that moves its holdings, writing absolute
-  amounts through ImportPositions under `import_id` = execution id. Every filled trade, from
-  any venue, is journaled as a TRADE transaction through ImportTransactions
-  (`external_id` = `<execution_id>:<trade index>`).
-- Venues answer terminally (filled or rejected). Waiting states (an order resting on an
-  exchange, a proposal awaiting signatures) and their persistence arrive with the first venue
-  that waits; until then the core refuses a non-terminal answer as "async venue not supported".
-  The first real venue is decided in ADR-012: a Safe-backed wallet account in propose mode.
+  amounts through ImportPositions under `import_id` = execution id. A filled trade on a manual
+  account is journaled as a TRADE transaction through ImportTransactions
+  (`external_id` = `<execution_id>:<trade index>`); other accounts are not journaled here, since
+  ImportTransactions takes manual accounts only and a chain account's holdings come from its
+  sync (ADR-012).
+- Before a trade reaches its venue the account's trading policy must allow it
+  (`execution.ParsePolicy`, `Policy.Check`): `max_trade_amount` (in the trade's quote asset),
+  `allowed_assets` and `max_slippage_bps` (default 50, ceiling 300) in the account's data. A
+  manual account without these keys has no limits; any other account without them is refused —
+  real money starts refused. A refusal rejects the trade with the reason and the venue is not
+  called.
+- A venue may answer that a trade waits: `pending_signature` (a proposal for a person to sign),
+  then `submitted` (a transaction on its way to a block), ending `filled` or `failed` (reverted).
+  Rejected means the venue refused before anything reached a chain. An execution with a waiting
+  trade is `PENDING` with no completion time; each trade's state and the venue's reference
+  (`venue_ref`, `tx_hash`) live in `execution_summary`, which is all a restart needs to pick it
+  up again (`execution.ParseSummary`) — no column per field. One waiting proposal per rule: the
+  rule's next run expires its unsigned proposals (`CANCELLED`, "not signed before the rule's
+  next run") and proposes afresh at a current quote, while a submitted transaction holds the
+  next run back, since it cannot be withdrawn. CancelRuleExecution expires proposals the same
+  way and refuses an execution with a submitted transaction. A rule's run, cancel and
+  confirmation take one lock per rule and re-read the execution under it, so two at once
+  cannot both propose or overwrite each other; the lock is per process, so a second
+  automation instance needs a Postgres advisory lock. While any trade waits the execution
+  stays pending, whatever its other trades did. The scheduler's confirmation pass
+  (`scheduler.confirmcron`) asks a `WaitingVenue` where each waiting trade is, on behalf of the
+  execution's owner, and records what moved. The first such venue, a Safe-backed wallet account
+  in propose mode, is decided in ADR-012; until it lands no venue waits.
 - Store: `AutomationStore` (PostgreSQL) — `rules` + `rule_executions` tables
 
 **AnalyticsService** (`internal/service/analytics/`):
@@ -1264,9 +1285,10 @@ somebody chose, since that would report one currency's number under another curr
 - Consumers: periodic automation rules (`RuleSchedule.CronExpression` + `Timezone`), external
   price fetching (`scheduler.pricefetchcron`, hourly), the asset rescore pass that re-applies
   scam-filter verdicts to the catalogue (`scheduler.rescorecron`, daily —
-  `internal/scheduler/rescore.go`), and the balance sweep (`scheduler.balancesynccron`, offset
+  `internal/scheduler/rescore.go`), the balance sweep (`scheduler.balancesynccron`, offset
   half an hour from the price sweep so the two do not draw on one provider allowance in the same
-  minute)
+  minute), and the confirmation pass over rule executions waiting on a venue
+  (`scheduler.confirmcron`, every five minutes; `internal/scheduler/confirm.go`)
 - **The scheduler keys are lowercase on purpose.** Env vars produce lowercase koanf keys, so a
   camelCase default would shadow the override rather than be replaced by it (`cmd/eye/config.go`)
 - **The balance sweep re-reads amounts, not prices.** Without it nothing refreshed quantities on
@@ -1835,8 +1857,9 @@ somebody chose, since that would report one currency's number under another curr
 
 ### ADR-012: A trade reaches a chain through a Safe the user controls; GE never holds a key that spends
 
-- **Status**: accepted; not implemented yet. Today only the paper venue exists (§5.3,
-  AutomationService).
+- **Status**: accepted; partly implemented. The execution core holds waiting trades, the account
+  policy and the confirmation pass, and `internal/adapter/evmswap` builds the swap; the Safe
+  venue itself is not built yet, so only the paper venue trades (§5.3, AutomationService).
 - **Context**: Rules plan trades, and the paper venue fills them on a manual account. Moving real
   money on a chain needs a signature, and the obvious way to get one — a seed or private key next
   to the provider keys in `accounts.data` — is the wrong one. A seed has no scope: it is every

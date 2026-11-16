@@ -485,7 +485,7 @@ func TestCancelRuleExecution_PendingIsCancelled(t *testing.T) {
 	s.On("GetRule", mock.Anything, "r-1").Return(testRule("r-1"), nil)
 	s.On("UpdateRuleExecution", mock.Anything, mock.MatchedBy(func(e *entity.RuleExecution) bool {
 		return e.Status == entity.ExecutionStatusCancelled && e.CompletedAt != nil
-	}), []string{"status", "completed_at"}).Return(testExecution("e-1", "r-1"), nil)
+	}), []string{"status", "error_message", "execution_summary", "completed_at"}).Return(testExecution("e-1", "r-1"), nil)
 	h := newHandler(s)
 
 	ctx := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})

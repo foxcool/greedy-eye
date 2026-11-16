@@ -49,5 +49,6 @@ func featureSnapshot(config *Config, encryptor *storecrypto.Encryptor) []slog.At
 		slog.Bool("rescore", sched.Enabled && sched.RescoreCron != ""),
 		// The balance sweep needs a local portfolio service to sweep.
 		slog.Bool("balance_sweep", sched.Enabled && sched.BalanceSyncCron != "" && portfolioHere),
+		slog.Bool("confirm_waiting", sched.Enabled && sched.ConfirmCron != ""),
 	}
 }

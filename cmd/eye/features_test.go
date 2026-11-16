@@ -28,6 +28,7 @@ func monolithConfig() *Config {
 	c.Scheduler.PriceFetchCron = "0 * * * *"
 	c.Scheduler.RescoreCron = "0 3 * * *"
 	c.Scheduler.BalanceSyncCron = "30 * * * *"
+	c.Scheduler.ConfirmCron = "*/5 * * * *"
 	return c
 }
 
@@ -35,19 +36,20 @@ func TestFeatureSnapshotMonolithDefaults(t *testing.T) {
 	got := snapshotMap(featureSnapshot(monolithConfig(), nil))
 
 	assert.Equal(t, map[string]any{
-		"mode":          "monolith",
-		"services":      serviceTypes,
-		"remotes":       []string{},
-		"loopback":      false,
-		"wallet_sync":   true,
-		"encryption":    false,
-		"key_rotation":  false,
-		"service_token": false,
-		"sentry":        false,
-		"scheduler":     true,
-		"price_sweep":   true,
-		"rescore":       true,
-		"balance_sweep": true,
+		"mode":            "monolith",
+		"services":        serviceTypes,
+		"remotes":         []string{},
+		"loopback":        false,
+		"wallet_sync":     true,
+		"encryption":      false,
+		"key_rotation":    false,
+		"service_token":   false,
+		"sentry":          false,
+		"scheduler":       true,
+		"price_sweep":     true,
+		"rescore":         true,
+		"balance_sweep":   true,
+		"confirm_waiting": true,
 	}, got)
 }
 
@@ -90,7 +92,7 @@ func TestFeatureSnapshotSchedulerOffDisablesJobs(t *testing.T) {
 
 	got := snapshotMap(featureSnapshot(c, nil))
 
-	for _, k := range []string{"scheduler", "price_sweep", "rescore", "balance_sweep"} {
+	for _, k := range []string{"scheduler", "price_sweep", "rescore", "balance_sweep", "confirm_waiting"} {
 		assert.Equal(t, false, got[k], k)
 	}
 }

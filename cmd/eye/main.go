@@ -273,11 +273,12 @@ func run() error {
 			PriceFetchCron:  config.Scheduler.PriceFetchCron,
 			RescoreCron:     config.Scheduler.RescoreCron,
 			BalanceSyncCron: config.Scheduler.BalanceSyncCron,
+			ConfirmCron:     config.Scheduler.ConfirmCron,
 		}, automationStore, automationHandler, mdHandler, mdHandler, log)
 		if err != nil {
 			return fmt.Errorf("init scheduler: %w", err)
 		}
-		sched = sched.WithUsageReporter(rateLimits)
+		sched = sched.WithUsageReporter(rateLimits).WithConfirmer(automationHandler)
 		if balanceSweeper != nil {
 			sched = sched.WithBalanceSweeper(balanceSweeper, portfolio.SweepOpts{
 				MaxAge: config.Scheduler.BalanceMaxAge,
@@ -291,6 +292,7 @@ func run() error {
 			slog.String("price_fetch_cron", config.Scheduler.PriceFetchCron),
 			slog.String("rescore_cron", config.Scheduler.RescoreCron),
 			slog.String("balance_sync_cron", config.Scheduler.BalanceSyncCron),
+			slog.String("confirm_cron", config.Scheduler.ConfirmCron),
 			slog.Bool("balance_sweep_wired", balanceSweeper != nil))
 	}
 

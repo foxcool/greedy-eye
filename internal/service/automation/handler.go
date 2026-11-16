@@ -34,10 +34,11 @@ type Handler struct {
 	mdClient MarketDataClient
 	// submitTimeout is the submit budget; a field so a test need not wait it out.
 	submitTimeout time.Duration
+	locks         *ruleLocks
 }
 
 func NewHandler(store Store, log *slog.Logger) *Handler {
-	return &Handler{store: store, log: log, submitTimeout: submitTimeout}
+	return &Handler{store: store, log: log, submitTimeout: submitTimeout, locks: newRuleLocks()}
 }
 
 // WithEngines sets the engines rules are planned by; a rule type without one
@@ -477,18 +478,46 @@ func (h *Handler) CancelRuleExecution(ctx context.Context, req *connect.Request[
 	if _, err := h.ownedRule(ctx, exec.RuleID); err != nil {
 		return nil, err
 	}
+	// Under the rule's lock the execution is read again: a run or the
+	// confirmation pass may have moved it since the read above.
+	defer h.locks.lock(exec.RuleID)()
+	if exec, err = h.store.GetRuleExecution(ctx, exec.ID); err != nil {
+		return nil, toConnectError(err)
+	}
 
-	// Only a pending execution can be cancelled. A run is synchronous: in
-	// progress means its trades are being placed and cannot be recalled, and
-	// run would overwrite a cancel with the status the trades give anyway.
+	// Only a pending execution can be cancelled: its trades wait on a
+	// signature or a block. A run in progress is placing trades that cannot be
+	// recalled, and its own record would overwrite the cancel anyway.
 	if exec.Status != entity.ExecutionStatusPending {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("execution cannot be cancelled"))
 	}
-
+	results, err := execution.ParseSummary(exec.ExecutionSummary)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	for i := range results {
+		switch results[i].State {
+		case execution.StateSubmitted:
+			return nil, connect.NewError(connect.CodeFailedPrecondition,
+				errors.New("execution has a transaction on its way to a block; it cannot be withdrawn"))
+		case execution.StatePendingSignature:
+			if results[i], err = execution.Expire(results[i], "cancelled by its owner"); err != nil {
+				return nil, connect.NewError(connect.CodeInternal, err)
+			}
+		}
+	}
+	// Cancelled whatever the trades say: an execution with no trades left to
+	// expire is still one its owner stopped.
+	summary, err := execution.Summary(results)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	now := time.Now()
 	exec.Status = entity.ExecutionStatusCancelled
+	exec.ErrorMessage = "cancelled by its owner"
+	exec.ExecutionSummary = summary
 	exec.CompletedAt = &now
-	if _, err := h.store.UpdateRuleExecution(ctx, exec, []string{"status", "completed_at"}); err != nil {
+	if _, err := h.store.UpdateRuleExecution(ctx, exec, []string{"status", "error_message", "execution_summary", "completed_at"}); err != nil {
 		return nil, toConnectError(err)
 	}
 

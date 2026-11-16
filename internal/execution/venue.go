@@ -10,9 +10,12 @@ import (
 )
 
 // Account is the account a trade is placed on; its type selects the venue.
+// SlippageBps is the account policy's limit, for a venue that quotes before it
+// trades (the paper venue fills at the plan's price and ignores it).
 type Account struct {
-	ID   string
-	Type apiv1.AccountType
+	ID          string
+	Type        apiv1.AccountType
+	SlippageBps uint32
 }
 
 // Key identifies one trade of one execution. Its string form is the
@@ -24,14 +27,17 @@ type Key struct {
 
 func (k Key) String() string { return fmt.Sprintf("%s:%d", k.ExecutionID, k.Index) }
 
-// OutcomeStatus is a venue's answer to a trade. Only terminal answers exist
-// so far; the zero value stands for anything else and the core refuses it
-// (see Apply).
+// OutcomeStatus is a venue's answer to a trade. Filled and rejected are
+// final; the others say the trade is waiting on someone else — a signature,
+// then a block — and a WaitingVenue is asked again later.
 type OutcomeStatus int
 
 const (
 	OutcomeFilled OutcomeStatus = iota + 1
 	OutcomeRejected
+	OutcomePendingSignature
+	OutcomeSubmitted
+	OutcomeFailed
 )
 
 // Fill is what a filled trade did, in asset units.
@@ -49,6 +55,10 @@ type Outcome struct {
 	Reason string
 	// HoldingIDs are the holdings the venue changed.
 	HoldingIDs []string
+	// VenueRef is how the venue finds the trade again (a Safe's safeTxHash);
+	// TxHash is the chain transaction once there is one.
+	VenueRef string
+	TxHash   string
 }
 
 // Venue places trades. An error means the venue could not answer; the trade
@@ -58,6 +68,14 @@ type Venue interface {
 	// Preview answers as Submit would right now, without placing the trade:
 	// the decision SimulateRule reports is the one a run acts on.
 	Preview(ctx context.Context, account Account, trade Trade) (Outcome, error)
+}
+
+// WaitingVenue is a venue whose trades can wait after Submit. Check answers
+// where a waiting trade is now; answering the state it is already in leaves
+// it as it is.
+type WaitingVenue interface {
+	Venue
+	Check(ctx context.Context, account Account, key Key, r TradeResult) (Outcome, error)
 }
 
 // Venues is the registry of venues by account type.

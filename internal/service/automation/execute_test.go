@@ -44,6 +44,8 @@ type fakePortfolio struct {
 	// journalItemErr fails every journal item the way ImportTransactions
 	// reports a per-item failure: in the response, not as an error.
 	journalItemErr string
+	// data is the account's data map, where its trading policy lives.
+	data map[string]string
 }
 
 func (f *fakePortfolio) ImportPositions(_ context.Context, req *connect.Request[apiv1.ImportPositionsRequest]) (*connect.Response[apiv1.ImportPositionsResponse], error) {
@@ -107,7 +109,7 @@ func (f *fakePortfolio) GetAccount(_ context.Context, req *connect.Request[apiv1
 		return nil, connect.NewError(connect.CodeNotFound, assert.AnError)
 	}
 	pid := f.portfolioID
-	return connect.NewResponse(&apiv1.Account{Id: testAccount, Type: f.accountType, PortfolioId: &pid}), nil
+	return connect.NewResponse(&apiv1.Account{Id: testAccount, Type: f.accountType, PortfolioId: &pid, Data: f.data}), nil
 }
 
 func (f *fakePortfolio) ListHoldings(_ context.Context, _ *connect.Request[apiv1.ListHoldingsRequest]) (*connect.Response[apiv1.ListHoldingsResponse], error) {
@@ -129,6 +131,7 @@ func (f *fakeMD) GetLatestPrice(_ context.Context, _ *connect.Request[apiv1.GetL
 
 // fakeEngine plans one trade per call and reports which rule it saw.
 type fakeEngine struct {
+	mu      sync.Mutex
 	planned []string
 }
 
@@ -139,7 +142,9 @@ func (e *fakeEngine) Inputs(*entity.Rule) (execution.Inputs, error) {
 }
 
 func (e *fakeEngine) Plan(rule *entity.Rule, snap execution.Snapshot) (execution.TradePlan, error) {
+	e.mu.Lock()
 	e.planned = append(e.planned, rule.ID)
+	e.mu.Unlock()
 	return execution.TradePlan{Trades: []execution.Trade{{
 		Side: execution.SideBuy, AssetID: "base", QuoteAssetID: "quote",
 		QuoteAmount: decimal.NewFromInt(100), Price: decimal.NewFromInt(50), PriceAsOf: snap.Now,
@@ -209,6 +214,7 @@ func TestSimulateRule_DispatchesToRegisteredEngine(t *testing.T) {
 // expectRun records the execution as the store would and returns what the
 // final update wrote.
 func expectRun(s *mockStore) *entity.RuleExecution {
+	expectNothingWaiting(s)
 	final := &entity.RuleExecution{}
 	s.On("CreateRuleExecution", mock.Anything, mock.MatchedBy(func(e *entity.RuleExecution) bool {
 		return e.Status == entity.ExecutionStatusInProgress
@@ -217,6 +223,13 @@ func expectRun(s *mockStore) *entity.RuleExecution {
 		Run(func(args mock.Arguments) { *final = *args.Get(1).(*entity.RuleExecution) }).
 		Return(final, nil)
 	return final
+}
+
+// expectNothingWaiting: the rule has no execution waiting on a venue.
+func expectNothingWaiting(s *mockStore) {
+	s.On("ListRuleExecutions", mock.Anything, mock.MatchedBy(func(o ListRuleExecutionsOpts) bool {
+		return o.Status == entity.ExecutionStatusPending
+	})).Return([]*entity.RuleExecution(nil), "", nil).Maybe()
 }
 
 func TestExecuteRule_ResolvesVenueByAccountType(t *testing.T) {
@@ -632,6 +645,7 @@ func (v *slowVenue) Submit(ctx context.Context, a execution.Account, t execution
 func TestExecuteRule_SubmitBudgetSpentStillRecords(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetRule", mock.Anything, "r-1").Return(fakeRule("fake"), nil)
+	expectNothingWaiting(s)
 	var recordCtxErr error
 	final := &entity.RuleExecution{}
 	s.On("CreateRuleExecution", mock.Anything, mock.Anything).
@@ -654,6 +668,7 @@ func TestExecuteRule_SubmitBudgetSpentStillRecords(t *testing.T) {
 func TestExecuteRule_RecordFailsAfterFillIsLogged(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetRule", mock.Anything, "r-1").Return(fakeRule("fake"), nil)
+	expectNothingWaiting(s)
 	s.On("CreateRuleExecution", mock.Anything, mock.Anything).
 		Return(&entity.RuleExecution{ID: testExecID, RuleID: "r-1", Status: entity.ExecutionStatusInProgress}, nil)
 	s.On("UpdateRuleExecution", mock.Anything, mock.Anything, mock.Anything).Return(nil, assert.AnError)

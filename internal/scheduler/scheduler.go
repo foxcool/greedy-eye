@@ -68,6 +68,12 @@ type UsageReporter interface {
 	Snapshot() []ratelimit.Usage
 }
 
+// WaitingConfirmer moves executions that wait on a venue: it asks where each
+// waiting trade is and records what changed. Satisfied by *automation.Handler.
+type WaitingConfirmer interface {
+	ConfirmWaiting(ctx context.Context) (moved int, err error)
+}
+
 // BalanceSweeper re-reads the balances of accounts that went stale and reports
 // what one run did. Satisfied by *portfolio.Handler; the report is logged
 // through the sweeper itself so every caller reports a sweep identically.
@@ -88,6 +94,10 @@ type Config struct {
 	// holdings of accounts nobody synced lately. Empty disables the job, which
 	// leaves amounts to be refreshed by hand.
 	BalanceSyncCron string
+	// ConfirmCron is the cron spec for checking executions that wait on a
+	// venue (a proposal awaiting signatures, a transaction awaiting its
+	// block). Empty disables it.
+	ConfirmCron string
 }
 
 // ruleEntry tracks a scheduled rule so reloads can diff instead of rebuild.
@@ -106,6 +116,7 @@ type Scheduler struct {
 	rescorer  AssetRescorer
 	usage     UsageReporter
 	balances  BalanceSweeper
+	confirmer WaitingConfirmer
 	sweepOpts portfolio.SweepOpts
 	log       *slog.Logger
 
@@ -132,6 +143,11 @@ func New(cfg Config, rules RuleStore, exec RuleExecutor, prices PriceFetcher, re
 	if cfg.BalanceSyncCron != "" {
 		if _, err := cron.ParseStandard(cfg.BalanceSyncCron); err != nil {
 			return nil, fmt.Errorf("invalid balanceSyncCron %q: %w", cfg.BalanceSyncCron, err)
+		}
+	}
+	if cfg.ConfirmCron != "" {
+		if _, err := cron.ParseStandard(cfg.ConfirmCron); err != nil {
+			return nil, fmt.Errorf("invalid confirmCron %q: %w", cfg.ConfirmCron, err)
 		}
 	}
 	cl := &cronLogger{log: log}
@@ -164,6 +180,13 @@ func (s *Scheduler) WithBalanceSweeper(b BalanceSweeper, opts portfolio.SweepOpt
 	return s
 }
 
+// WithConfirmer enables checking waiting executions. ConfirmCron set without
+// it is refused at Start: a schedule with nothing to run is a wiring mistake.
+func (s *Scheduler) WithConfirmer(c WaitingConfirmer) *Scheduler {
+	s.confirmer = c
+	return s
+}
+
 // Start registers the static jobs, performs the initial rule load and starts
 // the cron loop. Missed fires during downtime are skipped, never caught up:
 // a stale trade plan is worse than no trade.
@@ -176,6 +199,14 @@ func (s *Scheduler) Start() error {
 	if s.cfg.RescoreCron != "" {
 		if _, err := s.cron.AddFunc(s.cfg.RescoreCron, s.rescoreAssets); err != nil {
 			return fmt.Errorf("register asset rescore job: %w", err)
+		}
+	}
+	if s.cfg.ConfirmCron != "" {
+		if s.confirmer == nil {
+			return fmt.Errorf("confirmCron %q is set but no confirmer was given", s.cfg.ConfirmCron)
+		}
+		if _, err := s.cron.AddFunc(s.cfg.ConfirmCron, s.confirmWaiting); err != nil {
+			return fmt.Errorf("register waiting execution job: %w", err)
 		}
 	}
 	if s.cfg.BalanceSyncCron != "" && s.balances != nil {
