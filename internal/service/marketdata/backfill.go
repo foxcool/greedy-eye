@@ -208,18 +208,15 @@ func (h *Handler) backfillTargets(ctx context.Context, p PriceProvider) ([]*enti
 // backfillBase resolves the provider's quote currency the way the sweep does,
 // so backfilled rows and swept ones share one pair.
 func (h *Handler) backfillBase(ctx context.Context, p PriceProvider) (string, error) {
-	symbol, typ := p.BaseAssetSymbol(), p.BaseAssetType()
-	if err := quotableIdentity(symbol, entity.DefaultMarket(typ), typ); err != nil {
-		return "", connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("base asset %s: %w", symbol, err))
+	symbol := p.BaseAssetSymbol()
+	id, refused, err := h.quoteBase(ctx, symbol, p.BaseAssetType())
+	if refused != nil {
+		return "", connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("base asset %s: %w", symbol, refused))
 	}
-	base, err := h.store.GetOrCreateAssetBySymbol(ctx, symbol, symbol, typ)
 	if err != nil {
 		return "", toConnectError(err)
 	}
-	if err := quotableBase(base); err != nil {
-		return "", connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("base asset %s: %w", symbol, err))
-	}
-	return base.ID, nil
+	return id, nil
 }
 
 // heldRows reads which (asset, timestamp) rows this source already holds
