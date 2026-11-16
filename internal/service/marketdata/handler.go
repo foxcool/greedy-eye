@@ -582,10 +582,30 @@ func (h *Handler) resolveAssetID(ctx context.Context, id string) (string, error)
 		return id, nil
 	}
 	asset, err := h.store.GetAssetBySymbol(ctx, id) // store normalizes symbol case
+	if errors.Is(err, store.ErrNotFound) && strings.EqualFold(id, pricefresh.DefaultDisplayCurrency) {
+		return h.displayCurrency(ctx)
+	}
 	if err != nil {
 		return "", fmt.Errorf("resolve asset %q: %w", id, err)
 	}
 	return asset.ID, nil
+}
+
+// displayCurrency creates the default display currency on first use, as the
+// price sweep creates a provider's base. Nothing else made it before a price
+// landed, so a new instance answered not found for its own currency: an empty
+// portfolio could not be valued and the dashboard opened on an error. Only this
+// one symbol is created on a read; any other unknown ticker stays not found.
+func (h *Handler) displayCurrency(ctx context.Context) (string, error) {
+	symbol := pricefresh.DefaultDisplayCurrency
+	id, refused, err := h.quoteBase(ctx, symbol, entity.AssetTypeForex)
+	if refused != nil {
+		return "", fmt.Errorf("resolve asset %q: %w", symbol, refused)
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolve asset %q: %w", symbol, err)
+	}
+	return id, nil
 }
 
 // ListPriceHistory returns price history for an asset pair.
@@ -1490,6 +1510,24 @@ func quotableIdentity(symbol, market string, typ entity.AssetType) error {
 	}
 }
 
+// quoteBase finds or creates symbol as a quote currency of type typ, guarded by
+// quotableIdentity before the catalogue is asked and by quotableBase after.
+// refused and err come back apart because callers treat them apart: a refusal
+// is a fact about the identity, worth remembering; a store error is not.
+func (h *Handler) quoteBase(ctx context.Context, symbol string, typ entity.AssetType) (id string, refused, err error) {
+	if r := quotableIdentity(symbol, entity.DefaultMarket(typ), typ); r != nil {
+		return "", r, nil
+	}
+	a, err := h.store.GetOrCreateAssetBySymbol(ctx, symbol, symbol, typ)
+	if err != nil {
+		return "", nil, err
+	}
+	if r := quotableBase(a); r != nil {
+		return "", r, nil
+	}
+	return a.ID, nil, nil
+}
+
 // quarantineVerdicts are excluded from unattended pricing: their holdings are
 // already excluded from the portfolio sums, so a price for them buys nothing.
 var quarantineVerdicts = []string{
@@ -1758,18 +1796,15 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 				baseRefused[key] = err
 				return "", err
 			}
-			if err := quotableIdentity(key.symbol, entity.DefaultMarket(key.typ), key.typ); err != nil {
-				return refuse(err)
+			id, refused, err := h.quoteBase(ctx, key.symbol, key.typ)
+			if refused != nil {
+				return refuse(refused)
 			}
-			baseAsset, err := h.store.GetOrCreateAssetBySymbol(ctx, key.symbol, key.symbol, key.typ)
 			if err != nil {
 				return "", fmt.Errorf("resolve base asset %s: %w", key.symbol, err)
 			}
-			if err := quotableBase(baseAsset); err != nil {
-				return refuse(err)
-			}
-			baseAssetCache[key] = baseAsset.ID
-			return baseAsset.ID, nil
+			baseAssetCache[key] = id
+			return id, nil
 		}
 
 		// Resolved before the provider is asked: a bad base fails the whole

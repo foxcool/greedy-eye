@@ -488,6 +488,36 @@ func TestGetAsset_ResolvesATicker(t *testing.T) {
 	assert.Equal(t, "id-usd", resp.Msg.Id, "the caller gets the id price rows are keyed by")
 }
 
+// A new instance has no USD until a price lands, and a valuation asks for it
+// by ticker first. It is created the way the sweep would create it.
+func TestGetAsset_CreatesTheDisplayCurrencyOnFirstUse(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAssetBySymbol", mock.Anything, "usd").Return(nil, store.ErrNotFound)
+	usd := testAsset("id-usd")
+	usd.Symbol, usd.Type, usd.Market = "USD", entity.AssetTypeForex, entity.DefaultMarket(entity.AssetTypeForex)
+	s.On("GetOrCreateAssetBySymbol", mock.Anything, "USD", "USD", entity.AssetTypeForex).Return(usd, nil).Once()
+	s.On("GetAsset", mock.Anything, "id-usd").Return(usd, nil)
+	s.On("ListAssetExternalRefs", mock.Anything, []string{"id-usd"}).Return(nil, nil)
+	expectRiskFlags(s)
+	h := newHandler(s)
+
+	resp, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "usd"}))
+	require.NoError(t, err)
+	assert.Equal(t, "id-usd", resp.Msg.Id)
+	s.AssertExpectations(t)
+}
+
+func TestGetAsset_UnknownTickerIsNotCreated(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAssetBySymbol", mock.Anything, "EUR").Return(nil, store.ErrNotFound)
+	h := newHandler(s)
+
+	_, err := h.GetAsset(context.Background(), connect.NewRequest(&apiv1.GetAssetRequest{Id: "EUR"}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	s.AssertNotCalled(t, "GetOrCreateAssetBySymbol", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
 // --- Tests: DeleteAsset ---
 
 func TestDeleteAsset_MissingID(t *testing.T) {
