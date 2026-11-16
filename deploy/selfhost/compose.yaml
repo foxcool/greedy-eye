@@ -132,8 +132,16 @@ services:
   psina-migrate:
     image: ghcr.io/foxcool/psina:${PSINA_VERSION:-0.7.0}
     entrypoint: ["atlas"]
-    # psina 0.7 ships versioned migrations; a database this file created runs
-    # them from the first one, so no baseline step is needed.
+    # psina 0.7 ships versioned migrations. A new database runs them from the
+    # first one. A database this file created with psina 0.6 (declarative
+    # `schema apply`) has the tables but no revision history, so this step
+    # fails with "connected database is not clean". Baseline it once, then
+    # `docker compose up -d` again:
+    #   docker compose run --rm psina-migrate migrate apply \
+    #     --url "postgres://psina:<PSINA_DB_PASSWORD from .env>@psina-postgres:5432/psina?sslmode=disable" \
+    #     --dir file:///migrations --revisions-schema atlas --baseline 20261031173145
+    # Only from a database that ran psina 0.6.0: an older one is not at the
+    # baseline schema.
     command:
       - migrate
       - apply
