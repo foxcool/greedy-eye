@@ -2730,7 +2730,10 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 			// portfolio that had just been fixed precisely so its number would be
 			// true (personal-8gu1). What made lowering unsafe was that the flag
 			// did not say who set it; now it does, and only the machine's own
-			// exclusions are lifted here. A person's stands in both directions.
+			// exclusions are lifted here. A person's exclusion stands; a person's
+			// re-inclusion does not: an included row carries no author (see
+			// entity.Holding.SetExcluded), so a quarantining verdict excludes it
+			// again on the next sync.
 			switch {
 			case entry.excluded && !existing.Excluded():
 				existing.SetExcluded(true, entity.ExcludedByQuarantine)
@@ -2748,8 +2751,7 @@ func (h *Handler) writeSyncedHoldings(ctx context.Context, w HoldingWriter, plan
 			// Create new holding in the account's portfolio as of this transaction.
 			// A scam/impersonation verdict on the asset excludes the new holding
 			// from the sums; the position still syncs (no frozen holding), it is
-			// just quarantined. An existing holding's excluded flag is left alone
-			// on update so a user's manual override survives resync.
+			// just quarantined. Existing rows are handled in the branch above.
 			created := &entity.Holding{
 				AssetID:     assetID,
 				AccountID:   plan.accountID,
