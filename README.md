@@ -70,12 +70,34 @@ Go architecture for financial data.
 
 ## Quick Start
 
-### Prerequisites
+### Run your own instance
+
+The whole stack (backend, frontend, auth, databases) from published images,
+on any machine with Docker:
+
+```bash
+curl -O https://raw.githubusercontent.com/foxcool/greedy-eye/main/deploy/selfhost/compose.yaml
+curl -o .env https://raw.githubusercontent.com/foxcool/greedy-eye/main/deploy/selfhost/env.example
+# fill in the three secrets .env asks for, then:
+docker compose up -d
+# open http://eye.localhost:8080 and register
+```
+
+It answers on 127.0.0.1 only. Sign-up cannot be closed yet, so reach the
+instance from elsewhere through a VPN, not an open port. Wallets on TON,
+Bitcoin, Cosmos and Tezos sync with no API keys; see
+[docs/providers.md](docs/providers.md) for the rest.
+[deploy/selfhost/compose.yaml](deploy/selfhost/compose.yaml) explains each
+setting.
+
+### Develop
+
+#### Prerequisites
 - Go 1.25+
 - Docker (for testcontainers and dev environment)
 - Atlas CLI (`curl -sSf https://atlasgo.sh | sh`)
 
-### Run Locally
+#### Run Locally
 
 ```bash
 # Clone and start
@@ -89,13 +111,13 @@ make up
 # http://localhost:8080
 ```
 
-### Health Check
+#### Health Check
 
 ```bash
 curl http://localhost:8080/eye/health
 ```
 
-### Run Tests
+#### Run Tests
 
 ```bash
 make test                    # All tests (unit + integration)
@@ -128,7 +150,7 @@ greedy-eye/
 │   └── store/postgres/    # pgx implementation + integration tests
 ├── schema.hcl             # Database schema (Atlas, declarative)
 ├── docs/                  # Architecture, development, providers
-└── deploy/                # Compose config
+└── deploy/                # Dev compose; selfhost/ runs the whole stack from images
 ```
 
 ---
