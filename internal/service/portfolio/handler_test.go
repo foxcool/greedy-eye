@@ -554,6 +554,54 @@ func TestCreateAccount_ForeignPortfolio(t *testing.T) {
 	s.AssertNotCalled(t, "CreateAccount", mock.Anything, mock.Anything)
 }
 
+// TestCreateAccount_AdminCannotUseAnotherUsersPortfolio: an admin may see any
+// portfolio, but the account it creates is the admin's own, and its holdings are
+// stamped with its portfolio: in another user's portfolio they would count in
+// that user's totals.
+func TestCreateAccount_AdminCannotUseAnotherUsersPortfolio(t *testing.T) {
+	foreign := testPortfolio(testPortfolioID2)
+	foreign.UserID = testUserID2
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID2).Return(foreign, nil)
+
+	portfolioID := testPortfolioID2
+	_, err := newHandler(s).CreateAccount(ctxWithAdmin(testUserID), connect.NewRequest(&apiv1.CreateAccountRequest{
+		Account: &apiv1.Account{Name: "Manual", Type: apiv1.AccountType_ACCOUNT_TYPE_MANUAL, PortfolioId: &portfolioID},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	s.AssertNotCalled(t, "CreateAccount", mock.Anything, mock.Anything)
+}
+
+// TestUpdateAccount_PortfolioMustBelongToTheAccountOwner: an admin may edit
+// another user's account, but moving it into a portfolio its owner does not
+// own — the admin's included — is refused; into the owner's own it is not.
+func TestUpdateAccount_PortfolioMustBelongToTheAccountOwner(t *testing.T) {
+	move := func(portfolioID string) *connect.Request[apiv1.UpdateAccountRequest] {
+		return connect.NewRequest(&apiv1.UpdateAccountRequest{
+			Account:    &apiv1.Account{Id: testAccountID, PortfolioId: &portfolioID},
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"portfolio_id"}},
+		})
+	}
+	adminsOwn := testPortfolio(testPortfolioID2)
+	adminsOwn.UserID = testUserID2
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	s.On("GetPortfolio", mock.Anything, testPortfolioID2).Return(adminsOwn, nil)
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("UpdateAccount", mock.Anything, mock.Anything, []string{"portfolio_id"}).Return(testAccount(testAccountID), nil)
+	h := newHandler(s)
+
+	_, err := h.UpdateAccount(ctxWithAdmin(testUserID2), move(testPortfolioID2))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	s.AssertNotCalled(t, "UpdateAccount", mock.Anything, mock.Anything, mock.Anything)
+
+	_, err = h.UpdateAccount(ctxWithAdmin(testUserID2), move(testPortfolioID))
+	require.NoError(t, err, "the owner's own portfolio stays open to an admin")
+}
+
 func TestCreateAccount_OwnPortfolio(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
@@ -605,6 +653,65 @@ func TestGetAccount_UnreadableForeignRow(t *testing.T) {
 	_, err = h.GetAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.GetAccountRequest{Id: testAccountID}))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, store.ErrUnreadable)
+}
+
+// namedReadError is a store read error that names its row, as the PostgreSQL
+// store's does: its text is the decrypting code's, its row is what may be shown.
+type namedReadError struct {
+	account entity.UnreadableAccount
+	text    string
+}
+
+func (e *namedReadError) Error() string { return e.text }
+func (e *namedReadError) Unwrap() error { return store.ErrUnreadable }
+func (e *namedReadError) UnreadableAccount() *entity.UnreadableAccount {
+	a := e.account
+	return &a
+}
+
+// TestOwnedAccount_UnreadableRowShowsOnlyItsClass: the owner and an admin learn
+// that the row cannot be read and why, by class; the store's text, which can
+// quote decrypted bytes, never reaches the response.
+func TestOwnedAccount_UnreadableRowShowsOnlyItsClass(t *testing.T) {
+	const secret = "sk-live-0123456789"
+	lost := entity.UnreadableAccount{ID: testAccountID, UserID: testUserID, Failure: entity.ReadFailureCorrupt}
+	readErr := fmt.Errorf("failed to get account: %w",
+		&namedReadError{account: lost, text: `invalid character 'k' in "` + secret + `"`})
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(nil, readErr)
+	s.On("ListUnreadableAccounts", mock.Anything, testUserID).
+		Return([]*entity.UnreadableAccount{&lost}, nil).Maybe()
+	h := newHandler(s)
+
+	for name, ctx := range map[string]context.Context{
+		"owner": ctxWithUser(testUserID),
+		"admin": ctxWithAdmin(testUserID2),
+	} {
+		t.Run(name, func(t *testing.T) {
+			for rpc, call := range map[string]func() error{
+				"GetAccount": func() error {
+					_, err := h.GetAccount(ctx, connect.NewRequest(&apiv1.GetAccountRequest{Id: testAccountID}))
+					return err
+				},
+				"DeleteAccount": func() error {
+					_, err := h.DeleteAccount(ctx, connect.NewRequest(&apiv1.DeleteAccountRequest{Id: testAccountID}))
+					return err
+				},
+			} {
+				err := call()
+				require.Error(t, err, rpc)
+				assert.Equal(t, connect.CodeInternal, connect.CodeOf(err), rpc)
+				assert.ErrorIs(t, err, store.ErrUnreadable, "%s: account health reads the class off this", rpc)
+				var ce *connect.Error
+				require.True(t, errors.As(err, &ce), rpc)
+				assert.NotContains(t, ce.Message(), secret, rpc)
+				assert.NotContains(t, ce.Message(), "invalid character", "%s: no store text crosses the wire", rpc)
+				assert.Contains(t, ce.Message(), string(entity.ReadFailureCorrupt), rpc)
+			}
+		})
+	}
+	s.AssertNotCalled(t, "DeleteAccount", mock.Anything, mock.Anything)
 }
 
 func TestDeleteAccount_OK(t *testing.T) {

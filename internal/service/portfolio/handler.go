@@ -154,11 +154,27 @@ func (h *Handler) ownedPortfolio(ctx context.Context, id string) (*entity.Portfo
 	return p, nil
 }
 
+// unreadableAccountError is what ownedAccount answers for a row whose stored
+// data cannot be read: a fixed phrase and the failure class. The store's read
+// error is dropped, not wrapped, because its text can quote decrypted bytes and
+// a connect error sends its cause's text over the wire. It still matches
+// store.ErrUnreadable, and carries the row for GetAccountHealth.
+type unreadableAccountError struct {
+	account *entity.UnreadableAccount
+}
+
+func (e *unreadableAccountError) Error() string {
+	return fmt.Sprintf("%s: its stored settings cannot be read (%s)", store.ErrUnreadable, e.account.Failure)
+}
+
+func (e *unreadableAccountError) Unwrap() error { return store.ErrUnreadable }
+
 // ownedAccount loads an account and enforces ownership.
 //
-// An unreadable row has no owner to check, so ownership is read off the
-// caller's list (callersUnreadable) before its read error is returned: that
-// error confirms the id exists and its text can quote decrypted bytes.
+// An unreadable row has no account to check, so its owner is read off the
+// store's error, or, from a store whose error does not name the row, off the
+// caller's list (callersUnreadable). A caller who does not own it gets
+// NotFound, as for a readable row: the read error confirms the id exists.
 func (h *Handler) ownedAccount(ctx context.Context, id string) (*entity.Account, error) {
 	a, err := h.store.GetAccount(ctx, id)
 	if errors.Is(err, store.ErrUnreadable) {
@@ -166,12 +182,16 @@ func (h *Handler) ownedAccount(ctx context.Context, id string) (*entity.Account,
 		if !ok {
 			return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
 		}
-		if !user.IsAdmin() {
-			if _, lookupErr := h.callersUnreadable(ctx, user.ID, id); lookupErr != nil {
-				return nil, lookupErr
+		u, named := store.UnreadableAccountOf(err)
+		if !named {
+			if u, err = h.callersUnreadable(ctx, user.ID, id); err != nil {
+				return nil, err
 			}
 		}
-		return nil, toConnectError(err)
+		if err := middleware.EnsureOwner(ctx, u.UserID); err != nil {
+			return nil, err
+		}
+		return nil, connect.NewError(connect.CodeInternal, &unreadableAccountError{account: u})
 	}
 	if err != nil {
 		return nil, toConnectError(err)
@@ -1112,10 +1132,16 @@ func (h *Handler) CreateAccount(ctx context.Context, req *connect.Request[apiv1.
 	// The INSERT writes any portfolio_id it is given, and sync, import and
 	// paper fills stamp the account's portfolio on every holding they write: an
 	// account born in a foreign portfolio would put its positions in that
-	// owner's totals. UpdateAccount guards a move the same way.
+	// owner's totals. An admin passes ownedPortfolio for any portfolio, so the
+	// portfolio's owner is compared with the account's, not with the caller.
+	// UpdateAccount guards a move the same way.
 	if account.PortfolioID != "" {
-		if _, err := h.ownedPortfolio(ctx, account.PortfolioID); err != nil {
+		p, err := h.ownedPortfolio(ctx, account.PortfolioID)
+		if err != nil {
 			return nil, err
+		}
+		if p.UserID != account.UserID {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio belongs to another user than the account"))
 		}
 	}
 	created, err := h.store.CreateAccount(ctx, account)
@@ -1176,9 +1202,14 @@ func (h *Handler) UpdateAccount(ctx context.Context, req *connect.Request[apiv1.
 			return nil, err
 		}
 	}
+	// The account's owner, not the caller, must own the portfolio: see CreateAccount.
 	if slices.Contains(fields, "portfolio_id") && account.PortfolioID != "" && account.PortfolioID != existing.PortfolioID {
-		if _, err := h.ownedPortfolio(ctx, account.PortfolioID); err != nil {
+		p, err := h.ownedPortfolio(ctx, account.PortfolioID)
+		if err != nil {
 			return nil, err
+		}
+		if p.UserID != existing.UserID {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio belongs to another user than the account"))
 		}
 	}
 	if slices.Contains(fields, "data") {
