@@ -159,9 +159,11 @@ func (DCA) Plan(rule *entity.Rule, snap Snapshot) (TradePlan, error) {
 	}}}, nil
 }
 
-// Simulate reports the planned buy against the quote balance on hand. Floats
+// Simulate reports the planned buy against the quote balance on hand.
+// sufficient_funds is the venue's answer, not a balance check of its own: the
+// venue refuses more than a short balance, and only it knows what. Floats
 // appear only here, at the proto boundary.
-func (DCA) Simulate(_ *entity.Rule, snap Snapshot, plan TradePlan) *apiv1.SimulationResult {
+func (DCA) Simulate(_ *entity.Rule, snap Snapshot, plan TradePlan, outcomes []Outcome) *apiv1.SimulationResult {
 	// A DCA plan holds exactly one trade; anything else describes nothing.
 	sim := &apiv1.DCASimulation{}
 	if len(plan.Trades) == 1 {
@@ -176,7 +178,7 @@ func (DCA) Simulate(_ *entity.Rule, snap Snapshot, plan TradePlan) *apiv1.Simula
 			TargetAssetId:           t.AssetID,
 			EstimatedPurchaseAmount: baseBought(t, baseDecimals(snap, t.AssetID)).InexactFloat64(),
 			EstimatedPrice:          t.Price.InexactFloat64(),
-			SufficientFunds:         available.GreaterThanOrEqual(t.QuoteAmount),
+			SufficientFunds:         len(outcomes) == 1 && outcomes[0].Status == OutcomeFilled,
 		}
 	}
 	return &apiv1.SimulationResult{

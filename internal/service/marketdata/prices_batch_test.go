@@ -157,7 +157,9 @@ func TestGetPrices_LatestLookupResolvesTickers(t *testing.T) {
 		usd = "00000000-0000-0000-0000-0000000000d1"
 	)
 	s := &mockStore{}
-	s.On("GetAssetBySymbol", mock.Anything, "USD").Return(&entity.Asset{ID: usd}, nil).Once()
+	// USD is the display currency: it resolves by identity (forex), once per batch.
+	s.On("GetOrCreateAssetBySymbol", mock.Anything, "USD", "USD", entity.AssetTypeForex).
+		Return(&entity.Asset{ID: usd, Symbol: "USD", Market: "forex", Type: entity.AssetTypeForex}, nil).Once()
 	s.On("GetAssetBySymbol", mock.Anything, "NOPE").Return(nil, fmt.Errorf("asset: %w", store.ErrNotFound)).Once()
 	s.On("LatestPrices", mock.Anything, []PricePair{{AssetID: eth, BaseAssetID: usd}, {AssetID: usd}}).
 		Return(func([]PricePair) []*entity.StoredPrice {
@@ -185,11 +187,11 @@ func TestGetPrices_LatestLookupResolvesTickers(t *testing.T) {
 // GetLatestPrice.
 func TestGetPrices_TickerResolutionFailureFailsTheBatch(t *testing.T) {
 	s := &mockStore{}
-	s.On("GetAssetBySymbol", mock.Anything, "USD").Return(nil, errors.New("connection reset"))
+	s.On("GetAssetBySymbol", mock.Anything, "BTC").Return(nil, errors.New("connection reset"))
 	h := newHandler(s)
 
 	_, err := h.GetPrices(context.Background(), connect.NewRequest(&apiv1.GetPricesRequest{
-		Lookups: []*apiv1.PriceLookup{{AssetId: "USD"}},
+		Lookups: []*apiv1.PriceLookup{{AssetId: "BTC"}},
 	}))
 	assert.Equal(t, connect.CodeInternal, connect.CodeOf(err))
 }

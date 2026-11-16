@@ -128,6 +128,19 @@ func TestDCAPlan(t *testing.T) {
 	}
 }
 
+// previewed is what the paper venue would answer to each trade of plan.
+func previewed(plan TradePlan, snap Snapshot) []Outcome {
+	outcomes := make([]Outcome, len(plan.Trades))
+	for i, t := range plan.Trades {
+		if res := paperFill(t, snap.Holdings); res.Reason != "" {
+			outcomes[i] = Outcome{Status: OutcomeRejected, Reason: res.Reason}
+		} else {
+			outcomes[i] = Outcome{Status: OutcomeFilled, Fill: res.Fill}
+		}
+	}
+	return outcomes
+}
+
 func TestDCASimulate(t *testing.T) {
 	now := time.Date(2025, 3, 14, 12, 0, 0, 0, time.UTC)
 	snap := Snapshot{
@@ -139,7 +152,7 @@ func TestDCASimulate(t *testing.T) {
 	plan, err := DCA{}.Plan(rule, snap)
 	require.NoError(t, err)
 
-	got := DCA{}.Simulate(rule, snap, plan).GetDca()
+	got := DCA{}.Simulate(rule, snap, plan, previewed(plan, snap)).GetDca()
 	require.NotNil(t, got)
 	assert.Equal(t, 100.0, got.DcaAmount)
 	assert.Equal(t, dcaBase, got.TargetAssetId)
@@ -150,11 +163,11 @@ func TestDCASimulate(t *testing.T) {
 	assert.Zero(t, got.EstimatedFee)
 
 	snap.Holdings = []Holding{{ID: "h-q", AssetID: dcaQuote, Amount: decimal.NewFromInt(100), Decimals: 2}}
-	got = DCA{}.Simulate(rule, snap, plan).GetDca()
+	got = DCA{}.Simulate(rule, snap, plan, previewed(plan, snap)).GetDca()
 	assert.True(t, got.SufficientFunds, "exactly quote_amount on hand is enough, as in paperFill")
 
 	snap.Holdings = nil
-	got = DCA{}.Simulate(rule, snap, plan).GetDca()
+	got = DCA{}.Simulate(rule, snap, plan, previewed(plan, snap)).GetDca()
 	assert.Zero(t, got.AvailableBalance)
 	assert.False(t, got.SufficientFunds, "no quote holding means nothing to spend")
 }

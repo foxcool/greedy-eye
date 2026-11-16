@@ -634,7 +634,9 @@ message ImportPositionResult {
   uint32 decimals = 5;
   // Previous raw amount for IMPORT_ACTION_UPDATE.
   optional string previous_amount = 6;
-  // The asset was (or would be) created as part of the import.
+  // The asset was (or would be) created as part of the import. The catalogue
+  // is not part of the holdings transaction: an asset created for a commit
+  // that rolls back stays, and this stays true.
   bool asset_created = 7;
   // Per-item failure; the rest of the batch still proceeds.
   optional string error = 8;
@@ -648,6 +650,8 @@ message ImportPositionsResponse {
   int32 updated = 5;
   int32 skipped = 6;
   int32 failed = 7;
+  // Catalogue assets created by the batch, counted even when the commit rolls
+  // back: those assets survive it (see asset_created).
   int32 assets_created = 8;
   // Holdings closed by a full-snapshot reconcile.
   int32 deleted = 9;

@@ -2012,8 +2012,11 @@ func (x *CreatePricesRequest) GetPrices() []*Price {
 }
 
 type CreatePricesResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CreatedCount  int32                  `protobuf:"varint,1,opt,name=created_count,json=createdCount,proto3" json:"created_count,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Rows this call inserted. A price the store already held unchanged (same
+	// asset, base, source, interval and timestamp) is not counted: re-sending a
+	// batch reports 0, so a caller can tell what it added from what was there.
+	CreatedCount  int32 `protobuf:"varint,1,opt,name=created_count,json=createdCount,proto3" json:"created_count,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2543,8 +2546,11 @@ func (x *FetchExternalPricesRequest) GetAssetIds() []string {
 type FetchExternalPricesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	PricesFetched int32                  `protobuf:"varint,1,opt,name=prices_fetched,json=pricesFetched,proto3" json:"prices_fetched,omitempty"`
-	PricesStored  int32                  `protobuf:"varint,2,opt,name=prices_stored,json=pricesStored,proto3" json:"prices_stored,omitempty"`
-	Errors        []string               `protobuf:"bytes,3,rep,name=errors,proto3" json:"errors,omitempty"`
+	// Of the fetched prices, the rows this run inserted. A quote the store
+	// already held unchanged (a fixing re-delivered by a later sweep) is fetched
+	// but not stored, so prices_stored can be below prices_fetched on a healthy run.
+	PricesStored int32    `protobuf:"varint,2,opt,name=prices_stored,json=pricesStored,proto3" json:"prices_stored,omitempty"`
+	Errors       []string `protobuf:"bytes,3,rep,name=errors,proto3" json:"errors,omitempty"`
 	// Sources this run selected nothing from, and why: "nothing_due",
 	// "all_deferred", "budget_exhausted", "contested" (every asset it could have
 	// priced carries a ticker another live asset also claims), "covered" (every

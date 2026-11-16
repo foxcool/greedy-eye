@@ -156,6 +156,11 @@ func TestUnreadableAccountRowDegradesPerRow(t *testing.T) {
 	t.Run("reading the row by id still fails", func(t *testing.T) {
 		_, err := f.store.GetAccount(ctx, f.sealedAway.ID)
 		require.ErrorIs(t, err, store.ErrUnreadable)
+		named, ok := store.UnreadableAccountOf(err)
+		require.True(t, ok, "the read error names its row, so a handler need not show its text")
+		assert.Equal(t, f.sealedAway.ID, named.ID)
+		assert.Equal(t, f.user.ID, named.UserID)
+		assert.Equal(t, entity.ReadFailureUndecryptable, named.Failure)
 		_, err = f.store.GetAccount(ctx, f.corrupt.ID)
 		require.ErrorIs(t, err, store.ErrUnreadable)
 	})
@@ -241,7 +246,7 @@ func TestUnreadableAccountIsNotACredentialHolder(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{operator.ID}, owners)
 
-	providers := provider.New(ratelimit.NewRegistry(nil))
+	providers := provider.New(ratelimit.NewRegistry())
 	resolver := credentials.NewResolver(credentials.Config{
 		Source:         s,
 		PriceProviders: providers.PriceProviders(),

@@ -1,6 +1,10 @@
 package store
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/foxcool/greedy-eye/internal/entity"
+)
 
 // Store error definitions.
 var (
@@ -14,3 +18,16 @@ var (
 	// this instance. Lists leave such a row out; a read by id fails with this.
 	ErrUnreadable = errors.New("account data unreadable")
 )
+
+// UnreadableAccountOf returns the row an ErrUnreadable read by id names: its
+// open columns and the failure class. That is all of the error that may be
+// shown; its text can quote decrypted bytes.
+func UnreadableAccountOf(err error) (*entity.UnreadableAccount, bool) {
+	var named interface {
+		UnreadableAccount() *entity.UnreadableAccount
+	}
+	if !errors.As(err, &named) {
+		return nil, false
+	}
+	return named.UnreadableAccount(), true
+}

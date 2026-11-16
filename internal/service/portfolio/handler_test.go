@@ -554,6 +554,54 @@ func TestCreateAccount_ForeignPortfolio(t *testing.T) {
 	s.AssertNotCalled(t, "CreateAccount", mock.Anything, mock.Anything)
 }
 
+// TestCreateAccount_AdminCannotUseAnotherUsersPortfolio: an admin may see any
+// portfolio, but the account it creates is the admin's own, and its holdings are
+// stamped with its portfolio: in another user's portfolio they would count in
+// that user's totals.
+func TestCreateAccount_AdminCannotUseAnotherUsersPortfolio(t *testing.T) {
+	foreign := testPortfolio(testPortfolioID2)
+	foreign.UserID = testUserID2
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID2).Return(foreign, nil)
+
+	portfolioID := testPortfolioID2
+	_, err := newHandler(s).CreateAccount(ctxWithAdmin(testUserID), connect.NewRequest(&apiv1.CreateAccountRequest{
+		Account: &apiv1.Account{Name: "Manual", Type: apiv1.AccountType_ACCOUNT_TYPE_MANUAL, PortfolioId: &portfolioID},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	s.AssertNotCalled(t, "CreateAccount", mock.Anything, mock.Anything)
+}
+
+// TestUpdateAccount_PortfolioMustBelongToTheAccountOwner: an admin may edit
+// another user's account, but moving it into a portfolio its owner does not
+// own — the admin's included — is refused; into the owner's own it is not.
+func TestUpdateAccount_PortfolioMustBelongToTheAccountOwner(t *testing.T) {
+	move := func(portfolioID string) *connect.Request[apiv1.UpdateAccountRequest] {
+		return connect.NewRequest(&apiv1.UpdateAccountRequest{
+			Account:    &apiv1.Account{Id: testAccountID, PortfolioId: &portfolioID},
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"portfolio_id"}},
+		})
+	}
+	adminsOwn := testPortfolio(testPortfolioID2)
+	adminsOwn.UserID = testUserID2
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	s.On("GetPortfolio", mock.Anything, testPortfolioID2).Return(adminsOwn, nil)
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("UpdateAccount", mock.Anything, mock.Anything, []string{"portfolio_id"}).Return(testAccount(testAccountID), nil)
+	h := newHandler(s)
+
+	_, err := h.UpdateAccount(ctxWithAdmin(testUserID2), move(testPortfolioID2))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	s.AssertNotCalled(t, "UpdateAccount", mock.Anything, mock.Anything, mock.Anything)
+
+	_, err = h.UpdateAccount(ctxWithAdmin(testUserID2), move(testPortfolioID))
+	require.NoError(t, err, "the owner's own portfolio stays open to an admin")
+}
+
 func TestCreateAccount_OwnPortfolio(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
@@ -605,6 +653,65 @@ func TestGetAccount_UnreadableForeignRow(t *testing.T) {
 	_, err = h.GetAccount(ctxWithUser(testUserID), connect.NewRequest(&apiv1.GetAccountRequest{Id: testAccountID}))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, store.ErrUnreadable)
+}
+
+// namedReadError is a store read error that names its row, as the PostgreSQL
+// store's does: its text is the decrypting code's, its row is what may be shown.
+type namedReadError struct {
+	account entity.UnreadableAccount
+	text    string
+}
+
+func (e *namedReadError) Error() string { return e.text }
+func (e *namedReadError) Unwrap() error { return store.ErrUnreadable }
+func (e *namedReadError) UnreadableAccount() *entity.UnreadableAccount {
+	a := e.account
+	return &a
+}
+
+// TestOwnedAccount_UnreadableRowShowsOnlyItsClass: the owner and an admin learn
+// that the row cannot be read and why, by class; the store's text, which can
+// quote decrypted bytes, never reaches the response.
+func TestOwnedAccount_UnreadableRowShowsOnlyItsClass(t *testing.T) {
+	const secret = "sk-live-0123456789"
+	lost := entity.UnreadableAccount{ID: testAccountID, UserID: testUserID, Failure: entity.ReadFailureCorrupt}
+	readErr := fmt.Errorf("failed to get account: %w",
+		&namedReadError{account: lost, text: `invalid character 'k' in "` + secret + `"`})
+
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(nil, readErr)
+	s.On("ListUnreadableAccounts", mock.Anything, testUserID).
+		Return([]*entity.UnreadableAccount{&lost}, nil).Maybe()
+	h := newHandler(s)
+
+	for name, ctx := range map[string]context.Context{
+		"owner": ctxWithUser(testUserID),
+		"admin": ctxWithAdmin(testUserID2),
+	} {
+		t.Run(name, func(t *testing.T) {
+			for rpc, call := range map[string]func() error{
+				"GetAccount": func() error {
+					_, err := h.GetAccount(ctx, connect.NewRequest(&apiv1.GetAccountRequest{Id: testAccountID}))
+					return err
+				},
+				"DeleteAccount": func() error {
+					_, err := h.DeleteAccount(ctx, connect.NewRequest(&apiv1.DeleteAccountRequest{Id: testAccountID}))
+					return err
+				},
+			} {
+				err := call()
+				require.Error(t, err, rpc)
+				assert.Equal(t, connect.CodeInternal, connect.CodeOf(err), rpc)
+				assert.ErrorIs(t, err, store.ErrUnreadable, "%s: account health reads the class off this", rpc)
+				var ce *connect.Error
+				require.True(t, errors.As(err, &ce), rpc)
+				assert.NotContains(t, ce.Message(), secret, rpc)
+				assert.NotContains(t, ce.Message(), "invalid character", "%s: no store text crosses the wire", rpc)
+				assert.Contains(t, ce.Message(), string(entity.ReadFailureCorrupt), rpc)
+			}
+		})
+	}
+	s.AssertNotCalled(t, "DeleteAccount", mock.Anything, mock.Anything)
 }
 
 func TestDeleteAccount_OK(t *testing.T) {
@@ -4384,9 +4491,25 @@ func (s *stagingStore) InHoldingsTx(_ context.Context, fn func(HoldingWriter) er
 	return nil
 }
 
+func (s *stagingStore) DeleteHolding(ctx context.Context, id string) error {
+	err := s.mockStore.DeleteHolding(ctx, id)
+	if err == nil {
+		s.committed = append(s.committed, "delete "+id)
+	}
+	return err
+}
+
 type stagingWriter struct {
 	*mockStore
 	staged []string
+}
+
+func (w *stagingWriter) DeleteHolding(ctx context.Context, id string) error {
+	err := w.mockStore.DeleteHolding(ctx, id)
+	if err == nil {
+		w.staged = append(w.staged, "delete "+id)
+	}
+	return err
 }
 
 func (w *stagingWriter) CreateHolding(ctx context.Context, h *entity.Holding) (*entity.Holding, error) {
@@ -4486,4 +4609,75 @@ func TestImportPositions_CleanBatchCommitsEveryItem(t *testing.T) {
 	assert.Zero(t, resp.Msg.Failed)
 	assert.Equal(t, int32(1), resp.Msg.Updated)
 	assert.Equal(t, int32(1), resp.Msg.Created)
+}
+
+// TestImportPositions_FailedDeleteLeavesTheSnapshotUnapplied: a full snapshot
+// closes the holdings it does not mention in the same transaction as its
+// upserts, so a delete that fails takes the upserts down with it instead of
+// leaving a refreshed balance next to a position that should have closed.
+func TestImportPositions_FailedDeleteLeavesTheSnapshotUnapplied(t *testing.T) {
+	const absentAssetID = "01926d35-6a1e-7005-8005-00000000000a"
+
+	s := &stagingStore{mockStore: &mockStore{}}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
+	absent := testHolding(testHoldingID2)
+	absent.AssetID = absentAssetID
+	s.On("ListHoldings", mock.Anything, mock.Anything).
+		Return([]*entity.Holding{testHolding(testHoldingID), absent}, "", nil)
+	s.On("UpdateHolding", mock.Anything, mock.Anything, mock.Anything).Return(testHolding(testHoldingID), nil)
+	s.On("DeleteHolding", mock.Anything, testHoldingID2).Return(errors.New("disk full"))
+
+	md := &mockMDClient{}
+	md.On("GetAsset", mock.Anything, assetReq(testAssetID)).Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+	md.On("GetAsset", mock.Anything, assetReq(absentAssetID)).Return(connect.NewResponse(&apiv1.Asset{Id: absentAssetID}), nil)
+	h := newHandler(s).WithMarketDataClient(md)
+
+	quote := testAssetID
+	resp, err := h.ImportPositions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportPositionsRequest{
+		AccountId:    testAccountID,
+		FullSnapshot: true,
+		Positions:    []*apiv1.ImportPositionItem{{AssetId: &quote, Amount: "0.0004"}}, // 100000 -> 40000: UPDATE
+	}))
+	require.NoError(t, err)
+
+	assert.Empty(t, s.committed, "the update must roll back with the failed delete")
+	assert.Equal(t, int32(2), resp.Msg.Failed, "%v", resp.Msg.Items)
+	assert.Zero(t, resp.Msg.Updated)
+	assert.Zero(t, resp.Msg.Deleted)
+	require.Len(t, resp.Msg.Items, 2)
+	require.NotNil(t, resp.Msg.Items[0].Error)
+	assert.Contains(t, *resp.Msg.Items[0].Error, "not applied")
+	require.NotNil(t, resp.Msg.Items[1].Error)
+	assert.Equal(t, apiv1.ImportAction_IMPORT_ACTION_DELETE, resp.Msg.Items[1].Action)
+	assert.Contains(t, *resp.Msg.Items[1].Error, "disk full")
+}
+
+// TestImportPositions_RolledBackBatchKeepsItsCatalogueAssets: the catalogue is
+// another service and does not join the holdings transaction, so an asset
+// created for a batch that rolls back stays. The response says so instead of
+// pretending the batch left no trace.
+func TestImportPositions_RolledBackBatchKeepsItsCatalogueAssets(t *testing.T) {
+	const newAssetID = "01926d35-6a1e-7005-8005-000000000002"
+
+	s := &stagingStore{mockStore: &mockStore{}}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
+	s.On("CreateHolding", mock.Anything, mock.Anything).Return(nil, errors.New("disk full"))
+
+	md := &mockMDClient{}
+	md.On("FindOrCreateAsset", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: &apiv1.Asset{Id: newAssetID}, Created: true}), nil)
+	h := newHandler(s).WithMarketDataClient(md)
+
+	resp, err := h.ImportPositions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportPositionsRequest{
+		AccountId: testAccountID,
+		Positions: []*apiv1.ImportPositionItem{{Symbol: "DOT", Amount: "5"}},
+	}))
+	require.NoError(t, err)
+
+	assert.Empty(t, s.committed)
+	assert.Equal(t, int32(1), resp.Msg.Failed)
+	assert.Equal(t, int32(1), resp.Msg.AssetsCreated, "the asset exists, rollback or not")
+	require.NotNil(t, resp.Msg.Items[0].Error)
+	assert.Contains(t, *resp.Msg.Items[0].Error, "stays in the catalogue")
 }

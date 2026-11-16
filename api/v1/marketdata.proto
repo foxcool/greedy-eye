@@ -713,6 +713,9 @@ message CreatePricesRequest {
 }
 
 message CreatePricesResponse {
+  // Rows this call inserted. A price the store already held unchanged (same
+  // asset, base, source, interval and timestamp) is not counted: re-sending a
+  // batch reports 0, so a caller can tell what it added from what was there.
   int32 created_count = 1;
 }
 
@@ -776,6 +779,9 @@ message FetchExternalPricesRequest {
 
 message FetchExternalPricesResponse {
   int32 prices_fetched = 1;
+  // Of the fetched prices, the rows this run inserted. A quote the store
+  // already held unchanged (a fixing re-delivered by a later sweep) is fetched
+  // but not stored, so prices_stored can be below prices_fetched on a healthy run.
   int32 prices_stored = 2;
   repeated string errors = 3;
   // Sources this run selected nothing from, and why: "nothing_due",

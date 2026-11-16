@@ -146,7 +146,7 @@ func (e *fakeEngine) Plan(rule *entity.Rule, snap execution.Snapshot) (execution
 	}}}, nil
 }
 
-func (e *fakeEngine) Simulate(*entity.Rule, execution.Snapshot, execution.TradePlan) *apiv1.SimulationResult {
+func (e *fakeEngine) Simulate(*entity.Rule, execution.Snapshot, execution.TradePlan, []execution.Outcome) *apiv1.SimulationResult {
 	return &apiv1.SimulationResult{EstimatedSteps: 1}
 }
 
@@ -162,6 +162,10 @@ func (v *fakeVenue) Submit(_ context.Context, _ execution.Account, t execution.T
 		Fill:       execution.Fill{BaseAmount: decimal.NewFromInt(2), QuoteAmount: t.QuoteAmount, Price: t.Price, PriceAsOf: t.PriceAsOf},
 		HoldingIDs: []string{"h-base", "h-quote"},
 	}, nil
+}
+
+func (v *fakeVenue) Preview(_ context.Context, _ execution.Account, t execution.Trade) (execution.Outcome, error) {
+	return execution.Outcome{Status: execution.OutcomeFilled, Fill: execution.Fill{QuoteAmount: t.QuoteAmount, Price: t.Price}}, nil
 }
 
 func ownerCtx() context.Context {
@@ -372,7 +376,9 @@ func TestSimulateRule_DCA(t *testing.T) {
 		{Id: "h-q", AssetId: testQuote, AccountId: testAccount, Amount: "25000", Decimals: 2}, // 250.00
 	}}
 	md := &fakeMD{price: &apiv1.Price{Last: "4000000", Decimals: 2, Timestamp: timestamppb.New(time.Now().Add(-time.Minute))}} // 40000.00
-	h := dcaHandler(s, pc, md)
+	h := dcaHandler(s, pc, md).WithVenues(execution.Venues{
+		apiv1.AccountType_ACCOUNT_TYPE_MANUAL: execution.NewPaperVenue(pc),
+	})
 
 	resp, err := h.SimulateRule(ownerCtx(), connect.NewRequest(&apiv1.SimulateRuleRequest{RuleId: "r-1"}))
 	require.NoError(t, err)
@@ -386,6 +392,7 @@ func TestSimulateRule_DCA(t *testing.T) {
 	assert.Equal(t, 250.0, dca.AvailableBalance)
 	assert.True(t, dca.SufficientFunds)
 	assert.Zero(t, dca.EstimatedFee)
+	assert.Empty(t, resp.Msg.Warnings)
 }
 
 func TestSimulateRule_DCAStalePrice(t *testing.T) {
@@ -702,6 +709,84 @@ func TestValidateRule_DCAConfigurationValidated(t *testing.T) {
 			assert.False(t, resp.Msg.Valid)
 			require.Len(t, resp.Msg.ValidationErrors, 1)
 			assert.Contains(t, resp.Msg.ValidationErrors[0], tc.wantError)
+		})
+	}
+}
+
+// SimulateRule's sufficient_funds answers whether ExecuteRule would fill: the
+// paper venue makes both decisions, so they cannot drift apart.
+func TestSimulateRule_DCAAgreesWithExecuteRule(t *testing.T) {
+	quote := func(id, amount string, decimals uint32) *apiv1.Holding {
+		return &apiv1.Holding{Id: id, AssetId: testQuote, AccountId: testAccount, Amount: amount, Decimals: decimals}
+	}
+	tests := []struct {
+		name        string
+		quoteAmount string
+		holdings    []*apiv1.Holding
+		fills       bool
+		reason      string
+	}{
+		{
+			name:        "enough quote",
+			quoteAmount: "100",
+			holdings:    []*apiv1.Holding{quote("h-q", "100000", 2)}, // 1000.00
+			fills:       true,
+		},
+		{
+			name:        "quote_amount finer than the quote holding keeps",
+			quoteAmount: "100.5",
+			holdings:    []*apiv1.Holding{quote("h-q", "1000", 0)}, // 1000
+			reason:      "decimal places",
+		},
+		{
+			name:        "buy rounds to zero base",
+			quoteAmount: "100",
+			holdings: []*apiv1.Holding{
+				quote("h-q", "100000", 2),
+				{Id: "h-b", AssetId: testBase, AccountId: testAccount, Amount: "1", Decimals: 0},
+			},
+			reason: "buys no",
+		},
+		{
+			name:        "quote held in two rows",
+			quoteAmount: "100",
+			holdings:    []*apiv1.Holding{quote("h-q", "100000", 2), quote("h-q2", "100000", 2)},
+			reason:      "more than one holding",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validDCA()
+			cfg["quote_amount"] = tc.quoteAmount
+			raw, err := json.Marshal(cfg)
+			require.NoError(t, err)
+			rule := fakeRule(execution.DCAType)
+			rule.Configuration = raw
+
+			s := &mockStore{}
+			s.On("GetRule", mock.Anything, "r-1").Return(rule, nil)
+			final := expectRun(s)
+			pc := &fakePortfolio{portfolioID: "p-1", accountType: apiv1.AccountType_ACCOUNT_TYPE_MANUAL, holdings: tc.holdings}
+			md := &fakeMD{price: &apiv1.Price{Last: "4000000", Decimals: 2, Timestamp: timestamppb.New(time.Now().Add(-time.Minute))}}
+			h := dcaHandler(s, pc, md).WithVenues(execution.Venues{
+				apiv1.AccountType_ACCOUNT_TYPE_MANUAL: execution.NewPaperVenue(pc),
+			})
+
+			sim, err := h.SimulateRule(ownerCtx(), connect.NewRequest(&apiv1.SimulateRuleRequest{RuleId: "r-1"}))
+			require.NoError(t, err)
+			require.True(t, sim.Msg.Success, sim.Msg.ErrorMessage)
+			assert.Empty(t, pc.positions, "a simulation writes nothing")
+
+			_, err = h.ExecuteRule(ownerCtx(), connect.NewRequest(&apiv1.ExecuteRuleRequest{RuleId: "r-1"}))
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.fills, sim.Msg.Result.GetDca().GetSufficientFunds(), "simulated")
+			assert.Equal(t, tc.fills, final.Status == entity.ExecutionStatusCompleted, "executed: %s", final.ErrorMessage)
+			if !tc.fills {
+				assert.Contains(t, final.ErrorMessage, tc.reason)
+				require.Len(t, sim.Msg.Warnings, 1, "the simulation says why")
+				assert.Contains(t, sim.Msg.Warnings[0], tc.reason)
+			}
 		})
 	}
 }

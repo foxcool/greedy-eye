@@ -13,7 +13,6 @@ import (
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/middleware"
-	"github.com/foxcool/greedy-eye/internal/store"
 )
 
 // healthAccountsPageSize bounds one page of the account listing behind a
@@ -56,13 +55,13 @@ func (h *Handler) GetAccountHealth(
 	var unreadable []*entity.UnreadableAccount
 	if id := req.Msg.GetAccountId(); id != "" {
 		a, err := h.ownedAccount(ctx, id)
+		// ownedAccount has already found the row and checked its owner, who
+		// may not be the caller: an admin may name anyone's account.
+		var ue *unreadableAccountError
 		switch {
-		case errors.Is(err, store.ErrUnreadable):
-			u, err := h.callersUnreadable(ctx, user.ID, id)
-			if err != nil {
-				return nil, err
-			}
-			unreadable = []*entity.UnreadableAccount{u}
+		case errors.As(err, &ue):
+			ownerID = ue.account.UserID
+			unreadable = []*entity.UnreadableAccount{ue.account}
 		case err != nil:
 			return nil, err
 		default:
