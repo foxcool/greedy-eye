@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Greedy Eye — a portfolio total you can trust</title>
+  <meta name="description" content="Self-hosted portfolio tracker for wallets, exchanges and brokers. The total is either right, or it tells you what it could not price.">
+  <meta name="theme-color" content="#070B12">
+  <meta property="og:title" content="Greedy Eye — a portfolio total you can trust">
+  <meta property="og:description" content="Self-hosted portfolio tracker. The total is either right, or it tells you what it could not price.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="img/dashboard.webp">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap">
+  <style>
+    /* Observatory dark, the tokens of greedy-eye-fe/src/app/tokens.css. */
+    :root {
+      --background: #070B12;
+      --foreground: #DFE6EE;
+      --card: rgba(255, 255, 255, .03);
+      --border: rgba(120, 190, 210, .14);
+      --muted-foreground: #7B8794;
+      --primary: #37C0C9;
+      --primary-foreground: #070B12;
+      --ge-attention: #F5B03E;
+      --ge-attention-bg: rgba(245, 176, 62, .06);
+      --ge-up: #4ADE80;
+      --ge-down: #F0616D;
+      --sans: "Space Grotesk", system-ui, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, monospace;
+      --wrap: 1120px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--background);
+      color: var(--foreground);
+      font: 400 17px/1.6 var(--sans);
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--primary); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    a:focus-visible, .btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+    img { display: block; max-width: 100%; height: auto; }
+    .num, code, pre { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+    .wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 20px; }
+    .eyebrow {
+      font: 500 12px/1 var(--mono);
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      color: var(--primary);
+      margin: 0 0 16px;
+    }
+    h1, h2, h3 { font-weight: 700; line-height: 1.15; margin: 0; letter-spacing: -.01em; }
+    h2 { font-size: clamp(28px, 4vw, 40px); margin-bottom: 16px; }
+    h3 { font-size: 19px; margin-bottom: 8px; }
+    p { margin: 0 0 16px; }
+    .lead { color: var(--muted-foreground); font-size: 19px; max-width: 640px; }
+    section { padding: 88px 0; border-top: 1px solid var(--border); }
+
+    /* Header */
+    .top { display: flex; align-items: center; justify-content: space-between; padding-top: 20px; padding-bottom: 20px; }
+    .brand { display: flex; align-items: center; gap: 12px; color: var(--foreground); text-decoration: none; font-weight: 700; font-size: 19px; }
+    .brand img { width: 34px; }
+    .top nav { display: flex; gap: 22px; font-size: 15px; }
+    .top nav a { color: var(--muted-foreground); text-decoration: none; }
+    .top nav a:hover { color: var(--foreground); }
+
+    /* Hero */
+    .hero { padding: 56px 0 72px; position: relative; overflow: hidden; }
+    .hero::before {
+      content: ""; position: absolute; inset: -30% -10% auto; height: 620px; pointer-events: none;
+      background: radial-gradient(closest-side, rgba(55, 192, 201, .16), transparent 70%);
+    }
+    .hero .wrap { position: relative; }
+    .hero h1 { font-size: clamp(36px, 6.4vw, 68px); max-width: 900px; margin-bottom: 20px; }
+    .hero h1 em { font-style: normal; color: var(--primary); }
+    .cta { display: flex; flex-wrap: wrap; gap: 12px; margin: 28px 0 0; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px;
+      border-radius: 10px; font: 500 16px/1 var(--sans); text-decoration: none;
+      border: 1px solid var(--border); color: var(--foreground); background: var(--card);
+    }
+    .btn.primary { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+    .btn:hover { filter: brightness(1.1); }
+    .status { margin-top: 18px; font-size: 14px; color: var(--muted-foreground); }
+    .status b { color: var(--ge-attention); font-weight: 500; }
+    .shot {
+      margin: 48px 0 0; border: 1px solid var(--border); border-radius: 14px; overflow: hidden;
+      box-shadow: 0 0 0 1px rgba(55, 192, 201, .06), 0 30px 80px -20px rgba(55, 192, 201, .25);
+    }
+    figcaption { font-size: 13px; color: var(--muted-foreground); padding: 10px 14px; border-top: 1px solid var(--border); background: var(--card); }
+
+    /* Lies */
+    .grid { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-top: 36px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 24px; }
+    .card .num { display: block; font-size: 30px; font-weight: 500; margin-bottom: 10px; }
+    .card .num.down { color: var(--ge-down); }
+    .card .num.attn { color: var(--ge-attention); }
+    .card p { color: var(--muted-foreground); margin: 0; font-size: 15px; }
+    .answer {
+      margin-top: 28px; padding: 20px 24px; border-radius: 14px;
+      border: 1px solid rgba(245, 176, 62, .35); background: var(--ge-attention-bg);
+    }
+    .answer p { margin: 0; }
+
+    /* Features */
+    .features { display: grid; gap: 28px 40px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); margin-top: 36px; }
+    .features p { color: var(--muted-foreground); font-size: 16px; margin: 0; }
+    .features h3::before { content: "◉ "; color: var(--primary); font-size: 14px; vertical-align: 2px; }
+
+    /* Gallery */
+    .gallery { display: grid; gap: 24px; grid-template-columns: 1fr 1fr; margin-top: 36px; }
+    .gallery figure { margin: 0; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+    .gallery .tall { grid-row: span 2; }
+    .gallery .tall img { width: 100%; }
+
+    /* Run */
+    .steps { counter-reset: s; display: grid; gap: 14px; margin: 28px 0; padding: 0; list-style: none; }
+    .steps li { counter-increment: s; display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 12px; align-items: start; }
+    .steps li::before {
+      content: counter(s); font: 500 15px/34px var(--mono); text-align: center;
+      width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border); color: var(--primary);
+    }
+    pre {
+      margin: 0; padding: 18px 20px; border-radius: 12px; overflow-x: auto;
+      background: #0D1420; border: 1px solid var(--border); font-size: 14px; line-height: 1.7; color: #C9D3DD;
+    }
+    pre .c { color: var(--muted-foreground); }
+    code { font-size: .92em; background: rgba(255, 255, 255, .06); padding: 1px 6px; border-radius: 5px; }
+    pre code { background: none; padding: 0; font-size: inherit; }
+    .parts { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 24px; padding: 0; list-style: none; }
+    .parts li { font: 400 14px/1 var(--mono); padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
+    .note { font-size: 15px; color: var(--muted-foreground); }
+
+    /* Footer */
+    footer { padding: 40px 0 56px; border-top: 1px solid var(--border); color: var(--muted-foreground); font-size: 14px; }
+    footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 28px; justify-content: space-between; }
+    footer a { color: var(--muted-foreground); }
+
+    @media (max-width: 760px) {
+      section { padding: 64px 0; }
+      .top nav a:not(.gh) { display: none; }
+      .gallery { grid-template-columns: 1fr; }
+      .gallery .tall { grid-row: auto; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  </style>
+</head>
+<body>
+  <header class="wrap top">
+    <a class="brand" href="#"><img src="favicon.svg" alt="" width="34" height="17">Greedy Eye</a>
+    <nav aria-label="Main">
+      <a href="#problem">Why</a>
+      <a href="#run">Run it</a>
+      <a href="#inside">Inside</a>
+      <a class="gh" href="https://github.com/foxcool/greedy-eye">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div class="wrap">
+        <p class="eyebrow">Self-hosted portfolio tracker</p>
+        <h1>Your portfolio total is either right, <em>or it tells you what it is missing.</em></h1>
+        <p class="lead">Greedy Eye brings wallets on eight blockchain ecosystems, exchange and broker accounts and hand-entered positions into one catalogue, prices them, and refuses to hide a number it could not trust.</p>
+        <div class="cta">
+          <a class="btn primary" href="#run">Run your own</a>
+          <a class="btn" href="https://github.com/foxcool/greedy-eye">View on GitHub</a>
+        </div>
+        <p class="status"><b>Alpha.</b> Running in production for its author. Open source, MIT.</p>
+        <figure class="shot">
+          <img src="img/dashboard.webp" width="1600" height="1000" alt="Greedy Eye dashboard: a total portfolio value of 40,100 dollars, up 1.6 percent in 24 hours, above a heatmap of holdings sized by value and coloured by daily change." fetchpriority="high">
+          <figcaption>Dashboard. Demo data: an invented portfolio, not anyone's real holdings.</figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <section id="problem">
+      <div class="wrap">
+        <p class="eyebrow">The problem</p>
+        <h2>Portfolio trackers lie, quietly</h2>
+        <p class="lead">Every one of these turned up on a live wallet before it was closed in code. None of them shows an error. The total just looks normal.</p>
+        <div class="grid">
+          <div class="card">
+            <span class="num down">1.9 M “USDT”</span>
+            <h3>A fake token under a real ticker</h3>
+            <p>Airdropped counterfeits borrow a famous symbol. Match by ticker, and they inherit Tether's price: millions of dollars that do not exist.</p>
+          </div>
+          <div class="card">
+            <span class="num down">$4,175 from nothing</span>
+            <h3>A price with no market behind it</h3>
+            <p>A token with a quote but no trading volume gets valued as if someone would buy it. Nobody would.</p>
+          </div>
+          <div class="card">
+            <span class="num attn">stocks = $0.00</span>
+            <h3>A position that silently drops out</h3>
+            <p>No price source for an asset, and the tracker counts it as zero. Real funds vanish from the total without a word.</p>
+          </div>
+        </div>
+        <div class="answer">
+          <p><b>Greedy Eye's rule:</b> a counterfeit never takes a real ticker's price, a quote with no market is not a valuation, and every total ships with a coverage report that names each holding it could not price, and why.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="features">
+      <div class="wrap">
+        <p class="eyebrow">What it does</p>
+        <h2>Everything you own, in one number you can check</h2>
+        <div class="features">
+          <div>
+            <h3>Wallets, exchanges, brokers</h3>
+            <p>On-chain balances across EVM chains, Bitcoin, TON, Solana, Cosmos, Tezos and the Polkadot family. Binance spot by its own read-only key. Broker positions. Manual and LLM-assisted import, with provenance.</p>
+          </div>
+          <div>
+            <h3>Valuation coverage</h3>
+            <p>The total says what it is made of and what it left out. Unpriced positions show dashes, not zeros, and are listed with the reason.</p>
+          </div>
+          <div>
+            <h3>Scam filter on identity</h3>
+            <p>An asset is a symbol on a market of a type, plus its contract on a chain. A lookalike token is quarantined in the open, not subtracted quietly.</p>
+          </div>
+          <div>
+            <h3>Prices on a budget</h3>
+            <p>Scheduled price sweeps that divide each provider's plan across the period, so free tiers last. Several sources, freshest liquid quote wins.</p>
+          </div>
+          <div>
+            <h3>Targets and drift</h3>
+            <p>Set a target allocation and see what is over or under, by how much, in money. Rules can propose trades; paper trading runs today.</p>
+          </div>
+          <div>
+            <h3>Yours to run</h3>
+            <p>Your server, your database. Provider keys are encrypted at rest with your own master key. Talk to it from an AI assistant through the MCP server.</p>
+          </div>
+        </div>
+
+        <div class="gallery">
+          <figure class="tall">
+            <img src="img/holdings.webp" width="1280" height="1317" loading="lazy" alt="Holdings table listing quantity, price, value, share and daily change for each asset; the last row, an unlisted airdrop token, is marked unpriced and shows dashes instead of a value, and the total excludes it.">
+            <figcaption>Holdings. The last row has no price: it is marked, shown as dashes, and kept out of the total.</figcaption>
+          </figure>
+          <figure>
+            <img src="img/allocation.webp" width="1600" height="1000" loading="lazy" alt="Portfolios overview with the heatmap and allocation bars comparing current share to target share for each asset.">
+            <figcaption>Allocation against target.</figcaption>
+          </figure>
+          <figure>
+            <img src="img/dashboard-ledger-light.webp" width="1600" height="1000" loading="lazy" alt="The same dashboard in the light Ledger style: ink on paper with an orange accent.">
+            <figcaption>The Ledger style, light. Two styles, each in light and dark.</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section id="run">
+      <div class="wrap">
+        <p class="eyebrow">Run it</p>
+        <h2>One compose file, three secrets</h2>
+        <p class="lead">The whole stack runs from published images on any machine with Docker.</p>
+        <ul class="parts" aria-label="What runs">
+          <li>backend · Go</li><li>frontend · Next.js</li><li>auth · psina</li><li>2 × PostgreSQL</li><li>reverse proxy</li>
+        </ul>
+        <ol class="steps">
+          <li><div>
+            <p>Download the compose file and the settings template:</p>
+            <pre><code>curl -O https://raw.githubusercontent.com/foxcool/greedy-eye/main/deploy/selfhost/compose.yaml
+curl -o .env https://raw.githubusercontent.com/foxcool/greedy-eye/main/deploy/selfhost/env.example</code></pre>
+          </div></li>
+          <li><div>
+            <p>Fill in the three secrets <code>.env</code> asks for:</p>
+            <pre><code><span class="c"># a master key for provider credentials, back it up</span>
+openssl rand -base64 32
+<span class="c"># two database passwords</span>
+openssl rand -hex 24</code></pre>
+          </div></li>
+          <li><div>
+            <p>Start it and open <a href="http://eye.localhost:8080">eye.localhost:8080</a>:</p>
+            <pre><code>docker compose up -d</code></pre>
+          </div></li>
+        </ol>
+        <p class="note">It answers on 127.0.0.1 only. Sign-up cannot be closed yet, so reach it from your other devices through a VPN: set <code>EYE_BIND</code> to the host's VPN address. Wallets on TON, Bitcoin, Cosmos and Tezos sync with no API keys; <a href="https://github.com/foxcool/greedy-eye/blob/main/docs/providers.md">the provider list</a> says what each of the others needs. Alpha software: expect rough edges, and file them as issues.</p>
+      </div>
+    </section>
+
+    <section id="inside">
+      <div class="wrap">
+        <p class="eyebrow">Under the hood</p>
+        <h2>Production-shaped Go for financial data</h2>
+        <div class="features">
+          <div>
+            <h3>Modular monolith</h3>
+            <p>Five domain services in one binary, split into separate processes by configuration. A loopback stand proves every call still works over the wire.</p>
+          </div>
+          <div>
+            <h3>Connect-RPC and PostgreSQL</h3>
+            <p>Browser-friendly JSON and gRPC from one port; the protobuf files are the API. Raw SQL with pgx, versioned migrations, no ORM.</p>
+          </div>
+          <div>
+            <h3>Decisions on record</h3>
+            <p>Twelve architecture decision records: why a valuation reports what it could not price, why a quote with no market is not a value, why trades go through a wallet the user controls.</p>
+          </div>
+        </div>
+        <div class="cta">
+          <a class="btn" href="https://github.com/foxcool/greedy-eye/blob/main/docs/architecture.md">Architecture</a>
+          <a class="btn" href="https://github.com/foxcool/greedy-eye-fe">Frontend</a>
+          <a class="btn" href="https://github.com/foxcool/greedy-eye-mcp">MCP server</a>
+          <a class="btn" href="https://github.com/foxcool/psina">psina auth</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>Greedy Eye · MIT License · by <a href="https://github.com/foxcool">Alexander Babenko</a></span>
+      <span><a href="https://github.com/foxcool/greedy-eye">Source</a> · <a href="https://github.com/foxcool/greedy-eye/issues">Issues</a></span>
+    </div>
+  </footer>
+</body>
+</html>
