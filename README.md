@@ -73,9 +73,7 @@ Go architecture for financial data.
 ### Run your own instance
 
 The whole stack (backend, frontend, auth, databases) from published images,
-on a machine with Docker. The frontend image is amd64 only for now: Docker
-Desktop on Apple silicon runs it emulated, an arm64 Linux host needs QEMU
-(binfmt) installed.
+on a machine with Docker, amd64 or arm64.
 
 ```bash
 curl -O https://raw.githubusercontent.com/foxcool/greedy-eye/main/deploy/selfhost/compose.yaml

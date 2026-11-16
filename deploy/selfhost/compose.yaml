@@ -38,7 +38,7 @@ services:
       - "${EYE_BIND:-127.0.0.1}:${EYE_PORT:-8080}:80"
 
   eye:
-    image: ghcr.io/foxcool/greedy-eye:${EYE_VERSION:-0.25.0}
+    image: ghcr.io/foxcool/greedy-eye:${EYE_VERSION:-0.26.0}
     restart: unless-stopped
     environment:
       EYE_LOGGING_LEVEL: ${EYE_LOG_LEVEL:-INFO}
@@ -55,7 +55,7 @@ services:
   # Runs the migrations baked into the image, then exits. Only files this
   # database has not run yet; it never drops anything on its own.
   migrate:
-    image: ghcr.io/foxcool/greedy-eye:${EYE_VERSION:-0.25.0}
+    image: ghcr.io/foxcool/greedy-eye:${EYE_VERSION:-0.26.0}
     entrypoint: ["atlas"]
     command:
       - migrate
@@ -86,15 +86,11 @@ services:
       retries: 10
 
   eye-fe:
-    image: ghcr.io/foxcool/greedy-eye-fe:${EYE_FE_VERSION:-0.11.0}
-    # shortcut: the frontend image is published for amd64 only. Docker Desktop
-    # on Apple silicon runs it emulated; an arm64 Linux host needs qemu binfmt.
-    # Drop this line once the image is built for arm64 too.
-    platform: linux/amd64
+    image: ghcr.io/foxcool/greedy-eye-fe:${EYE_FE_VERSION:-0.12.0}
     restart: unless-stopped
 
   psina:
-    image: ghcr.io/foxcool/psina:${PSINA_VERSION:-0.6.0}
+    image: ghcr.io/foxcool/psina:${PSINA_VERSION:-0.7.0}
     restart: unless-stopped
     environment:
       PSINA_DB_URL: "postgres://psina:${PSINA_DB_PASSWORD:?set PSINA_DB_PASSWORD in .env}@psina-postgres:5432/psina?sslmode=disable"
@@ -134,18 +130,19 @@ services:
       - psina_keys:/keys
 
   psina-migrate:
-    image: ghcr.io/foxcool/psina:${PSINA_VERSION:-0.6.0}
+    image: ghcr.io/foxcool/psina:${PSINA_VERSION:-0.7.0}
     entrypoint: ["atlas"]
+    # psina 0.7 ships versioned migrations; a database this file created runs
+    # them from the first one, so no baseline step is needed.
     command:
-      - schema
+      - migrate
       - apply
       - --url
       - "postgres://psina:${PSINA_DB_PASSWORD:?set PSINA_DB_PASSWORD in .env}@psina-postgres:5432/psina?sslmode=disable"
-      - --to
-      - file:///schema.hcl
-      - --dev-url
-      - "postgres://psina:${PSINA_DB_PASSWORD:?set PSINA_DB_PASSWORD in .env}@psina-postgres:5432/atlas_dev?sslmode=disable"
-      - --auto-approve
+      - --dir
+      - file:///migrations
+      - --revisions-schema
+      - atlas
     depends_on:
       psina-postgres:
         condition: service_healthy
