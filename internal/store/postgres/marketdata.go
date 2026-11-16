@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -838,7 +837,14 @@ func (s *MarketDataStore) ListAssets(ctx context.Context, opts marketdata.ListAs
 	if len(opts.IDs) > 0 {
 		// An id that is not a uuid names no asset; casting it would fail the
 		// whole read instead of leaving that one id unmatched for the caller.
-		ids := slices.DeleteFunc(slices.Clone(opts.IDs), func(id string) bool { return !isValidUUID(id) })
+		// Parsed ids are passed in canonical form: uuid.Parse accepts the urn
+		// form, which the uuid cast does not.
+		ids := make([]string, 0, len(opts.IDs))
+		for _, id := range opts.IDs {
+			if u, err := uuid.Parse(id); err == nil {
+				ids = append(ids, u.String())
+			}
+		}
 		if len(ids) == 0 {
 			return []*entity.Asset{}, "", nil
 		}

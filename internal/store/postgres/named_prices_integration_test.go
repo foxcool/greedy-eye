@@ -64,6 +64,11 @@ func TestListAssets_NonUUIDIDsMatchNothing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{want.ID}, assetIDs(got))
 
+	// uuid.Parse also takes the urn form, which the uuid cast does not.
+	got, _, err = s.ListAssets(ctx, marketdata.ListAssetsOpts{IDs: []string{"urn:uuid:" + want.ID}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{want.ID}, assetIDs(got))
+
 	got, next, err := s.ListAssets(ctx, marketdata.ListAssetsOpts{IDs: []string{"not-a-uuid"}})
 	require.NoError(t, err)
 	assert.Empty(t, got)
