@@ -35,6 +35,11 @@ func (v *waitingVenue) Submit(_ context.Context, _ execution.Account, _ executio
 	return execution.Outcome{Status: execution.OutcomePendingSignature, VenueRef: "safetx-" + key.String()}, nil
 }
 
+// Preview answers as Submit would: the trade would wait for a signature.
+func (v *waitingVenue) Preview(_ context.Context, _ execution.Account, _ execution.Trade) (execution.Outcome, error) {
+	return execution.Outcome{Status: execution.OutcomePendingSignature}, nil
+}
+
 func (v *waitingVenue) Check(_ context.Context, _ execution.Account, key execution.Key, _ execution.TradeResult) (execution.Outcome, error) {
 	v.checked = append(v.checked, key)
 	return v.next, nil
