@@ -1066,9 +1066,10 @@ func TestCreatePrices_TwoSourcesSameInstant(t *testing.T) {
 		}
 	}
 
-	count, err := s.CreatePrices(ctx, []*entity.StoredPrice{price("coingecko"), price("binance")})
+	inserted, held, err := s.CreatePrices(ctx, []*entity.StoredPrice{price("coingecko"), price("binance")})
 	require.NoError(t, err)
-	assert.Equal(t, 2, count)
+	assert.Equal(t, 2, inserted)
+	assert.Equal(t, 0, held)
 }
 
 // TestCreatePrices_SameQuoteAgain: a source whose observation time does not move
@@ -1099,10 +1100,11 @@ func TestCreatePrices_SameQuoteAgain(t *testing.T) {
 	first, err := s.CreatePrice(ctx, price(8150, 2))
 	require.NoError(t, err)
 
-	t.Run("unchanged quote is stored, not failed", func(t *testing.T) {
-		count, err := s.CreatePrices(ctx, []*entity.StoredPrice{price(8150, 2)})
+	t.Run("unchanged quote is held, not failed and not counted as inserted", func(t *testing.T) {
+		inserted, held, err := s.CreatePrices(ctx, []*entity.StoredPrice{price(8150, 2)})
 		require.NoError(t, err)
-		assert.Equal(t, 1, count)
+		assert.Equal(t, 0, inserted)
+		assert.Equal(t, 1, held)
 	})
 
 	t.Run("same value at another scale is the same quote", func(t *testing.T) {
@@ -1115,9 +1117,10 @@ func TestCreatePrices_SameQuoteAgain(t *testing.T) {
 		_, err := s.CreatePrice(ctx, price(8151, 2))
 		require.ErrorIs(t, err, store.ErrConstraint)
 
-		count, err := s.CreatePrices(ctx, []*entity.StoredPrice{price(8151, 2)})
+		inserted, held, err := s.CreatePrices(ctx, []*entity.StoredPrice{price(8151, 2)})
 		require.ErrorContains(t, err, "1 price(s) failed")
-		assert.Equal(t, 0, count)
+		assert.Equal(t, 0, inserted)
+		assert.Equal(t, 0, held)
 	})
 
 	history, _, err := s.ListPriceHistory(ctx, marketdata.ListPriceHistoryOpts{AssetID: asset.ID, BaseAssetID: base.ID})
@@ -2097,7 +2100,7 @@ func TestFreshTradedQuotes(t *testing.T) {
 		return p
 	}
 	v := func(n int64) *int64 { return &n }
-	_, err := s.CreatePrices(ctx, []*entity.StoredPrice{
+	_, _, err := s.CreatePrices(ctx, []*entity.StoredPrice{
 		row(asset.ID, "binance", now.Add(-90*time.Minute), entity.PriceProvenanceTraded, v(1)),
 		row(asset.ID, "binance", now.Add(-10*time.Minute), entity.PriceProvenanceTraded, v(2)),
 		row(asset.ID, "binance", now.Add(-5*time.Hour), entity.PriceProvenanceTraded, v(3)),

@@ -34,18 +34,12 @@ const (
 	// overlaps cost nothing (see BackfillCbrRates).
 	maxBackfillDays = 370
 
-	// heldLookback reaches back from the first requested day for rows already
-	// held: a day with no set of its own is answered with an earlier one, so a
-	// Monday's rows are dated the Saturday before.
-	heldLookback = 14 * 24 * time.Hour
-
-	// backfillPageSize is the page used to read the catalogue and the held
-	// history.
+	// backfillPageSize is the page used to read the catalogue.
 	backfillPageSize = 500
 )
 
-// heldRow identifies a price by what makes it unique for one source and pair.
-type heldRow struct {
+// seenRow identifies a price by what makes it unique for one source and pair.
+type seenRow struct {
 	assetID string
 	at      int64 // unix seconds of the row's timestamp
 }
@@ -55,10 +49,12 @@ type heldRow struct {
 // CreatePrice).
 //
 // A row already held for (asset, set date) is never written again, whoever
-// wrote it — the sweep or an earlier backfill — so re-running a range creates
-// nothing. The check is made before writing rather than left to the store,
-// because the store reports a held row as stored and the operator's question
-// is how many rows this call added.
+// wrote it — the sweep, an earlier backfill or one running at the same time —
+// so re-running a range creates nothing. The store settles that at the insert
+// and reports inserted and held rows apart, so prices_created counts only rows
+// this call added even when two backfills overlap. There is no read of held
+// history first: it would not save a feed request (every day is asked of the
+// feed regardless) and it would race with an overlapping call.
 func (h *Handler) BackfillCbrRates(ctx context.Context, req *connect.Request[apiv1.BackfillCbrRatesRequest]) (*connect.Response[apiv1.BackfillCbrRatesResponse], error) {
 	if _, err := requireAdmin(ctx, "backfilling rates"); err != nil {
 		return nil, err
@@ -101,13 +97,8 @@ func (h *Handler) BackfillCbrRates(ctx context.Context, req *connect.Request[api
 		return nil, err
 	}
 
-	held, err := h.heldRows(ctx, assets, baseID, from.Add(-heldLookback), to.Add(24*time.Hour))
-	if err != nil {
-		return nil, toConnectError(err)
-	}
-
 	resp := &apiv1.BackfillCbrRatesResponse{}
-	seen := map[heldRow]bool{}
+	seen := map[seenRow]bool{}
 	for day := from; !day.After(to); day = day.AddDate(0, 0, 1) {
 		if err := ctx.Err(); err != nil {
 			resp.Errors = append(resp.Errors, fmt.Sprintf("stopped before %s: %v", day.Format(time.DateOnly), err))
@@ -123,16 +114,12 @@ func (h *Handler) BackfillCbrRates(ctx context.Context, req *connect.Request[api
 
 		var fresh []*entity.StoredPrice
 		for i := range rows {
-			key := heldRow{assetID: rows[i].AssetID, at: rows[i].Timestamp.Unix()}
+			key := seenRow{assetID: rows[i].AssetID, at: rows[i].Timestamp.Unix()}
 			if seen[key] {
 				// Another day of the range was answered with the same set.
 				continue
 			}
 			seen[key] = true
-			if held[key] {
-				resp.PricesHeld++
-				continue
-			}
 			rows[i].BaseAssetID = baseID
 			fresh = append(fresh, &rows[i])
 		}
@@ -142,8 +129,9 @@ func (h *Handler) BackfillCbrRates(ctx context.Context, req *connect.Request[api
 
 		// Written per day, so a failure later in the range keeps what came
 		// before it; a re-run then only fills the gap.
-		n, err := h.store.CreatePrices(ctx, fresh)
-		resp.PricesCreated += uint32(n) // #nosec G115 -- rows of one day's set, bounded by the feed
+		inserted, held, err := h.store.CreatePrices(ctx, fresh)
+		resp.PricesCreated += uint32(inserted) // #nosec G115 -- rows of one day's set, bounded by the feed
+		resp.PricesHeld += uint32(held)        // #nosec G115 -- same bound
 		if err != nil {
 			resp.Errors = append(resp.Errors, fmt.Sprintf("%s: %v", day.Format(time.DateOnly), err))
 		}
@@ -217,30 +205,4 @@ func (h *Handler) backfillBase(ctx context.Context, p PriceProvider) (string, er
 		return "", toConnectError(err)
 	}
 	return id, nil
-}
-
-// heldRows reads which (asset, timestamp) rows this source already holds
-// against base within [from, to].
-func (h *Handler) heldRows(ctx context.Context, assets []*entity.Asset, baseID string, from, to time.Time) (map[heldRow]bool, error) {
-	held := map[heldRow]bool{}
-	for _, a := range assets {
-		token := ""
-		for {
-			page, next, err := h.store.ListPriceHistory(ctx, ListPriceHistoryOpts{
-				AssetID: a.ID, BaseAssetID: baseID, SourceID: cbrSourceID,
-				From: &from, To: &to, PageSize: backfillPageSize, PageToken: token,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("read held %s rows of %s: %w", cbrSourceID, a.Symbol, err)
-			}
-			for _, p := range page {
-				held[heldRow{assetID: p.AssetID, at: p.Timestamp.Unix()}] = true
-			}
-			if next == "" || len(page) == 0 {
-				break
-			}
-			token = next
-		}
-	}
-	return held, nil
 }

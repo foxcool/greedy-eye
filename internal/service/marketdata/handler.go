@@ -526,13 +526,13 @@ func (h *Handler) CreatePrices(ctx context.Context, req *connect.Request[apiv1.C
 		prices = append(prices, price)
 	}
 
-	count, err := h.store.CreatePrices(ctx, prices)
+	inserted, _, err := h.store.CreatePrices(ctx, prices)
 	if err != nil {
 		return nil, toConnectError(err)
 	}
 
 	return connect.NewResponse(&apiv1.CreatePricesResponse{
-		CreatedCount: int32(count), // #nosec G115 -- count of rows created, bounded by request size
+		CreatedCount: int32(inserted), // #nosec G115 -- count of rows created, bounded by request size
 	}), nil
 }
 
@@ -1914,7 +1914,7 @@ func (h *Handler) FetchExternalPrices(ctx context.Context, req *connect.Request[
 	var stored int
 	if len(allPrices) > 0 {
 		var err error
-		stored, err = h.store.CreatePrices(ctx, allPrices)
+		stored, _, err = h.store.CreatePrices(ctx, allPrices)
 		if err != nil {
 			// Partial failures are non-fatal: surface them in the response errors field.
 			h.log.Warn("some prices failed to store", "error", err)
