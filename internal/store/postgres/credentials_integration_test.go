@@ -25,7 +25,7 @@ func TestFreshDatabaseResolvesKeylessSources(t *testing.T) {
 	pool := getTestPool(t)
 	user := createTestUser(t, NewUserStore(pool))
 
-	providers := provider.New(ratelimit.NewRegistry(nil))
+	providers := provider.New(ratelimit.NewRegistry())
 	resolver := credentials.NewResolver(credentials.Config{
 		Source:                NewPortfolioStore(pool),
 		WalletSyncers:         providers.WalletSyncers(),
@@ -82,7 +82,7 @@ func TestKeylessCoinGeckoPricesAFreshDatabaseAndYieldsToAKey(t *testing.T) {
 	user := createTestUser(t, NewUserStore(pool))
 	store := NewPortfolioStore(pool)
 
-	providers := provider.New(ratelimit.NewRegistry(nil))
+	providers := provider.New(ratelimit.NewRegistry())
 	keylessSet := providers.KeylessPriceProviders()
 	resolver := credentials.NewResolver(credentials.Config{
 		Source:                store,

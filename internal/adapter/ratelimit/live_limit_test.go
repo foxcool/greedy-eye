@@ -46,7 +46,7 @@ func send(t *testing.T, reg *Registry, c Credential, url string) error {
 func TestQuotaChangeReachesLiveBucket(t *testing.T) {
 	srv, hits := countingServer(t)
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
-	reg := quotaRegistry(1000, func() time.Time { return now })
+	reg := quotaRegistry(t, 1000, func() time.Time { return now })
 	cred := Credential{Provider: "test", APIKey: "key", Account: "acc-1", Limit: Limit{Quota: 10, Period: QuotaMonth}}
 
 	for range 6 {
@@ -77,7 +77,7 @@ func TestTierChangeKeepsSpend(t *testing.T) {
 		Provider: "coingecko", Fingerprint: fingerprint("key"),
 		PeriodStart: periodStart(now, QuotaMonth), Requests: 100,
 	}}}
-	reg := NewRegistry(nil, WithClock(func() time.Time { return now }), WithUsageStore(store))
+	reg := NewRegistry(WithClock(func() time.Time { return now }), WithUsageStore(store))
 	require.NoError(t, reg.Start(ctx))
 	t.Cleanup(func() { _ = reg.Stop(ctx) })
 
@@ -114,7 +114,8 @@ func TestKeylessLimitIgnoresAccount(t *testing.T) {
 		"user first":   {user, system},
 	} {
 		t.Run(name, func(t *testing.T) {
-			reg := NewRegistry(map[string]Limit{"cbr": operator}, WithClock(func() time.Time { return now }))
+			setBuiltinLimit(t, "cbr", operator)
+			reg := NewRegistry(WithClock(func() time.Time { return now }))
 			for _, c := range order {
 				reg.Transport(c, nil)
 			}
@@ -138,7 +139,7 @@ func TestKeylessLimitIgnoresAccount(t *testing.T) {
 func TestSmallestShareWins(t *testing.T) {
 	srv, hits := countingServer(t)
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
-	reg := quotaRegistry(1000, func() time.Time { return now })
+	reg := quotaRegistry(t, 1000, func() time.Time { return now })
 	wide := Credential{Provider: "test", APIKey: "key", Account: "wide", Limit: Limit{RPS: 50, Quota: 100, Period: QuotaMonth}}
 	narrow := Credential{Provider: "test", APIKey: "key", Account: "narrow", Limit: Limit{RPS: 5, Quota: 5, Period: QuotaMonth}}
 
@@ -156,7 +157,7 @@ func TestSmallestShareWins(t *testing.T) {
 func TestPeriodAlternationCannotBypassQuota(t *testing.T) {
 	srv, hits := countingServer(t)
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
-	reg := quotaRegistry(1000, func() time.Time { return now })
+	reg := quotaRegistry(t, 1000, func() time.Time { return now })
 	daily := Credential{Provider: "test", APIKey: "key", Account: "daily", Limit: Limit{Quota: 10, Period: QuotaDay}}
 	monthly := Credential{Provider: "test", APIKey: "key", Account: "monthly", Limit: Limit{Quota: 10, Period: QuotaMonth}}
 
@@ -177,7 +178,7 @@ func TestPeriodSwitchKeepsSpendSinceStart(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	store := &fakeUsageStore{}
-	reg := quotaRegistry(1000, func() time.Time { return now }, WithUsageStore(store))
+	reg := quotaRegistry(t, 1000, func() time.Time { return now }, WithUsageStore(store))
 	require.NoError(t, reg.Start(ctx))
 	t.Cleanup(func() { _ = reg.Stop(ctx) })
 
@@ -212,7 +213,7 @@ func TestPendingKeepsItsPeriodAcrossRollover(t *testing.T) {
 	august := time.Date(2026, 8, 1, 0, 0, 10, 0, time.UTC)
 	now := july
 	store := &fakeUsageStore{}
-	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
+	reg := quotaRegistry(t, 100, func() time.Time { return now }, WithUsageStore(store))
 	cred := Credential{Provider: "test", APIKey: "key"}
 	srv, _ := countingServer(t)
 
@@ -237,7 +238,7 @@ func TestPendingKeepsItsPeriodAcrossSwitch(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	store := &fakeUsageStore{}
-	reg := quotaRegistry(100, func() time.Time { return now }, WithUsageStore(store))
+	reg := quotaRegistry(t, 100, func() time.Time { return now }, WithUsageStore(store))
 	monthly := Credential{Provider: "test", APIKey: "key", Account: "acc-1", Limit: Limit{Quota: 50, Period: QuotaMonth}}
 	daily := monthly
 	daily.Limit = Limit{Quota: 50, Period: QuotaDay}
@@ -263,7 +264,7 @@ func TestPendingKeepsItsPeriodAcrossSwitch(t *testing.T) {
 func TestRetainedBudgetCannotUndoAnEdit(t *testing.T) {
 	srv, hits := countingServer(t)
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
-	reg := quotaRegistry(1000, func() time.Time { return now })
+	reg := quotaRegistry(t, 1000, func() time.Time { return now })
 	cred := Credential{Provider: "test", APIKey: "key", Account: "acc-1", Limit: Limit{Quota: 10, Period: QuotaMonth}}
 	old := reg.Budget(cred)
 	for range 6 {
@@ -299,7 +300,7 @@ func TestRemainingAnswersWithTheTightestPace(t *testing.T) {
 	monthEnd := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 
 	t.Run("smaller balance, faster pace", func(t *testing.T) {
-		reg := quotaRegistry(1000, func() time.Time { return now })
+		reg := quotaRegistry(t, 1000, func() time.Time { return now })
 		daily := Credential{Provider: "test", APIKey: "key", Account: "daily", Limit: Limit{Quota: 100, Period: QuotaDay}}
 		monthly := Credential{Provider: "test", APIKey: "key", Account: "monthly", Limit: Limit{Quota: 1000, Period: QuotaMonth}}
 		reg.Transport(daily, nil)
@@ -312,7 +313,7 @@ func TestRemainingAnswersWithTheTightestPace(t *testing.T) {
 	})
 
 	t.Run("equal balances", func(t *testing.T) {
-		reg := quotaRegistry(1000, func() time.Time { return now })
+		reg := quotaRegistry(t, 1000, func() time.Time { return now })
 		daily := Credential{Provider: "test", APIKey: "key", Account: "daily", Limit: Limit{Quota: 100, Period: QuotaDay}}
 		monthly := Credential{Provider: "test", APIKey: "key", Account: "monthly", Limit: Limit{Quota: 100, Period: QuotaMonth}}
 		reg.Transport(daily, nil)
@@ -328,7 +329,7 @@ func TestRemainingAnswersWithTheTightestPace(t *testing.T) {
 	})
 
 	t.Run("equal pace", func(t *testing.T) {
-		reg := quotaRegistry(1000, func() time.Time { return now })
+		reg := quotaRegistry(t, 1000, func() time.Time { return now })
 		// 0.8 of 15 is 12 over the 12 hours of today, 0.8 of 495 is 396 over
 		// the 396 hours of the month: one request an hour either way.
 		daily := Credential{Provider: "test", APIKey: "key", Account: "daily", Limit: Limit{Quota: 15, Period: QuotaDay}}

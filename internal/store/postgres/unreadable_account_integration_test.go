@@ -241,7 +241,7 @@ func TestUnreadableAccountIsNotACredentialHolder(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{operator.ID}, owners)
 
-	providers := provider.New(ratelimit.NewRegistry(nil))
+	providers := provider.New(ratelimit.NewRegistry())
 	resolver := credentials.NewResolver(credentials.Config{
 		Source:         s,
 		PriceProviders: providers.PriceProviders(),
