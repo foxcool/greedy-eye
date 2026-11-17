@@ -136,7 +136,7 @@ make test-integration        # Integration tests (uses testcontainers)
 greedy-eye/
 ├── api/v1/                # Protobuf definitions + generated code
 │   ├── marketdata.proto   # Assets, prices, valuation coverage
-│   ├── portfolio.proto    # Portfolios, accounts, holdings, transactions, import
+│   ├── portfolio.proto    # Portfolios, accounts, holdings, ledger, import
 │   ├── automation.proto   # Rules + executions
 │   ├── analytics.proto    # Heatmaps
 │   └── apiv1connect/      # Generated Connect handlers and clients

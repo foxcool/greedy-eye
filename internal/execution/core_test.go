@@ -155,20 +155,30 @@ func TestJournalItem(t *testing.T) {
 		Fill:  &Fill{BaseAmount: decimal.RequireFromString("0.0025"), QuoteAmount: decimal.NewFromInt(100), Price: decimal.NewFromInt(40000), PriceAsOf: asOf},
 	}
 
-	item := JournalItem(Key{ExecutionID: "exec-1", Index: 2}, r)
+	executedAt := time.Date(2025, 3, 14, 11, 51, 0, 0, time.UTC)
+	item := JournalItem(Key{ExecutionID: "exec-1", Index: 2}, r, executedAt)
 
-	assert.Equal(t, apiv1.TransactionType_TRANSACTION_TYPE_TRADE, item.Type)
-	assert.Equal(t, "base", item.GetAssetId())
-	assert.Equal(t, "exec-1:2", item.GetExternalId())
+	assert.Equal(t, apiv1.LedgerEventKind_LEDGER_EVENT_KIND_TRADE, item.Kind)
+	assert.Equal(t, executedAt, item.ExecutedAt.AsTime())
+	assert.Equal(t, "exec-1:2", item.GetExternalRef())
+	require.Len(t, item.Legs, 2)
+	principal, counter := item.Legs[0], item.Legs[1]
+	assert.Equal(t, "base", principal.GetAssetId())
+	assert.Equal(t, apiv1.LedgerLegRole_LEDGER_LEG_ROLE_PRINCIPAL, principal.Role)
+	assert.Equal(t, apiv1.LedgerLegDirection_LEDGER_LEG_DIRECTION_IN, principal.Direction, "a buy receives the base")
+	assert.Equal(t, "0.0025", principal.Amount)
+	assert.Equal(t, uint32(4), principal.GetDecimals(), "the scale the amount needs, so it is stored exactly")
+	assert.Equal(t, "quote", counter.GetAssetId())
+	assert.Equal(t, apiv1.LedgerLegRole_LEDGER_LEG_ROLE_COUNTER, counter.Role)
+	assert.Equal(t, apiv1.LedgerLegDirection_LEDGER_LEG_DIRECTION_OUT, counter.Direction, "and pays the quote")
+	assert.Equal(t, "100", counter.Amount)
+	assert.Equal(t, uint32(0), counter.GetDecimals())
 	assert.Equal(t, map[string]string{
-		"side":           "buy",
-		"amount":         "0.0025",
-		"quote_asset_id": "quote",
-		"quote_amount":   "100",
-		"price":          "40000",
-		"price_as_of":    "2025-03-14T11:50:00Z",
-		"execution_id":   "exec-1",
-	}, item.Data)
+		"side":         "buy",
+		"price":        "40000",
+		"price_as_of":  "2025-03-14T11:50:00Z",
+		"execution_id": "exec-1",
+	}, item.Raw, "trade fields with no ledger column")
 }
 
 func TestSummary(t *testing.T) {

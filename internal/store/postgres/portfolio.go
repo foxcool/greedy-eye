@@ -1094,7 +1094,7 @@ func (s *PortfolioStore) DeleteAccount(ctx context.Context, id string) error {
 // one transaction — a half-deleted account whose positions outlived it would
 // leave orphaned value in every total.
 //
-// Transactions are deliberately not touched: they are the record of what
+// Ledger events are deliberately not touched: they are the record of what
 // happened, not a snapshot that can be rebuilt. An account still carrying them
 // hits the foreign key and the whole thing rolls back, which is the intended
 // answer rather than a bug.
@@ -2273,177 +2273,13 @@ func (s *PortfolioStore) ListHoldings(ctx context.Context, opts portfolio.ListHo
 	return holdings, nextPageToken, nil
 }
 
-// --- Transaction methods ---
-
-func (s *PortfolioStore) CreateTransaction(ctx context.Context, t *entity.Transaction) (*entity.Transaction, error) {
-	if t == nil {
-		return nil, fmt.Errorf("%w: transaction is required", store.ErrInvalidArgument)
-	}
-	if t.AccountID == "" {
-		return nil, fmt.Errorf("%w: account_id is required", store.ErrInvalidArgument)
-	}
-	if t.Type == entity.TransactionTypeUnspecified {
-		return nil, fmt.Errorf("%w: transaction type is required", store.ErrInvalidArgument)
-	}
-	if !t.Source.Valid() {
-		return nil, fmt.Errorf("%w: unknown provenance source %q", store.ErrInvalidArgument, t.Source)
-	}
-
-	id, err := uuid.NewV7()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate ID: %w", err)
-	}
-	t.ID = id.String()
-
-	if t.Status == entity.TransactionStatusUnspecified {
-		t.Status = entity.TransactionStatusPending
-	}
-
-	var assetID *string
-	if t.AssetID != "" {
-		assetID = &t.AssetID
-	}
-	var importID *string
-	if t.ImportID != "" {
-		importID = &t.ImportID
-	}
-
-	dataJSON, err := json.Marshal(t.Data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal data: %w", err)
-	}
-
-	query := `
-		INSERT INTO transactions (id, type, status, account_id, asset_transactions, data, source, import_id, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
-		RETURNING created_at, updated_at`
-
-	err = s.pool.QueryRow(ctx, query,
-		t.ID,
-		transactionTypeToString(t.Type),
-		transactionStatusToString(t.Status),
-		t.AccountID,
-		assetID,
-		dataJSON,
-		string(t.Source),
-		importID,
-	).Scan(&t.CreatedAt, &t.UpdatedAt)
-	if err != nil {
-		if isConstraintError(err) {
-			return nil, fmt.Errorf("%w: %v", store.ErrConstraint, err)
-		}
-		return nil, fmt.Errorf("failed to create transaction: %w", err)
-	}
-
-	return t, nil
-}
-
-func (s *PortfolioStore) GetTransaction(ctx context.Context, id string) (*entity.Transaction, error) {
-	if id == "" {
-		return nil, fmt.Errorf("%w: transaction ID is required", store.ErrInvalidArgument)
-	}
-	if !isValidUUID(id) {
-		return nil, fmt.Errorf("%w: invalid transaction ID format", store.ErrInvalidArgument)
-	}
-
-	query := `
-		SELECT id, type, status, account_id, asset_transactions, data, source, import_id, created_at, updated_at
-		FROM transactions
-		WHERE id = $1`
-
-	var t entity.Transaction
-	var typeStr, statusStr string
-	var assetID, importID *string
-	var dataJSON []byte
-
-	err := s.pool.QueryRow(ctx, query, id).Scan(
-		&t.ID,
-		&typeStr,
-		&statusStr,
-		&t.AccountID,
-		&assetID,
-		&dataJSON,
-		&t.Source,
-		&importID,
-		&t.CreatedAt,
-		&t.UpdatedAt,
-	)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("%w: transaction with ID %s", store.ErrNotFound, id)
-		}
-		return nil, fmt.Errorf("failed to get transaction: %w", err)
-	}
-
-	t.Type = stringToTransactionType(typeStr)
-	t.Status = stringToTransactionStatus(statusStr)
-	if assetID != nil {
-		t.AssetID = *assetID
-	}
-	if importID != nil {
-		t.ImportID = *importID
-	}
-	if err := json.Unmarshal(dataJSON, &t.Data); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal data: %w", err)
-	}
-
-	return &t, nil
-}
-
-func (s *PortfolioStore) UpdateTransaction(ctx context.Context, t *entity.Transaction, fields []string) (*entity.Transaction, error) {
-	if t == nil || t.ID == "" {
-		return nil, fmt.Errorf("%w: transaction with ID is required", store.ErrInvalidArgument)
-	}
-	if !isValidUUID(t.ID) {
-		return nil, fmt.Errorf("%w: invalid transaction ID format", store.ErrInvalidArgument)
-	}
-
-	setClauses := []string{"updated_at = NOW()"}
-	args := []any{t.ID}
-	argIdx := 2
-
-	for _, field := range fields {
-		switch field {
-		case "status":
-			setClauses = append(setClauses, fmt.Sprintf("status = $%d", argIdx))
-			args = append(args, transactionStatusToString(t.Status))
-			argIdx++
-		case "data":
-			dataJSON, err := json.Marshal(t.Data)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal data: %w", err)
-			}
-			setClauses = append(setClauses, fmt.Sprintf("data = $%d", argIdx))
-			args = append(args, dataJSON)
-			argIdx++
-		}
-	}
-
-	query := fmt.Sprintf(`
-		UPDATE transactions
-		SET %s
-		WHERE id = $1`,
-		strings.Join(setClauses, ", "))
-
-	result, err := s.pool.Exec(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update transaction: %w", err)
-	}
-
-	if result.RowsAffected() == 0 {
-		return nil, fmt.Errorf("%w: transaction with ID %s", store.ErrNotFound, t.ID)
-	}
-
-	return s.GetTransaction(ctx, t.ID)
-}
-
 // UnsolicitedAssets reports, per asset with a non-zero position, whether every
-// such position came from sync and no transaction names the asset. Sync never
-// writes transactions, so any one means a person recorded it. Asset-wide, since
-// a coin bought on an exchange arrives in a wallet by sync.
+// such position came from sync and no ledger leg outside a sync names the
+// asset: such a leg means a person recorded the asset. Asset-wide, since a coin
+// bought on an exchange arrives in a wallet by sync.
 //
-// shortcut: no index leads with holdings.asset_id or transactions.asset_transactions,
-// so each call scans both; add them when the tables grow (personal-6ae.4).
+// shortcut: no index leads with holdings.asset_id, so each call scans holdings;
+// add one when the table grows.
 func (s *PortfolioStore) UnsolicitedAssets(ctx context.Context, assetIDs []string) (map[string]bool, error) {
 	if len(assetIDs) == 0 {
 		return nil, nil
@@ -2451,7 +2287,8 @@ func (s *PortfolioStore) UnsolicitedAssets(ctx context.Context, assetIDs []strin
 	rows, err := s.pool.Query(ctx, `
 		SELECT h.asset_id,
 		       bool_and(h.source = $2) AND NOT EXISTS (
-		           SELECT 1 FROM transactions t WHERE t.asset_transactions = h.asset_id)
+		           SELECT 1 FROM ledger_legs l JOIN ledger_events e ON e.id = l.event_id
+		           WHERE l.asset_id = h.asset_id AND e.source NOT LIKE 'sync:%')
 		FROM holdings h
 		WHERE h.asset_id = ANY($1::uuid[]) AND h.amount <> 0
 		GROUP BY h.asset_id`, assetIDs, string(entity.SourceSync))
@@ -2473,120 +2310,6 @@ func (s *PortfolioStore) UnsolicitedAssets(ctx context.Context, assetIDs []strin
 		return nil, fmt.Errorf("failed to iterate holding provenance: %w", err)
 	}
 	return out, nil
-}
-
-func (s *PortfolioStore) ListTransactions(ctx context.Context, opts portfolio.ListTransactionsOpts) ([]*entity.Transaction, string, error) {
-	limit := pageLimit(opts.PageSize)
-
-	args := []any{}
-	argIdx := 1
-	whereClauses := []string{}
-
-	// Scope by account owner. Revisit with the shared-ownership ADR (vnr).
-	if opts.UserID != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("account_id IN (SELECT id FROM accounts WHERE user_id = $%d)", argIdx))
-		args = append(args, opts.UserID)
-		argIdx++
-	}
-
-	if opts.AccountID != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("account_id = $%d", argIdx))
-		args = append(args, opts.AccountID)
-		argIdx++
-	}
-
-	if opts.AssetID != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("asset_transactions = $%d", argIdx))
-		args = append(args, opts.AssetID)
-		argIdx++
-	}
-
-	if opts.Type != entity.TransactionTypeUnspecified {
-		whereClauses = append(whereClauses, fmt.Sprintf("type = $%d", argIdx))
-		args = append(args, transactionTypeToString(opts.Type))
-		argIdx++
-	}
-
-	if opts.Status != entity.TransactionStatusUnspecified {
-		whereClauses = append(whereClauses, fmt.Sprintf("status = $%d", argIdx))
-		args = append(args, transactionStatusToString(opts.Status))
-		argIdx++
-	}
-
-	if opts.PageToken != "" {
-		decoded, err := base64.StdEncoding.DecodeString(opts.PageToken)
-		if err == nil && isValidUUID(string(decoded)) {
-			whereClauses = append(whereClauses, fmt.Sprintf("id > $%d", argIdx))
-			args = append(args, string(decoded))
-			argIdx++
-		}
-	}
-
-	whereClause := ""
-	if len(whereClauses) > 0 {
-		whereClause = "WHERE " + strings.Join(whereClauses, " AND ")
-	}
-
-	query := fmt.Sprintf(`
-		SELECT id, type, status, account_id, asset_transactions, data, source, import_id, created_at, updated_at
-		FROM transactions
-		%s
-		ORDER BY id
-		LIMIT $%d`,
-		whereClause, argIdx)
-	args = append(args, limit+1)
-
-	rows, err := s.pool.Query(ctx, query, args...)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to list transactions: %w", err)
-	}
-	defer rows.Close()
-
-	transactions := make([]*entity.Transaction, 0, limit)
-	for rows.Next() {
-		var t entity.Transaction
-		var typeStr, statusStr string
-		var assetID, importID *string
-		var dataJSON []byte
-
-		if err := rows.Scan(
-			&t.ID,
-			&typeStr,
-			&statusStr,
-			&t.AccountID,
-			&assetID,
-			&dataJSON,
-			&t.Source,
-			&importID,
-			&t.CreatedAt,
-			&t.UpdatedAt,
-		); err != nil {
-			return nil, "", fmt.Errorf("failed to scan transaction: %w", err)
-		}
-
-		t.Type = stringToTransactionType(typeStr)
-		t.Status = stringToTransactionStatus(statusStr)
-		if assetID != nil {
-			t.AssetID = *assetID
-		}
-		if importID != nil {
-			t.ImportID = *importID
-		}
-		if err := json.Unmarshal(dataJSON, &t.Data); err != nil {
-			return nil, "", fmt.Errorf("failed to unmarshal data: %w", err)
-		}
-
-		transactions = append(transactions, &t)
-	}
-
-	var nextPageToken string
-	if len(transactions) > limit {
-		lastItem := transactions[limit-1]
-		transactions = transactions[:limit]
-		nextPageToken = base64.StdEncoding.EncodeToString([]byte(lastItem.ID))
-	}
-
-	return transactions, nextPageToken, nil
 }
 
 // --- Helper functions ---
@@ -2618,73 +2341,5 @@ func stringToAccountType(s string) entity.AccountType {
 		return entity.AccountTypeManual
 	default:
 		return entity.AccountTypeUnspecified
-	}
-}
-
-func transactionTypeToString(t entity.TransactionType) string {
-	switch t {
-	case entity.TransactionTypeExtended:
-		return "extended"
-	case entity.TransactionTypeTrade:
-		return "trade"
-	case entity.TransactionTypeTransfer:
-		return "transfer"
-	case entity.TransactionTypeDeposit:
-		return "deposit"
-	case entity.TransactionTypeWithdrawal:
-		return "withdrawal"
-	default:
-		return "unspecified"
-	}
-}
-
-func stringToTransactionType(s string) entity.TransactionType {
-	switch s {
-	case "extended":
-		return entity.TransactionTypeExtended
-	case "trade":
-		return entity.TransactionTypeTrade
-	case "transfer":
-		return entity.TransactionTypeTransfer
-	case "deposit":
-		return entity.TransactionTypeDeposit
-	case "withdrawal":
-		return entity.TransactionTypeWithdrawal
-	default:
-		return entity.TransactionTypeUnspecified
-	}
-}
-
-func transactionStatusToString(s entity.TransactionStatus) string {
-	switch s {
-	case entity.TransactionStatusPending:
-		return "pending"
-	case entity.TransactionStatusProcessing:
-		return "processing"
-	case entity.TransactionStatusCompleted:
-		return "completed"
-	case entity.TransactionStatusFailed:
-		return "failed"
-	case entity.TransactionStatusCancelled:
-		return "cancelled"
-	default:
-		return "unspecified"
-	}
-}
-
-func stringToTransactionStatus(s string) entity.TransactionStatus {
-	switch s {
-	case "pending":
-		return entity.TransactionStatusPending
-	case "processing":
-		return entity.TransactionStatusProcessing
-	case "completed":
-		return entity.TransactionStatusCompleted
-	case "failed":
-		return entity.TransactionStatusFailed
-	case "cancelled":
-		return entity.TransactionStatusCancelled
-	default:
-		return entity.TransactionStatusUnspecified
 	}
 }

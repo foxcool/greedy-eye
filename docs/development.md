@@ -228,7 +228,7 @@ go test -v -tags=integration ./internal/store/postgres/...
 greedy-eye/
 ├── api/v1/                 # Protocol Buffer definitions (domain-based)
 │   ├── marketdata.proto    # Asset + Price management
-│   ├── portfolio.proto     # Portfolio + Holding + Account + Transaction
+│   ├── portfolio.proto     # Portfolio + Holding + Account + Ledger
 │   └── automation.proto    # Rule + RuleExecution
 ├── cmd/eye/                # Main application entry point
 ├── internal/
@@ -405,7 +405,7 @@ This applies to transaction amounts, prices, holdings, and other financial value
 ```
 Store Layer (PostgreSQL + pgx raw SQL)
 ├── MarketDataStore (assets, prices)
-├── PortfolioStore (portfolios, holdings, accounts, transactions; crypto for accounts.data)
+├── PortfolioStore (portfolios, holdings, accounts, ledger; crypto for accounts.data)
 ├── AutomationStore (rules, rule_executions)
 └── UserStore (users)
 
@@ -494,7 +494,7 @@ Tracked in beads (`bd ready`). High-level state:
 **Done**
 - Infrastructure, schema (Atlas), 3-service Connect-RPC monolith
 - Assets + prices CRUD; external price fetch (CoinGecko)
-- Portfolio/holding/account/transaction CRUD; portfolio valuation
+- Portfolio/holding/account CRUD, ledger import and listing; portfolio valuation
 - Account capability model + system scopes; encrypted credentials (ADR-005)
 - Per-account credential resolver; ownership enforcement (IDOR audit)
 - Account sync: wallet (Moralis) + exchange (Binance spot) + broker (T-Invest positions)
@@ -615,6 +615,7 @@ image does against it:
 
 | Migration | An image older than it |
 |---|---|
+| `20261117114729_ledger_replaces_transactions` | Drops `transactions`, which an older image reads and writes: its transaction RPCs, ImportTransactions and the paper-trade journal fail (a paper execution ends "holdings applied, journal missing"). Holdings and every other path keep working. Undo by recreating `transactions` from its DDL in the baseline migration; the ledger tables can stay. |
 | `20260923131020_provider_usage_caller` | Cannot flush spend (its `ON CONFLICT` names the old key) and restores one caller's row instead of the sum, so the quota gate under-counts. Roll back to a release that has it, or undo the migration first — summing each key's rows into one before restoring the old key, which a key with several callers would otherwise violate. |
 
 ### A database that predates migrations

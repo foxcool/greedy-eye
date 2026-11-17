@@ -22,6 +22,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -320,34 +322,18 @@ func (m *mockStore) LockAccountPortfolio(ctx context.Context, accountID string) 
 	return "", nil
 }
 
-func (m *mockStore) CreateTransaction(ctx context.Context, t *entity.Transaction) (*entity.Transaction, error) {
-	args := m.Called(ctx, t)
+func (m *mockStore) CreateLedgerEvent(ctx context.Context, e *entity.LedgerEvent) (*entity.LedgerEvent, error) {
+	args := m.Called(ctx, e)
 	if v := args.Get(0); v != nil {
-		return v.(*entity.Transaction), args.Error(1)
+		return v.(*entity.LedgerEvent), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *mockStore) GetTransaction(ctx context.Context, id string) (*entity.Transaction, error) {
-	args := m.Called(ctx, id)
-	if v := args.Get(0); v != nil {
-		return v.(*entity.Transaction), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
-func (m *mockStore) UpdateTransaction(ctx context.Context, t *entity.Transaction, fields []string) (*entity.Transaction, error) {
-	args := m.Called(ctx, t, fields)
-	if v := args.Get(0); v != nil {
-		return v.(*entity.Transaction), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
-func (m *mockStore) ListTransactions(ctx context.Context, opts ListTransactionsOpts) ([]*entity.Transaction, string, error) {
+func (m *mockStore) ListLedgerEvents(ctx context.Context, opts ListLedgerOpts) ([]*entity.LedgerEvent, string, error) {
 	args := m.Called(ctx, opts)
 	if v := args.Get(0); v != nil {
-		return v.([]*entity.Transaction), args.String(1), args.Error(2)
+		return v.([]*entity.LedgerEvent), args.String(1), args.Error(2)
 	}
 	return nil, args.String(1), args.Error(2)
 }
@@ -743,10 +729,10 @@ func TestDeleteAccount_StillHoldsPositions(t *testing.T) {
 	assert.Contains(t, err.Error(), "2 position(s)")
 }
 
-// TestDeleteAccount_BlockedByTransactions: with no holdings left, the blocker
-// is transaction history, and the message must say so rather than claim
-// positions that are not there.
-func TestDeleteAccount_BlockedByTransactions(t *testing.T) {
+// TestDeleteAccount_BlockedByLedger: with no holdings left, the blocker is
+// ledger history, and the message must say so rather than claim positions
+// that are not there.
+func TestDeleteAccount_BlockedByLedger(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
 	s.On("DeleteAccount", mock.Anything, testAccountID).
@@ -758,7 +744,7 @@ func TestDeleteAccount_BlockedByTransactions(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
-	assert.Contains(t, err.Error(), "transactions")
+	assert.Contains(t, err.Error(), "ledger history")
 }
 
 // TestDeleteAccount_Cascade: with cascade the holdings go with the account, in
@@ -776,11 +762,11 @@ func TestDeleteAccount_Cascade(t *testing.T) {
 	s.AssertNotCalled(t, "DeleteAccount", mock.Anything, mock.Anything)
 }
 
-// TestDeleteAccount_CascadeStillRefusesTransactions: cascade covers positions,
-// never history. Once the holdings are gone a remaining constraint failure can
-// only be transactions, and the message must say so instead of blaming
-// positions that no longer exist.
-func TestDeleteAccount_CascadeStillRefusesTransactions(t *testing.T) {
+// TestDeleteAccount_CascadeStillRefusesLedger: cascade covers positions, never
+// history. Once the holdings are gone a remaining constraint failure can only
+// be ledger events, and the message must say so instead of blaming positions
+// that no longer exist.
+func TestDeleteAccount_CascadeStillRefusesLedger(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
 	s.On("DeleteAccountWithHoldings", mock.Anything, testAccountID).
@@ -791,7 +777,7 @@ func TestDeleteAccount_CascadeStillRefusesTransactions(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
-	assert.Contains(t, err.Error(), "transaction history")
+	assert.Contains(t, err.Error(), "ledger history")
 }
 
 func TestIsSecretKey(t *testing.T) {
@@ -1084,7 +1070,6 @@ func TestOwnership_ForeignEntitiesReportNotFound(t *testing.T) {
 	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
 	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
 	s.On("GetHolding", mock.Anything, testHoldingID).Return(testHolding(testHoldingID), nil)
-	s.On("GetTransaction", mock.Anything, testTxID).Return(&entity.Transaction{ID: testTxID, AccountID: testAccountID}, nil)
 	h := newHandler(s)
 
 	// All entities are owned by testUserID; testUserID2 must see NotFound,
@@ -1132,14 +1117,6 @@ func TestOwnership_ForeignEntitiesReportNotFound(t *testing.T) {
 			_, err := h.CreateHolding(ctx, connect.NewRequest(&apiv1.CreateHoldingRequest{Holding: &apiv1.Holding{AccountId: testAccountID, AssetId: testAssetID, Amount: "1", Decimals: 1}}))
 			return err
 		},
-		"GetTransaction": func() error {
-			_, err := h.GetTransaction(ctx, connect.NewRequest(&apiv1.GetTransactionRequest{Id: testTxID}))
-			return err
-		},
-		"CreateTransaction": func() error {
-			_, err := h.CreateTransaction(ctx, connect.NewRequest(&apiv1.CreateTransactionRequest{Transaction: &apiv1.Transaction{AccountId: testAccountID}}))
-			return err
-		},
 	}
 	for name, call := range calls {
 		err := call()
@@ -1152,7 +1129,6 @@ func TestOwnership_ForeignEntitiesReportNotFound(t *testing.T) {
 	s.AssertNotCalled(t, "DeleteAccount")
 	s.AssertNotCalled(t, "UpdateHolding")
 	s.AssertNotCalled(t, "CreateHolding")
-	s.AssertNotCalled(t, "CreateTransaction")
 }
 
 func TestOwnership_AdminBypasses(t *testing.T) {
@@ -1360,7 +1336,6 @@ func TestUpdate_MaskRequired(t *testing.T) {
 		s := &mockStore{}
 		s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
 		s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
-		s.On("GetTransaction", mock.Anything, testTxID).Return(&entity.Transaction{ID: testTxID, AccountID: testAccountID}, nil)
 		return s
 	}
 
@@ -1385,15 +1360,6 @@ func TestUpdate_MaskRequired(t *testing.T) {
 				return err
 			},
 			notCall: "UpdateAccount",
-		},
-		"UpdateTransaction": {
-			call: func(h *Handler, ctx context.Context, m *fieldmaskpb.FieldMask) error {
-				_, err := h.UpdateTransaction(ctx, connect.NewRequest(&apiv1.UpdateTransactionRequest{
-					Transaction: &apiv1.Transaction{Id: testTxID}, UpdateMask: m,
-				}))
-				return err
-			},
-			notCall: "UpdateTransaction",
 		},
 	}
 
@@ -1500,53 +1466,54 @@ func TestListHoldings_Unauthenticated(t *testing.T) {
 	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 }
 
-// --- Tests: Transaction ---
+// --- Tests: Ledger ---
 
-func TestCreateTransaction_MissingTransaction(t *testing.T) {
-	h := newHandler(&mockStore{})
-	_, err := h.CreateTransaction(context.Background(), connect.NewRequest(&apiv1.CreateTransactionRequest{}))
+func TestListLedger_RequiresAccount(t *testing.T) {
+	s := &mockStore{}
+	_, err := newHandler(s).ListLedger(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ListLedgerRequest{}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	s.AssertNotCalled(t, "ListLedgerEvents", mock.Anything, mock.Anything)
 }
 
-func TestCreateTransaction_OK(t *testing.T) {
+// TestListLedger_ScopedToCaller: the store is always asked for the caller's
+// accounts only, the way ListHoldings asks, whatever account the request names.
+func TestListLedger_ScopedToCaller(t *testing.T) {
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := from.AddDate(0, 1, 0)
+	executedAt := from.Add(time.Hour)
 	s := &mockStore{}
-	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
-	s.On("CreateTransaction", mock.Anything, mock.Anything).Return(&entity.Transaction{
-		ID:        testTxID,
-		Type:      entity.TransactionTypeTrade,
-		Status:    entity.TransactionStatusCompleted,
-		AccountID: testAccountID,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}, nil)
-	h := newHandler(s)
+	s.On("ListLedgerEvents", mock.Anything, ListLedgerOpts{
+		UserID: testUserID2, AccountID: testAccountID, AssetID: testAssetID,
+		ExecutedFrom: from, ExecutedTo: to, PageSize: 10, PageToken: "tok",
+	}).Return([]*entity.LedgerEvent{{
+		ID: testTxID, AccountID: testAccountID, Kind: entity.LedgerKindTrade, ExecutedAt: executedAt,
+		Source: string(entity.SourceLLMImport), Raw: []byte(`{"secret":"x"}`),
+		Legs: []entity.LedgerLeg{{ID: "leg-1", AssetID: testAssetID, Direction: entity.LedgerIn,
+			Role: entity.LedgerRolePrincipal, Amount: decimal.NewFromInt(25), Decimals: 4}},
+	}}, "next", nil)
 
-	resp, err := h.CreateTransaction(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreateTransactionRequest{
-		Transaction: &apiv1.Transaction{AccountId: testAccountID},
-	}))
-	require.NoError(t, err)
-	assert.Equal(t, testTxID, resp.Msg.Id)
-}
-
-// TestCreateTransaction_StampsManualSource verifies provenance is server-stamped
-// on transactions the same way as on holdings.
-func TestCreateTransaction_StampsManualSource(t *testing.T) {
-	s := &mockStore{}
-	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
-	s.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(tx *entity.Transaction) bool {
-		return tx.Source == entity.SourceManual && tx.ImportID == ""
-	})).Return(&entity.Transaction{ID: testTxID, AccountID: testAccountID}, nil)
-	h := newHandler(s)
-
-	_, err := h.CreateTransaction(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreateTransactionRequest{
-		Transaction: &apiv1.Transaction{
-			AccountId: testAccountID,
-			Source:    apiv1.ProvenanceSource_PROVENANCE_SOURCE_SYNC,
-		},
+	resp, err := newHandler(s).ListLedger(ctxWithUser(testUserID2), connect.NewRequest(&apiv1.ListLedgerRequest{
+		AccountId: testAccountID, AssetId: strPtr(testAssetID),
+		ExecutedFrom: timestamppb.New(from), ExecutedTo: timestamppb.New(to),
+		PageSize: proto.Int32(10), PageToken: strPtr("tok"),
 	}))
 	require.NoError(t, err)
 	s.AssertExpectations(t)
+	assert.Equal(t, "next", resp.Msg.NextPageToken)
+	require.Len(t, resp.Msg.Events, 1)
+	ev := resp.Msg.Events[0]
+	assert.Equal(t, apiv1.LedgerEventKind_LEDGER_EVENT_KIND_TRADE, ev.Kind)
+	assert.Equal(t, executedAt, ev.ExecutedAt.AsTime())
+	assert.Equal(t, "llm_import", ev.Source)
+	require.Len(t, ev.Legs, 1)
+	assert.Equal(t, apiv1.LedgerLegDirection_LEDGER_LEG_DIRECTION_IN, ev.Legs[0].Direction)
+	assert.Equal(t, apiv1.LedgerLegRole_LEDGER_LEG_ROLE_PRINCIPAL, ev.Legs[0].Role)
+	assert.Equal(t, "25", ev.Legs[0].Amount)
+	assert.Equal(t, uint32(4), ev.Legs[0].Decimals)
+	body, err := protojson.Marshal(resp.Msg)
+	require.NoError(t, err)
+	assert.NotContains(t, string(body), "secret", "raw stays server-side")
 }
 
 // TestCalculatePortfolioValue_CrossRate verifies a holding priced only in its own
@@ -3248,57 +3215,136 @@ func TestImportPositions_PerItemErrors(t *testing.T) {
 
 func TestImportTransactions_DedupAndProvenance(t *testing.T) {
 	const importID = "01926d35-6a1e-7008-8008-000000000002"
+	at := func(day int) *timestamppb.Timestamp {
+		return timestamppb.New(time.Date(2026, 7, day, 0, 0, 0, 0, time.UTC))
+	}
+	deposit := func(amount string) []*apiv1.ImportLedgerLeg {
+		return []*apiv1.ImportLedgerLeg{{
+			Symbol: strPtr("BTC"), Amount: amount,
+			Direction: apiv1.LedgerLegDirection_LEDGER_LEG_DIRECTION_IN, Role: apiv1.LedgerLegRole_LEDGER_LEG_ROLE_PRINCIPAL,
+		}}
+	}
+	storedLeg := []entity.LedgerLeg{{AssetID: testAssetID, Direction: entity.LedgerIn, Role: entity.LedgerRolePrincipal,
+		Amount: decimal.NewFromInt(500), Decimals: 2}} // 5 BTC at another scale
 
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
-	// One existing transaction with an external_id and heuristic fields.
-	s.On("ListTransactions", mock.Anything, mock.Anything).Return([]*entity.Transaction{{
-		ID:        testTxID,
-		Type:      entity.TransactionTypeDeposit,
-		AccountID: testAccountID,
-		AssetID:   testAssetID,
-		Data:      map[string]string{"external_id": "ext-1", "date": "2026-07-01", "amount": "5"},
-	}}, "", nil)
-	s.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(tx *entity.Transaction) bool {
-		return tx.Source == entity.SourceLLMImport &&
-			tx.ImportID == importID &&
-			tx.Status == entity.TransactionStatusCompleted &&
-			tx.Data["external_id"] == "ext-2"
-	})).Return(&entity.Transaction{ID: "01926d35-6a1e-7006-8006-000000000009"}, nil)
+	s.On("ListLedgerEvents", mock.Anything, mock.Anything).Return([]*entity.LedgerEvent{
+		{ID: testTxID, AccountID: testAccountID, Kind: entity.LedgerKindDeposit, ExecutedAt: at(1).AsTime(),
+			ExternalRef: "ext-1", Source: string(entity.SourceLLMImport), Legs: storedLeg},
+		{ID: testTxID, AccountID: testAccountID, Kind: entity.LedgerKindDeposit, ExecutedAt: at(1).AsTime(),
+			Source: string(entity.SourceLLMImport), Legs: storedLeg},
+		// Another source's ref does not stop an import of the same ref.
+		{ID: testTxID, AccountID: testAccountID, Kind: entity.LedgerKindDeposit, ExecutedAt: at(1).AsTime(),
+			ExternalRef: "ext-3", Source: entity.LedgerSyncSource("binance"), Legs: storedLeg},
+	}, "", nil)
+	s.On("CreateLedgerEvent", mock.Anything, mock.MatchedBy(func(e *entity.LedgerEvent) bool {
+		return e.Source == string(entity.SourceLLMImport) && e.ImportID == importID && e.AccountID == testAccountID &&
+			e.Kind == entity.LedgerKindDeposit && len(e.Legs) == 1 && e.Legs[0].Amount.String() == "700000000" &&
+			(e.ExternalRef == "ext-2" || e.ExternalRef == "ext-3")
+	})).Return(&entity.LedgerEvent{ID: "01926d35-6a1e-7006-8006-000000000009"}, nil).Twice()
 
 	md := &mockMDClient{}
 	md.On("FindOrCreateAsset", mock.Anything, mock.MatchedBy(func(r *connect.Request[apiv1.FindOrCreateAssetRequest]) bool {
-		return r.Msg.DryRun // transaction import never creates assets
+		return r.Msg.DryRun // ledger import never creates assets
 	})).Return(connect.NewResponse(&apiv1.FindOrCreateAssetResponse{Asset: &apiv1.Asset{Id: testAssetID}}), nil)
 
 	h := newHandler(s).WithMarketDataClient(md)
 
 	iid := importID
-	extDup := "ext-1"
-	extNew := "ext-2"
+	kind := apiv1.LedgerEventKind_LEDGER_EVENT_KIND_DEPOSIT
 	resp, err := h.ImportTransactions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportTransactionsRequest{
 		AccountId: testAccountID,
 		ImportId:  &iid,
 		Transactions: []*apiv1.ImportTransactionItem{
-			// Duplicate by external_id -> SKIP.
-			{Type: apiv1.TransactionType_TRANSACTION_TYPE_DEPOSIT, ExternalId: &extDup},
-			// Duplicate by (type, asset, date, amount) heuristic -> SKIP.
-			{Type: apiv1.TransactionType_TRANSACTION_TYPE_DEPOSIT, Symbol: strPtr("BTC"), Data: map[string]string{"date": "2026-07-01", "amount": "5"}},
-			// New -> CREATE with provenance.
-			{Type: apiv1.TransactionType_TRANSACTION_TYPE_DEPOSIT, Symbol: strPtr("BTC"), ExternalId: &extNew, Data: map[string]string{"date": "2026-07-02", "amount": "7"}},
+			// Duplicate by external_ref -> SKIP, even with different contents.
+			{Kind: kind, ExecutedAt: at(9), ExternalRef: strPtr("ext-1"), Legs: deposit("9")},
+			// No ref, same kind, time and legs -> SKIP by the heuristic.
+			{Kind: kind, ExecutedAt: at(1), Legs: deposit("5")},
+			// New ref -> CREATE with provenance.
+			{Kind: kind, ExecutedAt: at(2), ExternalRef: strPtr("ext-2"), Legs: deposit("7")},
+			// Same ref again in the batch -> SKIP.
+			{Kind: kind, ExecutedAt: at(2), ExternalRef: strPtr("ext-2"), Legs: deposit("7")},
+			// A ref only a sync has -> CREATE.
+			{Kind: kind, ExecutedAt: at(2), ExternalRef: strPtr("ext-3"), Legs: deposit("7")},
 		},
 	}))
 	require.NoError(t, err)
-	assert.Equal(t, int32(2), resp.Msg.Skipped)
-	assert.Equal(t, int32(1), resp.Msg.Created)
+	assert.Equal(t, int32(3), resp.Msg.Skipped, "%v", resp.Msg.Items)
+	assert.Equal(t, int32(2), resp.Msg.Created)
 	assert.Equal(t, int32(0), resp.Msg.Failed)
+	assert.Equal(t, "01926d35-6a1e-7006-8006-000000000009", resp.Msg.Items[2].GetEventId())
 	s.AssertExpectations(t)
+}
+
+// TestImportTransactions_HeuristicOnlyWithoutRef: an item that carries an
+// external_ref is new when the ref is, even if an unreferenced event with the
+// same contents exists — the ref says it is a separate event.
+func TestImportTransactions_HeuristicOnlyWithoutRef(t *testing.T) {
+	executedAt := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
+	s.On("ListLedgerEvents", mock.Anything, mock.Anything).Return([]*entity.LedgerEvent{{
+		ID: testTxID, AccountID: testAccountID, Kind: entity.LedgerKindDeposit, ExecutedAt: executedAt,
+		Source: string(entity.SourceLLMImport),
+		Legs: []entity.LedgerLeg{{AssetID: testAssetID, Direction: entity.LedgerIn, Role: entity.LedgerRolePrincipal,
+			Amount: decimal.NewFromInt(500000000), Decimals: 8}},
+	}}, "", nil)
+	md := &mockMDClient{}
+	md.On("GetAsset", mock.Anything, mock.Anything).Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+
+	resp, err := newHandler(s).WithMarketDataClient(md).ImportTransactions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportTransactionsRequest{
+		AccountId: testAccountID,
+		DryRun:    true,
+		Transactions: []*apiv1.ImportTransactionItem{{
+			Kind: apiv1.LedgerEventKind_LEDGER_EVENT_KIND_DEPOSIT, ExecutedAt: timestamppb.New(executedAt), ExternalRef: strPtr("ext-9"),
+			Legs: []*apiv1.ImportLedgerLeg{{AssetId: strPtr(testAssetID), Amount: "5",
+				Direction: apiv1.LedgerLegDirection_LEDGER_LEG_DIRECTION_IN, Role: apiv1.LedgerLegRole_LEDGER_LEG_ROLE_PRINCIPAL}},
+		}},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), resp.Msg.Created, "%v", resp.Msg.Items)
+	s.AssertNotCalled(t, "CreateLedgerEvent", mock.Anything, mock.Anything)
+}
+
+// TestImportTransactions_InvalidItemsFail: what the ledger cannot record fails
+// its own item, and the rest of the batch is still planned.
+func TestImportTransactions_InvalidItemsFail(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
+	s.On("ListLedgerEvents", mock.Anything, mock.Anything).Return([]*entity.LedgerEvent{}, "", nil)
+	md := &mockMDClient{}
+	md.On("GetAsset", mock.Anything, mock.Anything).Return(connect.NewResponse(&apiv1.Asset{Id: testAssetID}), nil)
+
+	now := timestamppb.Now()
+	leg := func(amount string, dir apiv1.LedgerLegDirection) *apiv1.ImportLedgerLeg {
+		return &apiv1.ImportLedgerLeg{AssetId: strPtr(testAssetID), Amount: amount, Direction: dir, Role: apiv1.LedgerLegRole_LEDGER_LEG_ROLE_PRINCIPAL}
+	}
+	in := apiv1.LedgerLegDirection_LEDGER_LEG_DIRECTION_IN
+	trade := apiv1.LedgerEventKind_LEDGER_EVENT_KIND_TRADE
+	resp, err := newHandler(s).WithMarketDataClient(md).ImportTransactions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportTransactionsRequest{
+		AccountId: testAccountID,
+		DryRun:    true,
+		Transactions: []*apiv1.ImportTransactionItem{
+			{ExecutedAt: now, Legs: []*apiv1.ImportLedgerLeg{leg("1", in)}},                        // no kind
+			{Kind: trade, Legs: []*apiv1.ImportLedgerLeg{leg("1", in)}},                            // no executed_at
+			{Kind: trade, ExecutedAt: now},                                                         // no legs
+			{Kind: trade, ExecutedAt: now, Legs: []*apiv1.ImportLedgerLeg{leg("-1", in)}},          // negative
+			{Kind: trade, ExecutedAt: now, Legs: []*apiv1.ImportLedgerLeg{leg("0.000000001", in)}}, // finer than decimals
+			{Kind: trade, ExecutedAt: now, Legs: []*apiv1.ImportLedgerLeg{leg("1", 0)}},            // no direction
+			{Kind: trade, ExecutedAt: now, Legs: []*apiv1.ImportLedgerLeg{leg("1", in)}},           // valid
+		},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int32(6), resp.Msg.Failed, "%v", resp.Msg.Items)
+	assert.Equal(t, int32(1), resp.Msg.Created)
+	assert.Nil(t, resp.Msg.Items[6].Error)
 }
 
 func TestImportTransactions_UnknownAssetFailsItem(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
-	s.On("ListTransactions", mock.Anything, mock.Anything).Return([]*entity.Transaction{}, "", nil)
+	s.On("ListLedgerEvents", mock.Anything, mock.Anything).Return([]*entity.LedgerEvent{}, "", nil)
 
 	md := &mockMDClient{}
 	md.On("FindOrCreateAsset", mock.Anything, mock.Anything).
@@ -3309,15 +3355,17 @@ func TestImportTransactions_UnknownAssetFailsItem(t *testing.T) {
 	resp, err := h.ImportTransactions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportTransactionsRequest{
 		AccountId: testAccountID,
 		DryRun:    true,
-		Transactions: []*apiv1.ImportTransactionItem{
-			{Type: apiv1.TransactionType_TRANSACTION_TYPE_TRADE, Symbol: strPtr("GHOST")},
-		},
+		Transactions: []*apiv1.ImportTransactionItem{{
+			Kind: apiv1.LedgerEventKind_LEDGER_EVENT_KIND_TRADE, ExecutedAt: timestamppb.Now(),
+			Legs: []*apiv1.ImportLedgerLeg{{Symbol: strPtr("GHOST"), Amount: "1",
+				Direction: apiv1.LedgerLegDirection_LEDGER_LEG_DIRECTION_IN, Role: apiv1.LedgerLegRole_LEDGER_LEG_ROLE_PRINCIPAL}},
+		}},
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), resp.Msg.Failed)
 	require.NotNil(t, resp.Msg.Items[0].Error)
 	assert.Contains(t, *resp.Msg.Items[0].Error, "not found")
-	s.AssertNotCalled(t, "CreateTransaction")
+	s.AssertNotCalled(t, "CreateLedgerEvent", mock.Anything, mock.Anything)
 }
 
 // TestImportTransactions_CatalogueRefusalReadsAsNotFound: since personal-a483 a
@@ -3327,7 +3375,7 @@ func TestImportTransactions_UnknownAssetFailsItem(t *testing.T) {
 func TestImportTransactions_CatalogueRefusalReadsAsNotFound(t *testing.T) {
 	s := &mockStore{}
 	s.On("GetAccount", mock.Anything, testAccountID).Return(manualAccount(testAccountID), nil)
-	s.On("ListTransactions", mock.Anything, mock.Anything).Return([]*entity.Transaction{}, "", nil)
+	s.On("ListLedgerEvents", mock.Anything, mock.Anything).Return([]*entity.LedgerEvent{}, "", nil)
 
 	md := &mockMDClient{}
 	md.On("FindOrCreateAsset", mock.Anything, mock.Anything).
@@ -3338,9 +3386,11 @@ func TestImportTransactions_CatalogueRefusalReadsAsNotFound(t *testing.T) {
 	resp, err := h.ImportTransactions(ctxWithUser(testUserID), connect.NewRequest(&apiv1.ImportTransactionsRequest{
 		AccountId: testAccountID,
 		DryRun:    true,
-		Transactions: []*apiv1.ImportTransactionItem{
-			{Type: apiv1.TransactionType_TRANSACTION_TYPE_TRADE, Symbol: strPtr("GHOST")},
-		},
+		Transactions: []*apiv1.ImportTransactionItem{{
+			Kind: apiv1.LedgerEventKind_LEDGER_EVENT_KIND_TRADE, ExecutedAt: timestamppb.Now(),
+			Legs: []*apiv1.ImportLedgerLeg{{Symbol: strPtr("GHOST"), Amount: "1",
+				Direction: apiv1.LedgerLegDirection_LEDGER_LEG_DIRECTION_IN, Role: apiv1.LedgerLegRole_LEDGER_LEG_ROLE_PRINCIPAL}},
+		}},
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), resp.Msg.Failed)

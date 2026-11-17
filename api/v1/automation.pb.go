@@ -335,19 +335,20 @@ func (x *RuleSchedule) GetExecuteAfter() *timestamppb.Timestamp {
 
 // RuleExecution represents a single execution of a rule.
 type RuleExecution struct {
-	state                 protoimpl.MessageState `protogen:"open.v1"`
-	Id                    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	RuleId                string                 `protobuf:"bytes,2,opt,name=rule_id,json=ruleId,proto3" json:"rule_id,omitempty"`
-	PortfolioId           *string                `protobuf:"bytes,3,opt,name=portfolio_id,json=portfolioId,proto3,oneof" json:"portfolio_id,omitempty"`
-	UserId                *string                `protobuf:"bytes,4,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`
-	StartedAt             *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	CompletedAt           *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
-	Status                ExecutionStatus        `protobuf:"varint,7,opt,name=status,proto3,enum=eye.v1.ExecutionStatus" json:"status,omitempty"`
-	ErrorMessage          *string                `protobuf:"bytes,8,opt,name=error_message,json=errorMessage,proto3,oneof" json:"error_message,omitempty"`
-	CreatedTransactionIds []string               `protobuf:"bytes,9,rep,name=created_transaction_ids,json=createdTransactionIds,proto3" json:"created_transaction_ids,omitempty"`
-	AffectedHoldingIds    []string               `protobuf:"bytes,10,rep,name=affected_holding_ids,json=affectedHoldingIds,proto3" json:"affected_holding_ids,omitempty"`
-	TransactionsCreated   int32                  `protobuf:"varint,11,opt,name=transactions_created,json=transactionsCreated,proto3" json:"transactions_created,omitempty"`
-	ExecutionSummary      *structpb.Struct       `protobuf:"bytes,12,opt,name=execution_summary,json=executionSummary,proto3" json:"execution_summary,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Id           string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	RuleId       string                 `protobuf:"bytes,2,opt,name=rule_id,json=ruleId,proto3" json:"rule_id,omitempty"`
+	PortfolioId  *string                `protobuf:"bytes,3,opt,name=portfolio_id,json=portfolioId,proto3,oneof" json:"portfolio_id,omitempty"`
+	UserId       *string                `protobuf:"bytes,4,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`
+	StartedAt    *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	CompletedAt  *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
+	Status       ExecutionStatus        `protobuf:"varint,7,opt,name=status,proto3,enum=eye.v1.ExecutionStatus" json:"status,omitempty"`
+	ErrorMessage *string                `protobuf:"bytes,8,opt,name=error_message,json=errorMessage,proto3,oneof" json:"error_message,omitempty"`
+	// Ledger events the execution journaled (the name predates the ledger).
+	CreatedTransactionIds []string         `protobuf:"bytes,9,rep,name=created_transaction_ids,json=createdTransactionIds,proto3" json:"created_transaction_ids,omitempty"`
+	AffectedHoldingIds    []string         `protobuf:"bytes,10,rep,name=affected_holding_ids,json=affectedHoldingIds,proto3" json:"affected_holding_ids,omitempty"`
+	TransactionsCreated   int32            `protobuf:"varint,11,opt,name=transactions_created,json=transactionsCreated,proto3" json:"transactions_created,omitempty"`
+	ExecutionSummary      *structpb.Struct `protobuf:"bytes,12,opt,name=execution_summary,json=executionSummary,proto3" json:"execution_summary,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }

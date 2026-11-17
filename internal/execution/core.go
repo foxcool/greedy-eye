@@ -8,6 +8,7 @@ import (
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/shopspring/decimal"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // defaultDecimals is the storage scale of a holding a fill creates. Assets
@@ -305,26 +306,51 @@ func final(s TradeState) bool {
 	return false
 }
 
-// JournalItem is the transaction recording a filled trade, for any venue.
-// external_id is the trade's key, so a repeated journal write is skipped by
-// the import's dedup instead of doubling the record.
-func JournalItem(key Key, r TradeResult) *apiv1.ImportTransactionItem {
-	assetID, externalID := r.Trade.AssetID, key.String()
-	data := map[string]string{
-		"side":           string(r.Trade.Side),
-		"quote_asset_id": r.Trade.QuoteAssetID,
-		"execution_id":   key.ExecutionID,
+// JournalItem is the ledger event recording a filled trade, for any venue: a
+// trade event with the base as its principal leg and the quote as its counter
+// leg, moving the other way. Trade fields the ledger has no column for go into
+// raw. external_ref is the trade's key, so a repeated journal write is skipped
+// by the import's dedup instead of doubling the record.
+func JournalItem(key Key, r TradeResult, executedAt time.Time) *apiv1.ImportTransactionItem {
+	externalRef := key.String()
+	raw := map[string]string{
+		"side":         string(r.Trade.Side),
+		"execution_id": key.ExecutionID,
 	}
-	if r.Fill != nil {
-		data["amount"] = r.Fill.BaseAmount.String()
-		data["quote_amount"] = r.Fill.QuoteAmount.String()
-		data["price"] = r.Fill.Price.String()
-		data["price_as_of"] = r.Fill.PriceAsOf.UTC().Format(time.RFC3339)
+	item := &apiv1.ImportTransactionItem{
+		Kind:        apiv1.LedgerEventKind_LEDGER_EVENT_KIND_TRADE,
+		ExecutedAt:  timestamppb.New(executedAt),
+		ExternalRef: &externalRef,
+		Raw:         raw,
 	}
-	return &apiv1.ImportTransactionItem{
-		Type:       apiv1.TransactionType_TRANSACTION_TYPE_TRADE,
-		AssetId:    &assetID,
-		Data:       data,
-		ExternalId: &externalID,
+	if r.Fill == nil {
+		return item
+	}
+	raw["price"] = r.Fill.Price.String()
+	raw["price_as_of"] = r.Fill.PriceAsOf.UTC().Format(time.RFC3339)
+
+	// A buy receives the base and pays the quote; a sell, the only other
+	// side, the reverse.
+	base, quote := apiv1.LedgerLegDirection_LEDGER_LEG_DIRECTION_IN, apiv1.LedgerLegDirection_LEDGER_LEG_DIRECTION_OUT
+	if r.Trade.Side != SideBuy {
+		base, quote = quote, base
+	}
+	item.Legs = []*apiv1.ImportLedgerLeg{
+		journalLeg(r.Trade.AssetID, base, apiv1.LedgerLegRole_LEDGER_LEG_ROLE_PRINCIPAL, r.Fill.BaseAmount),
+		journalLeg(r.Trade.QuoteAssetID, quote, apiv1.LedgerLegRole_LEDGER_LEG_ROLE_COUNTER, r.Fill.QuoteAmount),
+	}
+	return item
+}
+
+// journalLeg stores amount at exactly the scale it needs: the journal does not
+// know the holding's scale, and a guessed one could not hold every fill.
+func journalLeg(assetID string, direction apiv1.LedgerLegDirection, role apiv1.LedgerLegRole, amount decimal.Decimal) *apiv1.ImportLedgerLeg {
+	decimals := uint32(max(0, -amount.Exponent())) // #nosec G115 -- non-negative, a decimal's scale
+	return &apiv1.ImportLedgerLeg{
+		AssetId:   &assetID,
+		Direction: direction,
+		Role:      role,
+		Amount:    amount.String(),
+		Decimals:  &decimals,
 	}
 }

@@ -97,18 +97,9 @@ const (
 	// PortfolioServiceListProvidersProcedure is the fully-qualified name of the PortfolioService's
 	// ListProviders RPC.
 	PortfolioServiceListProvidersProcedure = "/eye.v1.PortfolioService/ListProviders"
-	// PortfolioServiceCreateTransactionProcedure is the fully-qualified name of the PortfolioService's
-	// CreateTransaction RPC.
-	PortfolioServiceCreateTransactionProcedure = "/eye.v1.PortfolioService/CreateTransaction"
-	// PortfolioServiceGetTransactionProcedure is the fully-qualified name of the PortfolioService's
-	// GetTransaction RPC.
-	PortfolioServiceGetTransactionProcedure = "/eye.v1.PortfolioService/GetTransaction"
-	// PortfolioServiceUpdateTransactionProcedure is the fully-qualified name of the PortfolioService's
-	// UpdateTransaction RPC.
-	PortfolioServiceUpdateTransactionProcedure = "/eye.v1.PortfolioService/UpdateTransaction"
-	// PortfolioServiceListTransactionsProcedure is the fully-qualified name of the PortfolioService's
-	// ListTransactions RPC.
-	PortfolioServiceListTransactionsProcedure = "/eye.v1.PortfolioService/ListTransactions"
+	// PortfolioServiceListLedgerProcedure is the fully-qualified name of the PortfolioService's
+	// ListLedger RPC.
+	PortfolioServiceListLedgerProcedure = "/eye.v1.PortfolioService/ListLedger"
 	// PortfolioServiceSyncAccountProcedure is the fully-qualified name of the PortfolioService's
 	// SyncAccount RPC.
 	PortfolioServiceSyncAccountProcedure = "/eye.v1.PortfolioService/SyncAccount"
@@ -173,11 +164,11 @@ type PortfolioServiceClient interface {
 	// chains, the plans and the extra fields are the ones the resolver and the
 	// rate limiter actually use, rather than a second copy that drifts.
 	ListProviders(context.Context, *connect.Request[v1.ListProvidersRequest]) (*connect.Response[v1.ListProvidersResponse], error)
-	// --- Transaction CRUD ---
-	CreateTransaction(context.Context, *connect.Request[v1.CreateTransactionRequest]) (*connect.Response[v1.Transaction], error)
-	GetTransaction(context.Context, *connect.Request[v1.GetTransactionRequest]) (*connect.Response[v1.Transaction], error)
-	UpdateTransaction(context.Context, *connect.Request[v1.UpdateTransactionRequest]) (*connect.Response[v1.Transaction], error)
-	ListTransactions(context.Context, *connect.Request[v1.ListTransactionsRequest]) (*connect.Response[v1.ListTransactionsResponse], error)
+	// --- Ledger ---
+	// ListLedger returns an account's ledger events with their legs, oldest
+	// executed_at first. The account must be the caller's: another account
+	// answers an empty page, as ListHoldings does.
+	ListLedger(context.Context, *connect.Request[v1.ListLedgerRequest]) (*connect.Response[v1.ListLedgerResponse], error)
 	// --- Account sync ---
 	// SyncAccount reads a wallet, exchange or broker account from its source and
 	// writes the assets and holdings it found. Errors:
@@ -368,28 +359,10 @@ func NewPortfolioServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(portfolioServiceMethods.ByName("ListProviders")),
 			connect.WithClientOptions(opts...),
 		),
-		createTransaction: connect.NewClient[v1.CreateTransactionRequest, v1.Transaction](
+		listLedger: connect.NewClient[v1.ListLedgerRequest, v1.ListLedgerResponse](
 			httpClient,
-			baseURL+PortfolioServiceCreateTransactionProcedure,
-			connect.WithSchema(portfolioServiceMethods.ByName("CreateTransaction")),
-			connect.WithClientOptions(opts...),
-		),
-		getTransaction: connect.NewClient[v1.GetTransactionRequest, v1.Transaction](
-			httpClient,
-			baseURL+PortfolioServiceGetTransactionProcedure,
-			connect.WithSchema(portfolioServiceMethods.ByName("GetTransaction")),
-			connect.WithClientOptions(opts...),
-		),
-		updateTransaction: connect.NewClient[v1.UpdateTransactionRequest, v1.Transaction](
-			httpClient,
-			baseURL+PortfolioServiceUpdateTransactionProcedure,
-			connect.WithSchema(portfolioServiceMethods.ByName("UpdateTransaction")),
-			connect.WithClientOptions(opts...),
-		),
-		listTransactions: connect.NewClient[v1.ListTransactionsRequest, v1.ListTransactionsResponse](
-			httpClient,
-			baseURL+PortfolioServiceListTransactionsProcedure,
-			connect.WithSchema(portfolioServiceMethods.ByName("ListTransactions")),
+			baseURL+PortfolioServiceListLedgerProcedure,
+			connect.WithSchema(portfolioServiceMethods.ByName("ListLedger")),
 			connect.WithClientOptions(opts...),
 		),
 		syncAccount: connect.NewClient[v1.SyncAccountRequest, v1.SyncAccountResponse](
@@ -448,10 +421,7 @@ type portfolioServiceClient struct {
 	deleteAccount             *connect.Client[v1.DeleteAccountRequest, emptypb.Empty]
 	listAccounts              *connect.Client[v1.ListAccountsRequest, v1.ListAccountsResponse]
 	listProviders             *connect.Client[v1.ListProvidersRequest, v1.ListProvidersResponse]
-	createTransaction         *connect.Client[v1.CreateTransactionRequest, v1.Transaction]
-	getTransaction            *connect.Client[v1.GetTransactionRequest, v1.Transaction]
-	updateTransaction         *connect.Client[v1.UpdateTransactionRequest, v1.Transaction]
-	listTransactions          *connect.Client[v1.ListTransactionsRequest, v1.ListTransactionsResponse]
+	listLedger                *connect.Client[v1.ListLedgerRequest, v1.ListLedgerResponse]
 	syncAccount               *connect.Client[v1.SyncAccountRequest, v1.SyncAccountResponse]
 	getAccountSweepSchedule   *connect.Client[v1.GetAccountSweepScheduleRequest, v1.GetAccountSweepScheduleResponse]
 	resetAccountSweepSchedule *connect.Client[v1.ResetAccountSweepScheduleRequest, v1.ResetAccountSweepScheduleResponse]
@@ -564,24 +534,9 @@ func (c *portfolioServiceClient) ListProviders(ctx context.Context, req *connect
 	return c.listProviders.CallUnary(ctx, req)
 }
 
-// CreateTransaction calls eye.v1.PortfolioService.CreateTransaction.
-func (c *portfolioServiceClient) CreateTransaction(ctx context.Context, req *connect.Request[v1.CreateTransactionRequest]) (*connect.Response[v1.Transaction], error) {
-	return c.createTransaction.CallUnary(ctx, req)
-}
-
-// GetTransaction calls eye.v1.PortfolioService.GetTransaction.
-func (c *portfolioServiceClient) GetTransaction(ctx context.Context, req *connect.Request[v1.GetTransactionRequest]) (*connect.Response[v1.Transaction], error) {
-	return c.getTransaction.CallUnary(ctx, req)
-}
-
-// UpdateTransaction calls eye.v1.PortfolioService.UpdateTransaction.
-func (c *portfolioServiceClient) UpdateTransaction(ctx context.Context, req *connect.Request[v1.UpdateTransactionRequest]) (*connect.Response[v1.Transaction], error) {
-	return c.updateTransaction.CallUnary(ctx, req)
-}
-
-// ListTransactions calls eye.v1.PortfolioService.ListTransactions.
-func (c *portfolioServiceClient) ListTransactions(ctx context.Context, req *connect.Request[v1.ListTransactionsRequest]) (*connect.Response[v1.ListTransactionsResponse], error) {
-	return c.listTransactions.CallUnary(ctx, req)
+// ListLedger calls eye.v1.PortfolioService.ListLedger.
+func (c *portfolioServiceClient) ListLedger(ctx context.Context, req *connect.Request[v1.ListLedgerRequest]) (*connect.Response[v1.ListLedgerResponse], error) {
+	return c.listLedger.CallUnary(ctx, req)
 }
 
 // SyncAccount calls eye.v1.PortfolioService.SyncAccount.
@@ -656,11 +611,11 @@ type PortfolioServiceHandler interface {
 	// chains, the plans and the extra fields are the ones the resolver and the
 	// rate limiter actually use, rather than a second copy that drifts.
 	ListProviders(context.Context, *connect.Request[v1.ListProvidersRequest]) (*connect.Response[v1.ListProvidersResponse], error)
-	// --- Transaction CRUD ---
-	CreateTransaction(context.Context, *connect.Request[v1.CreateTransactionRequest]) (*connect.Response[v1.Transaction], error)
-	GetTransaction(context.Context, *connect.Request[v1.GetTransactionRequest]) (*connect.Response[v1.Transaction], error)
-	UpdateTransaction(context.Context, *connect.Request[v1.UpdateTransactionRequest]) (*connect.Response[v1.Transaction], error)
-	ListTransactions(context.Context, *connect.Request[v1.ListTransactionsRequest]) (*connect.Response[v1.ListTransactionsResponse], error)
+	// --- Ledger ---
+	// ListLedger returns an account's ledger events with their legs, oldest
+	// executed_at first. The account must be the caller's: another account
+	// answers an empty page, as ListHoldings does.
+	ListLedger(context.Context, *connect.Request[v1.ListLedgerRequest]) (*connect.Response[v1.ListLedgerResponse], error)
 	// --- Account sync ---
 	// SyncAccount reads a wallet, exchange or broker account from its source and
 	// writes the assets and holdings it found. Errors:
@@ -847,28 +802,10 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 		connect.WithSchema(portfolioServiceMethods.ByName("ListProviders")),
 		connect.WithHandlerOptions(opts...),
 	)
-	portfolioServiceCreateTransactionHandler := connect.NewUnaryHandler(
-		PortfolioServiceCreateTransactionProcedure,
-		svc.CreateTransaction,
-		connect.WithSchema(portfolioServiceMethods.ByName("CreateTransaction")),
-		connect.WithHandlerOptions(opts...),
-	)
-	portfolioServiceGetTransactionHandler := connect.NewUnaryHandler(
-		PortfolioServiceGetTransactionProcedure,
-		svc.GetTransaction,
-		connect.WithSchema(portfolioServiceMethods.ByName("GetTransaction")),
-		connect.WithHandlerOptions(opts...),
-	)
-	portfolioServiceUpdateTransactionHandler := connect.NewUnaryHandler(
-		PortfolioServiceUpdateTransactionProcedure,
-		svc.UpdateTransaction,
-		connect.WithSchema(portfolioServiceMethods.ByName("UpdateTransaction")),
-		connect.WithHandlerOptions(opts...),
-	)
-	portfolioServiceListTransactionsHandler := connect.NewUnaryHandler(
-		PortfolioServiceListTransactionsProcedure,
-		svc.ListTransactions,
-		connect.WithSchema(portfolioServiceMethods.ByName("ListTransactions")),
+	portfolioServiceListLedgerHandler := connect.NewUnaryHandler(
+		PortfolioServiceListLedgerProcedure,
+		svc.ListLedger,
+		connect.WithSchema(portfolioServiceMethods.ByName("ListLedger")),
 		connect.WithHandlerOptions(opts...),
 	)
 	portfolioServiceSyncAccountHandler := connect.NewUnaryHandler(
@@ -945,14 +882,8 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 			portfolioServiceListAccountsHandler.ServeHTTP(w, r)
 		case PortfolioServiceListProvidersProcedure:
 			portfolioServiceListProvidersHandler.ServeHTTP(w, r)
-		case PortfolioServiceCreateTransactionProcedure:
-			portfolioServiceCreateTransactionHandler.ServeHTTP(w, r)
-		case PortfolioServiceGetTransactionProcedure:
-			portfolioServiceGetTransactionHandler.ServeHTTP(w, r)
-		case PortfolioServiceUpdateTransactionProcedure:
-			portfolioServiceUpdateTransactionHandler.ServeHTTP(w, r)
-		case PortfolioServiceListTransactionsProcedure:
-			portfolioServiceListTransactionsHandler.ServeHTTP(w, r)
+		case PortfolioServiceListLedgerProcedure:
+			portfolioServiceListLedgerHandler.ServeHTTP(w, r)
 		case PortfolioServiceSyncAccountProcedure:
 			portfolioServiceSyncAccountHandler.ServeHTTP(w, r)
 		case PortfolioServiceGetAccountSweepScheduleProcedure:
@@ -1056,20 +987,8 @@ func (UnimplementedPortfolioServiceHandler) ListProviders(context.Context, *conn
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.ListProviders is not implemented"))
 }
 
-func (UnimplementedPortfolioServiceHandler) CreateTransaction(context.Context, *connect.Request[v1.CreateTransactionRequest]) (*connect.Response[v1.Transaction], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.CreateTransaction is not implemented"))
-}
-
-func (UnimplementedPortfolioServiceHandler) GetTransaction(context.Context, *connect.Request[v1.GetTransactionRequest]) (*connect.Response[v1.Transaction], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.GetTransaction is not implemented"))
-}
-
-func (UnimplementedPortfolioServiceHandler) UpdateTransaction(context.Context, *connect.Request[v1.UpdateTransactionRequest]) (*connect.Response[v1.Transaction], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.UpdateTransaction is not implemented"))
-}
-
-func (UnimplementedPortfolioServiceHandler) ListTransactions(context.Context, *connect.Request[v1.ListTransactionsRequest]) (*connect.Response[v1.ListTransactionsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.ListTransactions is not implemented"))
+func (UnimplementedPortfolioServiceHandler) ListLedger(context.Context, *connect.Request[v1.ListLedgerRequest]) (*connect.Response[v1.ListLedgerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.ListLedger is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) SyncAccount(context.Context, *connect.Request[v1.SyncAccountRequest]) (*connect.Response[v1.SyncAccountResponse], error) {

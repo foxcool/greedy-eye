@@ -16,7 +16,8 @@ func resetDB(t *testing.T) {
 	for _, table := range []string{
 		"rule_executions",
 		"rules",
-		"transactions",
+		"ledger_legs",
+		"ledger_events",
 		"holdings",
 		"prices",
 		"portfolios",

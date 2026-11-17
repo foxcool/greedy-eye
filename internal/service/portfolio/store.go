@@ -45,7 +45,7 @@ type Store interface {
 	UpdateAccount(ctx context.Context, a *entity.Account, fields []string) (*entity.Account, error)
 	DeleteAccount(ctx context.Context, id string) error
 	// DeleteAccountWithHoldings removes the account and its holdings
-	// atomically. Transaction history is never removed this way.
+	// atomically. Ledger history is never removed this way.
 	DeleteAccountWithHoldings(ctx context.Context, id string) error
 	// ListAccounts and every other account list leave out a row that cannot be
 	// read; ListUnreadableAccounts is where the owner finds it.
@@ -118,14 +118,17 @@ type Store interface {
 	// whole set back.
 	InHoldingsTx(ctx context.Context, fn func(HoldingWriter) error) error
 
-	// Transactions
-	CreateTransaction(ctx context.Context, t *entity.Transaction) (*entity.Transaction, error)
-	GetTransaction(ctx context.Context, id string) (*entity.Transaction, error)
-	UpdateTransaction(ctx context.Context, t *entity.Transaction, fields []string) (*entity.Transaction, error)
-	ListTransactions(ctx context.Context, opts ListTransactionsOpts) ([]*entity.Transaction, string, error)
+	// Ledger
+	// CreateLedgerEvent writes the event and its legs together or not at all.
+	// An external_ref the account already has from the same source is
+	// store.ErrAlreadyExists.
+	CreateLedgerEvent(ctx context.Context, e *entity.LedgerEvent) (*entity.LedgerEvent, error)
+	// ListLedgerEvents pages events with all their legs, oldest executed_at first.
+	ListLedgerEvents(ctx context.Context, opts ListLedgerOpts) ([]*entity.LedgerEvent, string, error)
 
 	// UnsolicitedAssets maps each asset with a non-zero position to whether
-	// every such position came from sync and no transaction names it. An
+	// every such position came from sync and no ledger leg outside a sync
+	// names it. An
 	// asset nobody holds is absent.
 	UnsolicitedAssets(ctx context.Context, assetIDs []string) (map[string]bool, error)
 }
@@ -164,14 +167,16 @@ type ListHoldingsOpts struct {
 	OmitExcludedFromTotals bool
 }
 
-// ListTransactionsOpts contains options for listing transactions.
-type ListTransactionsOpts struct {
-	// UserID scopes results to transactions of accounts owned by this user.
+// ListLedgerOpts contains options for listing ledger events.
+type ListLedgerOpts struct {
+	// UserID scopes results to events of accounts owned by this user.
 	UserID    string
 	AccountID string
-	AssetID   string
-	Type      entity.TransactionType
-	Status    entity.TransactionStatus
-	PageSize  int
-	PageToken string
+	// AssetID keeps events with at least one leg in the asset.
+	AssetID string
+	// ExecutedFrom (inclusive) and ExecutedTo (exclusive) bound executed_at; zero is open.
+	ExecutedFrom time.Time
+	ExecutedTo   time.Time
+	PageSize     int
+	PageToken    string
 }

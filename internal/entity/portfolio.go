@@ -201,7 +201,7 @@ func (h *Holding) ReleasableBySync() bool {
 	return h.excluded && h.excludedSource != ExcludedByUser
 }
 
-// ProvenanceSource records how a holding or transaction entered the system.
+// ProvenanceSource records how a holding or ledger event entered the system.
 // It is stamped by the server at creation time and never changed afterwards.
 type ProvenanceSource string
 
@@ -351,42 +351,4 @@ func (h *Holding) StampSource(s ProvenanceSource) error {
 	}
 	h.source = s
 	return nil
-}
-
-// TransactionType represents the type of financial transaction.
-type TransactionType int32
-
-const (
-	TransactionTypeUnspecified TransactionType = iota
-	TransactionTypeExtended                    // Complex transactions: DeFi, NFT, Governance, etc.
-	TransactionTypeTrade                       // Exchanging one asset for another
-	TransactionTypeTransfer                    // Transferring asset between accounts
-	TransactionTypeDeposit                     // Depositing asset into an account
-	TransactionTypeWithdrawal                  // Withdrawing asset from an account
-)
-
-// TransactionStatus represents the current status of a transaction.
-type TransactionStatus int32
-
-const (
-	TransactionStatusUnspecified TransactionStatus = iota
-	TransactionStatusPending
-	TransactionStatusProcessing
-	TransactionStatusCompleted
-	TransactionStatusFailed
-	TransactionStatusCancelled
-)
-
-// Transaction represents a financial event involving assets, accounts, and portfolios.
-type Transaction struct {
-	ID        string
-	Type      TransactionType
-	Status    TransactionStatus
-	AccountID string
-	AssetID   string // Optional, for linking to specific asset
-	Data      map[string]string
-	Source    ProvenanceSource // Creation provenance; immutable after create
-	ImportID  string           // Optional batch id linking rows created by one import
-	CreatedAt time.Time
-	UpdatedAt time.Time
 }

@@ -1007,22 +1007,42 @@ table "price_unasked_deferrals" {
   }
 }
 
-table "transactions" {
+# One thing that happened to an account; its asset movements are ledger_legs.
+table "ledger_events" {
   schema = schema.public
 
   column "id" {
     type = uuid
     null = false
   }
-  column "type" {
-    type = character_varying
+  column "account_id" {
+    type = uuid
     null = false
   }
-  column "status" {
-    type = character_varying
+  column "kind" {
+    type = text
     null = false
   }
-  column "data" {
+  # When the event happened, not when the row was written.
+  column "executed_at" {
+    type = timestamptz
+    null = false
+  }
+  column "external_ref" {
+    type = text
+    null = true
+  }
+  # manual | llm_import | sync:<provider>
+  column "source" {
+    type = text
+    null = false
+  }
+  column "import_id" {
+    type = uuid
+    null = true
+  }
+  # The source payload as received.
+  column "raw" {
     type = jsonb
     null = false
   }
@@ -1034,22 +1054,72 @@ table "transactions" {
     type = timestamptz
     null = false
   }
-  column "account_id" {
+
+  primary_key {
+    columns = [column.id]
+  }
+
+  # Idempotency: a source names an event once per account, so a repeated
+  # import or sync cannot write it twice.
+  index "ledger_events_external_ref" {
+    unique  = true
+    columns = [column.account_id, column.source, column.external_ref]
+    where   = "(external_ref IS NOT NULL)"
+  }
+
+  index "ledger_events_account_executed_at" {
+    columns = [column.account_id, column.executed_at, column.id]
+  }
+
+  check "ledger_events_kind" {
+    expr = "(kind = ANY (ARRAY['trade'::text, 'transfer_in'::text, 'transfer_out'::text, 'deposit'::text, 'withdrawal'::text, 'income'::text, 'fee'::text, 'opening'::text]))"
+  }
+
+  # The ledger is the record of what happened: an account that has one is not
+  # deleted out from under it.
+  foreign_key "ledger_events_accounts" {
+    columns     = [column.account_id]
+    ref_columns = [table.accounts.column.id]
+    on_update   = NO_ACTION
+    on_delete   = NO_ACTION
+  }
+}
+
+# One asset movement of a ledger event. amount is a raw integer scaled by
+# decimals, as on holdings, and never negative: direction carries the sign.
+table "ledger_legs" {
+  schema = schema.public
+
+  column "id" {
     type = uuid
     null = false
   }
-  column "asset_transactions" {
+  column "event_id" {
     type = uuid
-    null = true
+    null = false
   }
-  column "source" {
-    # Creation provenance: sync | manual | llm_import. Default backfills pre-provenance rows as sync.
-    type    = character_varying
-    null    = false
-    default = "sync"
-  }
-  column "import_id" {
+  column "asset_id" {
     type = uuid
+    null = false
+  }
+  column "direction" {
+    type = text
+    null = false
+  }
+  column "role" {
+    type = text
+    null = false
+  }
+  column "amount" {
+    type = numeric
+    null = false
+  }
+  column "decimals" {
+    type = integer
+    null = false
+  }
+  column "chain" {
+    type = text
     null = true
   }
 
@@ -1057,23 +1127,47 @@ table "transactions" {
     columns = [column.id]
   }
 
-  index "transaction_import_id" {
-    columns = [column.import_id]
-    where   = "import_id IS NOT NULL"
+  index "ledger_legs_event_id" {
+    columns = [column.event_id]
   }
 
-  foreign_key "transactions_accounts_transactions" {
-    columns     = [column.account_id]
-    ref_columns = [table.accounts.column.id]
+  index "ledger_legs_asset_id" {
+    columns = [column.asset_id]
+  }
+
+  check "ledger_legs_direction" {
+    expr = "(direction = ANY (ARRAY['in'::text, 'out'::text]))"
+  }
+
+  check "ledger_legs_role" {
+    expr = "(role = ANY (ARRAY['principal'::text, 'counter'::text, 'fee'::text, 'income'::text]))"
+  }
+
+  check "ledger_legs_amount_positive" {
+    expr = "(amount > (0)::numeric)"
+  }
+
+  # A raw amount scaled by decimals: a fraction here means a wrong scale.
+  check "ledger_legs_amount_integer" {
+    expr = "(amount = trunc(amount))"
+  }
+
+  check "ledger_legs_decimals_not_negative" {
+    expr = "(decimals >= 0)"
+  }
+
+  foreign_key "ledger_legs_events" {
+    columns     = [column.event_id]
+    ref_columns = [table.ledger_events.column.id]
     on_update   = NO_ACTION
-    on_delete   = NO_ACTION
+    on_delete   = CASCADE
   }
 
-  foreign_key "transactions_assets_transactions" {
-    columns     = [column.asset_transactions]
+  foreign_key "ledger_legs_assets" {
+    columns     = [column.asset_id]
     ref_columns = [table.assets.column.id]
     on_update   = NO_ACTION
-    on_delete   = SET_NULL
+    on_delete   = NO_ACTION
   }
 }
 
