@@ -1481,6 +1481,12 @@ func TestLedgerEventRoundtrip(t *testing.T) {
 		require.ErrorIs(t, err, store.ErrInvalidArgument)
 	})
 
+	t.Run("the CHECK refuses a fractional raw amount", func(t *testing.T) {
+		_, err := pool.Exec(ctx, `INSERT INTO ledger_legs (id, event_id, asset_id, direction, role, amount, decimals)
+			VALUES ($1, $2, $3, 'in', 'fee', 1.5, 8)`, uuid.Must(uuid.NewV7()).String(), created.ID, btc.ID)
+		require.Error(t, err)
+	})
+
 	t.Run("the CHECK refuses a kind Go would not write", func(t *testing.T) {
 		_, err := pool.Exec(ctx, `INSERT INTO ledger_events (id, account_id, kind, executed_at, source, raw, created_at, updated_at)
 			VALUES ($1, $2, 'swap', NOW(), 'manual', '{}', NOW(), NOW())`, uuid.Must(uuid.NewV7()).String(), account.ID)

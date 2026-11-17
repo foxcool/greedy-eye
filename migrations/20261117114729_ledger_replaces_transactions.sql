@@ -31,6 +31,7 @@ CREATE TABLE "public"."ledger_legs" (
   PRIMARY KEY ("id"),
   CONSTRAINT "ledger_legs_assets" FOREIGN KEY ("asset_id") REFERENCES "public"."assets" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION,
   CONSTRAINT "ledger_legs_events" FOREIGN KEY ("event_id") REFERENCES "public"."ledger_events" ("id") ON UPDATE NO ACTION ON DELETE CASCADE,
+  CONSTRAINT "ledger_legs_amount_integer" CHECK (amount = trunc(amount)),
   CONSTRAINT "ledger_legs_amount_positive" CHECK (amount > (0)::numeric),
   CONSTRAINT "ledger_legs_decimals_not_negative" CHECK (decimals >= 0),
   CONSTRAINT "ledger_legs_direction" CHECK (direction = ANY (ARRAY['in'::text, 'out'::text])),

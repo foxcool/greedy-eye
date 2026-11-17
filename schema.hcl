@@ -1147,6 +1147,11 @@ table "ledger_legs" {
     expr = "(amount > (0)::numeric)"
   }
 
+  # A raw amount scaled by decimals: a fraction here means a wrong scale.
+  check "ledger_legs_amount_integer" {
+    expr = "(amount = trunc(amount))"
+  }
+
   check "ledger_legs_decimals_not_negative" {
     expr = "(decimals >= 0)"
   }

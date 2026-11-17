@@ -615,7 +615,7 @@ image does against it:
 
 | Migration | An image older than it |
 |---|---|
-| `20261117112655_ledger_replaces_transactions` | Drops `transactions`, which an older image reads and writes: its transaction RPCs, ImportTransactions and the paper-trade journal fail (a paper execution ends "holdings applied, journal missing"). Holdings and every other path keep working. Undo by recreating `transactions` from its DDL in the baseline migration; the ledger tables can stay. |
+| `20261117114729_ledger_replaces_transactions` | Drops `transactions`, which an older image reads and writes: its transaction RPCs, ImportTransactions and the paper-trade journal fail (a paper execution ends "holdings applied, journal missing"). Holdings and every other path keep working. Undo by recreating `transactions` from its DDL in the baseline migration; the ledger tables can stay. |
 | `20260923131020_provider_usage_caller` | Cannot flush spend (its `ON CONFLICT` names the old key) and restores one caller's row instead of the sum, so the quota gate under-counts. Roll back to a release that has it, or undo the migration first — summing each key's rows into one before restoring the old key, which a key with several callers would otherwise violate. |
 
 ### A database that predates migrations
