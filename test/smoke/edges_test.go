@@ -248,12 +248,17 @@ func TestEdge_AutomationToPortfolioAndMarketData_ExecuteRule(t *testing.T) {
 	assert.Equal(t, "94500", amounts[eurID], "1000.00 - 55 EUR")
 	assert.Equal(t, "50000000", amounts[coinID], "55 / 110.00 = 0.5, at 8 decimals")
 
-	txs, err := pClient.ListTransactions(ctx, connect.NewRequest(&v1.ListTransactionsRequest{AccountId: &accountID}))
+	ledger, err := pClient.ListLedger(ctx, connect.NewRequest(&v1.ListLedgerRequest{AccountId: accountID}))
 	require.NoError(t, err)
-	require.Len(t, txs.Msg.GetTransactions(), 1)
-	tx := txs.Msg.GetTransactions()[0]
-	assert.Equal(t, v1.TransactionType_TRANSACTION_TYPE_TRADE, tx.GetType())
-	assert.Equal(t, exec.GetId(), tx.GetImportId())
-	assert.Equal(t, []string{tx.GetId()}, exec.GetCreatedTransactionIds())
+	require.Len(t, ledger.Msg.GetEvents(), 1)
+	ev := ledger.Msg.GetEvents()[0]
+	assert.Equal(t, v1.LedgerEventKind_LEDGER_EVENT_KIND_TRADE, ev.GetKind())
+	assert.Equal(t, exec.GetId(), ev.GetImportId())
+	require.Len(t, ev.GetLegs(), 2)
+	assert.Equal(t, coinID, ev.GetLegs()[0].GetAssetId())
+	assert.Equal(t, v1.LedgerLegDirection_LEDGER_LEG_DIRECTION_IN, ev.GetLegs()[0].GetDirection())
+	assert.Equal(t, eurID, ev.GetLegs()[1].GetAssetId())
+	assert.Equal(t, v1.LedgerLegDirection_LEDGER_LEG_DIRECTION_OUT, ev.GetLegs()[1].GetDirection())
+	assert.Equal(t, []string{ev.GetId()}, exec.GetCreatedTransactionIds())
 	assert.Len(t, exec.GetAffectedHoldingIds(), 2)
 }

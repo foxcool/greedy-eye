@@ -300,7 +300,7 @@ graph TB
 graph TB
     subgraph "Connect-RPC Handlers"
         MDS[MarketDataService<br/>assets + prices]
-        PS[PortfolioService<br/>portfolios, accounts<br/>holdings, transactions]
+        PS[PortfolioService<br/>portfolios, accounts<br/>holdings, ledger]
         AS[AutomationService<br/>rules + executions]
         ANS[AnalyticsService<br/>heatmaps]
         SET[SettingsService<br/>per-user preferences]
@@ -368,10 +368,11 @@ graph TB
   of a valuation, and both the portfolio total and the analytics heatmap embed the same block
 
 **PortfolioService** (`internal/service/portfolio/`):
-- RPCs implemented: full CRUD for Portfolio, Account, Holding, Transaction; DeleteHolding;
+- RPCs implemented: full CRUD for Portfolio, Account, Holding; DeleteHolding;
   CalculatePortfolioValue (with `ValuationCoverage`); SyncAccount (wallet balances across eight
   ecosystems, exchange balances via Binance, broker positions via T-Invest);
-  ImportPositions / ImportTransactions;
+  ImportPositions / ImportTransactions (the latter writes ledger events);
+  ListLedger (an account's ledger events with their legs; see Ledger below);
   ListProviders (the adapter registry's descriptors — see External Adapters below);
   GetAccountSweepSchedule / ResetAccountSweepSchedule (which accounts the balance sweep is
   standing down, why and until when — and forgiving that back-off, so repairing a credential
@@ -388,6 +389,23 @@ graph TB
   `import_id`. Every written row is stamped with `source` and `import_id` server-side, so imported
   data is always distinguishable from synced data. `full_snapshot=true` reconciles: positions absent
   from the payload are zeroed rather than left stale
+- **Ledger**: what happened to an account is recorded as `ledger_events` with their
+  `ledger_legs`. An event has a `kind` (trade, transfer_in, transfer_out, deposit, withdrawal,
+  income, fee, opening — checked in Go and by a CHECK), `executed_at` (when it happened, not when
+  the row was written), `source` (`manual`, `llm_import` or `sync:<provider>`), `import_id`,
+  `external_ref` and `raw` (the source payload as received, never returned by the API). Each leg
+  is one asset movement: `asset_id`, `direction` (in/out), `role` (principal, counter, fee,
+  income), `amount` + `decimals` (a raw integer, as on holdings; never negative — direction
+  carries the sign) and an optional `chain`. So a buy of BTC for USDT with a fee in BNB is one
+  event with three legs, which the single-asset `transactions` row it replaced could not hold.
+  The event and its legs are written in one database transaction, and an event has at least one
+  leg. Idempotency: `external_ref` is unique per (account, source), so a repeated import or sync
+  cannot record an event twice. ImportTransactions (manual accounts only, dry-run plan first)
+  skips an item whose `external_ref` the account already has from an import, and an item without
+  one whose kind, `executed_at` and legs all match an imported event; re-importing an export
+  writes nothing. ListLedger is scoped to the caller's accounts the way ListHoldings is: a
+  foreign account reads as an empty page. No sync writes ledger events yet, and there is no
+  valuation of legs
 - Ownership: every by-ID and list RPC enforces caller ownership (`middleware.EnsureOwner`);
   `user_id` list overrides are admin-only. See §8.1.
 - Accounts carry a capability model (capabilities + admin-managed system_scopes) and encrypted
@@ -406,8 +424,10 @@ graph TB
   a price missing or more than an hour old fails the plan). Venues: a `manual` account trades
   on paper — the paper venue is the only thing that moves its holdings, writing absolute
   amounts through ImportPositions under `import_id` = execution id. A filled trade on a manual
-  account is journaled as a TRADE transaction through ImportTransactions
-  (`external_id` = `<execution_id>:<trade index>`); other accounts are not journaled here, since
+  account is journaled through ImportTransactions as a trade ledger event — the base as the
+  principal leg, the quote as the counter leg moving the other way, side, price and execution id
+  in `raw` (`external_ref` = `<execution_id>:<trade index>`, `import_id` = execution id); other
+  accounts are not journaled here, since
   ImportTransactions takes manual accounts only and a chain account's holdings come from its
   sync (ADR-012).
 - Before a trade reaches its venue the account's trading policy must allow it
@@ -1039,7 +1059,7 @@ Cron / API Client → AutomationService/ExecuteRule
   4. CreateRuleExecution(status=in_progress)
   5. Venue by account type (manual → paper): per trade, under a per-account lock,
      read holdings → paperFill → ImportPositions (absolute amounts, import_id = execution id)
-  6. Journal: ImportTransactions, one TRADE per filled trade
+  6. Journal: ImportTransactions, one trade ledger event per filled trade
      (failure here → failed, "holdings applied, journal missing", affected_holding_ids set)
   7. UpdateRuleExecution(status from the trades, completed_at, created_transaction_ids,
      affected_holding_ids, execution_summary)
@@ -1130,7 +1150,7 @@ Cron / API Client → AutomationService/ExecuteRule
   `cmd/eye/ports.go` makes the build fail when a port stops being such a subset.
 - **Ownership enforcement**: every by-ID RPC loads the entity and requires the caller to be its
   owner or an admin (`middleware.EnsureOwner`), returning `NotFound` for foreign IDs so their
-  existence isn't leaked. Holdings/transactions inherit ownership through their account.
+  existence isn't leaked. Holdings and ledger events inherit ownership through their account.
   `user_id` list overrides are admin-only.
 - **Admin-gated mutations**: sharing account credentials system-wide (`system_scopes`) requires the
   admin role and an explicit update mask. Every write to the asset catalogue is admin-only too —
@@ -1406,7 +1426,7 @@ somebody chose, since that would report one currency's number under another curr
 - **Context**: Initial design had 8 gRPC services (Storage, User, Asset, Portfolio, Price, Rule,
   Auth, Messenger). This caused excessive indirection and coupling.
 - **Decision**: Consolidate into 3 domain services: MarketDataService (assets + prices),
-  PortfolioService (portfolios, accounts, holdings, transactions), AutomationService (rules + executions).
+  PortfolioService (portfolios, accounts, holdings, ledger), AutomationService (rules + executions).
   A fourth, AnalyticsService, was added later (2026-07) for derived read-only views; it owns no
   store, which is what keeps it a separate service rather than a fourth data owner. A fifth,
   SettingsService (2026-08), stores per-user preferences; it is not a domain service — it exists
@@ -1902,9 +1922,9 @@ somebody chose, since that would report one currency's number under another curr
   independent copy of the policy inside the signer, because there no person looks.
 
   **Holdings** of a Safe account change only through wallet sync. The execution keeps the
-  `safeTxHash`, the transaction hash and what the receipt says was swapped; no TRADE row is
-  journaled until the ledger can hold one for a non-manual account, so a confirmed trade and the
-  next sync cannot count the same delta twice.
+  `safeTxHash`, the transaction hash and what the receipt says was swapped; no trade ledger event
+  is journaled for it, because a non-manual account's ledger is its sync's to write, so a
+  confirmed trade and the next sync cannot count the same delta twice.
 - **Consequences**:
   - ➕ No key in GE can move funds in propose; a compromised instance can at worst propose a
     transaction the owner refuses
@@ -1913,7 +1933,7 @@ somebody chose, since that would report one currency's number under another curr
   - ➕ The same rule moves from paper to real money by changing its account
   - ➖ Every propose trade needs a person; a missed signature skips that period's purchase
   - ➖ EVM chains with a Safe deployment only; other networks need their own signing path
-  - ➖ A real trade has no row in the transaction journal until the ledger supports it
+  - ➖ A real trade has no ledger event until a wallet sync writes them
 - **Rejected**: an `execution_mode` flag on the rule (one account could run the same plan two
   ways, and paper would become a flag rather than a property of the portfolio); a seed or private
   key stored in `accounts.data` (unscoped and irreversible, see Context); a key the user pastes as
@@ -2085,7 +2105,8 @@ System Quality
 | **Holding** | Current position of a specific asset within an Account |
 | **Account** | User's connection to an exchange, wallet, or broker |
 | **Rule** | Portfolio automation rule (DCA, rebalancing, stop-loss, withdrawal) |
-| **RuleExecution** | Single run of a Rule, with status and transaction references |
+| **RuleExecution** | Single run of a Rule, with status and the ledger events it journaled |
+| **Ledger event** | One thing that happened to an account (trade, transfer, deposit, income, ...) at `executed_at`, with one leg per asset it moved |
 | **ValuationCoverage** | Block on a valuation response naming the holdings it could not price |
 | **Identity verdict** | The scam filter's judgement of an asset: `unknown`, `legit`, `suspect`, `scam`, `impersonation` |
 | **Quarantine** | Holdings excluded from sums by a scam/impersonation verdict; still synced and visible |

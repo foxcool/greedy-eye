@@ -358,20 +358,22 @@ func (h *Handler) submit(ctx context.Context, p prepared, executionID string, re
 	return results, nil
 }
 
-// journal records every filled trade of a manual account as a TRADE
-// transaction under import_id = the execution id. Other accounts are not
-// journaled here: ImportTransactions takes manual accounts only, and a
-// chain account's holdings come from its sync (ADR-012); its trades wait for
-// the ledger.
+// journal records every filled trade of a manual account as a trade ledger
+// event under import_id = the execution id. Other accounts are not journaled
+// here: ImportTransactions takes manual accounts only, and a chain account's
+// holdings come from its sync (ADR-012); its trades wait for a sync that
+// writes ledger events.
 func (h *Handler) journal(ctx context.Context, account execution.Account, executionID string, results []execution.TradeResult) ([]string, error) {
 	if account.Type != apiv1.AccountType_ACCOUNT_TYPE_MANUAL {
 		return nil, nil
 	}
 	accountID := account.ID
+	// A paper fill happens when the venue answers, just before this write.
+	executedAt := time.Now()
 	var items []*apiv1.ImportTransactionItem
 	for i, r := range results {
 		if r.State == execution.StateFilled {
-			items = append(items, execution.JournalItem(execution.Key{ExecutionID: executionID, Index: i}, r))
+			items = append(items, execution.JournalItem(execution.Key{ExecutionID: executionID, Index: i}, r, executedAt))
 		}
 	}
 	if len(items) == 0 {
@@ -390,8 +392,8 @@ func (h *Handler) journal(ctx context.Context, account execution.Account, execut
 		switch {
 		case item.Error != nil:
 			failed = append(failed, fmt.Sprintf("item %d: %s", item.GetIndex(), item.GetError()))
-		case item.TransactionId != nil:
-			ids = append(ids, item.GetTransactionId())
+		case item.EventId != nil:
+			ids = append(ids, item.GetEventId())
 		}
 	}
 	if len(failed) > 0 {

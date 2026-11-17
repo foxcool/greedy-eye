@@ -1413,38 +1413,79 @@ func TestHoldingProvenanceRoundtrip(t *testing.T) {
 	})
 }
 
-func TestTransactionProvenanceRoundtrip(t *testing.T) {
+// TestLedgerEventRoundtrip: an event and its legs are written together and
+// read back together; a leg the database refuses takes the event with it.
+func TestLedgerEventRoundtrip(t *testing.T) {
 	pool := getTestPool(t)
-	users := NewUserStore(pool)
 	s := NewPortfolioStore(pool)
+	assets := NewMarketDataStore(pool)
 	ctx := context.Background()
 
-	user := createTestUser(t, users)
+	user := createTestUser(t, NewUserStore(pool))
+	account, err := s.CreateAccount(ctx, &entity.Account{UserID: user.ID, Name: "ledger", Type: entity.AccountTypeManual})
+	require.NoError(t, err)
+	btc := createTestAsset(t, assets, "Ledger BTC")
+	usdt := createTestAsset(t, assets, "Ledger USDT")
+	executedAt := time.Date(2026, 3, 14, 12, 0, 0, 123456000, time.UTC)
 
-	account, err := s.CreateAccount(ctx, &entity.Account{
-		UserID: user.ID,
-		Name:   "manual tx stash",
-		Type:   entity.AccountTypeManual,
-	})
+	trade := func(ref string, quoteAssetID string) *entity.LedgerEvent {
+		return &entity.LedgerEvent{
+			AccountID: account.ID, Kind: entity.LedgerKindTrade, ExecutedAt: executedAt, ExternalRef: ref,
+			Source: string(entity.SourceManual), Raw: []byte(`{"note":"as received"}`),
+			Legs: []entity.LedgerLeg{
+				{AssetID: btc.ID, Direction: entity.LedgerIn, Role: entity.LedgerRolePrincipal, Amount: decimal.NewFromInt(25), Decimals: 4, Chain: "bitcoin"},
+				{AssetID: quoteAssetID, Direction: entity.LedgerOut, Role: entity.LedgerRoleCounter, Amount: decimal.NewFromInt(100), Decimals: 0},
+			},
+		}
+	}
+
+	created, err := s.CreateLedgerEvent(ctx, trade("ref-1", usdt.ID))
 	require.NoError(t, err)
 
-	created, err := s.CreateTransaction(ctx, &entity.Transaction{
-		AccountID: account.ID,
-		Type:      entity.TransactionTypeDeposit,
-		Source:    entity.SourceManual,
-	})
+	got, next, err := s.ListLedgerEvents(ctx, portfolio.ListLedgerOpts{AccountID: account.ID})
 	require.NoError(t, err)
+	assert.Empty(t, next)
+	require.Len(t, got, 1)
+	ev := got[0]
+	assert.Equal(t, created.ID, ev.ID)
+	assert.Equal(t, entity.LedgerKindTrade, ev.Kind)
+	assert.True(t, executedAt.Equal(ev.ExecutedAt))
+	assert.Equal(t, "ref-1", ev.ExternalRef)
+	assert.Equal(t, "manual", ev.Source)
+	assert.JSONEq(t, `{"note":"as received"}`, string(ev.Raw))
+	require.Len(t, ev.Legs, 2)
+	assert.Equal(t, btc.ID, ev.Legs[0].AssetID)
+	assert.Equal(t, "25", ev.Legs[0].Amount.String())
+	assert.Equal(t, uint32(4), ev.Legs[0].Decimals)
+	assert.Equal(t, "bitcoin", ev.Legs[0].Chain)
+	assert.Equal(t, entity.LedgerOut, ev.Legs[1].Direction)
+	assert.Empty(t, ev.Legs[1].Chain)
 
-	got, err := s.GetTransaction(ctx, created.ID)
-	require.NoError(t, err)
-	assert.Equal(t, entity.SourceManual, got.Source)
-	assert.Empty(t, got.ImportID)
-
-	_, err = s.CreateTransaction(ctx, &entity.Transaction{
-		AccountID: account.ID,
-		Type:      entity.TransactionTypeDeposit,
+	t.Run("the same ref from the same source is already there", func(t *testing.T) {
+		_, err := s.CreateLedgerEvent(ctx, trade("ref-1", usdt.ID))
+		require.ErrorIs(t, err, store.ErrAlreadyExists)
 	})
-	require.ErrorIs(t, err, store.ErrInvalidArgument)
+
+	t.Run("a refused leg takes its event with it", func(t *testing.T) {
+		_, err := s.CreateLedgerEvent(ctx, trade("ref-2", uuid.Must(uuid.NewV7()).String()))
+		require.Error(t, err)
+		var n int
+		require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM ledger_events WHERE external_ref = 'ref-2'").Scan(&n))
+		assert.Zero(t, n)
+	})
+
+	t.Run("an invalid event is refused before SQL", func(t *testing.T) {
+		e := trade("ref-3", usdt.ID)
+		e.Source = ""
+		_, err := s.CreateLedgerEvent(ctx, e)
+		require.ErrorIs(t, err, store.ErrInvalidArgument)
+	})
+
+	t.Run("the CHECK refuses a kind Go would not write", func(t *testing.T) {
+		_, err := pool.Exec(ctx, `INSERT INTO ledger_events (id, account_id, kind, executed_at, source, raw, created_at, updated_at)
+			VALUES ($1, $2, 'swap', NOW(), 'manual', '{}', NOW(), NOW())`, uuid.Must(uuid.NewV7()).String(), account.ID)
+		require.Error(t, err)
+	})
 }
 
 // TestInHoldingsTxRollsBackTheWholeSnapshot: a sync rewrites the picture of an
@@ -1941,7 +1982,8 @@ func TestChainFailuresRunUntilTheChainAnswers(t *testing.T) {
 }
 
 // TestUnsolicitedAssets: an asset is unsolicited only while every live
-// position in it came from sync and nobody recorded a transaction on it.
+// position in it came from sync and nobody recorded a ledger event on it; an
+// event a sync wrote is not a person's record.
 func TestUnsolicitedAssets(t *testing.T) {
 	pool := getTestPool(t)
 	s := NewPortfolioStore(pool)
@@ -1974,11 +2016,17 @@ func TestUnsolicitedAssets(t *testing.T) {
 
 	traded := createTestAsset(t, assets, "Unsolicited Traded")
 	hold(traded.ID, "100", entity.SourceSync)
-	_, err = s.CreateTransaction(ctx, &entity.Transaction{
-		Type: entity.TransactionTypeTrade, Status: entity.TransactionStatusCompleted,
-		AccountID: account.ID, AssetID: traded.ID, Data: map[string]string{}, Source: entity.SourceManual,
-	})
-	require.NoError(t, err)
+	record := func(assetID, source string) {
+		_, err := s.CreateLedgerEvent(ctx, &entity.LedgerEvent{
+			AccountID: account.ID, Kind: entity.LedgerKindDeposit, ExecutedAt: time.Now(), Source: source,
+			Legs: []entity.LedgerLeg{{AssetID: assetID, Direction: entity.LedgerIn, Role: entity.LedgerRolePrincipal,
+				Amount: decimal.NewFromInt(1), Decimals: 8}},
+		})
+		require.NoError(t, err)
+	}
+	record(traded.ID, string(entity.SourceManual))
+	// A sync's own record of the airdrop is not a person asking for it.
+	record(airdrop.ID, entity.LedgerSyncSource("moralis"))
 
 	entered := createTestAsset(t, assets, "Unsolicited Entered")
 	hold(entered.ID, "100", entity.SourceSync)

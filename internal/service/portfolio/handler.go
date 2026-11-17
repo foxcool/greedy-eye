@@ -214,18 +214,6 @@ func (h *Handler) ownedHolding(ctx context.Context, id string) (*entity.Holding,
 	return hld, nil
 }
 
-// ownedTransaction loads a transaction and enforces ownership via its account.
-func (h *Handler) ownedTransaction(ctx context.Context, id string) (*entity.Transaction, error) {
-	t, err := h.store.GetTransaction(ctx, id)
-	if err != nil {
-		return nil, toConnectError(err)
-	}
-	if _, err := h.ownedAccount(ctx, t.AccountID); err != nil {
-		return nil, err
-	}
-	return t, nil
-}
-
 func (h *Handler) CreatePortfolio(ctx context.Context, req *connect.Request[apiv1.CreatePortfolioRequest]) (*connect.Response[apiv1.Portfolio], error) {
 	if req.Msg.Portfolio == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("portfolio is required"))
@@ -1456,22 +1444,22 @@ func (h *Handler) DeleteAccount(ctx context.Context, req *connect.Request[apiv1.
 	}
 
 	if err := del(ctx, req.Msg.Id); err != nil {
-		// Holdings and transactions reference the account, so deleting one that
+		// Holdings and ledger events reference the account, so deleting one that
 		// still owns rows is refused by the database. "Existing dependencies"
 		// does not tell the caller what to clear, so name the positions.
 		if errors.Is(err, store.ErrConstraint) {
 			// With cascade the holdings are already gone, so whatever remains
-			// is transaction history — which this path never removes.
+			// is ledger history — which this path never removes.
 			if req.Msg.Cascade {
 				return nil, connect.NewError(connect.CodeFailedPrecondition,
-					errors.New("account has transaction history, which is never deleted automatically; remove the transactions first"))
+					errors.New("account has ledger history, which is never deleted automatically"))
 			}
 			if n, countErr := h.countHoldings(ctx, req.Msg.Id); countErr == nil && n > 0 {
 				return nil, connect.NewError(connect.CodeFailedPrecondition,
 					fmt.Errorf("account still holds %d position(s); delete them before deleting the account", n))
 			}
 			return nil, connect.NewError(connect.CodeFailedPrecondition,
-				errors.New("account still has transactions; they must be removed before deleting the account"))
+				errors.New("account has ledger history, which is never deleted automatically"))
 		}
 		return nil, toConnectError(err)
 	}
@@ -2955,105 +2943,44 @@ func isQuarantineVerdict(verdict string) bool {
 		verdict == string(scamfilter.VerdictImpersonation)
 }
 
-// --- Transaction CRUD ---
+// --- Ledger ---
 
-func (h *Handler) CreateTransaction(ctx context.Context, req *connect.Request[apiv1.CreateTransactionRequest]) (*connect.Response[apiv1.Transaction], error) {
-	if req.Msg.Transaction == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("transaction is required"))
-	}
-
-	tx := transactionFromProto(req.Msg.Transaction)
-	// Provenance is server-stamped: everything created through this RPC is manual.
-	tx.Source = entity.SourceManual
-	// The target account must belong to the caller.
-	if _, err := h.ownedAccount(ctx, tx.AccountID); err != nil {
-		return nil, err
-	}
-	created, err := h.store.CreateTransaction(ctx, tx)
-	if err != nil {
-		return nil, toConnectError(err)
-	}
-
-	return connect.NewResponse(transactionToProto(created)), nil
-}
-
-func (h *Handler) GetTransaction(ctx context.Context, req *connect.Request[apiv1.GetTransactionRequest]) (*connect.Response[apiv1.Transaction], error) {
-	if req.Msg.Id == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("transaction ID is required"))
-	}
-
-	tx, err := h.ownedTransaction(ctx, req.Msg.Id)
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(transactionToProto(tx)), nil
-}
-
-func (h *Handler) UpdateTransaction(ctx context.Context, req *connect.Request[apiv1.UpdateTransactionRequest]) (*connect.Response[apiv1.Transaction], error) {
-	if req.Msg.Transaction == nil || req.Msg.Transaction.Id == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("transaction with ID is required"))
-	}
-
-	if _, err := h.ownedTransaction(ctx, req.Msg.Transaction.Id); err != nil {
-		return nil, err
-	}
-
-	fields, err := resolveMask(req.Msg.UpdateMask, transactionUpdatable)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-
-	tx := transactionFromProto(req.Msg.Transaction)
-	updated, err := h.store.UpdateTransaction(ctx, tx, fields)
-	if err != nil {
-		return nil, toConnectError(err)
-	}
-
-	return connect.NewResponse(transactionToProto(updated)), nil
-}
-
-func (h *Handler) ListTransactions(ctx context.Context, req *connect.Request[apiv1.ListTransactionsRequest]) (*connect.Response[apiv1.ListTransactionsResponse], error) {
+// ListLedger returns an account's ledger events with their legs. The list is
+// scoped to the caller's accounts the way ListHoldings is, so a foreign or
+// unknown account reads as an empty page rather than an error that confirms it
+// exists. Raw source payloads stay server-side.
+func (h *Handler) ListLedger(ctx context.Context, req *connect.Request[apiv1.ListLedgerRequest]) (*connect.Response[apiv1.ListLedgerResponse], error) {
 	user, ok := middleware.UserFromContext(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
 	}
-
-	// Admins see everything; everyone else only their own accounts' transactions.
-	opts := ListTransactionsOpts{}
-	if !user.IsAdmin() {
-		opts.UserID = user.ID
-	}
-	if req.Msg.AccountId != nil {
-		opts.AccountID = *req.Msg.AccountId
-	}
-	if req.Msg.Type != nil {
-		opts.Type = entity.TransactionType(*req.Msg.Type)
-	}
-	if req.Msg.Status != nil {
-		opts.Status = entity.TransactionStatus(*req.Msg.Status)
-	}
-	if req.Msg.PageSize != nil {
-		opts.PageSize = int(*req.Msg.PageSize)
-	}
-	if req.Msg.PageToken != nil {
-		opts.PageToken = *req.Msg.PageToken
+	if req.Msg.AccountId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account_id is required"))
 	}
 
-	transactions, nextPageToken, err := h.store.ListTransactions(ctx, opts)
+	opts := ListLedgerOpts{
+		UserID:    user.ID,
+		AccountID: req.Msg.AccountId,
+		AssetID:   req.Msg.GetAssetId(),
+		PageSize:  int(req.Msg.GetPageSize()),
+		PageToken: req.Msg.GetPageToken(),
+	}
+	if req.Msg.ExecutedFrom != nil {
+		opts.ExecutedFrom = req.Msg.ExecutedFrom.AsTime()
+	}
+	if req.Msg.ExecutedTo != nil {
+		opts.ExecutedTo = req.Msg.ExecutedTo.AsTime()
+	}
+
+	events, nextPageToken, err := h.store.ListLedgerEvents(ctx, opts)
 	if err != nil {
 		return nil, toConnectError(err)
 	}
-
-	protoTransactions := make([]*apiv1.Transaction, 0, len(transactions))
-	for _, t := range transactions {
-		protoTransactions = append(protoTransactions, transactionToProto(t))
+	out := make([]*apiv1.LedgerEvent, 0, len(events))
+	for _, e := range events {
+		out = append(out, ledgerEventToProto(e))
 	}
-
-	return connect.NewResponse(&apiv1.ListTransactionsResponse{
-		Transactions:  protoTransactions,
-		NextPageToken: nextPageToken,
-	}), nil
+	return connect.NewResponse(&apiv1.ListLedgerResponse{Events: out, NextPageToken: nextPageToken}), nil
 }
 
 // --- Converters ---
@@ -3315,18 +3242,6 @@ func maskSecrets(data map[string]string) map[string]string {
 	return masked
 }
 
-func transactionFromProto(t *apiv1.Transaction) *entity.Transaction {
-	// Provenance fields (source, import_id) are deliberately not mapped:
-	// they are output-only and stamped by the server.
-	return &entity.Transaction{
-		ID:        t.Id,
-		Type:      entity.TransactionType(t.Type),
-		Status:    entity.TransactionStatus(t.Status),
-		AccountID: t.AccountId,
-		Data:      t.Data,
-	}
-}
-
 // splitChains splits a comma-separated chain string, defaulting to ["eth"] when empty.
 func splitChains(raw string) []string {
 	raw = strings.TrimSpace(raw)
@@ -3360,19 +3275,86 @@ func splitAddresses(raw string) []string {
 	return result
 }
 
-func transactionToProto(t *entity.Transaction) *apiv1.Transaction {
-	result := &apiv1.Transaction{
-		Id:        t.ID,
-		Type:      apiv1.TransactionType(t.Type),
-		Status:    apiv1.TransactionStatus(t.Status),
-		AccountId: t.AccountID,
-		Data:      t.Data,
-		Source:    provenanceToProto(t.Source),
-		CreatedAt: timestamppb.New(t.CreatedAt),
-		UpdatedAt: timestamppb.New(t.UpdatedAt),
+// ledgerEventToProto leaves Raw out on purpose: the source payload can carry
+// whatever the export had, and the API answers with the ledger, not the input.
+func ledgerEventToProto(e *entity.LedgerEvent) *apiv1.LedgerEvent {
+	out := &apiv1.LedgerEvent{
+		Id:         e.ID,
+		AccountId:  e.AccountID,
+		Kind:       ledgerKindToProto[e.Kind],
+		ExecutedAt: timestamppb.New(e.ExecutedAt),
+		Source:     e.Source,
+		CreatedAt:  timestamppb.New(e.CreatedAt),
+		UpdatedAt:  timestamppb.New(e.UpdatedAt),
 	}
-	if t.ImportID != "" {
-		result.ImportId = &t.ImportID
+	if e.ExternalRef != "" {
+		out.ExternalRef = &e.ExternalRef
 	}
-	return result
+	if e.ImportID != "" {
+		out.ImportId = &e.ImportID
+	}
+	for _, l := range e.Legs {
+		out.Legs = append(out.Legs, &apiv1.LedgerLeg{
+			Id:        l.ID,
+			AssetId:   l.AssetID,
+			Direction: ledgerDirectionToProto[l.Direction],
+			Role:      ledgerRoleToProto[l.Role],
+			Amount:    l.Amount.String(),
+			Decimals:  l.Decimals,
+			Chain:     l.Chain,
+		})
+	}
+	return out
+}
+
+var ledgerKindToProto = map[entity.LedgerEventKind]apiv1.LedgerEventKind{
+	entity.LedgerKindTrade:       apiv1.LedgerEventKind_LEDGER_EVENT_KIND_TRADE,
+	entity.LedgerKindTransferIn:  apiv1.LedgerEventKind_LEDGER_EVENT_KIND_TRANSFER_IN,
+	entity.LedgerKindTransferOut: apiv1.LedgerEventKind_LEDGER_EVENT_KIND_TRANSFER_OUT,
+	entity.LedgerKindDeposit:     apiv1.LedgerEventKind_LEDGER_EVENT_KIND_DEPOSIT,
+	entity.LedgerKindWithdrawal:  apiv1.LedgerEventKind_LEDGER_EVENT_KIND_WITHDRAWAL,
+	entity.LedgerKindIncome:      apiv1.LedgerEventKind_LEDGER_EVENT_KIND_INCOME,
+	entity.LedgerKindFee:         apiv1.LedgerEventKind_LEDGER_EVENT_KIND_FEE,
+	entity.LedgerKindOpening:     apiv1.LedgerEventKind_LEDGER_EVENT_KIND_OPENING,
+}
+
+var ledgerDirectionToProto = map[entity.LedgerDirection]apiv1.LedgerLegDirection{
+	entity.LedgerIn:  apiv1.LedgerLegDirection_LEDGER_LEG_DIRECTION_IN,
+	entity.LedgerOut: apiv1.LedgerLegDirection_LEDGER_LEG_DIRECTION_OUT,
+}
+
+var ledgerRoleToProto = map[entity.LedgerRole]apiv1.LedgerLegRole{
+	entity.LedgerRolePrincipal: apiv1.LedgerLegRole_LEDGER_LEG_ROLE_PRINCIPAL,
+	entity.LedgerRoleCounter:   apiv1.LedgerLegRole_LEDGER_LEG_ROLE_COUNTER,
+	entity.LedgerRoleFee:       apiv1.LedgerLegRole_LEDGER_LEG_ROLE_FEE,
+	entity.LedgerRoleIncome:    apiv1.LedgerLegRole_LEDGER_LEG_ROLE_INCOME,
+}
+
+// protoLedgerKind and its siblings invert the maps above; an unknown or
+// unspecified value comes back as "" and fails entity validation.
+func protoLedgerKind(k apiv1.LedgerEventKind) entity.LedgerEventKind {
+	for e, p := range ledgerKindToProto {
+		if p == k {
+			return e
+		}
+	}
+	return ""
+}
+
+func protoLedgerDirection(d apiv1.LedgerLegDirection) entity.LedgerDirection {
+	for e, p := range ledgerDirectionToProto {
+		if p == d {
+			return e
+		}
+	}
+	return ""
+}
+
+func protoLedgerRole(r apiv1.LedgerLegRole) entity.LedgerRole {
+	for e, p := range ledgerRoleToProto {
+		if p == r {
+			return e
+		}
+	}
+	return ""
 }

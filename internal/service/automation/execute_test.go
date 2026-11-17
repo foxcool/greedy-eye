@@ -32,15 +32,15 @@ const (
 )
 
 // fakePortfolio is an in-memory portfolio service for one manual account.
-// Imports apply absolute amounts and record transactions, like the real ones.
+// Imports apply absolute amounts and record ledger events, like the real ones.
 type fakePortfolio struct {
-	mu           sync.Mutex
-	accountType  apiv1.AccountType
-	portfolioID  string
-	holdings     []*apiv1.Holding
-	positions    []*apiv1.ImportPositionsRequest
-	transactions []*apiv1.Transaction
-	journalErr   error
+	mu          sync.Mutex
+	accountType apiv1.AccountType
+	portfolioID string
+	holdings    []*apiv1.Holding
+	positions   []*apiv1.ImportPositionsRequest
+	events      []journaled
+	journalErr  error
 	// journalItemErr fails every journal item the way ImportTransactions
 	// reports a per-item failure: in the response, not as an error.
 	journalItemErr string
@@ -83,14 +83,17 @@ func (f *fakePortfolio) ImportTransactions(_ context.Context, req *connect.Reque
 			resp.Failed++
 			continue
 		}
-		id := "tx-" + item.GetExternalId()
-		importID := req.Msg.GetImportId()
-		f.transactions = append(f.transactions, &apiv1.Transaction{
-			Id: id, Type: item.Type, AccountId: req.Msg.AccountId, Data: item.Data, ImportId: &importID,
-		})
-		resp.Items = append(resp.Items, &apiv1.ImportTransactionResult{Index: int32(i), TransactionId: &id})
+		id := "ev-" + item.GetExternalRef()
+		f.events = append(f.events, journaled{id: id, importID: req.Msg.GetImportId(), item: item})
+		resp.Items = append(resp.Items, &apiv1.ImportTransactionResult{Index: int32(i), EventId: &id})
 	}
 	return connect.NewResponse(resp), nil
+}
+
+// journaled is one ledger event the fake recorded, as the import received it.
+type journaled struct {
+	id, importID string
+	item         *apiv1.ImportTransactionItem
 }
 
 func (f *fakePortfolio) amount(assetID string) string {
@@ -451,15 +454,23 @@ func TestExecuteRule_DCAOnPaper(t *testing.T) {
 	require.Len(t, pc.positions, 1)
 	assert.Equal(t, testExecID, pc.positions[0].GetImportId(), "fills are imported under the execution id")
 
-	require.Len(t, pc.transactions, 1)
-	tx := pc.transactions[0]
-	assert.Equal(t, apiv1.TransactionType_TRANSACTION_TYPE_TRADE, tx.Type)
-	assert.Equal(t, testExecID, tx.GetImportId())
-	assert.Equal(t, "0.0025", tx.Data["amount"])
-	assert.Equal(t, "100", tx.Data["quote_amount"])
-	assert.Equal(t, testExecID, tx.Data["execution_id"])
+	require.Len(t, pc.events, 1)
+	ev := pc.events[0]
+	assert.Equal(t, apiv1.LedgerEventKind_LEDGER_EVENT_KIND_TRADE, ev.item.Kind)
+	assert.Equal(t, testExecID, ev.importID)
+	require.Len(t, ev.item.Legs, 2)
+	principal, counter := ev.item.Legs[0], ev.item.Legs[1]
+	assert.Equal(t, apiv1.LedgerLegRole_LEDGER_LEG_ROLE_PRINCIPAL, principal.Role)
+	assert.Equal(t, testBase, principal.GetAssetId())
+	assert.Equal(t, apiv1.LedgerLegDirection_LEDGER_LEG_DIRECTION_IN, principal.Direction)
+	assert.Equal(t, "0.0025", principal.Amount)
+	assert.Equal(t, apiv1.LedgerLegRole_LEDGER_LEG_ROLE_COUNTER, counter.Role)
+	assert.Equal(t, testQuote, counter.GetAssetId())
+	assert.Equal(t, apiv1.LedgerLegDirection_LEDGER_LEG_DIRECTION_OUT, counter.Direction)
+	assert.Equal(t, "100", counter.Amount)
+	assert.Equal(t, testExecID, ev.item.Raw["execution_id"])
 
-	assert.Equal(t, []string{"tx-" + testExecID + ":0"}, final.CreatedTransactionIDs)
+	assert.Equal(t, []string{"ev-" + testExecID + ":0"}, final.CreatedTransactionIDs)
 	assert.Equal(t, int32(1), final.TransactionsCreated)
 	assert.ElementsMatch(t, []string{"h-q", "h-new-" + testBase}, final.AffectedHoldingIDs)
 	assert.Contains(t, string(final.ExecutionSummary), `"state":"filled"`)
@@ -482,7 +493,7 @@ func TestExecuteRule_DryRunChangesNothing(t *testing.T) {
 	s.AssertNotCalled(t, "CreateRuleExecution", mock.Anything, mock.Anything)
 	s.AssertNotCalled(t, "UpdateRuleExecution", mock.Anything, mock.Anything, mock.Anything)
 	assert.Empty(t, pc.positions, "no holding written")
-	assert.Empty(t, pc.transactions, "no transaction written")
+	assert.Empty(t, pc.events, "no ledger event written")
 	assert.Equal(t, "100000", pc.amount(testQuote))
 	assert.Empty(t, pc.amount(testBase))
 }
@@ -535,19 +546,19 @@ func TestExecuteRule_InsufficientFundsFails(t *testing.T) {
 	assert.Equal(t, apiv1.ExecutionStatus_EXECUTION_STATUS_FAILED, resp.Msg.Execution.Status)
 	assert.Contains(t, final.ErrorMessage, "insufficient "+testQuote)
 	assert.Empty(t, pc.positions)
-	assert.Empty(t, pc.transactions, "a rejected trade is not journaled")
+	assert.Empty(t, pc.events, "a rejected trade is not journaled")
 }
 
 func TestExecuteRule_JournalItemFails(t *testing.T) {
 	s := &mockStore{}
 	h, pc := paperSetup(t, s)
-	pc.journalItemErr = "create transaction: boom"
+	pc.journalItemErr = "create ledger event: boom"
 	final := expectRun(s)
 
 	resp, err := h.ExecuteRule(ownerCtx(), connect.NewRequest(&apiv1.ExecuteRuleRequest{RuleId: "r-1"}))
 	require.NoError(t, err)
 	assert.Equal(t, apiv1.ExecutionStatus_EXECUTION_STATUS_FAILED, resp.Msg.Execution.Status)
-	assert.Contains(t, final.ErrorMessage, "holdings applied, journal missing: item 0: create transaction: boom")
+	assert.Contains(t, final.ErrorMessage, "holdings applied, journal missing: item 0: create ledger event: boom")
 	assert.Empty(t, final.CreatedTransactionIDs)
 	assert.NotEmpty(t, final.AffectedHoldingIDs)
 }

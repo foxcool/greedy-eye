@@ -64,6 +64,7 @@ message RuleExecution {
   google.protobuf.Timestamp completed_at = 6;
   ExecutionStatus status = 7;
   optional string error_message = 8;
+  // Ledger events the execution journaled (the name predates the ledger).
   repeated string created_transaction_ids = 9;
   repeated string affected_holding_ids = 10;
   int32 transactions_created = 11;

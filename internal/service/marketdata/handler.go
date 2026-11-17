@@ -154,7 +154,8 @@ type ContractResolver interface {
 // bought", which marketdata cannot read from its own tables.
 type HoldingProvenance interface {
 	// UnsolicitedAssets maps each held asset to whether all its live positions
-	// came from sync with no transaction on it. Unheld assets are omitted.
+	// came from sync and no ledger event outside a sync names it. Unheld
+	// assets are omitted.
 	UnsolicitedAssets(ctx context.Context, assetIDs []string) (map[string]bool, error)
 }
 

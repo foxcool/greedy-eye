@@ -2,14 +2,17 @@ package portfolio
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
@@ -424,11 +427,13 @@ func (h *Handler) accountHoldingsByAsset(ctx context.Context, accountID string) 
 	}
 }
 
-// ImportTransactions batch-creates transaction history on a manual account.
-// Dedup: an item whose external_id matches an existing transaction — or, when
-// both are present, whose (type, asset, data.date, data.amount) tuple does —
-// is skipped, so re-importing the same export does not double records.
-// Transactions never create assets: unknown symbols are per-item errors.
+// ImportTransactions batch-creates ledger events on a manual account: each
+// item is one event with its legs, written together. Dedup: an item with an
+// external_ref is skipped when the account already has that ref from an
+// import; an item without one is skipped when an imported event has the same
+// kind, executed_at and legs. Re-importing the same export therefore writes
+// nothing. Ledger import never creates assets: unknown symbols are per-item
+// errors.
 func (h *Handler) ImportTransactions(ctx context.Context, req *connect.Request[apiv1.ImportTransactionsRequest]) (*connect.Response[apiv1.ImportTransactionsResponse], error) {
 	if h.mdClient == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("asset resolution not configured"))
@@ -448,7 +453,7 @@ func (h *Handler) ImportTransactions(ctx context.Context, req *connect.Request[a
 		return nil, err
 	}
 
-	externalIDs, heuristicKeys, err := h.accountTransactionKeys(ctx, account.ID)
+	externalRefs, heuristicKeys, err := h.importedLedgerKeys(ctx, account.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -456,7 +461,7 @@ func (h *Handler) ImportTransactions(ctx context.Context, req *connect.Request[a
 	resp := &apiv1.ImportTransactionsResponse{ImportId: importID, DryRun: req.Msg.DryRun}
 
 	for i, item := range req.Msg.Transactions {
-		result := h.importOneTransaction(ctx, req.Msg.DryRun, account, item, importID, externalIDs, heuristicKeys)
+		result := h.importOneLedgerEvent(ctx, req.Msg.DryRun, account, item, importID, externalRefs, heuristicKeys)
 		result.Index = int32(i) // #nosec G115 -- bounded by maxImportBatch
 		resp.Items = append(resp.Items, result)
 		switch {
@@ -472,13 +477,13 @@ func (h *Handler) ImportTransactions(ctx context.Context, req *connect.Request[a
 	return connect.NewResponse(resp), nil
 }
 
-func (h *Handler) importOneTransaction(
+func (h *Handler) importOneLedgerEvent(
 	ctx context.Context,
 	dryRun bool,
 	account *entity.Account,
 	item *apiv1.ImportTransactionItem,
 	importID string,
-	externalIDs map[string]bool,
+	externalRefs map[string]bool,
 	heuristicKeys map[string]bool,
 ) *apiv1.ImportTransactionResult {
 	result := &apiv1.ImportTransactionResult{}
@@ -488,61 +493,42 @@ func (h *Handler) importOneTransaction(
 		return result
 	}
 
-	txType := entity.TransactionType(item.Type)
-	if txType == entity.TransactionTypeUnspecified {
-		return fail(errors.New("transaction type is required"))
-	}
-	status := entity.TransactionStatus(item.Status)
-	if status == entity.TransactionStatusUnspecified {
-		status = entity.TransactionStatusCompleted
-	}
-
-	assetID, err := h.resolveTransactionAsset(ctx, item)
+	event, err := h.ledgerEventFromImport(ctx, account.ID, importID, item)
 	if err != nil {
 		return fail(err)
 	}
 
-	data := map[string]string{}
-	for k, v := range item.Data {
-		data[k] = v
+	// The heuristic is only for rows the export gave no id: two genuinely
+	// separate events can share kind, time and amounts, and an id says so.
+	hKey := ""
+	if event.ExternalRef == "" {
+		hKey = ledgerHeuristicKey(event)
 	}
-	externalID := strings.TrimSpace(item.GetExternalId())
-	if externalID != "" {
-		data["external_id"] = externalID
-	}
-
-	// Dedup: external_id first, then the (type, asset, date, amount) tuple.
-	if externalID != "" && externalIDs[externalID] {
+	skip := func() *apiv1.ImportTransactionResult {
 		result.Action = apiv1.ImportAction_IMPORT_ACTION_SKIP
 		return result
 	}
-	hKey := transactionHeuristicKey(txType, assetID, data)
-	if hKey != "" && heuristicKeys[hKey] {
-		result.Action = apiv1.ImportAction_IMPORT_ACTION_SKIP
-		return result
+	if (event.ExternalRef != "" && externalRefs[event.ExternalRef]) || (hKey != "" && heuristicKeys[hKey]) {
+		return skip()
 	}
 
 	result.Action = apiv1.ImportAction_IMPORT_ACTION_CREATE
 	if !dryRun {
-		created, err := h.store.CreateTransaction(ctx, &entity.Transaction{
-			Type:      txType,
-			Status:    status,
-			AccountID: account.ID,
-			AssetID:   assetID,
-			Data:      data,
-			Source:    entity.SourceLLMImport,
-			ImportID:  importID,
-		})
-		if err != nil {
-			return fail(fmt.Errorf("create transaction: %w", err))
+		created, err := h.store.CreateLedgerEvent(ctx, event)
+		switch {
+		case errors.Is(err, store.ErrAlreadyExists):
+			// A concurrent import of the same ref landed first.
+			return skip()
+		case err != nil:
+			return fail(fmt.Errorf("create ledger event: %w", err))
 		}
-		result.TransactionId = &created.ID
+		result.EventId = &created.ID
 	}
 
 	// Register keys either way so duplicates within the batch are caught in
 	// dry runs too.
-	if externalID != "" {
-		externalIDs[externalID] = true
+	if event.ExternalRef != "" {
+		externalRefs[event.ExternalRef] = true
 	}
 	if hKey != "" {
 		heuristicKeys[hKey] = true
@@ -550,18 +536,84 @@ func (h *Handler) importOneTransaction(
 	return result
 }
 
-// resolveTransactionAsset resolves an optional asset reference; never creates.
-func (h *Handler) resolveTransactionAsset(ctx context.Context, item *apiv1.ImportTransactionItem) (string, error) {
-	if item.AssetId != nil && *item.AssetId != "" {
-		resp, err := h.mdClient.GetAsset(ctx, connect.NewRequest(&apiv1.GetAssetRequest{Id: *item.AssetId}))
+// ledgerEventFromImport turns an import item into a validated event: assets
+// resolved (never created), amounts scaled to raw integers.
+func (h *Handler) ledgerEventFromImport(ctx context.Context, accountID, importID string, item *apiv1.ImportTransactionItem) (*entity.LedgerEvent, error) {
+	if item.ExecutedAt == nil {
+		return nil, errors.New("executed_at is required")
+	}
+	event := &entity.LedgerEvent{
+		AccountID: accountID,
+		Kind:      protoLedgerKind(item.Kind),
+		// The column keeps microseconds; truncating here makes a re-import of
+		// the same export compare equal to what was stored.
+		ExecutedAt:  item.ExecutedAt.AsTime().UTC().Truncate(time.Microsecond),
+		ExternalRef: strings.TrimSpace(item.GetExternalRef()),
+		Source:      string(entity.SourceLLMImport),
+		ImportID:    importID,
+	}
+	if len(item.Raw) > 0 {
+		raw, err := json.Marshal(item.Raw)
 		if err != nil {
-			return "", fmt.Errorf("asset %s: %w", *item.AssetId, err)
+			return nil, fmt.Errorf("raw: %w", err)
+		}
+		event.Raw = raw
+	}
+	for i, l := range item.Legs {
+		leg, err := h.ledgerLegFromImport(ctx, l)
+		if err != nil {
+			return nil, fmt.Errorf("leg %d: %w", i, err)
+		}
+		event.Legs = append(event.Legs, leg)
+	}
+	if err := event.Validate(); err != nil {
+		return nil, err
+	}
+	return event, nil
+}
+
+func (h *Handler) ledgerLegFromImport(ctx context.Context, l *apiv1.ImportLedgerLeg) (entity.LedgerLeg, error) {
+	amount, err := decimal.NewFromString(l.Amount)
+	if err != nil {
+		return entity.LedgerLeg{}, fmt.Errorf("invalid amount %q: %w", l.Amount, err)
+	}
+	if !amount.IsPositive() {
+		return entity.LedgerLeg{}, errors.New("amount must be positive; direction carries the sign")
+	}
+	decimals := uint32(defaultImportDecimals)
+	if l.Decimals != nil {
+		decimals = *l.Decimals
+	}
+	raw := amount.Shift(entity.DecI32(decimals))
+	if !raw.IsInteger() {
+		return entity.LedgerLeg{}, fmt.Errorf("amount %s has more fractional digits than decimals=%d", l.Amount, decimals)
+	}
+	assetID, err := h.resolveLedgerAsset(ctx, l)
+	if err != nil {
+		return entity.LedgerLeg{}, err
+	}
+	return entity.LedgerLeg{
+		AssetID:   assetID,
+		Direction: protoLedgerDirection(l.Direction),
+		Role:      protoLedgerRole(l.Role),
+		Amount:    raw,
+		Decimals:  decimals,
+		Chain:     strings.TrimSpace(l.GetChain()),
+	}, nil
+}
+
+// resolveLedgerAsset resolves a leg's asset reference; never creates.
+func (h *Handler) resolveLedgerAsset(ctx context.Context, l *apiv1.ImportLedgerLeg) (string, error) {
+	if l.AssetId != nil && *l.AssetId != "" {
+		resp, err := h.mdClient.GetAsset(ctx, connect.NewRequest(&apiv1.GetAssetRequest{Id: *l.AssetId}))
+		if err != nil {
+			return "", fmt.Errorf("asset %s: %w", *l.AssetId, err)
 		}
 		return resp.Msg.Id, nil
 	}
-	symbol := strings.TrimSpace(item.GetSymbol())
+	symbol := strings.TrimSpace(l.GetSymbol())
 	if symbol == "" {
-		return "", nil
+		return "", errors.New("asset_id or symbol is required")
 	}
 	resp, err := h.mdClient.FindOrCreateAsset(ctx, connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
 		Symbol: symbol,
@@ -583,38 +635,42 @@ func (h *Handler) resolveTransactionAsset(ctx context.Context, item *apiv1.Impor
 	return "", fmt.Errorf("asset %s not found; import positions first or create it explicitly", symbol)
 }
 
-// transactionHeuristicKey builds the fallback dedup key. Empty when the item
-// lacks the fields that make the heuristic meaningful.
-func transactionHeuristicKey(txType entity.TransactionType, assetID string, data map[string]string) string {
-	date := strings.TrimSpace(data["date"])
-	amount := strings.TrimSpace(data["amount"])
-	if date == "" || amount == "" {
-		return ""
+// ledgerHeuristicKey is the dedup key of an event without an external_ref:
+// kind, time and every leg, legs in a fixed order and amounts as values so the
+// same movement at another storage scale still matches.
+func ledgerHeuristicKey(e *entity.LedgerEvent) string {
+	legs := make([]string, 0, len(e.Legs))
+	for _, l := range e.Legs {
+		value := l.Amount.Shift(-entity.DecI32(l.Decimals))
+		legs = append(legs, strings.Join([]string{l.AssetID, string(l.Direction), string(l.Role), value.String(), l.Chain}, "|"))
 	}
-	return fmt.Sprintf("%d|%s|%s|%s", txType, assetID, date, amount)
+	slices.Sort(legs)
+	return string(e.Kind) + "|" + e.ExecutedAt.UTC().Format(time.RFC3339Nano) + "|" + strings.Join(legs, ";")
 }
 
-// accountTransactionKeys loads dedup keys of the account's existing
-// transactions: known external ids and heuristic tuples.
-func (h *Handler) accountTransactionKeys(ctx context.Context, accountID string) (map[string]bool, map[string]bool, error) {
-	externalIDs := map[string]bool{}
+// importedLedgerKeys loads the dedup keys of the account's imported events:
+// external refs (the unique index is per source, so only this source's count)
+// and heuristic keys of the events that have no ref.
+func (h *Handler) importedLedgerKeys(ctx context.Context, accountID string) (map[string]bool, map[string]bool, error) {
+	externalRefs := map[string]bool{}
 	heuristicKeys := map[string]bool{}
 	pageToken := ""
 	for {
-		txs, next, err := h.store.ListTransactions(ctx, ListTransactionsOpts{AccountID: accountID, PageSize: maxImportBatch, PageToken: pageToken})
+		events, next, err := h.store.ListLedgerEvents(ctx, ListLedgerOpts{AccountID: accountID, PageSize: maxImportBatch, PageToken: pageToken})
 		if err != nil {
 			return nil, nil, toConnectError(err)
 		}
-		for _, t := range txs {
-			if id := strings.TrimSpace(t.Data["external_id"]); id != "" {
-				externalIDs[id] = true
-			}
-			if key := transactionHeuristicKey(t.Type, t.AssetID, t.Data); key != "" {
-				heuristicKeys[key] = true
+		for _, e := range events {
+			switch {
+			case e.Source != string(entity.SourceLLMImport):
+			case e.ExternalRef != "":
+				externalRefs[e.ExternalRef] = true
+			default:
+				heuristicKeys[ledgerHeuristicKey(e)] = true
 			}
 		}
 		if next == "" {
-			return externalIDs, heuristicKeys, nil
+			return externalRefs, heuristicKeys, nil
 		}
 		pageToken = next
 	}
