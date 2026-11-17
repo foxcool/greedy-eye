@@ -40,7 +40,7 @@ Connect-RPC, PostgreSQL via pgx, schema managed by Atlas.
 | `docs/development.md` | How do I set up, configure and work on it locally? |
 | `docs/providers.md` | Which external providers can be connected and what does each need? |
 | `docs/logo.svg` | The logo image used by the README (not prose). |
-| `site/` | The project's public landing page: static HTML and CSS, no build step. Its claims follow README; screenshots come from the frontend's `make screenshots` (demo data). |
+| `site/` | The project's public landing page: static HTML and CSS, no build step, published to https://foxcool.github.io/greedy-eye/ by `.github/workflows/pages.yml` on every push to main that touches it. Its claims follow README; screenshots come from the frontend's `make screenshots` (demo data). |
 
 Also: `api/v1/*.proto` is the API contract, `schema.hcl` the schema,
 `cmd/eye/main.go` the wiring.
