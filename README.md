@@ -4,6 +4,8 @@
 
 Personal investment intelligence platform. Aggregate data from multiple sources, track your portfolio, and make informed financial decisions.
 
+**Website:** [foxcool.github.io/greedy-eye](https://foxcool.github.io/greedy-eye/) — screenshots, what runs inside, and how to start your own instance.
+
 ![Go Version](https://img.shields.io/badge/go-1.25+-00ADD8?logo=go)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Status](https://img.shields.io/badge/status-alpha-orange)
