@@ -43,9 +43,16 @@ func (f *fakeRanker) RankedCoinID(a *entity.Asset) (string, bool) {
 	return id, ok
 }
 
-type fakeRankingSource struct{ rankers []entity.MarketRanker }
+type fakeRankingSource struct {
+	rankers []entity.MarketRanker
+	// perUser, when set for a user, replaces rankers for that caller.
+	perUser map[string][]entity.MarketRanker
+}
 
-func (f *fakeRankingSource) MarketRankersFor(context.Context, string) ([]entity.MarketRanker, error) {
+func (f *fakeRankingSource) MarketRankersFor(_ context.Context, userID string) ([]entity.MarketRanker, error) {
+	if r, ok := f.perUser[userID]; ok {
+		return r, nil
+	}
 	return f.rankers, nil
 }
 
@@ -274,4 +281,26 @@ func TestGetHeatmap_MarketValidation(t *testing.T) {
 	empty := marketHandler(st, md)
 	_, err = empty.GetHeatmap(userCtx("u1"), marketRequest())
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+}
+
+// TestGetHeatmap_MarketCacheNeedsTheCallersOwnRanker: the shared cache serves
+// only a caller who could have read the ranking themselves, as the macro
+// series cache does; a warm cache is not a way round a missing provider.
+func TestGetHeatmap_MarketCacheNeedsTheCallersOwnRanker(t *testing.T) {
+	st, md := marketFixture()
+	st.portfolios["p9"] = &entity.Portfolio{ID: "p9", UserID: "u2", Name: "other"}
+	ranker := &fakeRanker{ranking: marketRanking()}
+	h := NewHandler(st.client(), testLogger()).
+		WithMarketDataClient(md).
+		WithMarketRankingSource(&fakeRankingSource{
+			rankers: []entity.MarketRanker{ranker},
+			perUser: map[string][]entity.MarketRanker{"u2": nil},
+		})
+
+	_, err := h.GetHeatmap(userCtx("u1"), marketRequest())
+	require.NoError(t, err)
+
+	_, err = h.GetHeatmap(userCtx("u2"), marketRequest())
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	assert.Equal(t, 1, ranker.calls)
 }

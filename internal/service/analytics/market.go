@@ -26,7 +26,8 @@ const (
 	marketTopN = 100
 	// marketTTL is how long one ranking read serves every caller. The colors
 	// are 24h/7d/30d changes, which half an hour does not move visibly, and it
-	// caps the map's spend at 48 source calls a day whatever the traffic.
+	// caps the map's successful refreshes at 48 a day whatever the traffic;
+	// see readRanking for what a refused key or an outage adds.
 	marketTTL = 30 * time.Minute
 	// marketQuote is the currency the ranking is read in; see marketHeatmap.
 	marketQuote = "USD"
@@ -163,23 +164,23 @@ func (h *Handler) marketHeatmap(ctx context.Context, msg *apiv1.GetHeatmapReques
 // readRanking serves the cached ranking, reading it from the source when the
 // cache is empty or older than marketTTL.
 //
-// The read happens under the cache lock, so a burst of cold requests costs one
-// source call rather than one each; the others wait for it. Only a success is
-// cached: remembering a failure would keep the map dark after the cause is
-// gone, and the rate-limited transport already bounds how hard an outage is
-// retried.
+// The caller's rankers are resolved before the cache is consulted, as for the
+// macro series: a warm cache serves only a caller who could have read the
+// ranking themselves. What it holds is the public market, not anything of the
+// caller's, so whichever eligible key refreshed it serves everyone until the
+// TTL.
 //
-// Keys are tried in order, moving on only when one is refused (plan spent, key
-// rejected); an outage is the source's answer and spending another plan on it
-// changes nothing.
+// The read happens under the cache lock, so a burst of cold requests costs one
+// refresh rather than one each; the others wait for it. A refresh costs one
+// source call per key tried: keys are tried in order, moving on only when one
+// is refused (plan spent, key rejected), and a rejected key has already spent
+// its request by the time it says so. An outage is the source's answer and
+// spending another plan on it changes nothing.
+//
+// Only a success is cached: remembering a failure would keep the map dark after
+// the cause is gone. While the source fails, every draw retries, paced by the
+// shared rate budget in the transport rather than by the TTL.
 func (h *Handler) readRanking(ctx context.Context, userID string) (entity.MarketRanking, entity.MarketRanker, error) {
-	c := h.market
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.ranker != nil && c.now().Sub(c.ranking.ReadAt) < marketTTL {
-		return c.ranking, c.ranker, nil
-	}
-
 	rankers, err := h.rankings.MarketRankersFor(ctx, userID)
 	if err != nil {
 		return entity.MarketRanking{}, nil, connect.NewError(connect.CodeInternal, fmt.Errorf("resolve market rankers: %w", err))
@@ -188,6 +189,14 @@ func (h *Handler) readRanking(ctx context.Context, userID string) (entity.Market
 		return entity.MarketRanking{}, nil, connect.NewError(connect.CodeFailedPrecondition,
 			errors.New("no market data provider can rank the market"))
 	}
+
+	c := h.market
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.ranker != nil && c.now().Sub(c.ranking.ReadAt) < marketTTL {
+		return c.ranking, c.ranker, nil
+	}
+
 	var errs []error
 	for _, r := range rankers {
 		ranking, err := r.TopByMarketCap(ctx, marketTopN)
