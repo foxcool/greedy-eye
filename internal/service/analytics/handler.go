@@ -181,6 +181,7 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 	var oldestQuote time.Time
 
 	drawnAt := time.Now()
+	var moves breadth
 
 	// Every asset is priced before any holding is valued: one market-data read
 	// per set, not one per holding. See priceAssets.
@@ -226,7 +227,8 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 		// question is how many POSITIONS on this map rest on a quote that may no
 		// longer be a price, and two positions in one dead security are two.
 		// A stale quote does not date the map; see oldestQuote.
-		if valuation.StaleAt(ap.quotedAt, drawnAt) {
+		stale := valuation.StaleAt(ap.quotedAt, drawnAt)
+		if stale {
 			coverage.StaleCount++
 		} else {
 			oldestQuote = olderOf(oldestQuote, ap.quotedAt)
@@ -240,6 +242,7 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 		}
 		holdingValue := hld.Amount.Shift(-entity.DecI32(hld.Decimals)).Mul(ap.unit)
 		values[key] = values[key].Add(holdingValue)
+		moves.addHolding(ap, holdingValue, stale)
 	}
 
 	var nodes []*apiv1.HeatmapNode
@@ -262,6 +265,10 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 		})
 	}
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].Size > nodes[j].Size })
+	for _, n := range nodes {
+		ap := assets[n.AssetId]
+		moves.addLeaf(n, ap, valuation.StaleAt(ap.quotedAt, drawnAt))
+	}
 
 	if grouped {
 		groups, err := h.groupNodes(ctx, msg.GroupBy, nodes)
@@ -285,6 +292,7 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 		QuoteAssetId: quoteAssetID,
 		CalculatedAt: timestamppb.New(time.Now()),
 		Coverage:     coverage,
+		Breadth:      moves.result(coverage.UnpricedCount),
 	}), nil
 }
 

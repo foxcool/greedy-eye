@@ -20,6 +20,9 @@ type assetPricing struct {
 	priced    bool            // false when there is no usable price → asset is skipped
 	changePct float64         // signed % change over the window; 0 when history is missing
 	label     string          // asset symbol, falling back to name, then ID
+	// hasHistory is false when no price at or after the window start was found,
+	// so changePct is a placeholder 0, not a measured flat move.
+	hasHistory bool
 	// reason says why an unpriced asset stayed off the map; meaningless when
 	// priced. NO_QUOTE is the default because "no price row anywhere" is the
 	// outcome of every path that simply fails to find one.
@@ -115,6 +118,7 @@ func (h *Handler) priceAssets(ctx context.Context, assetIDs []string, quoteAsset
 		}
 		if ok {
 			out[id].changePct = changePct(b.ValueBase, then)
+			out[id].hasHistory = true
 		}
 	}
 	return out, nil
