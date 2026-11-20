@@ -13,6 +13,8 @@ type breadth struct {
 	msg apiv1.HeatmapBreadth
 	// Value-weighted change over the holdings that have history.
 	weightedSum, weight decimal.Decimal
+	// Sizes of the current extremes, for the tie-break in addLeaf.
+	bestSize, worstSize float64
 }
 
 // addHolding counts one priced holding of value at the asset's pricing.
@@ -32,9 +34,9 @@ func (b *breadth) addHolding(ap *assetPricing, value decimal.Decimal, stale bool
 	b.weight = b.weight.Add(value)
 }
 
-// addLeaf considers one drawn leaf for best and worst. On a tie the leaf seen
-// first keeps the place; callers pass leaves largest first, so the bigger
-// position names the extreme.
+// addLeaf considers one drawn leaf for best and worst. On equal change the
+// larger leaf wins, then the smaller id: leaves come out of a map, so the
+// order they arrive in must not pick the extreme.
 func (b *breadth) addLeaf(node *apiv1.HeatmapNode, ap *assetPricing, stale bool) {
 	if !ap.hasHistory {
 		return
@@ -45,12 +47,22 @@ func (b *breadth) addLeaf(node *apiv1.HeatmapNode, ap *assetPricing, stale bool)
 			ChangePct: ap.changePct, Stale: stale,
 		}
 	}
-	if b.msg.Best == nil || ap.changePct > b.msg.Best.ChangePct {
-		b.msg.Best = leaf()
+	if b.msg.Best == nil || ap.changePct > b.msg.Best.ChangePct ||
+		(ap.changePct == b.msg.Best.ChangePct && winsTie(node, b.bestSize, b.msg.Best.NodeId)) {
+		b.msg.Best, b.bestSize = leaf(), node.Size
 	}
-	if b.msg.Worst == nil || ap.changePct < b.msg.Worst.ChangePct {
-		b.msg.Worst = leaf()
+	if b.msg.Worst == nil || ap.changePct < b.msg.Worst.ChangePct ||
+		(ap.changePct == b.msg.Worst.ChangePct && winsTie(node, b.worstSize, b.msg.Worst.NodeId)) {
+		b.msg.Worst, b.worstSize = leaf(), node.Size
 	}
+}
+
+// winsTie reports whether node displaces the holder of an extreme it ties on change.
+func winsTie(node *apiv1.HeatmapNode, heldSize float64, heldID string) bool {
+	if node.Size != heldSize {
+		return node.Size > heldSize
+	}
+	return node.Id < heldID
 }
 
 func (b *breadth) result(unpriced uint32) *apiv1.HeatmapBreadth {

@@ -172,3 +172,23 @@ func TestGetHeatmap_BreadthCountsHoldingsNotAssets(t *testing.T) {
 }
 
 func ptr(f float64) *float64 { return &f }
+
+// Leaves are built from a map, so equal leaves arrive in any order; the
+// extreme must not depend on it.
+func TestGetHeatmap_BreadthExtremeTieIsDeterministic(t *testing.T) {
+	st, md := fixture()
+	// The same ETH amount in both accounts: two leaves with equal size and change.
+	st.holdings = []*entity.Holding{
+		{ID: "h1", AssetID: "eth", AccountID: "a2", PortfolioID: "p1", Amount: dec("1000000000000000000"), Decimals: 18},
+		{ID: "h2", AssetID: "eth", AccountID: "a1", PortfolioID: "p1", Amount: dec("1000000000000000000"), Decimals: 18},
+	}
+	h := NewHandler(st.client(), testLogger()).WithMarketDataClient(md)
+	for range 50 {
+		resp, err := h.GetHeatmap(userCtx("u1"), heatmapRequest(func(m *apiv1.GetHeatmapRequest) {
+			m.GroupBy = apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_ACCOUNT
+		}))
+		require.NoError(t, err)
+		require.Equal(t, "a1:eth", resp.Msg.GetBreadth().GetBest().GetNodeId())
+		require.Equal(t, "a1:eth", resp.Msg.GetBreadth().GetWorst().GetNodeId())
+	}
+}
