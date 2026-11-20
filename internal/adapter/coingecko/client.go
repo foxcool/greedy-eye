@@ -76,6 +76,10 @@ type Config struct {
 	// Budget, when set, lets an unattended sweep size itself from what is left
 	// of the plan's monthly allowance instead of a hardcoded cap.
 	Budget PlanBudget
+
+	// BaseURL, when set, replaces the plan's host: a recorded server in tests
+	// outside this package. The auth header still follows the plan.
+	BaseURL string
 }
 
 // PriceData represents price information for an asset
@@ -109,6 +113,10 @@ func NewClient(cfg Config) *Client {
 	if cfg.Pro || cfg.Tier == TierPro {
 		baseURL = "https://pro-api.coingecko.com/api/v3"
 		authHeader = "x-cg-pro-api-key"
+	}
+
+	if cfg.BaseURL != "" {
+		baseURL = cfg.BaseURL
 	}
 
 	// Request spacing is not this client's business any more: it used to

@@ -302,14 +302,21 @@ func (HeatmapColorMetric) EnumDescriptor() ([]byte, []int) {
 // Values are float64 visualization data, not accounting-grade amounts —
 // precise values stay behind PortfolioService/MarketDataService.
 type HeatmapNode struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Label         string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`                               // asset symbol or group name
-	ParentId      string                 `protobuf:"bytes,3,opt,name=parent_id,json=parentId,proto3" json:"parent_id,omitempty"`         // empty for root-level nodes
-	Size          float64                `protobuf:"fixed64,4,opt,name=size,proto3" json:"size,omitempty"`                               // size metric in quote asset units (group = sum of children)
-	ColorValue    float64                `protobuf:"fixed64,5,opt,name=color_value,json=colorValue,proto3" json:"color_value,omitempty"` // color metric value (e.g. signed change %); group = size-weighted
-	Price         *float64               `protobuf:"fixed64,6,opt,name=price,proto3,oneof" json:"price,omitempty"`                       // current unit price in quote asset (leaf only)
-	AssetId       string                 `protobuf:"bytes,7,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`            // set on leaves; links to asset entity
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Id         string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Label      string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`                               // asset symbol or group name
+	ParentId   string                 `protobuf:"bytes,3,opt,name=parent_id,json=parentId,proto3" json:"parent_id,omitempty"`         // empty for root-level nodes
+	Size       float64                `protobuf:"fixed64,4,opt,name=size,proto3" json:"size,omitempty"`                               // size metric in quote asset units (group = sum of children)
+	ColorValue float64                `protobuf:"fixed64,5,opt,name=color_value,json=colorValue,proto3" json:"color_value,omitempty"` // color metric value (e.g. signed change %); group = size-weighted
+	Price      *float64               `protobuf:"fixed64,6,opt,name=price,proto3,oneof" json:"price,omitempty"`                       // current unit price in quote asset (leaf only)
+	AssetId    string                 `protobuf:"bytes,7,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`            // set on leaves; links to asset entity
+	// MARKET scope: the coin's market-capitalisation rank at the source (1 =
+	// largest). Absent on every other scope.
+	Rank *int32 `protobuf:"varint,8,opt,name=rank,proto3,oneof" json:"rank,omitempty"`
+	// MARKET scope: the caller holds this coin. Only a held tile carries
+	// asset_id, so only a held tile links to an asset card; the ranked universe
+	// is not in the catalogue.
+	Held          bool `protobuf:"varint,9,opt,name=held,proto3" json:"held,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -391,6 +398,20 @@ func (x *HeatmapNode) GetAssetId() string {
 		return x.AssetId
 	}
 	return ""
+}
+
+func (x *HeatmapNode) GetRank() int32 {
+	if x != nil && x.Rank != nil {
+		return *x.Rank
+	}
+	return 0
+}
+
+func (x *HeatmapNode) GetHeld() bool {
+	if x != nil {
+		return x.Held
+	}
+	return false
 }
 
 type GetHeatmapRequest struct {
@@ -496,7 +517,13 @@ type GetHeatmapResponse struct {
 	// at all — not a small one — so on a map the omission is invisible in a way it
 	// is not in a total. Same message CalculatePortfolioValue returns: one shape
 	// for the same statement, on every surface.
-	Coverage      *ValuationCoverage `protobuf:"bytes,4,opt,name=coverage,proto3" json:"coverage,omitempty"`
+	Coverage *ValuationCoverage `protobuf:"bytes,4,opt,name=coverage,proto3" json:"coverage,omitempty"`
+	// MARKET scope: when this instance read the ranking from its source. Served
+	// from a cache, so it can be older than calculated_at by up to the cache TTL.
+	SourceReadAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=source_read_at,json=sourceReadAt,proto3" json:"source_read_at,omitempty"`
+	// MARKET scope: the provider the ranking came from ("coingecko"), for
+	// attribution next to the map.
+	Source        string `protobuf:"bytes,6,opt,name=source,proto3" json:"source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -559,11 +586,25 @@ func (x *GetHeatmapResponse) GetCoverage() *ValuationCoverage {
 	return nil
 }
 
+func (x *GetHeatmapResponse) GetSourceReadAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.SourceReadAt
+	}
+	return nil
+}
+
+func (x *GetHeatmapResponse) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
 var File_v1_analytics_proto protoreflect.FileDescriptor
 
 const file_v1_analytics_proto_rawDesc = "" +
 	"\n" +
-	"\x12v1/analytics.proto\x12\x06eye.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x13v1/marketdata.proto\"\xc5\x01\n" +
+	"\x12v1/analytics.proto\x12\x06eye.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x13v1/marketdata.proto\"\xfb\x01\n" +
 	"\vHeatmapNode\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x1b\n" +
@@ -572,8 +613,11 @@ const file_v1_analytics_proto_rawDesc = "" +
 	"\vcolor_value\x18\x05 \x01(\x01R\n" +
 	"colorValue\x12\x19\n" +
 	"\x05price\x18\x06 \x01(\x01H\x00R\x05price\x88\x01\x01\x12\x19\n" +
-	"\basset_id\x18\a \x01(\tR\aassetIdB\b\n" +
-	"\x06_price\"\xdd\x02\n" +
+	"\basset_id\x18\a \x01(\tR\aassetId\x12\x17\n" +
+	"\x04rank\x18\b \x01(\x05H\x01R\x04rank\x88\x01\x01\x12\x12\n" +
+	"\x04held\x18\t \x01(\bR\x04heldB\b\n" +
+	"\x06_priceB\a\n" +
+	"\x05_rank\"\xdd\x02\n" +
 	"\x11GetHeatmapRequest\x12*\n" +
 	"\x05scope\x18\x01 \x01(\x0e2\x14.eye.v1.HeatmapScopeR\x05scope\x12\x19\n" +
 	"\bscope_id\x18\x02 \x01(\tR\ascopeId\x121\n" +
@@ -582,12 +626,14 @@ const file_v1_analytics_proto_rawDesc = "" +
 	"\vsize_metric\x18\x05 \x01(\x0e2\x19.eye.v1.HeatmapSizeMetricR\n" +
 	"sizeMetric\x12=\n" +
 	"\fcolor_metric\x18\x06 \x01(\x0e2\x1a.eye.v1.HeatmapColorMetricR\vcolorMetric\x12$\n" +
-	"\x0equote_asset_id\x18\a \x01(\tR\fquoteAssetId\"\xdd\x01\n" +
+	"\x0equote_asset_id\x18\a \x01(\tR\fquoteAssetId\"\xb7\x02\n" +
 	"\x12GetHeatmapResponse\x12)\n" +
 	"\x05nodes\x18\x01 \x03(\v2\x13.eye.v1.HeatmapNodeR\x05nodes\x12$\n" +
 	"\x0equote_asset_id\x18\x02 \x01(\tR\fquoteAssetId\x12?\n" +
 	"\rcalculated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\fcalculatedAt\x125\n" +
-	"\bcoverage\x18\x04 \x01(\v2\x19.eye.v1.ValuationCoverageR\bcoverage*\x99\x01\n" +
+	"\bcoverage\x18\x04 \x01(\v2\x19.eye.v1.ValuationCoverageR\bcoverage\x12@\n" +
+	"\x0esource_read_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\fsourceReadAt\x12\x16\n" +
+	"\x06source\x18\x06 \x01(\tR\x06source*\x99\x01\n" +
 	"\fHeatmapScope\x12\x1d\n" +
 	"\x19HEATMAP_SCOPE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17HEATMAP_SCOPE_PORTFOLIO\x10\x01\x12\x19\n" +
@@ -649,21 +695,22 @@ var file_v1_analytics_proto_goTypes = []any{
 	(*ValuationCoverage)(nil),     // 9: eye.v1.ValuationCoverage
 }
 var file_v1_analytics_proto_depIdxs = []int32{
-	0, // 0: eye.v1.GetHeatmapRequest.scope:type_name -> eye.v1.HeatmapScope
-	1, // 1: eye.v1.GetHeatmapRequest.group_by:type_name -> eye.v1.HeatmapGroupBy
-	2, // 2: eye.v1.GetHeatmapRequest.window:type_name -> eye.v1.HeatmapWindow
-	3, // 3: eye.v1.GetHeatmapRequest.size_metric:type_name -> eye.v1.HeatmapSizeMetric
-	4, // 4: eye.v1.GetHeatmapRequest.color_metric:type_name -> eye.v1.HeatmapColorMetric
-	5, // 5: eye.v1.GetHeatmapResponse.nodes:type_name -> eye.v1.HeatmapNode
-	8, // 6: eye.v1.GetHeatmapResponse.calculated_at:type_name -> google.protobuf.Timestamp
-	9, // 7: eye.v1.GetHeatmapResponse.coverage:type_name -> eye.v1.ValuationCoverage
-	6, // 8: eye.v1.AnalyticsService.GetHeatmap:input_type -> eye.v1.GetHeatmapRequest
-	7, // 9: eye.v1.AnalyticsService.GetHeatmap:output_type -> eye.v1.GetHeatmapResponse
-	9, // [9:10] is the sub-list for method output_type
-	8, // [8:9] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	0,  // 0: eye.v1.GetHeatmapRequest.scope:type_name -> eye.v1.HeatmapScope
+	1,  // 1: eye.v1.GetHeatmapRequest.group_by:type_name -> eye.v1.HeatmapGroupBy
+	2,  // 2: eye.v1.GetHeatmapRequest.window:type_name -> eye.v1.HeatmapWindow
+	3,  // 3: eye.v1.GetHeatmapRequest.size_metric:type_name -> eye.v1.HeatmapSizeMetric
+	4,  // 4: eye.v1.GetHeatmapRequest.color_metric:type_name -> eye.v1.HeatmapColorMetric
+	5,  // 5: eye.v1.GetHeatmapResponse.nodes:type_name -> eye.v1.HeatmapNode
+	8,  // 6: eye.v1.GetHeatmapResponse.calculated_at:type_name -> google.protobuf.Timestamp
+	9,  // 7: eye.v1.GetHeatmapResponse.coverage:type_name -> eye.v1.ValuationCoverage
+	8,  // 8: eye.v1.GetHeatmapResponse.source_read_at:type_name -> google.protobuf.Timestamp
+	6,  // 9: eye.v1.AnalyticsService.GetHeatmap:input_type -> eye.v1.GetHeatmapRequest
+	7,  // 10: eye.v1.AnalyticsService.GetHeatmap:output_type -> eye.v1.GetHeatmapResponse
+	10, // [10:11] is the sub-list for method output_type
+	9,  // [9:10] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_v1_analytics_proto_init() }

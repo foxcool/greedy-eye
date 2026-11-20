@@ -253,7 +253,10 @@ func run() error {
 		case ServiceConfigTypeAnalytics:
 			aHandler := analytics.NewHandler(pClient, log).
 				WithMarketDataClient(mdClient).
-				WithSettingsClient(settingsClient)
+				WithSettingsClient(settingsClient).
+				// The market map reads its ranking with the keys that price
+				// crypto, so it spends the same plan and fails over the same way.
+				WithMarketRankingSource(credResolver)
 			path, handler := apiv1connect.NewAnalyticsServiceHandler(aHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypeSettings:

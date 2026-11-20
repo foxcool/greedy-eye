@@ -227,7 +227,7 @@ func (p *Provider) Binding() entity.PriceBinding {
 func (p *Provider) Asked(assets []*entity.Asset) []*entity.Asset {
 	out := make([]*entity.Asset, 0, len(assets))
 	for _, a := range assets {
-		if _, ok := nativeCoinID[strings.ToLower(a.Symbol)]; ok && a.Market == entity.MarketCrypto {
+		if _, ok := curatedCoinID(a); ok {
 			out = append(out, a)
 			continue
 		}
@@ -264,7 +264,7 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 		// (market "onchain:<chain>/<address>") is an unverified instrument that
 		// merely carries a well-known ticker: pricing it from the symbol map is
 		// exactly how a counterfeit USDT was valued as real USDT (personal-c3b).
-		if _, ok := nativeCoinID[strings.ToLower(a.Symbol)]; ok && a.Market == entity.MarketCrypto {
+		if _, ok := curatedCoinID(a); ok {
 			nativeAssets = append(nativeAssets, a)
 			continue
 		}
