@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
@@ -407,6 +408,11 @@ func validSourceURL(raw string) (string, error) {
 	}
 	if _, err := entity.CanonicalURL(u); err != nil {
 		return "", invalid(fmt.Errorf("url: %w", err))
+	}
+	// Userinfo becomes an Authorization header on fetch, and the URL is shown
+	// to every reader of ListNewsSources.
+	if parsed, err := url.Parse(u); err != nil || parsed.User != nil {
+		return "", invalid(errors.New("url must not carry credentials"))
 	}
 	if len(u) > entity.MaxDocumentURLBytes {
 		return "", invalid(errors.New("url is too long"))

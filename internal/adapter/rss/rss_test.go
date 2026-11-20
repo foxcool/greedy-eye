@@ -98,3 +98,19 @@ func TestFetch(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "larger than")
 }
+
+// TestFetchErrorDoesNotQuoteTheURL: the error is stored on the source and
+// shown to every reader, so a token in a feed URL must not ride along in it.
+func TestFetchErrorDoesNotQuoteTheURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	addr := srv.URL
+	srv.Close() // connection refused from here on
+
+	_, err := NewClient(Config{}).Fetch(context.Background(), addr+"/feed?token=QUERYSECRET")
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "QUERYSECRET")
+
+	_, err = NewClient(Config{}).Fetch(context.Background(), "https://example.com/\x7f?token=QUERYSECRET")
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "QUERYSECRET")
+}

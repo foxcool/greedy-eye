@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/foxcool/greedy-eye/internal/adapter/internal/urlerr"
 	"github.com/foxcool/greedy-eye/internal/entity"
 )
 
@@ -68,14 +69,15 @@ func NewClient(cfg Config) *Client {
 func (c *Client) Fetch(ctx context.Context, feedURL string) ([]entity.FeedItem, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return nil, fmt.Errorf("build request: %w", urlerr.Strip(err))
 	}
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.1")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("fetch feed: %w", err)
+		// Recorded on the source and shown to readers: the URL may carry a token.
+		return nil, fmt.Errorf("fetch feed: %w", urlerr.Strip(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 

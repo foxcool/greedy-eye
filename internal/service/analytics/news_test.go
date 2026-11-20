@@ -307,6 +307,9 @@ func TestCreateNewsSourceValidatesAndDefaults(t *testing.T) {
 		"bad cron":     {Url: "https://x.example.com/rss", Name: "X", Cron: ptr("every hour")},
 		"neg weight":   {Url: "https://x.example.com/rss", Name: "X", Weight: ptr(int32(-1))},
 		"unknown kind": {Url: "https://x.example.com/rss", Name: "X", Kind: apiv1.NewsSourceKind(99)},
+		// Credentials in userinfo become an Authorization header on fetch and
+		// would be shown to every reader of ListNewsSources.
+		"userinfo": {Url: "https://user:secret@x.example.com/rss", Name: "X"},
 	} {
 		_, err := h.CreateNewsSource(admin, connect.NewRequest(req))
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), name)
@@ -323,6 +326,9 @@ func TestCreateNewsSourceValidatesAndDefaults(t *testing.T) {
 
 	_, err = h.CreateNewsSource(admin, connect.NewRequest(&apiv1.CreateNewsSourceRequest{Url: "https://x.example.com/rss", Name: "Y"}))
 	assert.Equal(t, connect.CodeAlreadyExists, connect.CodeOf(err))
+
+	_, err = h.UpdateNewsSource(admin, connect.NewRequest(&apiv1.UpdateNewsSourceRequest{Id: created.Msg.Id, Url: ptr("https://user@x.example.com/rss")}))
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 }
 
 func TestNewsUnconfigured(t *testing.T) {
