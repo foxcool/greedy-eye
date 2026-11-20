@@ -29,6 +29,7 @@ func monolithConfig() *Config {
 	c.Scheduler.RescoreCron = "0 3 * * *"
 	c.Scheduler.BalanceSyncCron = "30 * * * *"
 	c.Scheduler.ConfirmCron = "*/5 * * * *"
+	c.Scheduler.NewsCron = "*/5 * * * *"
 	return c
 }
 
@@ -50,6 +51,7 @@ func TestFeatureSnapshotMonolithDefaults(t *testing.T) {
 		"rescore":         true,
 		"balance_sweep":   true,
 		"confirm_waiting": true,
+		"news":            true,
 	}, got)
 }
 
@@ -65,6 +67,7 @@ func TestFeatureSnapshotSplitProcess(t *testing.T) {
 	c.Sentry.DSN = "https://key@sentry.example/1"
 	c.Scheduler.Enabled = true
 	c.Scheduler.BalanceSyncCron = "30 * * * *"
+	c.Scheduler.NewsCron = "*/5 * * * *"
 
 	key := bytes.Repeat([]byte{1}, 32)
 	old := bytes.Repeat([]byte{2}, 32)
@@ -84,6 +87,7 @@ func TestFeatureSnapshotSplitProcess(t *testing.T) {
 	assert.Equal(t, false, got["price_sweep"])
 	assert.Equal(t, false, got["rescore"])
 	assert.Equal(t, false, got["balance_sweep"])
+	assert.Equal(t, false, got["news"], "news runs where analytics is served")
 }
 
 func TestFeatureSnapshotSchedulerOffDisablesJobs(t *testing.T) {
@@ -92,7 +96,7 @@ func TestFeatureSnapshotSchedulerOffDisablesJobs(t *testing.T) {
 
 	got := snapshotMap(featureSnapshot(c, nil))
 
-	for _, k := range []string{"scheduler", "price_sweep", "rescore", "balance_sweep", "confirm_waiting"} {
+	for _, k := range []string{"scheduler", "price_sweep", "rescore", "balance_sweep", "confirm_waiting", "news"} {
 		assert.Equal(t, false, got[k], k)
 	}
 }

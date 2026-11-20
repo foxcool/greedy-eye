@@ -16,6 +16,7 @@ import (
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/api/v1/apiv1connect"
 	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
+	"github.com/foxcool/greedy-eye/internal/adapter/rss"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/execution"
 	"github.com/foxcool/greedy-eye/internal/middleware"
@@ -238,6 +239,9 @@ func run() error {
 	// A deployment without one has no balances of its own to refresh, so the
 	// job stays unregistered rather than reaching across the network for them.
 	var balanceSweeper scheduler.BalanceSweeper
+	// News is stored and served by analytics; the news job runs only where
+	// analytics does, for the same reason the balance sweep needs portfolio.
+	var newsIngester scheduler.NewsIngester
 	for _, svc := range config.Services {
 		switch svc.Type {
 		case ServiceConfigTypeMarketData:
@@ -253,7 +257,9 @@ func run() error {
 		case ServiceConfigTypeAnalytics:
 			aHandler := analytics.NewHandler(pClient, log).
 				WithMarketDataClient(mdClient).
-				WithSettingsClient(settingsClient)
+				WithSettingsClient(settingsClient).
+				WithNews(postgres.NewNewsStore(pool), rss.NewClient(rss.Config{}))
+			newsIngester = aHandler
 			path, handler := apiv1connect.NewAnalyticsServiceHandler(aHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypeSettings:
@@ -274,6 +280,7 @@ func run() error {
 			RescoreCron:     config.Scheduler.RescoreCron,
 			BalanceSyncCron: config.Scheduler.BalanceSyncCron,
 			ConfirmCron:     config.Scheduler.ConfirmCron,
+			NewsCron:        config.Scheduler.NewsCron,
 		}, automationStore, automationHandler, mdHandler, mdHandler, log)
 		if err != nil {
 			return fmt.Errorf("init scheduler: %w", err)
@@ -285,6 +292,9 @@ func run() error {
 				Limit:  config.Scheduler.BalanceAccountsPerSweep,
 			})
 		}
+		if newsIngester != nil {
+			sched = sched.WithNewsIngester(newsIngester)
+		}
 		if err := sched.Start(); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}
@@ -293,7 +303,9 @@ func run() error {
 			slog.String("rescore_cron", config.Scheduler.RescoreCron),
 			slog.String("balance_sync_cron", config.Scheduler.BalanceSyncCron),
 			slog.String("confirm_cron", config.Scheduler.ConfirmCron),
-			slog.Bool("balance_sweep_wired", balanceSweeper != nil))
+			slog.String("news_cron", config.Scheduler.NewsCron),
+			slog.Bool("balance_sweep_wired", balanceSweeper != nil),
+			slog.Bool("news_wired", newsIngester != nil))
 	}
 
 	// Serve HTTP/1.1 and cleartext HTTP/2 (h2c) for Connect. Since Go 1.24 this

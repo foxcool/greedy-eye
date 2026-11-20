@@ -50,5 +50,7 @@ func featureSnapshot(config *Config, encryptor *storecrypto.Encryptor) []slog.At
 		// The balance sweep needs a local portfolio service to sweep.
 		slog.Bool("balance_sweep", sched.Enabled && sched.BalanceSyncCron != "" && portfolioHere),
 		slog.Bool("confirm_waiting", sched.Enabled && sched.ConfirmCron != ""),
+		// News is ingested by the analytics service, so it needs one here.
+		slog.Bool("news", sched.Enabled && sched.NewsCron != "" && slices.Contains(services, ServiceConfigTypeAnalytics)),
 	}
 }

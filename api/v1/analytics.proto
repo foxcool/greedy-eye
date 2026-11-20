@@ -81,6 +81,51 @@ service AnalyticsService {
       get: "/api/v1/analytics/heatmap"
     };
   }
+
+  // --- News ---
+  // ListDocuments returns news headlines, newest published_at first. A
+  // document's time is when its source published it, never when this
+  // instance fetched it. Any signed-in user may read.
+  rpc ListDocuments(ListDocumentsRequest) returns (ListDocumentsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/analytics/documents"
+    };
+  }
+
+  // ListNewsSources returns every feed with its last fetch outcome, so a
+  // failing feed reads as failing rather than as a quiet one. Any signed-in
+  // user may read.
+  rpc ListNewsSources(ListNewsSourcesRequest) returns (ListNewsSourcesResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/analytics/news-sources"
+    };
+  }
+
+  // CreateNewsSource adds a feed. Admin-only: a source is read for every user.
+  // Errors: InvalidArgument (url, kind or cron), AlreadyExists (url taken),
+  // PermissionDenied (not admin).
+  rpc CreateNewsSource(CreateNewsSourceRequest) returns (NewsSource) {
+    option (google.api.http) = {
+      post: "/api/v1/analytics/news-sources"
+      body: "*"
+    };
+  }
+
+  // UpdateNewsSource changes the fields that are set. Admin-only.
+  rpc UpdateNewsSource(UpdateNewsSourceRequest) returns (NewsSource) {
+    option (google.api.http) = {
+      patch: "/api/v1/analytics/news-sources/{id}"
+      body: "*"
+    };
+  }
+
+  // DeleteNewsSource removes a feed and the documents read from it.
+  // Admin-only; to pause a feed and keep its documents, disable it instead.
+  rpc DeleteNewsSource(DeleteNewsSourceRequest) returns (DeleteNewsSourceResponse) {
+    option (google.api.http) = {
+      delete: "/api/v1/analytics/news-sources/{id}"
+    };
+  }
 }
 
 message GetHeatmapRequest {
@@ -105,3 +150,99 @@ message GetHeatmapResponse {
   // for the same statement, on every surface.
   ValuationCoverage coverage = 4;
 }
+
+// =============================================================================
+// NEWS
+// =============================================================================
+
+// NewsSourceKind is how a source is read.
+enum NewsSourceKind {
+  NEWS_SOURCE_KIND_UNSPECIFIED = 0;
+  NEWS_SOURCE_KIND_RSS = 1; // RSS 2.0 or Atom
+}
+
+// NewsSource is one feed the news job reads.
+message NewsSource {
+  string id = 1;
+  NewsSourceKind kind = 2;
+  string url = 3;
+  // Shown beside each headline from this source.
+  string name = 4;
+  bool enabled = 5;
+  // Standard five-field cron spec: when the feed is due.
+  string cron = 6;
+  int32 weight = 7;
+  // Last attempt, whatever its outcome.
+  optional google.protobuf.Timestamp last_fetched_at = 8;
+  optional google.protobuf.Timestamp last_success_at = 9;
+  // The last failure and when it happened. The source is failing when
+  // last_error_at is after last_success_at (or there was no success).
+  string last_error = 10;
+  optional google.protobuf.Timestamp last_error_at = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
+}
+
+// NewsDocument is one headline: a title, a link and a short snippet, never
+// the article itself.
+message NewsDocument {
+  string id = 1;
+  string source_id = 2;
+  string source_name = 3;
+  string url = 4;
+  string title = 5;
+  string snippet = 6;
+  // When the source published it; the only time a document is shown with.
+  google.protobuf.Timestamp published_at = 7;
+}
+
+message ListDocumentsRequest {
+  // Only documents from this source.
+  optional string source_id = 1;
+  // Only documents published at or after this time.
+  optional google.protobuf.Timestamp since = 2;
+  // Defaults to 50, at most 1000.
+  optional int32 page_size = 3;
+  optional string page_token = 4;
+}
+
+message ListDocumentsResponse {
+  repeated NewsDocument documents = 1;
+  string next_page_token = 2;
+}
+
+message ListNewsSourcesRequest {}
+
+message ListNewsSourcesResponse {
+  repeated NewsSource sources = 1;
+}
+
+message CreateNewsSourceRequest {
+  // Defaults to RSS.
+  NewsSourceKind kind = 1;
+  // Required; http or https.
+  string url = 2;
+  // Required.
+  string name = 3;
+  // Defaults to true.
+  optional bool enabled = 4;
+  // Defaults to every 30 minutes.
+  optional string cron = 5;
+  // Defaults to 1.
+  optional int32 weight = 6;
+}
+
+message UpdateNewsSourceRequest {
+  string id = 1;
+  optional string url = 2;
+  optional string name = 3;
+  optional bool enabled = 4;
+  optional string cron = 5;
+  optional int32 weight = 6;
+}
+
+message DeleteNewsSourceRequest {
+  string id = 1;
+}
+
+message DeleteNewsSourceResponse {}

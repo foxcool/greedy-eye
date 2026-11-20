@@ -36,11 +36,44 @@ const (
 	// AnalyticsServiceGetHeatmapProcedure is the fully-qualified name of the AnalyticsService's
 	// GetHeatmap RPC.
 	AnalyticsServiceGetHeatmapProcedure = "/eye.v1.AnalyticsService/GetHeatmap"
+	// AnalyticsServiceListDocumentsProcedure is the fully-qualified name of the AnalyticsService's
+	// ListDocuments RPC.
+	AnalyticsServiceListDocumentsProcedure = "/eye.v1.AnalyticsService/ListDocuments"
+	// AnalyticsServiceListNewsSourcesProcedure is the fully-qualified name of the AnalyticsService's
+	// ListNewsSources RPC.
+	AnalyticsServiceListNewsSourcesProcedure = "/eye.v1.AnalyticsService/ListNewsSources"
+	// AnalyticsServiceCreateNewsSourceProcedure is the fully-qualified name of the AnalyticsService's
+	// CreateNewsSource RPC.
+	AnalyticsServiceCreateNewsSourceProcedure = "/eye.v1.AnalyticsService/CreateNewsSource"
+	// AnalyticsServiceUpdateNewsSourceProcedure is the fully-qualified name of the AnalyticsService's
+	// UpdateNewsSource RPC.
+	AnalyticsServiceUpdateNewsSourceProcedure = "/eye.v1.AnalyticsService/UpdateNewsSource"
+	// AnalyticsServiceDeleteNewsSourceProcedure is the fully-qualified name of the AnalyticsService's
+	// DeleteNewsSource RPC.
+	AnalyticsServiceDeleteNewsSourceProcedure = "/eye.v1.AnalyticsService/DeleteNewsSource"
 )
 
 // AnalyticsServiceClient is a client for the eye.v1.AnalyticsService service.
 type AnalyticsServiceClient interface {
 	GetHeatmap(context.Context, *connect.Request[v1.GetHeatmapRequest]) (*connect.Response[v1.GetHeatmapResponse], error)
+	// --- News ---
+	// ListDocuments returns news headlines, newest published_at first. A
+	// document's time is when its source published it, never when this
+	// instance fetched it. Any signed-in user may read.
+	ListDocuments(context.Context, *connect.Request[v1.ListDocumentsRequest]) (*connect.Response[v1.ListDocumentsResponse], error)
+	// ListNewsSources returns every feed with its last fetch outcome, so a
+	// failing feed reads as failing rather than as a quiet one. Any signed-in
+	// user may read.
+	ListNewsSources(context.Context, *connect.Request[v1.ListNewsSourcesRequest]) (*connect.Response[v1.ListNewsSourcesResponse], error)
+	// CreateNewsSource adds a feed. Admin-only: a source is read for every user.
+	// Errors: InvalidArgument (url, kind or cron), AlreadyExists (url taken),
+	// PermissionDenied (not admin).
+	CreateNewsSource(context.Context, *connect.Request[v1.CreateNewsSourceRequest]) (*connect.Response[v1.NewsSource], error)
+	// UpdateNewsSource changes the fields that are set. Admin-only.
+	UpdateNewsSource(context.Context, *connect.Request[v1.UpdateNewsSourceRequest]) (*connect.Response[v1.NewsSource], error)
+	// DeleteNewsSource removes a feed and the documents read from it.
+	// Admin-only; to pause a feed and keep its documents, disable it instead.
+	DeleteNewsSource(context.Context, *connect.Request[v1.DeleteNewsSourceRequest]) (*connect.Response[v1.DeleteNewsSourceResponse], error)
 }
 
 // NewAnalyticsServiceClient constructs a client for the eye.v1.AnalyticsService service. By
@@ -60,12 +93,47 @@ func NewAnalyticsServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(analyticsServiceMethods.ByName("GetHeatmap")),
 			connect.WithClientOptions(opts...),
 		),
+		listDocuments: connect.NewClient[v1.ListDocumentsRequest, v1.ListDocumentsResponse](
+			httpClient,
+			baseURL+AnalyticsServiceListDocumentsProcedure,
+			connect.WithSchema(analyticsServiceMethods.ByName("ListDocuments")),
+			connect.WithClientOptions(opts...),
+		),
+		listNewsSources: connect.NewClient[v1.ListNewsSourcesRequest, v1.ListNewsSourcesResponse](
+			httpClient,
+			baseURL+AnalyticsServiceListNewsSourcesProcedure,
+			connect.WithSchema(analyticsServiceMethods.ByName("ListNewsSources")),
+			connect.WithClientOptions(opts...),
+		),
+		createNewsSource: connect.NewClient[v1.CreateNewsSourceRequest, v1.NewsSource](
+			httpClient,
+			baseURL+AnalyticsServiceCreateNewsSourceProcedure,
+			connect.WithSchema(analyticsServiceMethods.ByName("CreateNewsSource")),
+			connect.WithClientOptions(opts...),
+		),
+		updateNewsSource: connect.NewClient[v1.UpdateNewsSourceRequest, v1.NewsSource](
+			httpClient,
+			baseURL+AnalyticsServiceUpdateNewsSourceProcedure,
+			connect.WithSchema(analyticsServiceMethods.ByName("UpdateNewsSource")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteNewsSource: connect.NewClient[v1.DeleteNewsSourceRequest, v1.DeleteNewsSourceResponse](
+			httpClient,
+			baseURL+AnalyticsServiceDeleteNewsSourceProcedure,
+			connect.WithSchema(analyticsServiceMethods.ByName("DeleteNewsSource")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // analyticsServiceClient implements AnalyticsServiceClient.
 type analyticsServiceClient struct {
-	getHeatmap *connect.Client[v1.GetHeatmapRequest, v1.GetHeatmapResponse]
+	getHeatmap       *connect.Client[v1.GetHeatmapRequest, v1.GetHeatmapResponse]
+	listDocuments    *connect.Client[v1.ListDocumentsRequest, v1.ListDocumentsResponse]
+	listNewsSources  *connect.Client[v1.ListNewsSourcesRequest, v1.ListNewsSourcesResponse]
+	createNewsSource *connect.Client[v1.CreateNewsSourceRequest, v1.NewsSource]
+	updateNewsSource *connect.Client[v1.UpdateNewsSourceRequest, v1.NewsSource]
+	deleteNewsSource *connect.Client[v1.DeleteNewsSourceRequest, v1.DeleteNewsSourceResponse]
 }
 
 // GetHeatmap calls eye.v1.AnalyticsService.GetHeatmap.
@@ -73,9 +141,52 @@ func (c *analyticsServiceClient) GetHeatmap(ctx context.Context, req *connect.Re
 	return c.getHeatmap.CallUnary(ctx, req)
 }
 
+// ListDocuments calls eye.v1.AnalyticsService.ListDocuments.
+func (c *analyticsServiceClient) ListDocuments(ctx context.Context, req *connect.Request[v1.ListDocumentsRequest]) (*connect.Response[v1.ListDocumentsResponse], error) {
+	return c.listDocuments.CallUnary(ctx, req)
+}
+
+// ListNewsSources calls eye.v1.AnalyticsService.ListNewsSources.
+func (c *analyticsServiceClient) ListNewsSources(ctx context.Context, req *connect.Request[v1.ListNewsSourcesRequest]) (*connect.Response[v1.ListNewsSourcesResponse], error) {
+	return c.listNewsSources.CallUnary(ctx, req)
+}
+
+// CreateNewsSource calls eye.v1.AnalyticsService.CreateNewsSource.
+func (c *analyticsServiceClient) CreateNewsSource(ctx context.Context, req *connect.Request[v1.CreateNewsSourceRequest]) (*connect.Response[v1.NewsSource], error) {
+	return c.createNewsSource.CallUnary(ctx, req)
+}
+
+// UpdateNewsSource calls eye.v1.AnalyticsService.UpdateNewsSource.
+func (c *analyticsServiceClient) UpdateNewsSource(ctx context.Context, req *connect.Request[v1.UpdateNewsSourceRequest]) (*connect.Response[v1.NewsSource], error) {
+	return c.updateNewsSource.CallUnary(ctx, req)
+}
+
+// DeleteNewsSource calls eye.v1.AnalyticsService.DeleteNewsSource.
+func (c *analyticsServiceClient) DeleteNewsSource(ctx context.Context, req *connect.Request[v1.DeleteNewsSourceRequest]) (*connect.Response[v1.DeleteNewsSourceResponse], error) {
+	return c.deleteNewsSource.CallUnary(ctx, req)
+}
+
 // AnalyticsServiceHandler is an implementation of the eye.v1.AnalyticsService service.
 type AnalyticsServiceHandler interface {
 	GetHeatmap(context.Context, *connect.Request[v1.GetHeatmapRequest]) (*connect.Response[v1.GetHeatmapResponse], error)
+	// --- News ---
+	// ListDocuments returns news headlines, newest published_at first. A
+	// document's time is when its source published it, never when this
+	// instance fetched it. Any signed-in user may read.
+	ListDocuments(context.Context, *connect.Request[v1.ListDocumentsRequest]) (*connect.Response[v1.ListDocumentsResponse], error)
+	// ListNewsSources returns every feed with its last fetch outcome, so a
+	// failing feed reads as failing rather than as a quiet one. Any signed-in
+	// user may read.
+	ListNewsSources(context.Context, *connect.Request[v1.ListNewsSourcesRequest]) (*connect.Response[v1.ListNewsSourcesResponse], error)
+	// CreateNewsSource adds a feed. Admin-only: a source is read for every user.
+	// Errors: InvalidArgument (url, kind or cron), AlreadyExists (url taken),
+	// PermissionDenied (not admin).
+	CreateNewsSource(context.Context, *connect.Request[v1.CreateNewsSourceRequest]) (*connect.Response[v1.NewsSource], error)
+	// UpdateNewsSource changes the fields that are set. Admin-only.
+	UpdateNewsSource(context.Context, *connect.Request[v1.UpdateNewsSourceRequest]) (*connect.Response[v1.NewsSource], error)
+	// DeleteNewsSource removes a feed and the documents read from it.
+	// Admin-only; to pause a feed and keep its documents, disable it instead.
+	DeleteNewsSource(context.Context, *connect.Request[v1.DeleteNewsSourceRequest]) (*connect.Response[v1.DeleteNewsSourceResponse], error)
 }
 
 // NewAnalyticsServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -91,10 +202,50 @@ func NewAnalyticsServiceHandler(svc AnalyticsServiceHandler, opts ...connect.Han
 		connect.WithSchema(analyticsServiceMethods.ByName("GetHeatmap")),
 		connect.WithHandlerOptions(opts...),
 	)
+	analyticsServiceListDocumentsHandler := connect.NewUnaryHandler(
+		AnalyticsServiceListDocumentsProcedure,
+		svc.ListDocuments,
+		connect.WithSchema(analyticsServiceMethods.ByName("ListDocuments")),
+		connect.WithHandlerOptions(opts...),
+	)
+	analyticsServiceListNewsSourcesHandler := connect.NewUnaryHandler(
+		AnalyticsServiceListNewsSourcesProcedure,
+		svc.ListNewsSources,
+		connect.WithSchema(analyticsServiceMethods.ByName("ListNewsSources")),
+		connect.WithHandlerOptions(opts...),
+	)
+	analyticsServiceCreateNewsSourceHandler := connect.NewUnaryHandler(
+		AnalyticsServiceCreateNewsSourceProcedure,
+		svc.CreateNewsSource,
+		connect.WithSchema(analyticsServiceMethods.ByName("CreateNewsSource")),
+		connect.WithHandlerOptions(opts...),
+	)
+	analyticsServiceUpdateNewsSourceHandler := connect.NewUnaryHandler(
+		AnalyticsServiceUpdateNewsSourceProcedure,
+		svc.UpdateNewsSource,
+		connect.WithSchema(analyticsServiceMethods.ByName("UpdateNewsSource")),
+		connect.WithHandlerOptions(opts...),
+	)
+	analyticsServiceDeleteNewsSourceHandler := connect.NewUnaryHandler(
+		AnalyticsServiceDeleteNewsSourceProcedure,
+		svc.DeleteNewsSource,
+		connect.WithSchema(analyticsServiceMethods.ByName("DeleteNewsSource")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/eye.v1.AnalyticsService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AnalyticsServiceGetHeatmapProcedure:
 			analyticsServiceGetHeatmapHandler.ServeHTTP(w, r)
+		case AnalyticsServiceListDocumentsProcedure:
+			analyticsServiceListDocumentsHandler.ServeHTTP(w, r)
+		case AnalyticsServiceListNewsSourcesProcedure:
+			analyticsServiceListNewsSourcesHandler.ServeHTTP(w, r)
+		case AnalyticsServiceCreateNewsSourceProcedure:
+			analyticsServiceCreateNewsSourceHandler.ServeHTTP(w, r)
+		case AnalyticsServiceUpdateNewsSourceProcedure:
+			analyticsServiceUpdateNewsSourceHandler.ServeHTTP(w, r)
+		case AnalyticsServiceDeleteNewsSourceProcedure:
+			analyticsServiceDeleteNewsSourceHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -106,4 +257,24 @@ type UnimplementedAnalyticsServiceHandler struct{}
 
 func (UnimplementedAnalyticsServiceHandler) GetHeatmap(context.Context, *connect.Request[v1.GetHeatmapRequest]) (*connect.Response[v1.GetHeatmapResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AnalyticsService.GetHeatmap is not implemented"))
+}
+
+func (UnimplementedAnalyticsServiceHandler) ListDocuments(context.Context, *connect.Request[v1.ListDocumentsRequest]) (*connect.Response[v1.ListDocumentsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AnalyticsService.ListDocuments is not implemented"))
+}
+
+func (UnimplementedAnalyticsServiceHandler) ListNewsSources(context.Context, *connect.Request[v1.ListNewsSourcesRequest]) (*connect.Response[v1.ListNewsSourcesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AnalyticsService.ListNewsSources is not implemented"))
+}
+
+func (UnimplementedAnalyticsServiceHandler) CreateNewsSource(context.Context, *connect.Request[v1.CreateNewsSourceRequest]) (*connect.Response[v1.NewsSource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AnalyticsService.CreateNewsSource is not implemented"))
+}
+
+func (UnimplementedAnalyticsServiceHandler) UpdateNewsSource(context.Context, *connect.Request[v1.UpdateNewsSourceRequest]) (*connect.Response[v1.NewsSource], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AnalyticsService.UpdateNewsSource is not implemented"))
+}
+
+func (UnimplementedAnalyticsServiceHandler) DeleteNewsSource(context.Context, *connect.Request[v1.DeleteNewsSourceRequest]) (*connect.Response[v1.DeleteNewsSourceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.AnalyticsService.DeleteNewsSource is not implemented"))
 }

@@ -38,12 +38,15 @@ type Handler struct {
 	mdClient  MarketDataClient         // optional; nil if not configured
 	setClient pricefresh.SettingReader // optional; nil means valuation defaults
 	log       *slog.Logger
+	news      NewsStore  // optional; nil means the news RPCs are Unimplemented
+	feeds     FeedReader // optional; reads sources for IngestNews
+	now       func() time.Time
 
 	holdingsPageSize int32 // batch size of the holdings read; tests shrink it
 }
 
 func NewHandler(pc PortfolioClient, log *slog.Logger) *Handler {
-	return &Handler{pfClient: pc, log: log, holdingsPageSize: holdingsPageSize}
+	return &Handler{pfClient: pc, log: log, now: time.Now, holdingsPageSize: holdingsPageSize}
 }
 
 // WithMarketDataClient returns a new Handler with the MarketData client injected.
