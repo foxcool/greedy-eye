@@ -461,9 +461,8 @@ graph TB
   the portfolio total returns) reports the holdings that drew no tile. On a map the omission is
   invisible in a way it is not in a total — an unpriced position produces no node at all, not a
   small one. `breadth` sums the same move up from the same pricing: holdings up out of holdings
-  priced (the unpriced count beside it, never under it), the value-weighted change and the best
-  and worst leaf. A holding priced off a stale quote is counted with its last change and flagged;
-  one with no price inside the window has no change and is counted apart (`no_history_count`)
+  priced (the unpriced count beside it, never under it), the change weighted by holding value and
+  the best and worst leaf; `HeatmapBreadth` documents how stale and no-history holdings count
 - Scopes: PORTFOLIO (one portfolio; flat or grouped by account) and BALANCE (all caller's
   holdings across portfolios; flat, by account, or by portfolio — holdings inherit the account's
   portfolio, accounts outside any portfolio land in an "unassigned" group). BALANCE leaves out

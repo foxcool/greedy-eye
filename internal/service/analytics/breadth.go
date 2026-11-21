@@ -5,30 +5,29 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// breadth tallies HeatmapBreadth while the heatmap values its holdings, so the
-// strip reads the very prices, changes and staleness the tiles are drawn from
-// and cannot drift from the map. Counts are per holding, matching
-// ValuationCoverage; the extremes are per leaf, matching the nodes.
-type breadth struct {
-	msg apiv1.HeatmapBreadth
-	// Value-weighted change over the holdings that have history.
-	weightedSum, weight decimal.Decimal
-	// Sizes of the current extremes, for the tie-break in addLeaf.
-	bestSize, worstSize float64
+// breadthTally builds HeatmapBreadth from the holdings and leaves the heatmap
+// draws, so the strip cannot drift from the tiles.
+type breadthTally struct {
+	up, noHistory       uint32
+	weightedSum, weight decimal.Decimal // change weighted by holding value
+	best, worst         *extremeCandidate
+}
+
+// extremeCandidate is a drawn leaf considered for best or worst.
+type extremeCandidate struct {
+	node      *apiv1.HeatmapNode
+	changePct float64
+	stale     bool
 }
 
 // addHolding counts one priced holding of value at the asset's pricing.
-func (b *breadth) addHolding(ap *assetPricing, value decimal.Decimal, stale bool) {
-	b.msg.PricedCount++
-	if stale {
-		b.msg.StaleCount++
-	}
+func (b *breadthTally) addHolding(ap *assetPricing, value decimal.Decimal) {
 	if !ap.hasHistory {
-		b.msg.NoHistoryCount++
+		b.noHistory++
 		return
 	}
 	if ap.changePct > 0 {
-		b.msg.UpCount++
+		b.up++
 	}
 	b.weightedSum = b.weightedSum.Add(value.Mul(decimal.NewFromFloat(ap.changePct)))
 	b.weight = b.weight.Add(value)
@@ -37,37 +36,53 @@ func (b *breadth) addHolding(ap *assetPricing, value decimal.Decimal, stale bool
 // addLeaf considers one drawn leaf for best and worst. On equal change the
 // larger leaf wins, then the smaller id: leaves come out of a map, so the
 // order they arrive in must not pick the extreme.
-func (b *breadth) addLeaf(node *apiv1.HeatmapNode, ap *assetPricing, stale bool) {
+func (b *breadthTally) addLeaf(node *apiv1.HeatmapNode, ap *assetPricing) {
 	if !ap.hasHistory {
 		return
 	}
-	leaf := func() *apiv1.HeatmapBreadthLeaf {
-		return &apiv1.HeatmapBreadthLeaf{
-			NodeId: node.Id, AssetId: node.AssetId, Label: node.Label,
-			ChangePct: ap.changePct, Stale: stale,
-		}
+	c := &extremeCandidate{node: node, changePct: ap.changePct, stale: ap.stale}
+	if b.best == nil || c.beats(b.best, 1) {
+		b.best = c
 	}
-	if b.msg.Best == nil || ap.changePct > b.msg.Best.ChangePct ||
-		(ap.changePct == b.msg.Best.ChangePct && winsTie(node, b.bestSize, b.msg.Best.NodeId)) {
-		b.msg.Best, b.bestSize = leaf(), node.Size
-	}
-	if b.msg.Worst == nil || ap.changePct < b.msg.Worst.ChangePct ||
-		(ap.changePct == b.msg.Worst.ChangePct && winsTie(node, b.worstSize, b.msg.Worst.NodeId)) {
-		b.msg.Worst, b.worstSize = leaf(), node.Size
+	if b.worst == nil || c.beats(b.worst, -1) {
+		b.worst = c
 	}
 }
 
-// winsTie reports whether node displaces the holder of an extreme it ties on change.
-func winsTie(node *apiv1.HeatmapNode, heldSize float64, heldID string) bool {
-	if node.Size != heldSize {
-		return node.Size > heldSize
+// beats reports whether c displaces held as the extreme in direction dir:
+// 1 for the highest change, -1 for the lowest.
+func (c *extremeCandidate) beats(held *extremeCandidate, dir float64) bool {
+	if c.changePct != held.changePct {
+		return dir*c.changePct > dir*held.changePct
 	}
-	return node.Id < heldID
+	if c.node.Size != held.node.Size {
+		return c.node.Size > held.node.Size
+	}
+	return c.node.Id < held.node.Id
 }
 
-func (b *breadth) result(unpriced uint32) *apiv1.HeatmapBreadth {
-	out := &b.msg
-	out.UnpricedCount = unpriced
+func (c *extremeCandidate) leaf() *apiv1.HeatmapBreadthLeaf {
+	if c == nil {
+		return nil
+	}
+	return &apiv1.HeatmapBreadthLeaf{
+		NodeId: c.node.Id, AssetId: c.node.AssetId, Label: c.node.Label,
+		ChangePct: c.changePct, Stale: c.stale,
+	}
+}
+
+// result takes the priced, unpriced and stale counts from coverage: they are
+// the same holdings, so they are counted once.
+func (b *breadthTally) result(coverage *apiv1.ValuationCoverage) *apiv1.HeatmapBreadth {
+	out := &apiv1.HeatmapBreadth{
+		UpCount:        b.up,
+		PricedCount:    coverage.PricedCount,
+		UnpricedCount:  coverage.UnpricedCount,
+		NoHistoryCount: b.noHistory,
+		StaleCount:     coverage.StaleCount,
+		Best:           b.best.leaf(),
+		Worst:          b.worst.leaf(),
+	}
 	if !b.weight.IsZero() {
 		avg := b.weightedSum.Div(b.weight).InexactFloat64()
 		out.WeightedChangePct = &avg

@@ -18,7 +18,7 @@ import (
 type assetPricing struct {
 	unit      decimal.Decimal // current per-token price in the quote asset
 	priced    bool            // false when there is no usable price → asset is skipped
-	changePct float64         // signed % change over the window; 0 when history is missing
+	changePct float64         // signed % change over the window; meaningful only when hasHistory
 	label     string          // asset symbol, falling back to name, then ID
 	// hasHistory is false when no price at or after the window start was found,
 	// so changePct is a placeholder 0, not a measured flat move.
@@ -32,6 +32,7 @@ type assetPricing struct {
 	// too — a stale conversion rate says nothing about whether this asset still
 	// trades, the same reasoning that keeps the depth gate off the rate.
 	quotedAt time.Time
+	stale    bool // quotedAt is past the freshness policy when the map is drawn
 }
 
 // priceAssets resolves price, change and label for every asset in assetIDs,

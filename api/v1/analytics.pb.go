@@ -497,9 +497,7 @@ type GetHeatmapResponse struct {
 	// is not in a total. Same message CalculatePortfolioValue returns: one shape
 	// for the same statement, on every surface.
 	Coverage *ValuationCoverage `protobuf:"bytes,4,opt,name=coverage,proto3" json:"coverage,omitempty"`
-	// Breadth of the move behind the map: how many holdings rose, the
-	// size-weighted average change and the extreme leaves. Built from the same
-	// holdings, prices and window as the nodes. See HeatmapBreadth.
+	// Summary of the move behind the map; see HeatmapBreadth.
 	Breadth       *HeatmapBreadth `protobuf:"bytes,5,opt,name=breadth,proto3" json:"breadth,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -570,12 +568,14 @@ func (x *GetHeatmapResponse) GetBreadth() *HeatmapBreadth {
 	return nil
 }
 
-// HeatmapBreadth summarises the move of a holding-backed heatmap in three
-// numbers. Counts are per holding, as in ValuationCoverage, and the
-// denominator is the PRICED set: an unpriced holding has no move to count, so
-// it is reported beside the ratio ("5 of 6 priced, 3 unpriced"), not under it.
+// HeatmapBreadth summarises the move of a holding-backed heatmap: how many
+// holdings rose, the average change and the extreme leaves, built from the
+// same holdings, prices and window as the nodes. Counts are per holding, as
+// in ValuationCoverage, and the denominator is the PRICED set: an unpriced
+// holding has no move to count, so it is reported beside the ratio ("5 of 6
+// priced, 3 unpriced"), not under it.
 //
-// A holding whose quote outlived its market (stale_count; the same rule as
+// A holding whose quote outlived its market (the rule of
 // ValuationCoverage.stale_count) is counted with the change its last quote
 // gives and flagged, not dropped and not scoped out per market.
 type HeatmapBreadth struct {
@@ -589,7 +589,7 @@ type HeatmapBreadth struct {
 	// Priced holdings with no price at or after the window start, so no change:
 	// inside priced_count, never in up_count, the average or the extremes.
 	NoHistoryCount uint32 `protobuf:"varint,4,opt,name=no_history_count,json=noHistoryCount,proto3" json:"no_history_count,omitempty"`
-	// Priced holdings valued from a stale quote; counted with their last change.
+	// Holdings valued from a stale quote; equals coverage.stale_count.
 	StaleCount uint32 `protobuf:"varint,5,opt,name=stale_count,json=staleCount,proto3" json:"stale_count,omitempty"`
 	// Change % over the window weighted by holding value in the quote asset.
 	// Unset when no priced holding has history.
@@ -695,7 +695,7 @@ type HeatmapBreadthLeaf struct {
 	AssetId       string                 `protobuf:"bytes,2,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
 	Label         string                 `protobuf:"bytes,3,opt,name=label,proto3" json:"label,omitempty"`
 	ChangePct     float64                `protobuf:"fixed64,4,opt,name=change_pct,json=changePct,proto3" json:"change_pct,omitempty"`
-	Stale         bool                   `protobuf:"varint,5,opt,name=stale,proto3" json:"stale,omitempty"` // priced from a quote older than the freshness policy
+	Stale         bool                   `protobuf:"varint,5,opt,name=stale,proto3" json:"stale,omitempty"` // priced from a stale quote; see HeatmapBreadth
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

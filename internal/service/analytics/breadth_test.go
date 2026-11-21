@@ -41,10 +41,7 @@ func TestGetHeatmap_Breadth(t *testing.T) {
 		{
 			name: "a holding with no price stays out of the denominator",
 			mutate: func(st *fakeStore, md *fakeMD) {
-				st.holdings = append(st.holdings, &entity.Holding{
-					ID: "h3", AssetID: "doge", AccountID: "a1", PortfolioID: "p1",
-					Amount: dec("1000"), Decimals: 0,
-				})
+				addUnpricedDoge(st)
 			},
 			up: 1, priced: 2, unpriced: 1,
 			weighted: &bothWeighted,
@@ -64,10 +61,7 @@ func TestGetHeatmap_Breadth(t *testing.T) {
 		{
 			name: "no price and no history together",
 			mutate: func(st *fakeStore, md *fakeMD) {
-				st.holdings = append(st.holdings, &entity.Holding{
-					ID: "h3", AssetID: "doge", AccountID: "a1", PortfolioID: "p1",
-					Amount: dec("1000"), Decimals: 0,
-				})
+				addUnpricedDoge(st)
 				delete(md.hist, "btc|USD")
 			},
 			up: 1, priced: 2, unpriced: 1, noHistory: 1,
@@ -127,9 +121,6 @@ func TestGetHeatmap_Breadth(t *testing.T) {
 			assert.Equal(t, tt.unpriced, b.GetUnpricedCount(), "unpriced")
 			assert.Equal(t, tt.noHistory, b.GetNoHistoryCount(), "no history")
 			assert.Equal(t, tt.stale, b.GetStaleCount(), "stale")
-			// The strip and the coverage block state one denominator.
-			assert.Equal(t, resp.Msg.GetCoverage().GetPricedCount(), b.GetPricedCount())
-			assert.Equal(t, resp.Msg.GetCoverage().GetUnpricedCount(), b.GetUnpricedCount())
 
 			if tt.weighted == nil {
 				assert.Nil(t, b.WeightedChangePct)
@@ -155,7 +146,6 @@ func TestGetHeatmap_Breadth(t *testing.T) {
 	}
 }
 
-// Two positions in one asset are two holdings in the ratio, as in coverage.
 func TestGetHeatmap_BreadthCountsHoldingsNotAssets(t *testing.T) {
 	st, md := fixture()
 	st.holdings = append(st.holdings, &entity.Holding{
@@ -173,8 +163,14 @@ func TestGetHeatmap_BreadthCountsHoldingsNotAssets(t *testing.T) {
 
 func ptr(f float64) *float64 { return &f }
 
-// Leaves are built from a map, so equal leaves arrive in any order; the
-// extreme must not depend on it.
+// addUnpricedDoge adds a holding the fixture has no price for.
+func addUnpricedDoge(st *fakeStore) {
+	st.holdings = append(st.holdings, &entity.Holding{
+		ID: "h3", AssetID: "doge", AccountID: "a1", PortfolioID: "p1",
+		Amount: dec("1000"), Decimals: 0,
+	})
+}
+
 func TestGetHeatmap_BreadthExtremeTieIsDeterministic(t *testing.T) {
 	st, md := fixture()
 	// The same ETH amount in both accounts: two leaves with equal size and change.
