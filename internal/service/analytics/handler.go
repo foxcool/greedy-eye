@@ -37,6 +37,8 @@ type Handler struct {
 	pfClient  PortfolioClient
 	mdClient  MarketDataClient         // optional; nil if not configured
 	setClient pricefresh.SettingReader // optional; nil means valuation defaults
+	rankings  MarketRankingSource      // optional; nil leaves scope MARKET unimplemented
+	market    *marketCache             // shared by clones: the cache outlives any one builder step
 	log       *slog.Logger
 	news      NewsStore  // optional; nil means the news RPCs are Unimplemented
 	feeds     FeedReader // optional; reads sources for IngestNews
@@ -46,7 +48,10 @@ type Handler struct {
 }
 
 func NewHandler(pc PortfolioClient, log *slog.Logger) *Handler {
-	return &Handler{pfClient: pc, log: log, now: time.Now, holdingsPageSize: holdingsPageSize}
+	return &Handler{
+		pfClient: pc, log: log, now: time.Now, holdingsPageSize: holdingsPageSize,
+		market: &marketCache{now: time.Now},
+	}
 }
 
 // WithMarketDataClient returns a new Handler with the MarketData client injected.
@@ -73,6 +78,8 @@ func (h *Handler) GetHeatmap(ctx context.Context, req *connect.Request[apiv1.Get
 	switch req.Msg.Scope {
 	case apiv1.HeatmapScope_HEATMAP_SCOPE_PORTFOLIO, apiv1.HeatmapScope_HEATMAP_SCOPE_BALANCE:
 		return h.heatmap(ctx, req.Msg)
+	case apiv1.HeatmapScope_HEATMAP_SCOPE_MARKET:
+		return h.marketHeatmap(ctx, req.Msg)
 	case apiv1.HeatmapScope_HEATMAP_SCOPE_UNSPECIFIED:
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("scope is required"))
 	default:

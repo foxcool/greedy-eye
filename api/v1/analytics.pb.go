@@ -349,14 +349,20 @@ func (NewsSourceKind) EnumDescriptor() ([]byte, []int) {
 // Values are float64 visualization data, not accounting-grade amounts —
 // precise values stay behind PortfolioService/MarketDataService.
 type HeatmapNode struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Label         string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`                               // asset symbol or group name
-	ParentId      string                 `protobuf:"bytes,3,opt,name=parent_id,json=parentId,proto3" json:"parent_id,omitempty"`         // empty for root-level nodes
-	Size          float64                `protobuf:"fixed64,4,opt,name=size,proto3" json:"size,omitempty"`                               // size metric in quote asset units (group = sum of children)
-	ColorValue    float64                `protobuf:"fixed64,5,opt,name=color_value,json=colorValue,proto3" json:"color_value,omitempty"` // color metric value (e.g. signed change %); group = size-weighted
-	Price         *float64               `protobuf:"fixed64,6,opt,name=price,proto3,oneof" json:"price,omitempty"`                       // current unit price in quote asset (leaf only)
-	AssetId       string                 `protobuf:"bytes,7,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`            // set on leaves; links to asset entity
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Id         string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Label      string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`                               // asset symbol or group name
+	ParentId   string                 `protobuf:"bytes,3,opt,name=parent_id,json=parentId,proto3" json:"parent_id,omitempty"`         // empty for root-level nodes
+	Size       float64                `protobuf:"fixed64,4,opt,name=size,proto3" json:"size,omitempty"`                               // size metric in quote asset units (group = sum of children)
+	ColorValue float64                `protobuf:"fixed64,5,opt,name=color_value,json=colorValue,proto3" json:"color_value,omitempty"` // color metric value (e.g. signed change %); group = size-weighted
+	Price      *float64               `protobuf:"fixed64,6,opt,name=price,proto3,oneof" json:"price,omitempty"`                       // current unit price in quote asset (leaf only)
+	AssetId    string                 `protobuf:"bytes,7,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`            // set on leaves; links to asset entity
+	// MARKET scope: the coin's market-capitalisation rank at the source (1 =
+	// largest). Absent on every other scope.
+	Rank *int32 `protobuf:"varint,8,opt,name=rank,proto3,oneof" json:"rank,omitempty"`
+	// MARKET scope: the caller holds this coin; only then does asset_id link to
+	// its card.
+	Held          bool `protobuf:"varint,9,opt,name=held,proto3" json:"held,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -438,6 +444,20 @@ func (x *HeatmapNode) GetAssetId() string {
 		return x.AssetId
 	}
 	return ""
+}
+
+func (x *HeatmapNode) GetRank() int32 {
+	if x != nil && x.Rank != nil {
+		return *x.Rank
+	}
+	return 0
+}
+
+func (x *HeatmapNode) GetHeld() bool {
+	if x != nil {
+		return x.Held
+	}
+	return false
 }
 
 type GetHeatmapRequest struct {
@@ -545,7 +565,13 @@ type GetHeatmapResponse struct {
 	// for the same statement, on every surface.
 	Coverage *ValuationCoverage `protobuf:"bytes,4,opt,name=coverage,proto3" json:"coverage,omitempty"`
 	// Summary of the move behind the map; see HeatmapBreadth.
-	Breadth       *HeatmapBreadth `protobuf:"bytes,5,opt,name=breadth,proto3" json:"breadth,omitempty"`
+	Breadth *HeatmapBreadth `protobuf:"bytes,5,opt,name=breadth,proto3" json:"breadth,omitempty"`
+	// MARKET scope: when the ranking was read from the source; may be older than
+	// calculated_at.
+	SourceReadAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=source_read_at,json=sourceReadAt,proto3" json:"source_read_at,omitempty"`
+	// MARKET scope: the provider the ranking came from ("coingecko"), for
+	// attribution next to the map.
+	Source        string `protobuf:"bytes,7,opt,name=source,proto3" json:"source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -613,6 +639,20 @@ func (x *GetHeatmapResponse) GetBreadth() *HeatmapBreadth {
 		return x.Breadth
 	}
 	return nil
+}
+
+func (x *GetHeatmapResponse) GetSourceReadAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.SourceReadAt
+	}
+	return nil
+}
+
+func (x *GetHeatmapResponse) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
 }
 
 // HeatmapBreadth summarises the move of a holding-backed heatmap: how many
@@ -1514,7 +1554,7 @@ var File_v1_analytics_proto protoreflect.FileDescriptor
 
 const file_v1_analytics_proto_rawDesc = "" +
 	"\n" +
-	"\x12v1/analytics.proto\x12\x06eye.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x13v1/marketdata.proto\"\xc5\x01\n" +
+	"\x12v1/analytics.proto\x12\x06eye.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x13v1/marketdata.proto\"\xfb\x01\n" +
 	"\vHeatmapNode\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x1b\n" +
@@ -1523,8 +1563,11 @@ const file_v1_analytics_proto_rawDesc = "" +
 	"\vcolor_value\x18\x05 \x01(\x01R\n" +
 	"colorValue\x12\x19\n" +
 	"\x05price\x18\x06 \x01(\x01H\x00R\x05price\x88\x01\x01\x12\x19\n" +
-	"\basset_id\x18\a \x01(\tR\aassetIdB\b\n" +
-	"\x06_price\"\xdd\x02\n" +
+	"\basset_id\x18\a \x01(\tR\aassetId\x12\x17\n" +
+	"\x04rank\x18\b \x01(\x05H\x01R\x04rank\x88\x01\x01\x12\x12\n" +
+	"\x04held\x18\t \x01(\bR\x04heldB\b\n" +
+	"\x06_priceB\a\n" +
+	"\x05_rank\"\xdd\x02\n" +
 	"\x11GetHeatmapRequest\x12*\n" +
 	"\x05scope\x18\x01 \x01(\x0e2\x14.eye.v1.HeatmapScopeR\x05scope\x12\x19\n" +
 	"\bscope_id\x18\x02 \x01(\tR\ascopeId\x121\n" +
@@ -1533,13 +1576,15 @@ const file_v1_analytics_proto_rawDesc = "" +
 	"\vsize_metric\x18\x05 \x01(\x0e2\x19.eye.v1.HeatmapSizeMetricR\n" +
 	"sizeMetric\x12=\n" +
 	"\fcolor_metric\x18\x06 \x01(\x0e2\x1a.eye.v1.HeatmapColorMetricR\vcolorMetric\x12$\n" +
-	"\x0equote_asset_id\x18\a \x01(\tR\fquoteAssetId\"\x8f\x02\n" +
+	"\x0equote_asset_id\x18\a \x01(\tR\fquoteAssetId\"\xe9\x02\n" +
 	"\x12GetHeatmapResponse\x12)\n" +
 	"\x05nodes\x18\x01 \x03(\v2\x13.eye.v1.HeatmapNodeR\x05nodes\x12$\n" +
 	"\x0equote_asset_id\x18\x02 \x01(\tR\fquoteAssetId\x12?\n" +
 	"\rcalculated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\fcalculatedAt\x125\n" +
 	"\bcoverage\x18\x04 \x01(\v2\x19.eye.v1.ValuationCoverageR\bcoverage\x120\n" +
-	"\abreadth\x18\x05 \x01(\v2\x16.eye.v1.HeatmapBreadthR\abreadth\"\xef\x02\n" +
+	"\abreadth\x18\x05 \x01(\v2\x16.eye.v1.HeatmapBreadthR\abreadth\x12@\n" +
+	"\x0esource_read_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\fsourceReadAt\x12\x16\n" +
+	"\x06source\x18\a \x01(\tR\x06source\"\xef\x02\n" +
 	"\x0eHeatmapBreadth\x12\x19\n" +
 	"\bup_count\x18\x01 \x01(\rR\aupCount\x12!\n" +
 	"\fpriced_count\x18\x02 \x01(\rR\vpricedCount\x12%\n" +
@@ -1725,36 +1770,37 @@ var file_v1_analytics_proto_depIdxs = []int32{
 	21, // 6: eye.v1.GetHeatmapResponse.calculated_at:type_name -> google.protobuf.Timestamp
 	22, // 7: eye.v1.GetHeatmapResponse.coverage:type_name -> eye.v1.ValuationCoverage
 	9,  // 8: eye.v1.GetHeatmapResponse.breadth:type_name -> eye.v1.HeatmapBreadth
-	10, // 9: eye.v1.HeatmapBreadth.best:type_name -> eye.v1.HeatmapBreadthLeaf
-	10, // 10: eye.v1.HeatmapBreadth.worst:type_name -> eye.v1.HeatmapBreadthLeaf
-	5,  // 11: eye.v1.NewsSource.kind:type_name -> eye.v1.NewsSourceKind
-	21, // 12: eye.v1.NewsSource.last_fetched_at:type_name -> google.protobuf.Timestamp
-	21, // 13: eye.v1.NewsSource.last_success_at:type_name -> google.protobuf.Timestamp
-	21, // 14: eye.v1.NewsSource.last_error_at:type_name -> google.protobuf.Timestamp
-	21, // 15: eye.v1.NewsSource.created_at:type_name -> google.protobuf.Timestamp
-	21, // 16: eye.v1.NewsSource.updated_at:type_name -> google.protobuf.Timestamp
-	21, // 17: eye.v1.NewsDocument.published_at:type_name -> google.protobuf.Timestamp
-	21, // 18: eye.v1.ListDocumentsRequest.since:type_name -> google.protobuf.Timestamp
-	12, // 19: eye.v1.ListDocumentsResponse.documents:type_name -> eye.v1.NewsDocument
-	11, // 20: eye.v1.ListNewsSourcesResponse.sources:type_name -> eye.v1.NewsSource
-	5,  // 21: eye.v1.CreateNewsSourceRequest.kind:type_name -> eye.v1.NewsSourceKind
-	7,  // 22: eye.v1.AnalyticsService.GetHeatmap:input_type -> eye.v1.GetHeatmapRequest
-	13, // 23: eye.v1.AnalyticsService.ListDocuments:input_type -> eye.v1.ListDocumentsRequest
-	15, // 24: eye.v1.AnalyticsService.ListNewsSources:input_type -> eye.v1.ListNewsSourcesRequest
-	17, // 25: eye.v1.AnalyticsService.CreateNewsSource:input_type -> eye.v1.CreateNewsSourceRequest
-	18, // 26: eye.v1.AnalyticsService.UpdateNewsSource:input_type -> eye.v1.UpdateNewsSourceRequest
-	19, // 27: eye.v1.AnalyticsService.DeleteNewsSource:input_type -> eye.v1.DeleteNewsSourceRequest
-	8,  // 28: eye.v1.AnalyticsService.GetHeatmap:output_type -> eye.v1.GetHeatmapResponse
-	14, // 29: eye.v1.AnalyticsService.ListDocuments:output_type -> eye.v1.ListDocumentsResponse
-	16, // 30: eye.v1.AnalyticsService.ListNewsSources:output_type -> eye.v1.ListNewsSourcesResponse
-	11, // 31: eye.v1.AnalyticsService.CreateNewsSource:output_type -> eye.v1.NewsSource
-	11, // 32: eye.v1.AnalyticsService.UpdateNewsSource:output_type -> eye.v1.NewsSource
-	20, // 33: eye.v1.AnalyticsService.DeleteNewsSource:output_type -> eye.v1.DeleteNewsSourceResponse
-	28, // [28:34] is the sub-list for method output_type
-	22, // [22:28] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	21, // 9: eye.v1.GetHeatmapResponse.source_read_at:type_name -> google.protobuf.Timestamp
+	10, // 10: eye.v1.HeatmapBreadth.best:type_name -> eye.v1.HeatmapBreadthLeaf
+	10, // 11: eye.v1.HeatmapBreadth.worst:type_name -> eye.v1.HeatmapBreadthLeaf
+	5,  // 12: eye.v1.NewsSource.kind:type_name -> eye.v1.NewsSourceKind
+	21, // 13: eye.v1.NewsSource.last_fetched_at:type_name -> google.protobuf.Timestamp
+	21, // 14: eye.v1.NewsSource.last_success_at:type_name -> google.protobuf.Timestamp
+	21, // 15: eye.v1.NewsSource.last_error_at:type_name -> google.protobuf.Timestamp
+	21, // 16: eye.v1.NewsSource.created_at:type_name -> google.protobuf.Timestamp
+	21, // 17: eye.v1.NewsSource.updated_at:type_name -> google.protobuf.Timestamp
+	21, // 18: eye.v1.NewsDocument.published_at:type_name -> google.protobuf.Timestamp
+	21, // 19: eye.v1.ListDocumentsRequest.since:type_name -> google.protobuf.Timestamp
+	12, // 20: eye.v1.ListDocumentsResponse.documents:type_name -> eye.v1.NewsDocument
+	11, // 21: eye.v1.ListNewsSourcesResponse.sources:type_name -> eye.v1.NewsSource
+	5,  // 22: eye.v1.CreateNewsSourceRequest.kind:type_name -> eye.v1.NewsSourceKind
+	7,  // 23: eye.v1.AnalyticsService.GetHeatmap:input_type -> eye.v1.GetHeatmapRequest
+	13, // 24: eye.v1.AnalyticsService.ListDocuments:input_type -> eye.v1.ListDocumentsRequest
+	15, // 25: eye.v1.AnalyticsService.ListNewsSources:input_type -> eye.v1.ListNewsSourcesRequest
+	17, // 26: eye.v1.AnalyticsService.CreateNewsSource:input_type -> eye.v1.CreateNewsSourceRequest
+	18, // 27: eye.v1.AnalyticsService.UpdateNewsSource:input_type -> eye.v1.UpdateNewsSourceRequest
+	19, // 28: eye.v1.AnalyticsService.DeleteNewsSource:input_type -> eye.v1.DeleteNewsSourceRequest
+	8,  // 29: eye.v1.AnalyticsService.GetHeatmap:output_type -> eye.v1.GetHeatmapResponse
+	14, // 30: eye.v1.AnalyticsService.ListDocuments:output_type -> eye.v1.ListDocumentsResponse
+	16, // 31: eye.v1.AnalyticsService.ListNewsSources:output_type -> eye.v1.ListNewsSourcesResponse
+	11, // 32: eye.v1.AnalyticsService.CreateNewsSource:output_type -> eye.v1.NewsSource
+	11, // 33: eye.v1.AnalyticsService.UpdateNewsSource:output_type -> eye.v1.NewsSource
+	20, // 34: eye.v1.AnalyticsService.DeleteNewsSource:output_type -> eye.v1.DeleteNewsSourceResponse
+	29, // [29:35] is the sub-list for method output_type
+	23, // [23:29] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_v1_analytics_proto_init() }

@@ -146,7 +146,7 @@ are the main open items.
 | MarketDataService | `internal/service/marketdata/` | ✅ Assets + prices CRUD, FetchExternalPrices (resolver) |
 | PortfolioService | `internal/service/portfolio/` | ✅ CRUD, CalculatePortfolioValue, SyncAccount (wallet + exchange), ownership |
 | AutomationService | `internal/service/automation/` | 🔄 Rule/execution CRUD + status ops; DCA engine on a paper venue (`internal/execution`); other engines Unimplemented |
-| AnalyticsService | `internal/service/analytics/` | 🔄 GetHeatmap scope=portfolio+balance (flat / by account / by portfolio, change% color); market/basket pending data prerequisites |
+| AnalyticsService | `internal/service/analytics/` | 🔄 GetHeatmap scope=portfolio+balance (flat / by account / by portfolio, change% color) and market (top 100 crypto by cap rank, cached CoinGecko ranking); basket pending data prerequisites |
 | Credentials resolver | `internal/service/credentials/` | ✅ Per-account provider clients (signed-in: user → system; unattended: system → sole operator) |
 | User provisioning | `internal/middleware/user.go` | ✅ Header-based (psina), lazy provision, roles per request |
 
@@ -415,7 +415,7 @@ Service Layer (Connect handlers)
 ├── MarketDataService → MarketDataStore, credentials resolver (price providers)
 ├── PortfolioService  → PortfolioStore, MarketDataService, resolver (wallet/exchange syncers)
 ├── AutomationService → AutomationStore
-└── AnalyticsService  → PortfolioService (portfolios, accounts, holdings), MarketDataService (prices, assets), SettingsService (valuation policy); no store
+└── AnalyticsService  → PortfolioService (portfolios, accounts, holdings), MarketDataService (prices, assets), SettingsService (valuation policy), CoinGecko ranking via the credentials resolver (scope MARKET); no store
 
 Cross-cutting
 ├── credentials.Resolver → PortfolioStore (accounts), adapter factories

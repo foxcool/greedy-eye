@@ -257,6 +257,7 @@ func run() error {
 			aHandler := analytics.NewHandler(pClient, log).
 				WithMarketDataClient(mdClient).
 				WithSettingsClient(settingsClient).
+				WithMarketRankingSource(credResolver).
 				WithNews(postgres.NewNewsStore(pool), rss.NewClient(rss.Config{}))
 			newsIngester = aHandler
 			path, handler := apiv1connect.NewAnalyticsServiceHandler(aHandler, interceptor)

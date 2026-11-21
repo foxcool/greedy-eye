@@ -581,6 +581,26 @@ func (r *Resolver) MacroReadersFor(ctx context.Context, userID string) (map[stri
 	return res.readers, nil
 }
 
+// MarketRankersFor resolves the market rankings the caller may read: every key
+// of every price provider that can rank, in the order PriceProvidersFor tries
+// them. A ranking is read through the price registry rather than a registry of
+// its own so that it is charged to the same plan and fails over the same way.
+func (r *Resolver) MarketRankersFor(ctx context.Context, userID string) ([]entity.MarketRanker, error) {
+	providers, err := r.PriceProvidersFor(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	var out []entity.MarketRanker
+	for _, slug := range slices.Sorted(maps.Keys(providers)) {
+		for _, p := range providers[slug] {
+			if ranker, ok := p.(entity.MarketRanker); ok {
+				out = append(out, ranker)
+			}
+		}
+	}
+	return out, nil
+}
+
 // macroResolution is what one resolution of the macro registry saw: the reader
 // per slug, the account behind each reader that came from one, and the
 // accounts whose reader could not be built.
