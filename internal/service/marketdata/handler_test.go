@@ -83,6 +83,14 @@ func (m *mockStore) DeleteAsset(ctx context.Context, id string) error {
 	return m.Called(ctx, id).Error(0)
 }
 
+func (m *mockStore) MergeAssets(ctx context.Context, opts MergeAssetsOpts) (*MergeAssetsResult, error) {
+	args := m.Called(ctx, opts)
+	if r := args.Get(0); r != nil {
+		return r.(*MergeAssetsResult), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockStore) SetAssetVerdict(ctx context.Context, assetID, verdict string, score *float64, signals map[string]float64, source string) (bool, error) {
 	args := m.Called(ctx, assetID, verdict, score, signals, source)
 	return args.Bool(0), args.Error(1)
@@ -576,6 +584,82 @@ func TestDeleteAsset_IsAdminOnly(t *testing.T) {
 	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 
 	s.AssertNotCalled(t, "DeleteAsset", mock.Anything, mock.Anything)
+}
+
+// --- Tests: MergeAssets ---
+
+func mergeReq(dryRun *bool) *connect.Request[apiv1.MergeAssetsRequest] {
+	return connect.NewRequest(&apiv1.MergeAssetsRequest{
+		SourceId: "src", TargetId: "tgt",
+		ExpectedSourceSymbol: "USDT", ExpectedTargetSymbol: "USDT",
+		DryRun: dryRun,
+	})
+}
+
+func TestMergeAssets_DryRunUnlessExplicitlyFalse(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		dryRun *bool
+		want   bool
+	}{
+		{"absent", nil, true},
+		{"true", new(true), true},
+		{"false", new(false), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &mockStore{}
+			s.On("MergeAssets", mock.Anything, MergeAssetsOpts{
+				SourceID: "src", TargetID: "tgt",
+				ExpectedSourceSymbol: "USDT", ExpectedTargetSymbol: "USDT",
+				DryRun: tc.want,
+			}).Return(&MergeAssetsResult{HoldingsMoved: 2, PricesDropped: 1}, nil)
+			h := newHandler(s)
+
+			resp, err := h.MergeAssets(adminCtx(), mergeReq(tc.dryRun))
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, resp.Msg.DryRun)
+			assert.EqualValues(t, 2, resp.Msg.HoldingsMoved)
+			assert.EqualValues(t, 1, resp.Msg.PricesDropped)
+			s.AssertExpectations(t)
+		})
+	}
+}
+
+func TestMergeAssets_RequiresIDsAndSymbols(t *testing.T) {
+	h := newHandler(&mockStore{})
+	for _, msg := range []*apiv1.MergeAssetsRequest{
+		{TargetId: "tgt", ExpectedSourceSymbol: "A", ExpectedTargetSymbol: "A"},
+		{SourceId: "src", ExpectedSourceSymbol: "A", ExpectedTargetSymbol: "A"},
+		{SourceId: "src", TargetId: "tgt", ExpectedTargetSymbol: "A"},
+		{SourceId: "src", TargetId: "tgt", ExpectedSourceSymbol: "A"},
+	} {
+		_, err := h.MergeAssets(adminCtx(), connect.NewRequest(msg))
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	}
+}
+
+func TestMergeAssets_RefusalIsFailedPrecondition(t *testing.T) {
+	s := &mockStore{}
+	s.On("MergeAssets", mock.Anything, mock.Anything).
+		Return(nil, fmt.Errorf("%w: holding overlap", store.ErrConstraint))
+	h := newHandler(s)
+
+	_, err := h.MergeAssets(adminCtx(), mergeReq(nil))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+}
+
+func TestMergeAssets_IsAdminOnly(t *testing.T) {
+	s := &mockStore{}
+	h := newHandler(s)
+
+	plain := middleware.ContextWithUser(context.Background(), &entity.User{ID: "user-1"})
+	_, err := h.MergeAssets(plain, mergeReq(nil))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+	s.AssertNotCalled(t, "MergeAssets", mock.Anything, mock.Anything)
 }
 
 // --- Tests: ListAssets ---

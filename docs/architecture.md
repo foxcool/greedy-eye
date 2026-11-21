@@ -354,6 +354,8 @@ graph TB
   FindOrCreateAsset (by the composite identity, ADR-006), SetAssetVerdict (scam filter, ADR-007),
   AddAssetRiskFlag / DeleteAssetRiskFlag (axis 2 of the risk model — a flag never moves a sum),
   DeleteAssetExternalRef (unbind a wrong contract binding; there is no link RPC yet, ADR-006),
+  MergeAssets (fold a duplicate catalogue row into the asset it duplicates, in one transaction;
+  contract on the RPC),
   CreatePrice, CreatePrices, GetLatestPrice, GetPrices (batched GetLatestPrice / window-start
   ListPriceHistory, so a cross-domain valuation reads one set per call instead of one hop per
   holding), ListPriceHistory, ListPricesByInterval, DeletePrice,
@@ -1171,7 +1173,7 @@ Cron / API Client → AutomationService/ExecuteRule
   `user_id` list overrides are admin-only.
 - **Admin-gated mutations**: sharing account credentials system-wide (`system_scopes`) requires the
   admin role and an explicit update mask. Every write to the asset catalogue is admin-only too —
-  `UpdateAsset`, `DeleteAsset`, `SetAssetVerdict`, `Add`/`DeleteAssetRiskFlag`,
+  `UpdateAsset`, `DeleteAsset`, `MergeAssets`, `SetAssetVerdict`, `Add`/`DeleteAssetRiskFlag`,
   `DeleteAssetExternalRef` — because an asset is one row shared by every user who holds it, so an
   edit by one is an edit for all. Every direct price write is admin-only for the same reason
   (`CreatePrice`, `CreatePrices`, `DeletePrice`, `DeletePrices`): a price row values every holder.
@@ -2115,6 +2117,16 @@ System Quality
 > and the existing-rows map in `upsertSyncedBalances` — where a missed row is not a
 > position left out of a total but a position **created twice**, because adoption never
 > saw the row it should have adopted.
+
+#### Debt 7: Asset merge writes across domains in one transaction
+
+- Description: `MergeAssets` (MarketDataService) repoints holdings and ledger legs (portfolio)
+  and rule configurations (automation) in the same transaction that deletes the duplicate
+  catalogue row, through the marketdata store.
+- Impact: valid only while every domain shares one database; per-domain schemas (Debt 3) would
+  forbid it, and a split deployment would have no way to run the merge.
+- Resolution Plan: a cross-service merge protocol (each owner repoints its own rows, then the
+  catalogue deletes) when per-domain schemas land.
 
 ---
 

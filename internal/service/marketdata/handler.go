@@ -430,6 +430,44 @@ func (h *Handler) DeleteAsset(ctx context.Context, req *connect.Request[apiv1.De
 	return connect.NewResponse(&emptypb.Empty{}), nil
 }
 
+// MergeAssets folds a duplicate catalogue row into the asset it duplicates;
+// the contract is on the RPC in marketdata.proto.
+func (h *Handler) MergeAssets(ctx context.Context, req *connect.Request[apiv1.MergeAssetsRequest]) (*connect.Response[apiv1.MergeAssetsResponse], error) {
+	if _, err := requireAdmin(ctx, "merging catalogue assets"); err != nil {
+		return nil, err
+	}
+	m := req.Msg
+	if m.SourceId == "" || m.TargetId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("source_id and target_id are required"))
+	}
+	if m.ExpectedSourceSymbol == "" || m.ExpectedTargetSymbol == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("expected_source_symbol and expected_target_symbol are required: name the rows you mean to merge"))
+	}
+	dryRun := m.DryRun == nil || *m.DryRun
+
+	res, err := h.store.MergeAssets(ctx, MergeAssetsOpts{
+		SourceID:             m.SourceId,
+		TargetID:             m.TargetId,
+		ExpectedSourceSymbol: m.ExpectedSourceSymbol,
+		ExpectedTargetSymbol: m.ExpectedTargetSymbol,
+		DryRun:               dryRun,
+	})
+	if err != nil {
+		return nil, toConnectError(err)
+	}
+	return connect.NewResponse(&apiv1.MergeAssetsResponse{
+		DryRun:            dryRun,
+		HoldingsMoved:     res.HoldingsMoved,
+		LedgerLegsMoved:   res.LedgerLegsMoved,
+		PricesMoved:       res.PricesMoved,
+		PricesDropped:     res.PricesDropped,
+		ExternalRefsMoved: res.ExternalRefsMoved,
+		RiskFlagsMoved:    res.RiskFlagsMoved,
+		RulesRewritten:    res.RulesRewritten,
+	}), nil
+}
+
 // ListAssets lists assets with pagination and optional tag filtering.
 // Bounds on a ListAssets request: an id list is a page of holdings, not the
 // catalogue, and a query is something a person typed.

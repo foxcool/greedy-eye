@@ -323,6 +323,23 @@ service MarketDataService {
     };
   }
 
+  // MergeAssets folds a duplicate catalogue row (source) into the asset it
+  // duplicates (target): holdings, ledger legs, prices, external refs, risk
+  // flags and rule configurations move to target, and source is deleted, in
+  // one transaction. Target keeps its name, tags and verdict. Admin-only.
+  //
+  // Irreversible once committed, so without dry_run=false it only returns the
+  // plan. Refuses with FailedPrecondition, writing nothing, when the rows are
+  // not the ones the caller saw, when a provider names them as two
+  // instruments, when both hold a position under the same sync key, or when
+  // a rule names both.
+  rpc MergeAssets(MergeAssetsRequest) returns (MergeAssetsResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/assets/{source_id}/merge"
+      body: "*"
+    };
+  }
+
   rpc ListAssets(ListAssetsRequest) returns (ListAssetsResponse) {
     option (google.api.http) = {
       get: "/api/v1/assets"
@@ -589,6 +606,33 @@ message UpdateAssetRequest {
 
 message DeleteAssetRequest {
   string id = 1;
+}
+
+message MergeAssetsRequest {
+  // The duplicate; deleted by the merge.
+  string source_id = 1;
+  // The asset that survives.
+  string target_id = 2;
+  // The symbols the caller saw; the merge refuses when either row now differs.
+  string expected_source_symbol = 3;
+  string expected_target_symbol = 4;
+  // Defaults to true: only an explicit false writes.
+  optional bool dry_run = 5;
+}
+
+message MergeAssetsResponse {
+  bool dry_run = 1;
+  int64 holdings_moved = 2;
+  int64 ledger_legs_moved = 3;
+  // Price rows whose asset or base moved to target.
+  int64 prices_moved = 4;
+  // Source price rows dropped: target already has one for the same source,
+  // timestamp and base, or the merge would price target in itself.
+  int64 prices_dropped = 5;
+  int64 external_refs_moved = 6;
+  int64 risk_flags_moved = 7;
+  // Rules whose configuration named source and now names target.
+  int64 rules_rewritten = 8;
 }
 
 message ListAssetsRequest {

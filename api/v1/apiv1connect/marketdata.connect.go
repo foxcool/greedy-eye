@@ -46,6 +46,9 @@ const (
 	// MarketDataServiceDeleteAssetProcedure is the fully-qualified name of the MarketDataService's
 	// DeleteAsset RPC.
 	MarketDataServiceDeleteAssetProcedure = "/eye.v1.MarketDataService/DeleteAsset"
+	// MarketDataServiceMergeAssetsProcedure is the fully-qualified name of the MarketDataService's
+	// MergeAssets RPC.
+	MarketDataServiceMergeAssetsProcedure = "/eye.v1.MarketDataService/MergeAssets"
 	// MarketDataServiceListAssetsProcedure is the fully-qualified name of the MarketDataService's
 	// ListAssets RPC.
 	MarketDataServiceListAssetsProcedure = "/eye.v1.MarketDataService/ListAssets"
@@ -126,6 +129,17 @@ type MarketDataServiceClient interface {
 	UpdateAsset(context.Context, *connect.Request[v1.UpdateAssetRequest]) (*connect.Response[v1.Asset], error)
 	// DeleteAsset removes a catalogue entry for every user. Admin-only.
 	DeleteAsset(context.Context, *connect.Request[v1.DeleteAssetRequest]) (*connect.Response[emptypb.Empty], error)
+	// MergeAssets folds a duplicate catalogue row (source) into the asset it
+	// duplicates (target): holdings, ledger legs, prices, external refs, risk
+	// flags and rule configurations move to target, and source is deleted, in
+	// one transaction. Target keeps its name, tags and verdict. Admin-only.
+	//
+	// Irreversible once committed, so without dry_run=false it only returns the
+	// plan. Refuses with FailedPrecondition, writing nothing, when the rows are
+	// not the ones the caller saw, when a provider names them as two
+	// instruments, when both hold a position under the same sync key, or when
+	// a rule names both.
+	MergeAssets(context.Context, *connect.Request[v1.MergeAssetsRequest]) (*connect.Response[v1.MergeAssetsResponse], error)
 	ListAssets(context.Context, *connect.Request[v1.ListAssetsRequest]) (*connect.Response[v1.ListAssetsResponse], error)
 	// --- Asset business logic ---
 	EnrichAssetData(context.Context, *connect.Request[v1.EnrichAssetDataRequest]) (*connect.Response[v1.Asset], error)
@@ -285,6 +299,12 @@ func NewMarketDataServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(marketDataServiceMethods.ByName("DeleteAsset")),
 			connect.WithClientOptions(opts...),
 		),
+		mergeAssets: connect.NewClient[v1.MergeAssetsRequest, v1.MergeAssetsResponse](
+			httpClient,
+			baseURL+MarketDataServiceMergeAssetsProcedure,
+			connect.WithSchema(marketDataServiceMethods.ByName("MergeAssets")),
+			connect.WithClientOptions(opts...),
+		),
 		listAssets: connect.NewClient[v1.ListAssetsRequest, v1.ListAssetsResponse](
 			httpClient,
 			baseURL+MarketDataServiceListAssetsProcedure,
@@ -426,6 +446,7 @@ type marketDataServiceClient struct {
 	getAsset               *connect.Client[v1.GetAssetRequest, v1.Asset]
 	updateAsset            *connect.Client[v1.UpdateAssetRequest, v1.Asset]
 	deleteAsset            *connect.Client[v1.DeleteAssetRequest, emptypb.Empty]
+	mergeAssets            *connect.Client[v1.MergeAssetsRequest, v1.MergeAssetsResponse]
 	listAssets             *connect.Client[v1.ListAssetsRequest, v1.ListAssetsResponse]
 	enrichAssetData        *connect.Client[v1.EnrichAssetDataRequest, v1.Asset]
 	findSimilarAssets      *connect.Client[v1.FindSimilarAssetsRequest, v1.ListAssetsResponse]
@@ -468,6 +489,11 @@ func (c *marketDataServiceClient) UpdateAsset(ctx context.Context, req *connect.
 // DeleteAsset calls eye.v1.MarketDataService.DeleteAsset.
 func (c *marketDataServiceClient) DeleteAsset(ctx context.Context, req *connect.Request[v1.DeleteAssetRequest]) (*connect.Response[emptypb.Empty], error) {
 	return c.deleteAsset.CallUnary(ctx, req)
+}
+
+// MergeAssets calls eye.v1.MarketDataService.MergeAssets.
+func (c *marketDataServiceClient) MergeAssets(ctx context.Context, req *connect.Request[v1.MergeAssetsRequest]) (*connect.Response[v1.MergeAssetsResponse], error) {
+	return c.mergeAssets.CallUnary(ctx, req)
 }
 
 // ListAssets calls eye.v1.MarketDataService.ListAssets.
@@ -592,6 +618,17 @@ type MarketDataServiceHandler interface {
 	UpdateAsset(context.Context, *connect.Request[v1.UpdateAssetRequest]) (*connect.Response[v1.Asset], error)
 	// DeleteAsset removes a catalogue entry for every user. Admin-only.
 	DeleteAsset(context.Context, *connect.Request[v1.DeleteAssetRequest]) (*connect.Response[emptypb.Empty], error)
+	// MergeAssets folds a duplicate catalogue row (source) into the asset it
+	// duplicates (target): holdings, ledger legs, prices, external refs, risk
+	// flags and rule configurations move to target, and source is deleted, in
+	// one transaction. Target keeps its name, tags and verdict. Admin-only.
+	//
+	// Irreversible once committed, so without dry_run=false it only returns the
+	// plan. Refuses with FailedPrecondition, writing nothing, when the rows are
+	// not the ones the caller saw, when a provider names them as two
+	// instruments, when both hold a position under the same sync key, or when
+	// a rule names both.
+	MergeAssets(context.Context, *connect.Request[v1.MergeAssetsRequest]) (*connect.Response[v1.MergeAssetsResponse], error)
 	ListAssets(context.Context, *connect.Request[v1.ListAssetsRequest]) (*connect.Response[v1.ListAssetsResponse], error)
 	// --- Asset business logic ---
 	EnrichAssetData(context.Context, *connect.Request[v1.EnrichAssetDataRequest]) (*connect.Response[v1.Asset], error)
@@ -747,6 +784,12 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 		connect.WithSchema(marketDataServiceMethods.ByName("DeleteAsset")),
 		connect.WithHandlerOptions(opts...),
 	)
+	marketDataServiceMergeAssetsHandler := connect.NewUnaryHandler(
+		MarketDataServiceMergeAssetsProcedure,
+		svc.MergeAssets,
+		connect.WithSchema(marketDataServiceMethods.ByName("MergeAssets")),
+		connect.WithHandlerOptions(opts...),
+	)
 	marketDataServiceListAssetsHandler := connect.NewUnaryHandler(
 		MarketDataServiceListAssetsProcedure,
 		svc.ListAssets,
@@ -889,6 +932,8 @@ func NewMarketDataServiceHandler(svc MarketDataServiceHandler, opts ...connect.H
 			marketDataServiceUpdateAssetHandler.ServeHTTP(w, r)
 		case MarketDataServiceDeleteAssetProcedure:
 			marketDataServiceDeleteAssetHandler.ServeHTTP(w, r)
+		case MarketDataServiceMergeAssetsProcedure:
+			marketDataServiceMergeAssetsHandler.ServeHTTP(w, r)
 		case MarketDataServiceListAssetsProcedure:
 			marketDataServiceListAssetsHandler.ServeHTTP(w, r)
 		case MarketDataServiceEnrichAssetDataProcedure:
@@ -956,6 +1001,10 @@ func (UnimplementedMarketDataServiceHandler) UpdateAsset(context.Context, *conne
 
 func (UnimplementedMarketDataServiceHandler) DeleteAsset(context.Context, *connect.Request[v1.DeleteAssetRequest]) (*connect.Response[emptypb.Empty], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.DeleteAsset is not implemented"))
+}
+
+func (UnimplementedMarketDataServiceHandler) MergeAssets(context.Context, *connect.Request[v1.MergeAssetsRequest]) (*connect.Response[v1.MergeAssetsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.MarketDataService.MergeAssets is not implemented"))
 }
 
 func (UnimplementedMarketDataServiceHandler) ListAssets(context.Context, *connect.Request[v1.ListAssetsRequest]) (*connect.Response[v1.ListAssetsResponse], error) {
