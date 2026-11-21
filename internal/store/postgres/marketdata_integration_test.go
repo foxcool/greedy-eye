@@ -4,14 +4,18 @@ package postgres
 
 import (
 	"context"
+	"log/slog"
 	"math/rand/v2"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
+	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/foxcool/greedy-eye/internal/entity/entitytest"
+	"github.com/foxcool/greedy-eye/internal/middleware"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/foxcool/greedy-eye/internal/store"
 	"github.com/google/uuid"
@@ -1394,6 +1398,55 @@ func TestFindTickerIncumbent(t *testing.T) {
 		_, err := s.FindTickerIncumbent(ctx, "not-a-uuid")
 		assert.ErrorIs(t, err, store.ErrInvalidArgument)
 	})
+}
+
+// TestFindOrCreateAsset_OnchainSourceIsCanonical: the stored ref source is the
+// one spelling entity.OnchainSource gives, so a lookup by another spelling of
+// the same chain finds the binding and onchainSQL on the column agrees with
+// entity.ChainFromOnchainSource; a chainless source never reaches the table.
+func TestFindOrCreateAsset_OnchainSourceIsCanonical(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	h := marketdata.NewHandler(s, slog.New(slog.DiscardHandler))
+	ctx := middleware.WithSyncAuthority(context.Background())
+	const contract = "0xcanon0000000000000000000000000000000001"
+
+	findOrCreate := func(source string) (*connect.Response[apiv1.FindOrCreateAssetResponse], error) {
+		ref := contract
+		return h.FindOrCreateAsset(ctx, connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+			Symbol: "CANON", ExternalRefSource: &source, ExternalRef: &ref,
+		}))
+	}
+
+	first, err := findOrCreate(" OnChain:ETH ")
+	require.NoError(t, err)
+	require.True(t, first.Msg.Created)
+	assetID := first.Msg.Asset.Id
+
+	refs, err := s.ListAssetExternalRefs(ctx, []string{assetID})
+	require.NoError(t, err)
+	require.Len(t, refs, 1)
+	assert.Equal(t, entity.OnchainSource("eth"), refs[0].Source)
+
+	var onchain bool
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT `+onchainSQL("source")+` FROM asset_external_refs WHERE id = $1`, refs[0].ID,
+	).Scan(&onchain))
+	_, entityOnchain := entity.ChainFromOnchainSource(refs[0].Source)
+	assert.Equal(t, entityOnchain, onchain)
+
+	second, err := findOrCreate("onchain:eth")
+	require.NoError(t, err)
+	assert.False(t, second.Msg.Created)
+	assert.Equal(t, assetID, second.Msg.Asset.Id, "two spellings of one chain are one ref namespace")
+
+	_, err = findOrCreate("OnChain:")
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	var chainless int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM asset_external_refs WHERE lower(trim(source)) = $1`, entity.OnchainPrefix,
+	).Scan(&chainless))
+	assert.Zero(t, chainless)
 }
 
 // TestGetAssetBySymbol_ContractMarketDoesNotShadowATicker: a contract is minted

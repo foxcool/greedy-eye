@@ -149,6 +149,48 @@ message GetHeatmapResponse {
   // is not in a total. Same message CalculatePortfolioValue returns: one shape
   // for the same statement, on every surface.
   ValuationCoverage coverage = 4;
+  // Summary of the move behind the map; see HeatmapBreadth.
+  HeatmapBreadth breadth = 5;
+}
+
+// HeatmapBreadth summarises the move of a holding-backed heatmap: how many
+// holdings rose, the average change and the extreme leaves, built from the
+// same holdings, prices and window as the nodes. Counts are per holding, as
+// in ValuationCoverage, and the denominator is the PRICED set: an unpriced
+// holding has no move to count, so it is reported beside the ratio ("5 of 6
+// priced, 3 unpriced"), not under it.
+//
+// A holding whose quote outlived its market (the rule of
+// ValuationCoverage.stale_count) is counted with the change its last quote
+// gives and flagged, not dropped and not scoped out per market.
+message HeatmapBreadth {
+  // Priced holdings whose change over the window is above zero.
+  uint32 up_count = 1;
+  // Holdings that drew a tile; equals coverage.priced_count.
+  uint32 priced_count = 2;
+  // Holdings with no usable price; equals coverage.unpriced_count.
+  uint32 unpriced_count = 3;
+  // Priced holdings with no price at or after the window start, so no change:
+  // inside priced_count, never in up_count, the average or the extremes.
+  uint32 no_history_count = 4;
+  // Holdings valued from a stale quote; equals coverage.stale_count.
+  uint32 stale_count = 5;
+  // Change % over the window weighted by holding value in the quote asset.
+  // Unset when no priced holding has history.
+  optional double weighted_change_pct = 6;
+  // Leaves with the highest and lowest change. Unset when no priced holding
+  // has history.
+  HeatmapBreadthLeaf best = 7;
+  HeatmapBreadthLeaf worst = 8;
+}
+
+// HeatmapBreadthLeaf names one leaf of the map by its node id.
+message HeatmapBreadthLeaf {
+  string node_id = 1; // HeatmapNode.id of the leaf
+  string asset_id = 2;
+  string label = 3;
+  double change_pct = 4;
+  bool stale = 5; // priced from a stale quote; see HeatmapBreadth
 }
 
 // =============================================================================

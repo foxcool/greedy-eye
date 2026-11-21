@@ -543,7 +543,9 @@ type GetHeatmapResponse struct {
 	// at all — not a small one — so on a map the omission is invisible in a way it
 	// is not in a total. Same message CalculatePortfolioValue returns: one shape
 	// for the same statement, on every surface.
-	Coverage      *ValuationCoverage `protobuf:"bytes,4,opt,name=coverage,proto3" json:"coverage,omitempty"`
+	Coverage *ValuationCoverage `protobuf:"bytes,4,opt,name=coverage,proto3" json:"coverage,omitempty"`
+	// Summary of the move behind the map; see HeatmapBreadth.
+	Breadth       *HeatmapBreadth `protobuf:"bytes,5,opt,name=breadth,proto3" json:"breadth,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -606,6 +608,210 @@ func (x *GetHeatmapResponse) GetCoverage() *ValuationCoverage {
 	return nil
 }
 
+func (x *GetHeatmapResponse) GetBreadth() *HeatmapBreadth {
+	if x != nil {
+		return x.Breadth
+	}
+	return nil
+}
+
+// HeatmapBreadth summarises the move of a holding-backed heatmap: how many
+// holdings rose, the average change and the extreme leaves, built from the
+// same holdings, prices and window as the nodes. Counts are per holding, as
+// in ValuationCoverage, and the denominator is the PRICED set: an unpriced
+// holding has no move to count, so it is reported beside the ratio ("5 of 6
+// priced, 3 unpriced"), not under it.
+//
+// A holding whose quote outlived its market (the rule of
+// ValuationCoverage.stale_count) is counted with the change its last quote
+// gives and flagged, not dropped and not scoped out per market.
+type HeatmapBreadth struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Priced holdings whose change over the window is above zero.
+	UpCount uint32 `protobuf:"varint,1,opt,name=up_count,json=upCount,proto3" json:"up_count,omitempty"`
+	// Holdings that drew a tile; equals coverage.priced_count.
+	PricedCount uint32 `protobuf:"varint,2,opt,name=priced_count,json=pricedCount,proto3" json:"priced_count,omitempty"`
+	// Holdings with no usable price; equals coverage.unpriced_count.
+	UnpricedCount uint32 `protobuf:"varint,3,opt,name=unpriced_count,json=unpricedCount,proto3" json:"unpriced_count,omitempty"`
+	// Priced holdings with no price at or after the window start, so no change:
+	// inside priced_count, never in up_count, the average or the extremes.
+	NoHistoryCount uint32 `protobuf:"varint,4,opt,name=no_history_count,json=noHistoryCount,proto3" json:"no_history_count,omitempty"`
+	// Holdings valued from a stale quote; equals coverage.stale_count.
+	StaleCount uint32 `protobuf:"varint,5,opt,name=stale_count,json=staleCount,proto3" json:"stale_count,omitempty"`
+	// Change % over the window weighted by holding value in the quote asset.
+	// Unset when no priced holding has history.
+	WeightedChangePct *float64 `protobuf:"fixed64,6,opt,name=weighted_change_pct,json=weightedChangePct,proto3,oneof" json:"weighted_change_pct,omitempty"`
+	// Leaves with the highest and lowest change. Unset when no priced holding
+	// has history.
+	Best          *HeatmapBreadthLeaf `protobuf:"bytes,7,opt,name=best,proto3" json:"best,omitempty"`
+	Worst         *HeatmapBreadthLeaf `protobuf:"bytes,8,opt,name=worst,proto3" json:"worst,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HeatmapBreadth) Reset() {
+	*x = HeatmapBreadth{}
+	mi := &file_v1_analytics_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HeatmapBreadth) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HeatmapBreadth) ProtoMessage() {}
+
+func (x *HeatmapBreadth) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_analytics_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HeatmapBreadth.ProtoReflect.Descriptor instead.
+func (*HeatmapBreadth) Descriptor() ([]byte, []int) {
+	return file_v1_analytics_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *HeatmapBreadth) GetUpCount() uint32 {
+	if x != nil {
+		return x.UpCount
+	}
+	return 0
+}
+
+func (x *HeatmapBreadth) GetPricedCount() uint32 {
+	if x != nil {
+		return x.PricedCount
+	}
+	return 0
+}
+
+func (x *HeatmapBreadth) GetUnpricedCount() uint32 {
+	if x != nil {
+		return x.UnpricedCount
+	}
+	return 0
+}
+
+func (x *HeatmapBreadth) GetNoHistoryCount() uint32 {
+	if x != nil {
+		return x.NoHistoryCount
+	}
+	return 0
+}
+
+func (x *HeatmapBreadth) GetStaleCount() uint32 {
+	if x != nil {
+		return x.StaleCount
+	}
+	return 0
+}
+
+func (x *HeatmapBreadth) GetWeightedChangePct() float64 {
+	if x != nil && x.WeightedChangePct != nil {
+		return *x.WeightedChangePct
+	}
+	return 0
+}
+
+func (x *HeatmapBreadth) GetBest() *HeatmapBreadthLeaf {
+	if x != nil {
+		return x.Best
+	}
+	return nil
+}
+
+func (x *HeatmapBreadth) GetWorst() *HeatmapBreadthLeaf {
+	if x != nil {
+		return x.Worst
+	}
+	return nil
+}
+
+// HeatmapBreadthLeaf names one leaf of the map by its node id.
+type HeatmapBreadthLeaf struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"` // HeatmapNode.id of the leaf
+	AssetId       string                 `protobuf:"bytes,2,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
+	Label         string                 `protobuf:"bytes,3,opt,name=label,proto3" json:"label,omitempty"`
+	ChangePct     float64                `protobuf:"fixed64,4,opt,name=change_pct,json=changePct,proto3" json:"change_pct,omitempty"`
+	Stale         bool                   `protobuf:"varint,5,opt,name=stale,proto3" json:"stale,omitempty"` // priced from a stale quote; see HeatmapBreadth
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HeatmapBreadthLeaf) Reset() {
+	*x = HeatmapBreadthLeaf{}
+	mi := &file_v1_analytics_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HeatmapBreadthLeaf) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HeatmapBreadthLeaf) ProtoMessage() {}
+
+func (x *HeatmapBreadthLeaf) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_analytics_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HeatmapBreadthLeaf.ProtoReflect.Descriptor instead.
+func (*HeatmapBreadthLeaf) Descriptor() ([]byte, []int) {
+	return file_v1_analytics_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *HeatmapBreadthLeaf) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *HeatmapBreadthLeaf) GetAssetId() string {
+	if x != nil {
+		return x.AssetId
+	}
+	return ""
+}
+
+func (x *HeatmapBreadthLeaf) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *HeatmapBreadthLeaf) GetChangePct() float64 {
+	if x != nil {
+		return x.ChangePct
+	}
+	return 0
+}
+
+func (x *HeatmapBreadthLeaf) GetStale() bool {
+	if x != nil {
+		return x.Stale
+	}
+	return false
+}
+
 // NewsSource is one feed the news job reads.
 type NewsSource struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -633,7 +839,7 @@ type NewsSource struct {
 
 func (x *NewsSource) Reset() {
 	*x = NewsSource{}
-	mi := &file_v1_analytics_proto_msgTypes[3]
+	mi := &file_v1_analytics_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -645,7 +851,7 @@ func (x *NewsSource) String() string {
 func (*NewsSource) ProtoMessage() {}
 
 func (x *NewsSource) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_analytics_proto_msgTypes[3]
+	mi := &file_v1_analytics_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -658,7 +864,7 @@ func (x *NewsSource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NewsSource.ProtoReflect.Descriptor instead.
 func (*NewsSource) Descriptor() ([]byte, []int) {
-	return file_v1_analytics_proto_rawDescGZIP(), []int{3}
+	return file_v1_analytics_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *NewsSource) GetId() string {
@@ -770,7 +976,7 @@ type NewsDocument struct {
 
 func (x *NewsDocument) Reset() {
 	*x = NewsDocument{}
-	mi := &file_v1_analytics_proto_msgTypes[4]
+	mi := &file_v1_analytics_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -782,7 +988,7 @@ func (x *NewsDocument) String() string {
 func (*NewsDocument) ProtoMessage() {}
 
 func (x *NewsDocument) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_analytics_proto_msgTypes[4]
+	mi := &file_v1_analytics_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -795,7 +1001,7 @@ func (x *NewsDocument) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NewsDocument.ProtoReflect.Descriptor instead.
 func (*NewsDocument) Descriptor() ([]byte, []int) {
-	return file_v1_analytics_proto_rawDescGZIP(), []int{4}
+	return file_v1_analytics_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *NewsDocument) GetId() string {
@@ -862,7 +1068,7 @@ type ListDocumentsRequest struct {
 
 func (x *ListDocumentsRequest) Reset() {
 	*x = ListDocumentsRequest{}
-	mi := &file_v1_analytics_proto_msgTypes[5]
+	mi := &file_v1_analytics_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -874,7 +1080,7 @@ func (x *ListDocumentsRequest) String() string {
 func (*ListDocumentsRequest) ProtoMessage() {}
 
 func (x *ListDocumentsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_analytics_proto_msgTypes[5]
+	mi := &file_v1_analytics_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -887,7 +1093,7 @@ func (x *ListDocumentsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDocumentsRequest.ProtoReflect.Descriptor instead.
 func (*ListDocumentsRequest) Descriptor() ([]byte, []int) {
-	return file_v1_analytics_proto_rawDescGZIP(), []int{5}
+	return file_v1_analytics_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ListDocumentsRequest) GetSourceId() string {
@@ -928,7 +1134,7 @@ type ListDocumentsResponse struct {
 
 func (x *ListDocumentsResponse) Reset() {
 	*x = ListDocumentsResponse{}
-	mi := &file_v1_analytics_proto_msgTypes[6]
+	mi := &file_v1_analytics_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -940,7 +1146,7 @@ func (x *ListDocumentsResponse) String() string {
 func (*ListDocumentsResponse) ProtoMessage() {}
 
 func (x *ListDocumentsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_analytics_proto_msgTypes[6]
+	mi := &file_v1_analytics_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -953,7 +1159,7 @@ func (x *ListDocumentsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDocumentsResponse.ProtoReflect.Descriptor instead.
 func (*ListDocumentsResponse) Descriptor() ([]byte, []int) {
-	return file_v1_analytics_proto_rawDescGZIP(), []int{6}
+	return file_v1_analytics_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListDocumentsResponse) GetDocuments() []*NewsDocument {
@@ -978,7 +1184,7 @@ type ListNewsSourcesRequest struct {
 
 func (x *ListNewsSourcesRequest) Reset() {
 	*x = ListNewsSourcesRequest{}
-	mi := &file_v1_analytics_proto_msgTypes[7]
+	mi := &file_v1_analytics_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -990,7 +1196,7 @@ func (x *ListNewsSourcesRequest) String() string {
 func (*ListNewsSourcesRequest) ProtoMessage() {}
 
 func (x *ListNewsSourcesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_analytics_proto_msgTypes[7]
+	mi := &file_v1_analytics_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1003,7 +1209,7 @@ func (x *ListNewsSourcesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListNewsSourcesRequest.ProtoReflect.Descriptor instead.
 func (*ListNewsSourcesRequest) Descriptor() ([]byte, []int) {
-	return file_v1_analytics_proto_rawDescGZIP(), []int{7}
+	return file_v1_analytics_proto_rawDescGZIP(), []int{9}
 }
 
 type ListNewsSourcesResponse struct {
@@ -1015,7 +1221,7 @@ type ListNewsSourcesResponse struct {
 
 func (x *ListNewsSourcesResponse) Reset() {
 	*x = ListNewsSourcesResponse{}
-	mi := &file_v1_analytics_proto_msgTypes[8]
+	mi := &file_v1_analytics_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1027,7 +1233,7 @@ func (x *ListNewsSourcesResponse) String() string {
 func (*ListNewsSourcesResponse) ProtoMessage() {}
 
 func (x *ListNewsSourcesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_analytics_proto_msgTypes[8]
+	mi := &file_v1_analytics_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1040,7 +1246,7 @@ func (x *ListNewsSourcesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListNewsSourcesResponse.ProtoReflect.Descriptor instead.
 func (*ListNewsSourcesResponse) Descriptor() ([]byte, []int) {
-	return file_v1_analytics_proto_rawDescGZIP(), []int{8}
+	return file_v1_analytics_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ListNewsSourcesResponse) GetSources() []*NewsSource {
@@ -1070,7 +1276,7 @@ type CreateNewsSourceRequest struct {
 
 func (x *CreateNewsSourceRequest) Reset() {
 	*x = CreateNewsSourceRequest{}
-	mi := &file_v1_analytics_proto_msgTypes[9]
+	mi := &file_v1_analytics_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1082,7 +1288,7 @@ func (x *CreateNewsSourceRequest) String() string {
 func (*CreateNewsSourceRequest) ProtoMessage() {}
 
 func (x *CreateNewsSourceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_analytics_proto_msgTypes[9]
+	mi := &file_v1_analytics_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1095,7 +1301,7 @@ func (x *CreateNewsSourceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateNewsSourceRequest.ProtoReflect.Descriptor instead.
 func (*CreateNewsSourceRequest) Descriptor() ([]byte, []int) {
-	return file_v1_analytics_proto_rawDescGZIP(), []int{9}
+	return file_v1_analytics_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *CreateNewsSourceRequest) GetKind() NewsSourceKind {
@@ -1154,7 +1360,7 @@ type UpdateNewsSourceRequest struct {
 
 func (x *UpdateNewsSourceRequest) Reset() {
 	*x = UpdateNewsSourceRequest{}
-	mi := &file_v1_analytics_proto_msgTypes[10]
+	mi := &file_v1_analytics_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1166,7 +1372,7 @@ func (x *UpdateNewsSourceRequest) String() string {
 func (*UpdateNewsSourceRequest) ProtoMessage() {}
 
 func (x *UpdateNewsSourceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_analytics_proto_msgTypes[10]
+	mi := &file_v1_analytics_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1179,7 +1385,7 @@ func (x *UpdateNewsSourceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateNewsSourceRequest.ProtoReflect.Descriptor instead.
 func (*UpdateNewsSourceRequest) Descriptor() ([]byte, []int) {
-	return file_v1_analytics_proto_rawDescGZIP(), []int{10}
+	return file_v1_analytics_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *UpdateNewsSourceRequest) GetId() string {
@@ -1233,7 +1439,7 @@ type DeleteNewsSourceRequest struct {
 
 func (x *DeleteNewsSourceRequest) Reset() {
 	*x = DeleteNewsSourceRequest{}
-	mi := &file_v1_analytics_proto_msgTypes[11]
+	mi := &file_v1_analytics_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1245,7 +1451,7 @@ func (x *DeleteNewsSourceRequest) String() string {
 func (*DeleteNewsSourceRequest) ProtoMessage() {}
 
 func (x *DeleteNewsSourceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_analytics_proto_msgTypes[11]
+	mi := &file_v1_analytics_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1258,7 +1464,7 @@ func (x *DeleteNewsSourceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteNewsSourceRequest.ProtoReflect.Descriptor instead.
 func (*DeleteNewsSourceRequest) Descriptor() ([]byte, []int) {
-	return file_v1_analytics_proto_rawDescGZIP(), []int{11}
+	return file_v1_analytics_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *DeleteNewsSourceRequest) GetId() string {
@@ -1276,7 +1482,7 @@ type DeleteNewsSourceResponse struct {
 
 func (x *DeleteNewsSourceResponse) Reset() {
 	*x = DeleteNewsSourceResponse{}
-	mi := &file_v1_analytics_proto_msgTypes[12]
+	mi := &file_v1_analytics_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1288,7 +1494,7 @@ func (x *DeleteNewsSourceResponse) String() string {
 func (*DeleteNewsSourceResponse) ProtoMessage() {}
 
 func (x *DeleteNewsSourceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_analytics_proto_msgTypes[12]
+	mi := &file_v1_analytics_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1301,7 +1507,7 @@ func (x *DeleteNewsSourceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteNewsSourceResponse.ProtoReflect.Descriptor instead.
 func (*DeleteNewsSourceResponse) Descriptor() ([]byte, []int) {
-	return file_v1_analytics_proto_rawDescGZIP(), []int{12}
+	return file_v1_analytics_proto_rawDescGZIP(), []int{14}
 }
 
 var File_v1_analytics_proto protoreflect.FileDescriptor
@@ -1327,12 +1533,31 @@ const file_v1_analytics_proto_rawDesc = "" +
 	"\vsize_metric\x18\x05 \x01(\x0e2\x19.eye.v1.HeatmapSizeMetricR\n" +
 	"sizeMetric\x12=\n" +
 	"\fcolor_metric\x18\x06 \x01(\x0e2\x1a.eye.v1.HeatmapColorMetricR\vcolorMetric\x12$\n" +
-	"\x0equote_asset_id\x18\a \x01(\tR\fquoteAssetId\"\xdd\x01\n" +
+	"\x0equote_asset_id\x18\a \x01(\tR\fquoteAssetId\"\x8f\x02\n" +
 	"\x12GetHeatmapResponse\x12)\n" +
 	"\x05nodes\x18\x01 \x03(\v2\x13.eye.v1.HeatmapNodeR\x05nodes\x12$\n" +
 	"\x0equote_asset_id\x18\x02 \x01(\tR\fquoteAssetId\x12?\n" +
 	"\rcalculated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\fcalculatedAt\x125\n" +
-	"\bcoverage\x18\x04 \x01(\v2\x19.eye.v1.ValuationCoverageR\bcoverage\"\xda\x04\n" +
+	"\bcoverage\x18\x04 \x01(\v2\x19.eye.v1.ValuationCoverageR\bcoverage\x120\n" +
+	"\abreadth\x18\x05 \x01(\v2\x16.eye.v1.HeatmapBreadthR\abreadth\"\xef\x02\n" +
+	"\x0eHeatmapBreadth\x12\x19\n" +
+	"\bup_count\x18\x01 \x01(\rR\aupCount\x12!\n" +
+	"\fpriced_count\x18\x02 \x01(\rR\vpricedCount\x12%\n" +
+	"\x0eunpriced_count\x18\x03 \x01(\rR\runpricedCount\x12(\n" +
+	"\x10no_history_count\x18\x04 \x01(\rR\x0enoHistoryCount\x12\x1f\n" +
+	"\vstale_count\x18\x05 \x01(\rR\n" +
+	"staleCount\x123\n" +
+	"\x13weighted_change_pct\x18\x06 \x01(\x01H\x00R\x11weightedChangePct\x88\x01\x01\x12.\n" +
+	"\x04best\x18\a \x01(\v2\x1a.eye.v1.HeatmapBreadthLeafR\x04best\x120\n" +
+	"\x05worst\x18\b \x01(\v2\x1a.eye.v1.HeatmapBreadthLeafR\x05worstB\x16\n" +
+	"\x14_weighted_change_pct\"\x93\x01\n" +
+	"\x12HeatmapBreadthLeaf\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x19\n" +
+	"\basset_id\x18\x02 \x01(\tR\aassetId\x12\x14\n" +
+	"\x05label\x18\x03 \x01(\tR\x05label\x12\x1d\n" +
+	"\n" +
+	"change_pct\x18\x04 \x01(\x01R\tchangePct\x12\x14\n" +
+	"\x05stale\x18\x05 \x01(\bR\x05stale\"\xda\x04\n" +
 	"\n" +
 	"NewsSource\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12*\n" +
@@ -1464,7 +1689,7 @@ func file_v1_analytics_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_analytics_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_v1_analytics_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_v1_analytics_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_v1_analytics_proto_goTypes = []any{
 	(HeatmapScope)(0),                // 0: eye.v1.HeatmapScope
 	(HeatmapGroupBy)(0),              // 1: eye.v1.HeatmapGroupBy
@@ -1475,18 +1700,20 @@ var file_v1_analytics_proto_goTypes = []any{
 	(*HeatmapNode)(nil),              // 6: eye.v1.HeatmapNode
 	(*GetHeatmapRequest)(nil),        // 7: eye.v1.GetHeatmapRequest
 	(*GetHeatmapResponse)(nil),       // 8: eye.v1.GetHeatmapResponse
-	(*NewsSource)(nil),               // 9: eye.v1.NewsSource
-	(*NewsDocument)(nil),             // 10: eye.v1.NewsDocument
-	(*ListDocumentsRequest)(nil),     // 11: eye.v1.ListDocumentsRequest
-	(*ListDocumentsResponse)(nil),    // 12: eye.v1.ListDocumentsResponse
-	(*ListNewsSourcesRequest)(nil),   // 13: eye.v1.ListNewsSourcesRequest
-	(*ListNewsSourcesResponse)(nil),  // 14: eye.v1.ListNewsSourcesResponse
-	(*CreateNewsSourceRequest)(nil),  // 15: eye.v1.CreateNewsSourceRequest
-	(*UpdateNewsSourceRequest)(nil),  // 16: eye.v1.UpdateNewsSourceRequest
-	(*DeleteNewsSourceRequest)(nil),  // 17: eye.v1.DeleteNewsSourceRequest
-	(*DeleteNewsSourceResponse)(nil), // 18: eye.v1.DeleteNewsSourceResponse
-	(*timestamppb.Timestamp)(nil),    // 19: google.protobuf.Timestamp
-	(*ValuationCoverage)(nil),        // 20: eye.v1.ValuationCoverage
+	(*HeatmapBreadth)(nil),           // 9: eye.v1.HeatmapBreadth
+	(*HeatmapBreadthLeaf)(nil),       // 10: eye.v1.HeatmapBreadthLeaf
+	(*NewsSource)(nil),               // 11: eye.v1.NewsSource
+	(*NewsDocument)(nil),             // 12: eye.v1.NewsDocument
+	(*ListDocumentsRequest)(nil),     // 13: eye.v1.ListDocumentsRequest
+	(*ListDocumentsResponse)(nil),    // 14: eye.v1.ListDocumentsResponse
+	(*ListNewsSourcesRequest)(nil),   // 15: eye.v1.ListNewsSourcesRequest
+	(*ListNewsSourcesResponse)(nil),  // 16: eye.v1.ListNewsSourcesResponse
+	(*CreateNewsSourceRequest)(nil),  // 17: eye.v1.CreateNewsSourceRequest
+	(*UpdateNewsSourceRequest)(nil),  // 18: eye.v1.UpdateNewsSourceRequest
+	(*DeleteNewsSourceRequest)(nil),  // 19: eye.v1.DeleteNewsSourceRequest
+	(*DeleteNewsSourceResponse)(nil), // 20: eye.v1.DeleteNewsSourceResponse
+	(*timestamppb.Timestamp)(nil),    // 21: google.protobuf.Timestamp
+	(*ValuationCoverage)(nil),        // 22: eye.v1.ValuationCoverage
 }
 var file_v1_analytics_proto_depIdxs = []int32{
 	0,  // 0: eye.v1.GetHeatmapRequest.scope:type_name -> eye.v1.HeatmapScope
@@ -1495,36 +1722,39 @@ var file_v1_analytics_proto_depIdxs = []int32{
 	3,  // 3: eye.v1.GetHeatmapRequest.size_metric:type_name -> eye.v1.HeatmapSizeMetric
 	4,  // 4: eye.v1.GetHeatmapRequest.color_metric:type_name -> eye.v1.HeatmapColorMetric
 	6,  // 5: eye.v1.GetHeatmapResponse.nodes:type_name -> eye.v1.HeatmapNode
-	19, // 6: eye.v1.GetHeatmapResponse.calculated_at:type_name -> google.protobuf.Timestamp
-	20, // 7: eye.v1.GetHeatmapResponse.coverage:type_name -> eye.v1.ValuationCoverage
-	5,  // 8: eye.v1.NewsSource.kind:type_name -> eye.v1.NewsSourceKind
-	19, // 9: eye.v1.NewsSource.last_fetched_at:type_name -> google.protobuf.Timestamp
-	19, // 10: eye.v1.NewsSource.last_success_at:type_name -> google.protobuf.Timestamp
-	19, // 11: eye.v1.NewsSource.last_error_at:type_name -> google.protobuf.Timestamp
-	19, // 12: eye.v1.NewsSource.created_at:type_name -> google.protobuf.Timestamp
-	19, // 13: eye.v1.NewsSource.updated_at:type_name -> google.protobuf.Timestamp
-	19, // 14: eye.v1.NewsDocument.published_at:type_name -> google.protobuf.Timestamp
-	19, // 15: eye.v1.ListDocumentsRequest.since:type_name -> google.protobuf.Timestamp
-	10, // 16: eye.v1.ListDocumentsResponse.documents:type_name -> eye.v1.NewsDocument
-	9,  // 17: eye.v1.ListNewsSourcesResponse.sources:type_name -> eye.v1.NewsSource
-	5,  // 18: eye.v1.CreateNewsSourceRequest.kind:type_name -> eye.v1.NewsSourceKind
-	7,  // 19: eye.v1.AnalyticsService.GetHeatmap:input_type -> eye.v1.GetHeatmapRequest
-	11, // 20: eye.v1.AnalyticsService.ListDocuments:input_type -> eye.v1.ListDocumentsRequest
-	13, // 21: eye.v1.AnalyticsService.ListNewsSources:input_type -> eye.v1.ListNewsSourcesRequest
-	15, // 22: eye.v1.AnalyticsService.CreateNewsSource:input_type -> eye.v1.CreateNewsSourceRequest
-	16, // 23: eye.v1.AnalyticsService.UpdateNewsSource:input_type -> eye.v1.UpdateNewsSourceRequest
-	17, // 24: eye.v1.AnalyticsService.DeleteNewsSource:input_type -> eye.v1.DeleteNewsSourceRequest
-	8,  // 25: eye.v1.AnalyticsService.GetHeatmap:output_type -> eye.v1.GetHeatmapResponse
-	12, // 26: eye.v1.AnalyticsService.ListDocuments:output_type -> eye.v1.ListDocumentsResponse
-	14, // 27: eye.v1.AnalyticsService.ListNewsSources:output_type -> eye.v1.ListNewsSourcesResponse
-	9,  // 28: eye.v1.AnalyticsService.CreateNewsSource:output_type -> eye.v1.NewsSource
-	9,  // 29: eye.v1.AnalyticsService.UpdateNewsSource:output_type -> eye.v1.NewsSource
-	18, // 30: eye.v1.AnalyticsService.DeleteNewsSource:output_type -> eye.v1.DeleteNewsSourceResponse
-	25, // [25:31] is the sub-list for method output_type
-	19, // [19:25] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	21, // 6: eye.v1.GetHeatmapResponse.calculated_at:type_name -> google.protobuf.Timestamp
+	22, // 7: eye.v1.GetHeatmapResponse.coverage:type_name -> eye.v1.ValuationCoverage
+	9,  // 8: eye.v1.GetHeatmapResponse.breadth:type_name -> eye.v1.HeatmapBreadth
+	10, // 9: eye.v1.HeatmapBreadth.best:type_name -> eye.v1.HeatmapBreadthLeaf
+	10, // 10: eye.v1.HeatmapBreadth.worst:type_name -> eye.v1.HeatmapBreadthLeaf
+	5,  // 11: eye.v1.NewsSource.kind:type_name -> eye.v1.NewsSourceKind
+	21, // 12: eye.v1.NewsSource.last_fetched_at:type_name -> google.protobuf.Timestamp
+	21, // 13: eye.v1.NewsSource.last_success_at:type_name -> google.protobuf.Timestamp
+	21, // 14: eye.v1.NewsSource.last_error_at:type_name -> google.protobuf.Timestamp
+	21, // 15: eye.v1.NewsSource.created_at:type_name -> google.protobuf.Timestamp
+	21, // 16: eye.v1.NewsSource.updated_at:type_name -> google.protobuf.Timestamp
+	21, // 17: eye.v1.NewsDocument.published_at:type_name -> google.protobuf.Timestamp
+	21, // 18: eye.v1.ListDocumentsRequest.since:type_name -> google.protobuf.Timestamp
+	12, // 19: eye.v1.ListDocumentsResponse.documents:type_name -> eye.v1.NewsDocument
+	11, // 20: eye.v1.ListNewsSourcesResponse.sources:type_name -> eye.v1.NewsSource
+	5,  // 21: eye.v1.CreateNewsSourceRequest.kind:type_name -> eye.v1.NewsSourceKind
+	7,  // 22: eye.v1.AnalyticsService.GetHeatmap:input_type -> eye.v1.GetHeatmapRequest
+	13, // 23: eye.v1.AnalyticsService.ListDocuments:input_type -> eye.v1.ListDocumentsRequest
+	15, // 24: eye.v1.AnalyticsService.ListNewsSources:input_type -> eye.v1.ListNewsSourcesRequest
+	17, // 25: eye.v1.AnalyticsService.CreateNewsSource:input_type -> eye.v1.CreateNewsSourceRequest
+	18, // 26: eye.v1.AnalyticsService.UpdateNewsSource:input_type -> eye.v1.UpdateNewsSourceRequest
+	19, // 27: eye.v1.AnalyticsService.DeleteNewsSource:input_type -> eye.v1.DeleteNewsSourceRequest
+	8,  // 28: eye.v1.AnalyticsService.GetHeatmap:output_type -> eye.v1.GetHeatmapResponse
+	14, // 29: eye.v1.AnalyticsService.ListDocuments:output_type -> eye.v1.ListDocumentsResponse
+	16, // 30: eye.v1.AnalyticsService.ListNewsSources:output_type -> eye.v1.ListNewsSourcesResponse
+	11, // 31: eye.v1.AnalyticsService.CreateNewsSource:output_type -> eye.v1.NewsSource
+	11, // 32: eye.v1.AnalyticsService.UpdateNewsSource:output_type -> eye.v1.NewsSource
+	20, // 33: eye.v1.AnalyticsService.DeleteNewsSource:output_type -> eye.v1.DeleteNewsSourceResponse
+	28, // [28:34] is the sub-list for method output_type
+	22, // [22:28] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_v1_analytics_proto_init() }
@@ -1536,15 +1766,16 @@ func file_v1_analytics_proto_init() {
 	file_v1_analytics_proto_msgTypes[0].OneofWrappers = []any{}
 	file_v1_analytics_proto_msgTypes[3].OneofWrappers = []any{}
 	file_v1_analytics_proto_msgTypes[5].OneofWrappers = []any{}
-	file_v1_analytics_proto_msgTypes[9].OneofWrappers = []any{}
-	file_v1_analytics_proto_msgTypes[10].OneofWrappers = []any{}
+	file_v1_analytics_proto_msgTypes[7].OneofWrappers = []any{}
+	file_v1_analytics_proto_msgTypes[11].OneofWrappers = []any{}
+	file_v1_analytics_proto_msgTypes[12].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_analytics_proto_rawDesc), len(file_v1_analytics_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   13,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

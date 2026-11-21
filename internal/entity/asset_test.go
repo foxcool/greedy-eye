@@ -69,3 +69,14 @@ func TestPriceBinding(t *testing.T) {
 	assert.False(t, byRef.Bound(&Asset{Market: "moex", ExternalRefs: bound.ExternalRefs}),
 		"a ref does not admit a market the binding does not speak for")
 }
+
+// TestInOnchainNamespace: a chainless "onchain:" still claims the namespace,
+// which is what lets the caller refuse it instead of storing it.
+func TestInOnchainNamespace(t *testing.T) {
+	for _, s := range []string{"onchain:eth", " OnChain:ETH ", "onchain:", "ONCHAIN:"} {
+		assert.True(t, InOnchainNamespace(s), "source %q", s)
+	}
+	for _, s := range []string{"coingecko", "", "chain:eth", "xonchain:eth"} {
+		assert.False(t, InOnchainNamespace(s), "source %q", s)
+	}
+}
