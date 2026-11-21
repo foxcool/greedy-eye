@@ -253,7 +253,8 @@ func run() error {
 		case ServiceConfigTypeAnalytics:
 			aHandler := analytics.NewHandler(pClient, log).
 				WithMarketDataClient(mdClient).
-				WithSettingsClient(settingsClient)
+				WithSettingsClient(settingsClient).
+				WithMarketRankingSource(credResolver)
 			path, handler := apiv1connect.NewAnalyticsServiceHandler(aHandler, interceptor)
 			mux.Handle(path, handler)
 		case ServiceConfigTypeSettings:

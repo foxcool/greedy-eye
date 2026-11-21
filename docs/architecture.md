@@ -468,8 +468,15 @@ graph TB
   portfolio, accounts outside any portfolio land in an "unassigned" group). BALANCE leaves out
   portfolios their owner flagged `excluded_from_totals` (a paper model is not money); PORTFOLIO
   scope and CalculatePortfolioValue still value such a portfolio in full
-- Scopes MARKET/BASKET, PNL/target-drift color metrics and class/sector grouping return
-  Unimplemented until their data prerequisites land (market metrics, asset identity, cost basis)
+- Scope MARKET (crypto only): the top 100 coins by capitalisation rank from CoinGecko
+  `/coins/markets`; size = capitalisation or 24h volume, color = the source's 24h/7d/30d change,
+  quoted in USD only. One page carries every metric and window, so a refresh is one source call.
+  The ranking is an in-memory cache shared by every caller who can resolve a ranker of their
+  own (`credentials.Resolver.MarketRankersFor`); failures are not cached. Nothing is written to
+  `assets`. A tile the caller holds (matched by the curated coin id the price path uses) carries
+  `held` and `asset_id`; `source_read_at` says when the ranking was read
+- Scope BASKET, PNL/target-drift color metrics and class/sector grouping return
+  Unimplemented until their data prerequisites land (asset identity, cost basis)
 - Read-only derived views: no store of its own — reads via `portfolio.Store` (holdings) and the
   MarketData client (prices, asset labels); price resolution mirrors `portfolio.Handler.unitPrice`
   (duplicated consciously; extract a shared pricing package on the third consumer)

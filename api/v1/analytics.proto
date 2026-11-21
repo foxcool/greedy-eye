@@ -67,6 +67,12 @@ message HeatmapNode {
   double color_value = 5; // color metric value (e.g. signed change %); group = size-weighted
   optional double price = 6; // current unit price in quote asset (leaf only)
   string asset_id = 7;   // set on leaves; links to asset entity
+  // MARKET scope: the coin's market-capitalisation rank at the source (1 =
+  // largest). Absent on every other scope.
+  optional int32 rank = 8;
+  // MARKET scope: the caller holds this coin; only then does asset_id link to
+  // its card.
+  bool held = 9;
 }
 
 // =============================================================================
@@ -106,6 +112,12 @@ message GetHeatmapResponse {
   ValuationCoverage coverage = 4;
   // Summary of the move behind the map; see HeatmapBreadth.
   HeatmapBreadth breadth = 5;
+  // MARKET scope: when the ranking was read from the source; may be older than
+  // calculated_at.
+  google.protobuf.Timestamp source_read_at = 6;
+  // MARKET scope: the provider the ranking came from ("coingecko"), for
+  // attribution next to the map.
+  string source = 7;
 }
 
 // HeatmapBreadth summarises the move of a holding-backed heatmap: how many
