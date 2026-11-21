@@ -307,3 +307,39 @@ func TestMergeAssets_Refusals(t *testing.T) {
 		assert.Equal(t, tgt.ID, moved.AssetID)
 	})
 }
+
+// TestMergeAssets_WaitsForARuleWrite: a rule naming source that is being
+// written while the merge starts is not invisible to it. Rules carry no
+// foreign key, so only the table lock makes the merge wait for that write and
+// then rewrite the rule, instead of committing past it and leaving the rule
+// naming a deleted asset.
+func TestMergeAssets_WaitsForARuleWrite(t *testing.T) {
+	f := newLedgerFixture(t)
+	md := NewMarketDataStore(testDB.Pool)
+	src, tgt := f.usdt, f.btc
+	portfolioID := insertTestPortfolio(t, testDB.Pool, f.user.ID)
+
+	writer, err := testDB.Pool.Begin(f.ctx)
+	require.NoError(t, err)
+	defer func() { _ = writer.Rollback(f.ctx) }()
+	ruleID := uuid.NewString()
+	_, err = writer.Exec(f.ctx, `
+		INSERT INTO rules (id, user_id, portfolio_id, name, rule_type, status, configuration, created_at, updated_at)
+		VALUES ($1, $2, $3, 'racing dca', 'dca', 'active', jsonb_build_object('asset_id', $4::text), NOW(), NOW())`,
+		ruleID, f.user.ID, portfolioID, src.ID)
+	require.NoError(t, err)
+
+	var res *marketdata.MergeAssetsResult
+	done, result := goResult(func() error {
+		var err error
+		res, err = md.MergeAssets(context.Background(), mergeOpts(src, tgt, false))
+		return err
+	})
+	waitOnLockOrDone(t, done)
+	requireStillRunning(t, done, "the merge did not wait for a rule write in flight")
+
+	require.NoError(t, writer.Commit(f.ctx))
+	require.NoError(t, result())
+	assert.EqualValues(t, 1, res.RulesRewritten)
+	assert.Equal(t, tgt.ID, ruleConfig(t, ruleID)["asset_id"])
+}

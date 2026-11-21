@@ -40,6 +40,14 @@ func (s *MarketDataStore) MergeAssets(ctx context.Context, opts marketdata.Merge
 	}
 	defer func() { _ = tx.Rollback(ctx) }() // no-op once committed
 
+	// Rules have no foreign key to an asset, so no row lock can keep a rule
+	// write from naming source while the merge runs; the whole table is held
+	// against writes instead. Taken before the asset rows: a rule execution
+	// that holds a rule row and then writes a ledger leg on an asset waits here
+	// rather than deadlocking with the merge.
+	if _, err := tx.Exec(ctx, "LOCK TABLE rules IN SHARE ROW EXCLUSIVE MODE"); err != nil {
+		return nil, fmt.Errorf("lock rules: %w", err)
+	}
 	if err := lockMergePair(ctx, tx, m, opts); err != nil {
 		return nil, err
 	}
@@ -182,16 +190,9 @@ func configIDPattern(canonical string) string {
 // refuseRuleNamingBoth refuses when one rule names both assets: repointing it
 // would make a pair of one asset with itself (a DCA buying target with target)
 // or list target twice (a rebalancing allocation), and which the owner meant
-// is theirs to decide. The rules naming either asset are locked first, so an
-// owner's edit to one of them waits for the merge instead of slipping between
-// this check and the rewrite.
+// is theirs to decide.
 func refuseRuleNamingBoth(ctx context.Context, tx pgx.Tx, m mergePair) error {
 	src, tgt := configIDPattern(m.source), configIDPattern(m.target)
-	if _, err := tx.Exec(ctx,
-		"SELECT 1 FROM rules WHERE configuration::text ~* $1 OR configuration::text ~* $2 ORDER BY id FOR UPDATE",
-		src, tgt); err != nil {
-		return fmt.Errorf("lock rules: %w", err)
-	}
 	ids, err := collectStrings(ctx, tx,
 		"SELECT id::text FROM rules WHERE configuration::text ~* $1 AND configuration::text ~* $2 ORDER BY 1",
 		src, tgt)

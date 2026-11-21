@@ -132,7 +132,9 @@ type MarketDataServiceClient interface {
 	// MergeAssets folds a duplicate catalogue row (source) into the asset it
 	// duplicates (target): holdings, ledger legs, prices, external refs, risk
 	// flags and rule configurations move to target, and source is deleted, in
-	// one transaction. Target keeps its name, tags and verdict. Admin-only.
+	// one transaction. A rule configuration is rewritten wherever a string in
+	// it carries source's id, in any UUID spelling. Target keeps its name, tags
+	// and verdict. Admin-only.
 	//
 	// Irreversible once committed, so without dry_run=false it only returns the
 	// plan. Refuses with FailedPrecondition, writing nothing, when the rows are
@@ -621,7 +623,9 @@ type MarketDataServiceHandler interface {
 	// MergeAssets folds a duplicate catalogue row (source) into the asset it
 	// duplicates (target): holdings, ledger legs, prices, external refs, risk
 	// flags and rule configurations move to target, and source is deleted, in
-	// one transaction. Target keeps its name, tags and verdict. Admin-only.
+	// one transaction. A rule configuration is rewritten wherever a string in
+	// it carries source's id, in any UUID spelling. Target keeps its name, tags
+	// and verdict. Admin-only.
 	//
 	// Irreversible once committed, so without dry_run=false it only returns the
 	// plan. Refuses with FailedPrecondition, writing nothing, when the rows are
