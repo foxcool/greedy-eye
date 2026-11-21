@@ -472,20 +472,14 @@ graph TB
   MarketData client (prices, asset labels); price resolution mirrors `portfolio.Handler.unitPrice`
   (duplicated consciously; extract a shared pricing package on the third consumer)
 - Ownership enforced on the scope portfolio (`middleware.EnsureOwner`)
-- **News** (`internal/service/analytics/news.go`, store `postgres.NewsStore`): the one thing
-  analytics stores. `sources` are feeds (kind `rss`, which covers Atom; own `cron`, `weight`,
-  `enabled`), `documents` are what was read from them — title, canonical URL and a snippet of at
-  most 300 characters, never the article; CHECK constraints hold the lengths in the database.
-  Dedup is the unique `url_hash` (sha256 of the canonical URL: lower-case host, no fragment, no
-  `utm_*`/click ids, sorted query), so re-reading a feed, or the same article in a second feed,
-  adds no row. ListDocuments pages newest `published_at` first; a document is shown with when
-  its source published it, never `fetched_at`, so an item with no parsable date is skipped rather
-  than given the fetch time. Source mutations (Create/Update/DeleteNewsSource) are admin-only — a
-  source is read for every user; ListNewsSources is not, because whoever reads the headlines is
-  who needs to see a feed is down. A failed fetch is recorded on the source (`last_error`,
-  `last_error_at`) beside `last_success_at`, and logged on every run it fails: a dead feed reads
-  as failing, not as a quiet one. The feed reader is `internal/adapter/rss` (stdlib
-  `encoding/xml`, RSS 2.0 and Atom, UTF-8 only)
+- **News** (`internal/service/analytics/news.go`, store `postgres.NewsStore`, reader
+  `internal/adapter/rss`): the one thing analytics stores. `sources` are feeds, each with its own
+  `cron`; `documents` are the headlines read from them, deduplicated by the hash of the canonical
+  URL. The row rules (what a document may hold, how a failure is kept) are in `schema.hcl`.
+  ListDocuments pages newest `published_at` first; an item with no parsable date is skipped
+  rather than given the fetch time. Source mutations are admin-only, since a source is read for
+  every user; ListNewsSources is not, because whoever reads the headlines needs to see a feed is
+  down
 
 **SettingsService** (`internal/service/settings/`):
 - RPCs implemented: GetSetting, SetSetting — a key/value store of the caller's own preferences,
@@ -1321,12 +1315,10 @@ somebody chose, since that would report one currency's number under another curr
   scam-filter verdicts to the catalogue (`scheduler.rescorecron`, daily —
   `internal/scheduler/rescore.go`), the balance sweep (`scheduler.balancesynccron`, offset
   half an hour from the price sweep so the two do not draw on one provider allowance in the same
-  minute), and the confirmation pass over rule executions waiting on a venue
-  (`scheduler.confirmcron`, every five minutes; `internal/scheduler/confirm.go`)
-  and news ingestion (`scheduler.newscron`, every five minutes; `internal/scheduler/news.go`):
-  each fire reads the enabled sources whose own `cron` came due since their last attempt, so the
-  job's spec is the granularity of a source's schedule, not its rate. One failing source is
-  recorded and the run moves on. Wired only where analytics is served
+  minute), the confirmation pass over rule executions waiting on a venue
+  (`scheduler.confirmcron`, every five minutes; `internal/scheduler/confirm.go`), and news
+  ingestion (`scheduler.newscron`, every five minutes; `internal/scheduler/news.go`), wired only
+  where analytics is served
 - **The scheduler keys are lowercase on purpose.** Env vars produce lowercase koanf keys, so a
   camelCase default would shadow the override rather than be replaced by it (`cmd/eye/config.go`)
 - **The balance sweep re-reads amounts, not prices.** Without it nothing refreshed quantities on

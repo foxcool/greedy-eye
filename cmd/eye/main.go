@@ -239,8 +239,7 @@ func run() error {
 	// A deployment without one has no balances of its own to refresh, so the
 	// job stays unregistered rather than reaching across the network for them.
 	var balanceSweeper scheduler.BalanceSweeper
-	// News is stored and served by analytics; the news job runs only where
-	// analytics does, for the same reason the balance sweep needs portfolio.
+	// The news job runs only where analytics serves news.
 	var newsIngester scheduler.NewsIngester
 	for _, svc := range config.Services {
 		switch svc.Type {

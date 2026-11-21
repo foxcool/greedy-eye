@@ -77,7 +77,7 @@ func (s *NewsStore) CreateNewsSource(ctx context.Context, in *entity.NewsSource)
 		RETURNING `+sourceColumns,
 		id, string(in.Kind), in.URL, in.Name, in.Enabled, in.Cron, in.Weight))
 	if err != nil {
-		return nil, sourceWriteError(err, in.URL)
+		return nil, sourceWriteError(err)
 	}
 	return src, nil
 }
@@ -87,25 +87,21 @@ func (s *NewsStore) UpdateNewsSource(ctx context.Context, id string, p analytics
 		return nil, fmt.Errorf("%w: invalid source ID format", store.ErrInvalidArgument)
 	}
 	sets := []string{"updated_at = NOW()"}
-	args := []any{id}
-	set := func(col string, v any) {
-		args = append(args, v)
-		sets = append(sets, fmt.Sprintf("%s = $%d", col, len(args)))
-	}
+	args := sqlArgs{id}
 	if p.URL != nil {
-		set("url", *p.URL)
+		sets = append(sets, "url = "+args.add(*p.URL))
 	}
 	if p.Name != nil {
-		set("name", *p.Name)
+		sets = append(sets, "name = "+args.add(*p.Name))
 	}
 	if p.Enabled != nil {
-		set("enabled", *p.Enabled)
+		sets = append(sets, "enabled = "+args.add(*p.Enabled))
 	}
 	if p.Cron != nil {
-		set("cron", *p.Cron)
+		sets = append(sets, "cron = "+args.add(*p.Cron))
 	}
 	if p.Weight != nil {
-		set("weight", *p.Weight)
+		sets = append(sets, "weight = "+args.add(*p.Weight))
 	}
 	src, err := scanSource(s.pool.QueryRow(ctx,
 		`UPDATE sources SET `+strings.Join(sets, ", ")+` WHERE id = $1 RETURNING `+sourceColumns, args...))
@@ -113,19 +109,15 @@ func (s *NewsStore) UpdateNewsSource(ctx context.Context, id string, p analytics
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("%w: news source %s", store.ErrNotFound, id)
 		}
-		url := ""
-		if p.URL != nil {
-			url = *p.URL
-		}
-		return nil, sourceWriteError(err, url)
+		return nil, sourceWriteError(err)
 	}
 	return src, nil
 }
 
-func sourceWriteError(err error, url string) error {
+func sourceWriteError(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-		return fmt.Errorf("%w: a news source with url %s", store.ErrAlreadyExists, url)
+		return fmt.Errorf("%w: a news source with this url", store.ErrAlreadyExists)
 	}
 	if isConstraintError(err) {
 		return fmt.Errorf("%w: %v", store.ErrConstraint, err)
@@ -149,8 +141,7 @@ func (s *NewsStore) DeleteNewsSource(ctx context.Context, id string) error {
 	return nil
 }
 
-// RecordSourceFetch stamps an attempt. A success leaves last_error in place,
-// so the last failure stays readable beside the success that followed it.
+// RecordSourceFetch stamps an attempt; a success leaves last_error in place.
 func (s *NewsStore) RecordSourceFetch(ctx context.Context, id string, at time.Time, fetchErr string) error {
 	var err error
 	if fetchErr == "" {
@@ -211,33 +202,10 @@ func documentPageToken(d *entity.NewsDocument) string {
 // the source each came from.
 func (s *NewsStore) ListDocuments(ctx context.Context, opts analytics.ListDocumentsOpts) ([]*entity.NewsDocument, string, error) {
 	limit := pageLimit(opts.PageSize)
-
-	var where []string
-	var args []any
-	arg := func(v any) string {
-		args = append(args, v)
-		return fmt.Sprintf("$%d", len(args))
-	}
-	if opts.SourceID != "" {
-		if !isValidUUID(opts.SourceID) {
-			return nil, "", fmt.Errorf("%w: invalid source ID format", store.ErrInvalidArgument)
-		}
-		where = append(where, "d.source_id = "+arg(opts.SourceID))
-	}
-	if !opts.Since.IsZero() {
-		where = append(where, "d.published_at >= "+arg(opts.Since))
-	}
-	if opts.PageToken != "" {
-		// Same token shape as the ledger's: time|uuid.
-		at, id, err := parseLedgerPageToken(opts.PageToken)
-		if err != nil {
-			return nil, "", err
-		}
-		where = append(where, fmt.Sprintf("(d.published_at, d.id) < (%s, %s)", arg(at), arg(id)))
-	}
-	whereClause := ""
-	if len(where) > 0 {
-		whereClause = "WHERE " + strings.Join(where, " AND ")
+	var args sqlArgs
+	whereClause, err := documentFilter(opts, &args)
+	if err != nil {
+		return nil, "", err
 	}
 	query := fmt.Sprintf(`
 		SELECT d.id, d.source_id, s.name, d.url, d.title, d.snippet, d.published_at, d.fetched_at, d.url_hash
@@ -245,7 +213,7 @@ func (s *NewsStore) ListDocuments(ctx context.Context, opts analytics.ListDocume
 		JOIN sources s ON s.id = d.source_id
 		%s
 		ORDER BY d.published_at DESC, d.id DESC
-		LIMIT %s`, whereClause, arg(limit+1))
+		LIMIT %s`, whereClause, args.add(limit+1))
 
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -270,4 +238,40 @@ func (s *NewsStore) ListDocuments(ctx context.Context, opts analytics.ListDocume
 		next = documentPageToken(docs[limit-1])
 	}
 	return docs, next, nil
+}
+
+// documentFilter builds the WHERE clause of ListDocuments, page position
+// included.
+func documentFilter(opts analytics.ListDocumentsOpts, args *sqlArgs) (string, error) {
+	var where []string
+	if opts.SourceID != "" {
+		if !isValidUUID(opts.SourceID) {
+			return "", fmt.Errorf("%w: invalid source ID format", store.ErrInvalidArgument)
+		}
+		where = append(where, "d.source_id = "+args.add(opts.SourceID))
+	}
+	if !opts.Since.IsZero() {
+		where = append(where, "d.published_at >= "+args.add(opts.Since))
+	}
+	if opts.PageToken != "" {
+		// Same token shape as the ledger's: time|uuid.
+		at, id, err := parseLedgerPageToken(opts.PageToken)
+		if err != nil {
+			return "", err
+		}
+		where = append(where, fmt.Sprintf("(d.published_at, d.id) < (%s, %s)", args.add(at), args.add(id)))
+	}
+	if len(where) == 0 {
+		return "", nil
+	}
+	return "WHERE " + strings.Join(where, " AND "), nil
+}
+
+// sqlArgs collects query arguments; add returns the placeholder of the one
+// just added.
+type sqlArgs []any
+
+func (a *sqlArgs) add(v any) string {
+	*a = append(*a, v)
+	return fmt.Sprintf("$%d", len(*a))
 }

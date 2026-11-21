@@ -4,8 +4,10 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -43,14 +45,14 @@ type fileFeeds map[string]string
 func (f fileFeeds) Fetch(_ context.Context, url string) ([]entity.FeedItem, error) {
 	path, ok := f[url]
 	if !ok {
-		return nil, &feedError{url}
+		return nil, fmt.Errorf("feed answered 503 Service Unavailable: %s", url)
 	}
-	return rss.ParseFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return rss.Parse(data)
 }
-
-type feedError struct{ url string }
-
-func (e *feedError) Error() string { return "feed answered 503 Service Unavailable: " + e.url }
 
 func TestNewsIngestTwiceStoresOnce(t *testing.T) {
 	pool := getTestPool(t)
@@ -146,8 +148,6 @@ func TestNewsDocumentRowHoldsOnlyAHeadline(t *testing.T) {
 	src := createTestSource(t, s, "Example Wire", "https://news.example.com/rss/")
 	ctx := context.Background()
 
-	// The database refuses an article body even from a writer that skipped
-	// the cut: the length checks are the guarantee, not the ingest code.
 	_, err := s.InsertDocuments(ctx, []*entity.NewsDocument{{
 		SourceID: src.ID, URL: "https://news.example.com/a", Title: "t",
 		Snippet:     strings.Repeat("x", entity.MaxDocumentSnippetRunes+1),
@@ -175,7 +175,7 @@ func TestNewsSourceMutations(t *testing.T) {
 	src := createTestSource(t, s, "Example Wire", "https://news.example.com/rss/")
 
 	_, err := s.CreateNewsSource(ctx, &entity.NewsSource{
-		Kind: entity.NewsSourceRSS, URL: src.URL, Name: "Dup", Enabled: true, Cron: "*/30 * * * *",
+		Kind: entity.NewsSourceRSS, URL: src.URL, Name: "Dup", Enabled: true, Cron: src.Cron,
 	})
 	assert.ErrorIs(t, err, store.ErrAlreadyExists)
 

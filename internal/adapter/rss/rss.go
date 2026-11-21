@@ -2,9 +2,6 @@
 // a plain-text summary and a publication time. Nothing else is read — the
 // article body (content:encoded, a long Atom content) is used only when a feed
 // gives no summary, and even then it is cut by the caller to a snippet.
-//
-// The standard library's encoding/xml covers both formats in a few struct
-// tags, so the package carries no feed-parsing dependency.
 package rss
 
 import (
@@ -16,7 +13,6 @@ import (
 	"html"
 	"io"
 	"net/http"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -38,8 +34,6 @@ type Config struct {
 	// MaxBytes caps a feed body; a larger one is refused rather than cut,
 	// since a cut XML document does not parse anyway.
 	MaxBytes int64
-	// Transport replaces the HTTP transport; tests use it.
-	Transport http.RoundTripper
 }
 
 // Client fetches and parses feeds.
@@ -58,7 +52,7 @@ func NewClient(cfg Config) *Client {
 		maxBytes = defaultMaxBytes
 	}
 	return &Client{
-		httpClient: &http.Client{Timeout: timeout, Transport: cfg.Transport},
+		httpClient: &http.Client{Timeout: timeout},
 		maxBytes:   maxBytes,
 	}
 }
@@ -76,7 +70,7 @@ func (c *Client) Fetch(ctx context.Context, feedURL string) ([]entity.FeedItem, 
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		// Recorded on the source and shown to readers: the URL may carry a token.
+		// The URL may carry a token; the error is stored and shown.
 		return nil, fmt.Errorf("fetch feed: %w", urlerr.Strip(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -308,13 +302,4 @@ func newDecoder(data []byte) *xml.Decoder {
 		return nil, fmt.Errorf("unsupported feed charset %q", label)
 	}
 	return dec
-}
-
-// ParseFile parses a feed stored on disk, such as a recorded fixture.
-func ParseFile(path string) ([]entity.FeedItem, error) {
-	data, err := os.ReadFile(path) // #nosec G304 -- callers pass their own fixture paths
-	if err != nil {
-		return nil, err
-	}
-	return Parse(data)
 }
