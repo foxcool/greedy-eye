@@ -807,6 +807,14 @@ func (h *Handler) planAsset(ctx context.Context, msg *apiv1.FindOrCreateAssetReq
 		if err := mayBindRef(ctx); err != nil {
 			return assetPlan{}, err
 		}
+		// One spelling per chain, set here because every ref read and write
+		// below uses it and the store matches the column by exact prefix.
+		if chain, ok := entity.ChainFromOnchainSource(refSource); ok {
+			refSource = entity.OnchainSource(chain)
+		} else if entity.InOnchainNamespace(refSource) {
+			return assetPlan{}, connect.NewError(connect.CodeInvalidArgument,
+				errors.New("external_ref_source "+entity.OnchainPrefix+" needs a chain"))
+		}
 	} else {
 		refSource, ref = "", ""
 	}

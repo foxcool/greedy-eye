@@ -162,6 +162,13 @@ func ChainFromOnchainSource(source string) (chain string, ok bool) {
 	return chain, ok && chain != ""
 }
 
+// InOnchainNamespace reports whether a ref source claims the onchain namespace,
+// with or without a chain, so a chainless "onchain:" can be refused rather than
+// stored under a prefix the store would read as onchain.
+func InOnchainNamespace(source string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(source)), OnchainPrefix)
+}
+
 // ContractMarket is the market of an asset row that stands for one specific
 // unverified contract rather than for the global instrument. A token whose
 // contract no provider lists cannot be proven to be the ticker it claims, so it
