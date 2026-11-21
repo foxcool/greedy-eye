@@ -263,7 +263,7 @@ func (p *Provider) FetchPrices(ctx context.Context, assets []*entity.Asset) ([]e
 		// It applies to the global crypto market only. A per-contract row
 		// (market "onchain:<chain>/<address>") is an unverified instrument that
 		// merely carries a well-known ticker: pricing it from the symbol map is
-		// exactly how a counterfeit USDT was valued as real USDT (personal-c3b).
+		// exactly how a counterfeit USDT was valued as real USDT.
 		if _, ok := curatedCoinID(a); ok {
 			nativeAssets = append(nativeAssets, a)
 			continue
@@ -370,9 +370,9 @@ type route struct {
 // The "contract:" tag decides only WHETHER an asset is priced by contract, never
 // by WHICH one. FindOrCreateAsset writes it once, at create, and nothing keeps it
 // in agreement with the refs: an asset whose counterfeit binding was replaced by
-// the canonical one (personal-3uq9) kept the counterfeit address in its tag, and
-// pricing by the tag with the chain of a ref asked CoinGecko about the contract
-// the asset had been unbound from (personal-qyxn).
+// the canonical one kept the counterfeit address in its tag, and pricing by the
+// tag with the chain of a ref asked CoinGecko about the contract the asset had
+// been unbound from.
 //
 // Both limits keep the path exactly as wide as it was. The tag marks an asset
 // created FROM a contract; a global asset from an exchange or broker sync

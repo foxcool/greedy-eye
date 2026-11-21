@@ -128,7 +128,24 @@ const maxBatch = 1000
 // resolveLabels names each asset by symbol, falling back to name; an asset
 // the catalogue does not return keeps its ID as label.
 func (h *Handler) resolveLabels(ctx context.Context, out map[string]*assetPricing, assetIDs []string) error {
-	for chunk := range slices.Chunk(assetIDs, maxBatch) {
+	return h.eachAsset(ctx, assetIDs, func(a *apiv1.Asset) {
+		ap, ok := out[a.GetId()]
+		if !ok {
+			return
+		}
+		switch {
+		case a.GetSymbol() != "":
+			ap.label = a.GetSymbol()
+		case a.GetName() != "":
+			ap.label = a.GetName()
+		}
+	})
+}
+
+// eachAsset calls fn for every catalogue asset among ids, following page
+// tokens within each batch.
+func (h *Handler) eachAsset(ctx context.Context, ids []string, fn func(*apiv1.Asset)) error {
+	for chunk := range slices.Chunk(ids, maxBatch) {
 		req := &apiv1.ListAssetsRequest{Ids: chunk, PageSize: proto.Int32(int32(len(chunk)))} // #nosec G115 -- bounded by maxBatch
 		for {
 			resp, err := h.mdClient.ListAssets(ctx, connect.NewRequest(req))
@@ -136,16 +153,7 @@ func (h *Handler) resolveLabels(ctx context.Context, out map[string]*assetPricin
 				return err
 			}
 			for _, a := range resp.Msg.GetAssets() {
-				ap, ok := out[a.GetId()]
-				if !ok {
-					continue
-				}
-				switch {
-				case a.GetSymbol() != "":
-					ap.label = a.GetSymbol()
-				case a.GetName() != "":
-					ap.label = a.GetName()
-				}
+				fn(a)
 			}
 			next := resp.Msg.GetNextPageToken()
 			if next == "" || len(resp.Msg.GetAssets()) == 0 {

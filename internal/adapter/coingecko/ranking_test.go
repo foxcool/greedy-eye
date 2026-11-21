@@ -28,9 +28,8 @@ func recordedMarkets(t *testing.T) (*Provider, *[]*http.Request) {
 	return p, &seen
 }
 
-// TestTopByMarketCap_OneRequest: rank, capitalisation, volume and all three
-// windows come from one /coins/markets page, so the cost of a map is one
-// request whatever its size and window.
+// All three windows come from one page, so a map costs one request whatever
+// its size and window.
 func TestTopByMarketCap_OneRequest(t *testing.T) {
 	p, seen := recordedMarkets(t)
 
@@ -50,7 +49,6 @@ func TestTopByMarketCap_OneRequest(t *testing.T) {
 	assert.Empty(t, q.Get("ids"), "the ranking is the market's, not a list we name")
 
 	assert.Equal(t, ProviderName, got.Source)
-	assert.Equal(t, "usd", got.Currency)
 	assert.False(t, got.ReadAt.Before(before), "read time is when the source answered")
 
 	// The unranked fresh listing is not part of a ranking.
@@ -75,6 +73,19 @@ func TestTopByMarketCap_OneRequest(t *testing.T) {
 	assert.Nil(t, sol.Change30d, "a window the source did not report stays absent, not zero")
 }
 
+func TestTopByMarketCap_DropsRankOutsideInt32(t *testing.T) {
+	p := serveProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{"id":"bitcoin","symbol":"btc","market_cap_rank":1},
+			{"id":"huge","symbol":"hug","market_cap_rank":2147483648}
+		]`))
+	})
+	got, err := p.TopByMarketCap(context.Background(), 5)
+	require.NoError(t, err)
+	require.Len(t, got.Coins, 1)
+	assert.Equal(t, "bitcoin", got.Coins[0].CoinID)
+}
+
 func TestTopByMarketCap_RejectsSizeOutsidePage(t *testing.T) {
 	p, seen := recordedMarkets(t)
 	for _, n := range []int{0, marketsPageSize + 1} {
@@ -84,8 +95,8 @@ func TestTopByMarketCap_RejectsSizeOutsidePage(t *testing.T) {
 	assert.Empty(t, *seen, "a size one page cannot carry is refused before any request")
 }
 
-// TestTopByMarketCap_RejectedKey: a dead key is reported as such, so the
-// caller can move to another one.
+// The caller moves to another key only on a refusal, so a dead key must read
+// as one.
 func TestTopByMarketCap_RejectedKey(t *testing.T) {
 	p := serveProvider(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -95,9 +106,6 @@ func TestTopByMarketCap_RejectedKey(t *testing.T) {
 	assert.True(t, spend.KeyRefused(err))
 }
 
-// TestRankedCoinID: a catalogue asset is a ranked coin only under the identity
-// it is priced by — the curated id of the global crypto market. A contract row
-// carrying a famous ticker is not that coin.
 func TestRankedCoinID(t *testing.T) {
 	p := NewProvider(NewClient(Config{}))
 	tests := []struct {

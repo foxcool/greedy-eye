@@ -43,15 +43,22 @@ func (f *fakeRanker) RankedCoinID(a *entity.Asset) (string, bool) {
 	return id, ok
 }
 
-type fakeRankingSource struct {
-	rankers []entity.MarketRanker
-	// perUser, when set for a user, replaces rankers for that caller.
-	perUser map[string][]entity.MarketRanker
+// fakeRankingSource offers the same rankers to every caller.
+type fakeRankingSource struct{ rankers []entity.MarketRanker }
+
+func (f *fakeRankingSource) MarketRankersFor(context.Context, string) ([]entity.MarketRanker, error) {
+	return f.rankers, nil
 }
 
-func (f *fakeRankingSource) MarketRankersFor(_ context.Context, userID string) ([]entity.MarketRanker, error) {
-	if r, ok := f.perUser[userID]; ok {
-		return r, nil
+// onlyUserRankingSource offers its rankers to one caller and none to the rest.
+type onlyUserRankingSource struct {
+	userID  string
+	rankers []entity.MarketRanker
+}
+
+func (f *onlyUserRankingSource) MarketRankersFor(_ context.Context, userID string) ([]entity.MarketRanker, error) {
+	if userID != f.userID {
+		return nil, nil
 	}
 	return f.rankers, nil
 }
@@ -61,9 +68,8 @@ var rankingReadAt = time.Date(2026, 11, 20, 19, 58, 31, 0, time.UTC)
 // marketRanking: BTC, ETH and SOL by rank; SOL has no 30d history.
 func marketRanking() entity.MarketRanking {
 	return entity.MarketRanking{
-		Source:   "coingecko",
-		Currency: "usd",
-		ReadAt:   rankingReadAt,
+		Source: "coingecko",
+		ReadAt: rankingReadAt,
 		Coins: []entity.RankedCoin{
 			{CoinID: "bitcoin", Symbol: "BTC", Name: "Bitcoin", Rank: 1, Price: 91234.5, MarketCap: 1.81e12, Volume24h: 4.8e10,
 				Change24h: f64(-0.88), Change7d: f64(3.41), Change30d: f64(-12.05)},
@@ -162,9 +168,7 @@ func TestGetHeatmap_MarketSizeAndWindow(t *testing.T) {
 	assert.InDelta(t, 3.41, resp.Msg.Nodes[0].ColorValue, 1e-9)
 }
 
-// TestGetHeatmap_MarketSourceCallsPerTTL: the source is asked at most once per
-// TTL whatever window, size or caller is drawn, so the plan cost of the map is
-// bounded by time, not by traffic.
+// The plan cost of the map is bounded by time, not by traffic.
 func TestGetHeatmap_MarketSourceCallsPerTTL(t *testing.T) {
 	st, md := marketFixture()
 	st.portfolios["p9"] = &entity.Portfolio{ID: "p9", UserID: "u2", Name: "other"}
@@ -194,8 +198,6 @@ func TestGetHeatmap_MarketSourceCallsPerTTL(t *testing.T) {
 	assert.Equal(t, 2, ranker.calls, "an expired read is refreshed once")
 }
 
-// TestGetHeatmap_MarketFailoverOnRefusedKey: a spent or rejected key hands the
-// read to the next one; any other failure is the source's answer.
 func TestGetHeatmap_MarketFailoverOnRefusedKey(t *testing.T) {
 	st, md := marketFixture()
 	spent := &fakeRanker{err: spend.ErrQuotaExhausted}
@@ -224,8 +226,7 @@ func TestGetHeatmap_MarketFailoverOnRefusedKey(t *testing.T) {
 	assert.Equal(t, 2, down.calls)
 }
 
-// TestGetHeatmap_MarketHeldIgnoresExcluded: a quarantined holding is not a
-// position, so it does not mark the coin as held.
+// A quarantined holding is not a position.
 func TestGetHeatmap_MarketHeldIgnoresExcluded(t *testing.T) {
 	st, md := marketFixture()
 	st.holdings[0].SetExcluded(true, entity.ExclusionUnrecorded) // the ETH holding
@@ -283,19 +284,14 @@ func TestGetHeatmap_MarketValidation(t *testing.T) {
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 }
 
-// TestGetHeatmap_MarketCacheNeedsTheCallersOwnRanker: the shared cache serves
-// only a caller who could have read the ranking themselves, as the macro
-// series cache does; a warm cache is not a way round a missing provider.
+// A warm cache is not a way round a missing provider.
 func TestGetHeatmap_MarketCacheNeedsTheCallersOwnRanker(t *testing.T) {
 	st, md := marketFixture()
 	st.portfolios["p9"] = &entity.Portfolio{ID: "p9", UserID: "u2", Name: "other"}
 	ranker := &fakeRanker{ranking: marketRanking()}
 	h := NewHandler(st.client(), testLogger()).
 		WithMarketDataClient(md).
-		WithMarketRankingSource(&fakeRankingSource{
-			rankers: []entity.MarketRanker{ranker},
-			perUser: map[string][]entity.MarketRanker{"u2": nil},
-		})
+		WithMarketRankingSource(&onlyUserRankingSource{userID: "u1", rankers: []entity.MarketRanker{ranker}})
 
 	_, err := h.GetHeatmap(userCtx("u1"), marketRequest())
 	require.NoError(t, err)

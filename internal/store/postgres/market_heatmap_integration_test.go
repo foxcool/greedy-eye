@@ -26,10 +26,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestMarketHeatmapLeavesTheCatalogueAlone draws the market map through the
-// real handlers, resolver and CoinGecko adapter against a recorded ranking, and
-// checks that the ranked universe stayed out of the assets table: a top-N
-// import would hand valuation and scam scoring rows nobody holds.
+// Pins that a market read writes no asset rows, through the real handlers,
+// resolver and adapter against a recorded ranking.
 func TestMarketHeatmapLeavesTheCatalogueAlone(t *testing.T) {
 	pool := getTestPool(t)
 	ctx := context.Background()

@@ -313,9 +313,8 @@ type HeatmapNode struct {
 	// MARKET scope: the coin's market-capitalisation rank at the source (1 =
 	// largest). Absent on every other scope.
 	Rank *int32 `protobuf:"varint,8,opt,name=rank,proto3,oneof" json:"rank,omitempty"`
-	// MARKET scope: the caller holds this coin. Only a held tile carries
-	// asset_id, so only a held tile links to an asset card; the ranked universe
-	// is not in the catalogue.
+	// MARKET scope: the caller holds this coin; only then does asset_id link to
+	// its card.
 	Held          bool `protobuf:"varint,9,opt,name=held,proto3" json:"held,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -518,8 +517,8 @@ type GetHeatmapResponse struct {
 	// is not in a total. Same message CalculatePortfolioValue returns: one shape
 	// for the same statement, on every surface.
 	Coverage *ValuationCoverage `protobuf:"bytes,4,opt,name=coverage,proto3" json:"coverage,omitempty"`
-	// MARKET scope: when this instance read the ranking from its source. Served
-	// from a cache, so it can be older than calculated_at by up to the cache TTL.
+	// MARKET scope: when the ranking was read from the source; may be older than
+	// calculated_at.
 	SourceReadAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=source_read_at,json=sourceReadAt,proto3" json:"source_read_at,omitempty"`
 	// MARKET scope: the provider the ranking came from ("coingecko"), for
 	// attribution next to the map.

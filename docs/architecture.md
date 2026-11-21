@@ -468,16 +468,11 @@ graph TB
   scope and CalculatePortfolioValue still value such a portfolio in full
 - Scope MARKET (crypto only): the top 100 coins by capitalisation rank from CoinGecko
   `/coins/markets`; size = capitalisation or 24h volume, color = the source's 24h/7d/30d change,
-  quoted in USD only. One page carries rank, cap, volume and all three windows, so a refresh is
-  one source call whatever the size metric or window. The ranking is a read-through in-memory
-  cache with a 30 min TTL shared by every caller who can resolve a ranker of their own (at most
-  48 successful refreshes a day; about 15% of the demo plan's 10,000 a month), read with the
-  same keys and failover order as CoinGecko prices (`credentials.Resolver.MarketRankersFor`).
-  A refresh adds one call per refused key it fails over from; failures are not cached, so while
-  the source is down each draw retries, paced by the shared rate budget rather than the TTL. Nothing is written: the ranked universe
-  never enters `assets`, which valuation and scam scoring iterate. A tile the caller holds
-  (matched by the curated coin id the price path uses) carries `held` and `asset_id`; others
-  link nowhere. `source_read_at` says when the ranking was read
+  quoted in USD only. One page carries every metric and window, so a refresh is one source call.
+  The ranking is an in-memory cache shared by every caller who can resolve a ranker of their
+  own (`credentials.Resolver.MarketRankersFor`); failures are not cached. Nothing is written to
+  `assets`. A tile the caller holds (matched by the curated coin id the price path uses) carries
+  `held` and `asset_id`; `source_read_at` says when the ranking was read
 - Scope BASKET, PNL/target-drift color metrics and class/sector grouping return
   Unimplemented until their data prerequisites land (asset identity, cost basis)
 - Read-only derived views: no store of its own — reads via `portfolio.Store` (holdings) and the

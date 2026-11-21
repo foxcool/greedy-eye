@@ -12,9 +12,10 @@ import (
 // Values are float64 for drawing, not for accounting.
 type RankedCoin struct {
 	// CoinID is the provider's own id for the coin ("bitcoin").
-	CoinID    string
-	Symbol    string
-	Name      string
+	CoinID string
+	Symbol string
+	Name   string
+	// Rank is 1-based and fits an int32, the API's rank type.
 	Rank      int
 	Price     float64
 	MarketCap float64
@@ -30,15 +31,12 @@ type RankedCoin struct {
 // they were read from the source.
 type MarketRanking struct {
 	Source string
-	// Currency is the code prices, capitalisation and volume are quoted in.
-	Currency string
-	Coins    []RankedCoin
-	ReadAt   time.Time
+	Coins  []RankedCoin
+	ReadAt time.Time
 }
 
 // MarketRanker reads the top of a market by capitalisation.
 type MarketRanker interface {
-	// TopByMarketCap reads the n largest coins in one request.
 	TopByMarketCap(ctx context.Context, n int) (MarketRanking, error)
 	// RankedCoinID reports which ranked coin a catalogue asset is, by the same
 	// identity the provider prices it under; ok is false when it prices the

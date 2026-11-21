@@ -77,8 +77,8 @@ type Config struct {
 	// of the plan's monthly allowance instead of a hardcoded cap.
 	Budget PlanBudget
 
-	// BaseURL, when set, replaces the plan's host: a recorded server in tests
-	// outside this package. The auth header still follows the plan.
+	// BaseURL, when set, replaces the plan's host. The auth header still
+	// follows the plan.
 	BaseURL string
 }
 

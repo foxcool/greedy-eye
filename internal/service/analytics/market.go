@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
-	"slices"
 	"sync"
 	"time"
 
@@ -25,11 +23,11 @@ const (
 	// hundred tiles the tail is slivers nobody can read or click.
 	marketTopN = 100
 	// marketTTL is how long one ranking read serves every caller. The colors
-	// are 24h/7d/30d changes, which half an hour does not move visibly, and it
-	// caps the map's successful refreshes at 48 a day whatever the traffic;
-	// see readRanking for what a refused key or an outage adds.
+	// are 24h/7d/30d changes, which half an hour does not move visibly.
 	marketTTL = 30 * time.Minute
-	// marketQuote is the currency the ranking is read in; see marketHeatmap.
+	// marketQuote is the only currency the map is quoted in. The source prices
+	// one currency per request; a cache per display currency would multiply the
+	// spend.
 	marketQuote = "USD"
 )
 
@@ -39,14 +37,19 @@ type MarketRankingSource interface {
 	MarketRankersFor(ctx context.Context, userID string) ([]entity.MarketRanker, error)
 }
 
-// marketCache is a read-through cache of one ranking read. In memory only, for
-// the reason the macro series cache gives: a restart costs one read, and a
-// table would put a universe nobody holds next to the catalogue.
+// marketCache holds the last successful ranking read. In memory only, like the
+// macro series cache: a restart costs one read.
 type marketCache struct {
-	mu      sync.Mutex
+	mu   sync.Mutex
+	last *cachedRanking // nil until the first successful read
+	now  func() time.Time
+}
+
+// cachedRanking is one ranking read and the ranker that made it; held coins are
+// matched by that ranker's identity rule.
+type cachedRanking struct {
 	ranking entity.MarketRanking
-	ranker  entity.MarketRanker // the one that read it, for identity matching
-	now     func() time.Time
+	ranker  entity.MarketRanker
 }
 
 // WithMarketRankingSource returns a new Handler that serves scope MARKET from
@@ -58,40 +61,14 @@ func (h *Handler) WithMarketRankingSource(src MarketRankingSource) *Handler {
 }
 
 // marketHeatmap draws the top of the crypto market by capitalisation rank:
-// size is capitalisation or 24h volume, color the change over the window. The
-// coins come from a cached ranking, never from the catalogue, and nothing here
-// writes one: a top-N import would put coins nobody holds into the rows
-// valuation and scam scoring iterate.
-//
-// Quoted in USD only. The source reads in one currency per request, and a
-// cache entry per display currency would multiply the spend by the currencies
-// in use; a caller naming another quote asset is told so rather than given USD
-// under its name.
+// size is capitalisation or 24h volume, color the change over the window.
+// Reads the cached ranking and writes nothing.
 func (h *Handler) marketHeatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*connect.Response[apiv1.GetHeatmapResponse], error) {
 	if h.rankings == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("market ranking source not configured"))
 	}
-	if msg.ScopeId != "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("scope_id must be empty for scope MARKET"))
-	}
-	byVolume := false
-	switch msg.SizeMetric {
-	case apiv1.HeatmapSizeMetric_HEATMAP_SIZE_METRIC_UNSPECIFIED, apiv1.HeatmapSizeMetric_HEATMAP_SIZE_METRIC_MARKET_CAP:
-	case apiv1.HeatmapSizeMetric_HEATMAP_SIZE_METRIC_VOLUME:
-		byVolume = true
-	default:
-		return nil, connect.NewError(connect.CodeInvalidArgument,
-			fmt.Errorf("size metric %s does not apply to scope %s", msg.SizeMetric, msg.Scope))
-	}
-	switch msg.ColorMetric {
-	case apiv1.HeatmapColorMetric_HEATMAP_COLOR_METRIC_UNSPECIFIED, apiv1.HeatmapColorMetric_HEATMAP_COLOR_METRIC_CHANGE_PCT:
-	default:
-		return nil, connect.NewError(connect.CodeUnimplemented,
-			fmt.Errorf("color metric %s is not implemented yet", msg.ColorMetric))
-	}
-	if msg.GroupBy != apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_UNSPECIFIED {
-		return nil, connect.NewError(connect.CodeUnimplemented,
-			fmt.Errorf("grouping by %s is not implemented for scope MARKET", msg.GroupBy))
+	if err := validateMarketRequest(msg); err != nil {
+		return nil, err
 	}
 	user, ok := middleware.UserFromContext(ctx)
 	if !ok {
@@ -107,47 +84,40 @@ func (h *Handler) marketHeatmap(ctx context.Context, msg *apiv1.GetHeatmapReques
 		if err != nil {
 			return nil, err
 		}
-		if asked != quoteAssetID {
+		if asked != quoteAssetID { // told so, rather than given USD under another name
 			return nil, connect.NewError(connect.CodeInvalidArgument,
 				errors.New("scope MARKET is quoted in USD only"))
 		}
 	}
 
-	ranking, ranker, err := h.readRanking(ctx, user.ID)
+	read, err := h.readRanking(ctx, user.ID)
 	if err != nil {
 		return nil, err
 	}
-	held, err := h.heldCoins(ctx, ranker)
+	held, err := h.heldCoins(ctx, read.ranker)
 	if err != nil {
 		return nil, err
 	}
 
-	nodes := make([]*apiv1.HeatmapNode, 0, len(ranking.Coins))
-	for _, c := range ranking.Coins {
-		if c.Rank > math.MaxInt32 {
-			continue // not a rank any source means
-		}
-		size := c.MarketCap
-		if byVolume {
-			size = c.Volume24h
-		}
+	nodes := make([]*apiv1.HeatmapNode, 0, len(read.ranking.Coins))
+	for _, coin := range read.ranking.Coins {
 		color := 0.0 // no history: flat, as on the holdings maps
-		if ch := windowChange(c, msg.Window); ch != nil {
+		if ch := windowChange(coin, msg.Window); ch != nil {
 			color = *ch
 		}
-		label := c.Symbol
+		label := coin.Symbol
 		if label == "" {
-			label = c.Name
+			label = coin.Name
 		}
-		assetID, isHeld := held[c.CoinID]
+		assetID, isHeld := held[coin.CoinID]
 		nodes = append(nodes, &apiv1.HeatmapNode{
-			Id:         ranking.Source + ":" + c.CoinID,
+			Id:         read.ranking.Source + ":" + coin.CoinID,
 			Label:      label,
-			Size:       size,
+			Size:       sizeOf(coin, msg.SizeMetric),
 			ColorValue: color,
-			Price:      proto.Float64(c.Price),
+			Price:      proto.Float64(coin.Price),
 			AssetId:    assetID,
-			Rank:       proto.Int32(int32(c.Rank)), // #nosec G115 -- checked against MaxInt32 above
+			Rank:       proto.Int32(int32(coin.Rank)), // #nosec G115 -- RankedCoin.Rank fits int32 by contract; the adapter drops the rest
 			Held:       isHeld,
 		})
 	}
@@ -156,56 +126,77 @@ func (h *Handler) marketHeatmap(ctx context.Context, msg *apiv1.GetHeatmapReques
 		Nodes:        nodes,
 		QuoteAssetId: quoteAssetID,
 		CalculatedAt: timestamppb.New(time.Now()),
-		SourceReadAt: timestamppb.New(ranking.ReadAt),
-		Source:       ranking.Source,
+		SourceReadAt: timestamppb.New(read.ranking.ReadAt),
+		Source:       read.ranking.Source,
 	}), nil
 }
 
-// readRanking serves the cached ranking, reading it from the source when the
-// cache is empty or older than marketTTL.
-//
-// The caller's rankers are resolved before the cache is consulted, as for the
-// macro series: a warm cache serves only a caller who could have read the
-// ranking themselves. What it holds is the public market, not anything of the
-// caller's, so whichever eligible key refreshed it serves everyone until the
-// TTL.
-//
-// The read happens under the cache lock, so a burst of cold requests costs one
-// refresh rather than one each; the others wait for it. A refresh costs one
-// source call per key tried: keys are tried in order, moving on only when one
-// is refused (plan spent, key rejected), and a rejected key has already spent
-// its request by the time it says so. An outage is the source's answer and
-// spending another plan on it changes nothing.
-//
-// Only a success is cached: remembering a failure would keep the map dark after
-// the cause is gone. While the source fails, every draw retries, paced by the
-// shared rate budget in the transport rather than by the TTL.
-func (h *Handler) readRanking(ctx context.Context, userID string) (entity.MarketRanking, entity.MarketRanker, error) {
+// validateMarketRequest refuses the metrics and grouping scope MARKET does not
+// draw.
+func validateMarketRequest(msg *apiv1.GetHeatmapRequest) error {
+	if msg.ScopeId != "" {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("scope_id must be empty for scope MARKET"))
+	}
+	switch msg.SizeMetric {
+	case apiv1.HeatmapSizeMetric_HEATMAP_SIZE_METRIC_UNSPECIFIED,
+		apiv1.HeatmapSizeMetric_HEATMAP_SIZE_METRIC_MARKET_CAP,
+		apiv1.HeatmapSizeMetric_HEATMAP_SIZE_METRIC_VOLUME:
+	default:
+		return connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("size metric %s does not apply to scope %s", msg.SizeMetric, msg.Scope))
+	}
+	switch msg.ColorMetric {
+	case apiv1.HeatmapColorMetric_HEATMAP_COLOR_METRIC_UNSPECIFIED, apiv1.HeatmapColorMetric_HEATMAP_COLOR_METRIC_CHANGE_PCT:
+	default:
+		return connect.NewError(connect.CodeUnimplemented,
+			fmt.Errorf("color metric %s is not implemented yet", msg.ColorMetric))
+	}
+	if msg.GroupBy != apiv1.HeatmapGroupBy_HEATMAP_GROUP_BY_UNSPECIFIED {
+		return connect.NewError(connect.CodeUnimplemented,
+			fmt.Errorf("grouping by %s is not implemented for scope MARKET", msg.GroupBy))
+	}
+	return nil
+}
+
+// sizeOf is a coin's tile size under a metric validateMarketRequest accepted.
+func sizeOf(coin entity.RankedCoin, metric apiv1.HeatmapSizeMetric) float64 {
+	if metric == apiv1.HeatmapSizeMetric_HEATMAP_SIZE_METRIC_VOLUME {
+		return coin.Volume24h
+	}
+	return coin.MarketCap
+}
+
+// readRanking serves the cached ranking, reading it when the cache is empty or
+// older than marketTTL. Rankers are resolved first, so a warm cache serves only
+// a caller who could have read it. The read runs under the lock, so a cold burst
+// costs one read. Keys are tried in order and only a refused key moves on;
+// failures are not cached, so the map recovers with the source.
+func (h *Handler) readRanking(ctx context.Context, userID string) (*cachedRanking, error) {
 	rankers, err := h.rankings.MarketRankersFor(ctx, userID)
 	if err != nil {
-		return entity.MarketRanking{}, nil, connect.NewError(connect.CodeInternal, fmt.Errorf("resolve market rankers: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("resolve market rankers: %w", err))
 	}
 	if len(rankers) == 0 {
-		return entity.MarketRanking{}, nil, connect.NewError(connect.CodeFailedPrecondition,
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
 			errors.New("no market data provider can rank the market"))
 	}
 
-	c := h.market
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.ranker != nil && c.now().Sub(c.ranking.ReadAt) < marketTTL {
-		return c.ranking, c.ranker, nil
+	cache := h.market
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if last := cache.last; last != nil && cache.now().Sub(last.ranking.ReadAt) < marketTTL {
+		return last, nil
 	}
 
 	var errs []error
-	for _, r := range rankers {
-		ranking, err := r.TopByMarketCap(ctx, marketTopN)
+	for _, ranker := range rankers {
+		ranking, err := ranker.TopByMarketCap(ctx, marketTopN)
 		if err == nil {
 			if ranking.ReadAt.IsZero() {
-				ranking.ReadAt = c.now() // undated would never count as fresh
+				ranking.ReadAt = cache.now() // undated would never count as fresh
 			}
-			c.ranking, c.ranker = ranking, r
-			return ranking, r, nil
+			cache.last = &cachedRanking{ranking: ranking, ranker: ranker}
+			return cache.last, nil
 		}
 		errs = append(errs, err)
 		if !spend.KeyRefused(err) {
@@ -214,7 +205,7 @@ func (h *Handler) readRanking(ctx context.Context, userID string) (entity.Market
 	}
 	err = errors.Join(errs...)
 	h.log.WarnContext(ctx, "heatmap: market ranking unavailable", "error", err)
-	return entity.MarketRanking{}, nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("read market ranking: %w", err))
+	return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("read market ranking: %w", err))
 }
 
 // heldCoins maps each ranked coin the caller holds to the asset that links to
@@ -228,36 +219,25 @@ func (h *Handler) heldCoins(ctx context.Context, ranker entity.MarketRanker) (ma
 		return nil, err
 	}
 	var ids []string
-	seen := map[string]bool{}
+	listed := map[string]bool{}
 	for _, hld := range holdings {
-		if !seen[hld.AssetID] {
-			seen[hld.AssetID] = true
+		if !listed[hld.AssetID] {
+			listed[hld.AssetID] = true
 			ids = append(ids, hld.AssetID)
 		}
 	}
 	held := map[string]string{}
-	for chunk := range slices.Chunk(ids, maxBatch) {
-		req := &apiv1.ListAssetsRequest{Ids: chunk, PageSize: proto.Int32(int32(len(chunk)))} // #nosec G115 -- bounded by maxBatch
-		for {
-			resp, err := h.mdClient.ListAssets(ctx, connect.NewRequest(req))
-			if err != nil {
-				return nil, err
-			}
-			for _, a := range resp.Msg.GetAssets() {
-				coinID, ok := ranker.RankedCoinID(&entity.Asset{Symbol: a.GetSymbol(), Market: a.GetMarket()})
-				if !ok {
-					continue
-				}
-				if cur, seen := held[coinID]; !seen || a.GetId() < cur {
-					held[coinID] = a.GetId()
-				}
-			}
-			next := resp.Msg.GetNextPageToken()
-			if next == "" || len(resp.Msg.GetAssets()) == 0 {
-				break
-			}
-			req.PageToken = &next
+	err = h.eachAsset(ctx, ids, func(a *apiv1.Asset) {
+		coinID, ok := ranker.RankedCoinID(&entity.Asset{Symbol: a.GetSymbol(), Market: a.GetMarket()})
+		if !ok {
+			return
 		}
+		if prev, found := held[coinID]; !found || a.GetId() < prev {
+			held[coinID] = a.GetId()
+		}
+	})
+	if err != nil {
+		return nil, err
 	}
 	return held, nil
 }

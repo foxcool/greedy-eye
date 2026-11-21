@@ -27,10 +27,7 @@ func rankerNames(rankers []entity.MarketRanker) []string {
 	return out
 }
 
-// TestMarketRankersFollowThePriceRegistry: a ranking is read with the same
-// keys, in the same order, as the prices of that provider, so it is charged
-// to the same plan and fails over the same way. A provider that cannot rank
-// is not offered.
+// A provider that cannot rank is not offered.
 func TestMarketRankersFollowThePriceRegistry(t *testing.T) {
 	now := time.Now()
 	owned := account("own", "coingecko", now)
@@ -55,8 +52,6 @@ func TestMarketRankersFollowThePriceRegistry(t *testing.T) {
 	assert.Equal(t, []string{"own", "shared"}, rankerNames(got))
 }
 
-// TestMarketRankersFallBackToKeyless: with no account the credential-free
-// default ranks, as it prices.
 func TestMarketRankersFallBackToKeyless(t *testing.T) {
 	r := NewResolver(Config{
 		Source: &fakeSource{},

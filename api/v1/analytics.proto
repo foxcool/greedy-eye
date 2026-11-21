@@ -70,9 +70,8 @@ message HeatmapNode {
   // MARKET scope: the coin's market-capitalisation rank at the source (1 =
   // largest). Absent on every other scope.
   optional int32 rank = 8;
-  // MARKET scope: the caller holds this coin. Only a held tile carries
-  // asset_id, so only a held tile links to an asset card; the ranked universe
-  // is not in the catalogue.
+  // MARKET scope: the caller holds this coin; only then does asset_id link to
+  // its card.
   bool held = 9;
 }
 
@@ -111,8 +110,8 @@ message GetHeatmapResponse {
   // is not in a total. Same message CalculatePortfolioValue returns: one shape
   // for the same statement, on every surface.
   ValuationCoverage coverage = 4;
-  // MARKET scope: when this instance read the ranking from its source. Served
-  // from a cache, so it can be older than calculated_at by up to the cache TTL.
+  // MARKET scope: when the ranking was read from the source; may be older than
+  // calculated_at.
   google.protobuf.Timestamp source_read_at = 5;
   // MARKET scope: the provider the ranking came from ("coingecko"), for
   // attribution next to the map.

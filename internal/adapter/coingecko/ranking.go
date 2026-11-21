@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -71,15 +72,15 @@ func (p *Provider) TopByMarketCap(ctx context.Context, n int) (entity.MarketRank
 	}
 
 	out := entity.MarketRanking{
-		Source:   ProviderName,
-		Currency: cgQuoteCurrency,
-		Coins:    make([]entity.RankedCoin, 0, len(items)),
-		ReadAt:   time.Now(),
+		Source: ProviderName,
+		Coins:  make([]entity.RankedCoin, 0, len(items)),
+		ReadAt: time.Now(),
 	}
 	for _, it := range items {
 		// A coin without a rank has no capitalisation the source vouches for;
-		// it trails the page and is not part of a ranking.
-		if it.MarketCapRank == nil || *it.MarketCapRank < 1 {
+		// it trails the page and is not part of a ranking. A rank past int32 is
+		// no rank the source means, and the API carries ranks as int32.
+		if it.MarketCapRank == nil || *it.MarketCapRank < 1 || *it.MarketCapRank > math.MaxInt32 {
 			continue
 		}
 		out.Coins = append(out.Coins, entity.RankedCoin{
@@ -98,9 +99,8 @@ func (p *Provider) TopByMarketCap(ctx context.Context, n int) (entity.MarketRank
 	return out, nil
 }
 
-// RankedCoinID reports the coin a catalogue asset is priced as. Only the
-// curated path names a coin id: a contract-priced token is asked about by
-// address, and the ranking does not carry addresses.
+// RankedCoinID names a coin only on the curated path: a contract-priced token
+// is asked about by address, and the ranking does not carry addresses.
 func (p *Provider) RankedCoinID(a *entity.Asset) (string, bool) {
 	return curatedCoinID(a)
 }
