@@ -20,6 +20,11 @@ type Store interface {
 	GetOrCreateAssetBySymbol(ctx context.Context, symbol, nameIfNew string, typeIfNew entity.AssetType) (*entity.Asset, error)
 	UpdateAsset(ctx context.Context, asset *entity.Asset, fields []string) (*entity.Asset, error)
 	DeleteAsset(ctx context.Context, id string) error
+	// MergeAssets moves everything naming opts.SourceID onto opts.TargetID and
+	// deletes the source, atomically (contract on the RPC in marketdata.proto).
+	// A refusal is ErrConstraint; malformed or equal ids ErrInvalidArgument, a
+	// missing asset ErrNotFound.
+	MergeAssets(ctx context.Context, opts MergeAssetsOpts) (*MergeAssetsResult, error)
 	ListAssets(ctx context.Context, opts ListAssetsOpts) ([]*entity.Asset, string, error)
 	// ListStalePricingTargets returns assets due for a price refresh from one
 	// source, oldest deadline first. Everything it leaves out is either already
@@ -239,4 +244,25 @@ type DeletePricesOpts struct {
 	SourceID    string
 	From        *time.Time
 	To          *time.Time
+}
+
+// MergeAssetsOpts names the duplicate (Source) and the survivor (Target), with
+// the symbols the caller saw on each.
+type MergeAssetsOpts struct {
+	SourceID             string
+	TargetID             string
+	ExpectedSourceSymbol string
+	ExpectedTargetSymbol string
+	DryRun               bool
+}
+
+// MergeAssetsResult counts the rows a merge moved, dropped or rewrote.
+type MergeAssetsResult struct {
+	HoldingsMoved     int64
+	LedgerLegsMoved   int64
+	PricesMoved       int64
+	PricesDropped     int64
+	ExternalRefsMoved int64
+	RiskFlagsMoved    int64
+	RulesRewritten    int64
 }
