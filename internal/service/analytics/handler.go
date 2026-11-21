@@ -40,13 +40,16 @@ type Handler struct {
 	rankings  MarketRankingSource      // optional; nil leaves scope MARKET unimplemented
 	market    *marketCache             // shared by clones: the cache outlives any one builder step
 	log       *slog.Logger
+	news      NewsStore  // optional; nil means the news RPCs are Unimplemented
+	feeds     FeedReader // optional; reads sources for IngestNews
+	now       func() time.Time
 
 	holdingsPageSize int32 // batch size of the holdings read; tests shrink it
 }
 
 func NewHandler(pc PortfolioClient, log *slog.Logger) *Handler {
 	return &Handler{
-		pfClient: pc, log: log, holdingsPageSize: holdingsPageSize,
+		pfClient: pc, log: log, now: time.Now, holdingsPageSize: holdingsPageSize,
 		market: &marketCache{now: time.Now},
 	}
 }

@@ -1344,3 +1344,168 @@ table "rule_executions" {
     columns = [column.started_at]
   }
 }
+
+// --- News ---
+//
+// sources are the feeds the news job reads; documents are what it found in
+// them. A document keeps a headline, a link and a short snippet, never the
+// article: the length checks below are what holds that line in the database
+// rather than only in the code that writes it.
+
+table "sources" {
+  schema = schema.public
+
+  column "id" {
+    type = uuid
+    null = false
+  }
+  column "kind" {
+    type = text
+    null = false
+  }
+  column "url" {
+    type = text
+    null = false
+  }
+  // Shown beside each headline as where it came from.
+  column "name" {
+    type = text
+    null = false
+  }
+  column "enabled" {
+    type    = boolean
+    null    = false
+    default = true
+  }
+  // When the source is due, checked by the news job on every fire.
+  column "cron" {
+    type = text
+    null = false
+  }
+  column "weight" {
+    type    = integer
+    null    = false
+    default = 1
+  }
+  // Last attempt, whatever its outcome: what the cron is measured from.
+  column "last_fetched_at" {
+    type = timestamptz
+    null = true
+  }
+  column "last_success_at" {
+    type = timestamptz
+    null = true
+  }
+  // A failing feed is visible as failing, not as a quiet source. Kept after a
+  // later success, so the last failure can still be read beside it.
+  column "last_error" {
+    type = text
+    null = true
+  }
+  column "last_error_at" {
+    type = timestamptz
+    null = true
+  }
+  column "created_at" {
+    type = timestamptz
+    null = false
+  }
+  column "updated_at" {
+    type = timestamptz
+    null = false
+  }
+
+  primary_key {
+    columns = [column.id]
+  }
+
+  index "sources_url_key" {
+    unique  = true
+    columns = [column.url]
+  }
+
+  check "sources_kind" {
+    expr = "(kind = 'rss'::text)"
+  }
+
+  check "sources_weight_not_negative" {
+    expr = "(weight >= 0)"
+  }
+}
+
+table "documents" {
+  schema = schema.public
+
+  column "id" {
+    type = uuid
+    null = false
+  }
+  column "source_id" {
+    type = uuid
+    null = false
+  }
+  column "url" {
+    type = text
+    null = false
+  }
+  column "title" {
+    type = text
+    null = false
+  }
+  column "snippet" {
+    type = text
+    null = false
+  }
+  // The time the document is shown with: when the source published it.
+  column "published_at" {
+    type = timestamptz
+    null = false
+  }
+  // When this instance first read it. Bookkeeping only, never a display time.
+  column "fetched_at" {
+    type = timestamptz
+    null = false
+  }
+  // sha256 of the canonical URL: the same article reached twice, from one
+  // feed or two, is one row.
+  column "url_hash" {
+    type = text
+    null = false
+  }
+
+  primary_key {
+    columns = [column.id]
+  }
+
+  index "documents_url_hash_key" {
+    unique  = true
+    columns = [column.url_hash]
+  }
+
+  index "documents_published_at" {
+    columns = [column.published_at, column.id]
+  }
+
+  index "documents_source_published_at" {
+    columns = [column.source_id, column.published_at, column.id]
+  }
+
+  check "documents_title_length" {
+    expr = "(char_length(title) <= 300)"
+  }
+
+  check "documents_snippet_length" {
+    expr = "(char_length(snippet) <= 300)"
+  }
+
+  check "documents_url_length" {
+    expr = "(char_length(url) <= 2048)"
+  }
+
+  foreign_key "documents_sources" {
+    columns     = [column.source_id]
+    ref_columns = [table.sources.column.id]
+    on_update   = NO_ACTION
+    on_delete   = CASCADE
+  }
+}

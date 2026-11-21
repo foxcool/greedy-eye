@@ -298,6 +298,53 @@ func (HeatmapColorMetric) EnumDescriptor() ([]byte, []int) {
 	return file_v1_analytics_proto_rawDescGZIP(), []int{4}
 }
 
+// NewsSourceKind is how a source is read.
+type NewsSourceKind int32
+
+const (
+	NewsSourceKind_NEWS_SOURCE_KIND_UNSPECIFIED NewsSourceKind = 0
+	NewsSourceKind_NEWS_SOURCE_KIND_RSS         NewsSourceKind = 1 // RSS 2.0 or Atom
+)
+
+// Enum value maps for NewsSourceKind.
+var (
+	NewsSourceKind_name = map[int32]string{
+		0: "NEWS_SOURCE_KIND_UNSPECIFIED",
+		1: "NEWS_SOURCE_KIND_RSS",
+	}
+	NewsSourceKind_value = map[string]int32{
+		"NEWS_SOURCE_KIND_UNSPECIFIED": 0,
+		"NEWS_SOURCE_KIND_RSS":         1,
+	}
+)
+
+func (x NewsSourceKind) Enum() *NewsSourceKind {
+	p := new(NewsSourceKind)
+	*p = x
+	return p
+}
+
+func (x NewsSourceKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (NewsSourceKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_v1_analytics_proto_enumTypes[5].Descriptor()
+}
+
+func (NewsSourceKind) Type() protoreflect.EnumType {
+	return &file_v1_analytics_proto_enumTypes[5]
+}
+
+func (x NewsSourceKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use NewsSourceKind.Descriptor instead.
+func (NewsSourceKind) EnumDescriptor() ([]byte, []int) {
+	return file_v1_analytics_proto_rawDescGZIP(), []int{5}
+}
+
 // HeatmapNode is one tile (leaf) or group (parent) of the treemap.
 // Values are float64 visualization data, not accounting-grade amounts —
 // precise values stay behind PortfolioService/MarketDataService.
@@ -805,6 +852,704 @@ func (x *HeatmapBreadthLeaf) GetStale() bool {
 	return false
 }
 
+// NewsSource is one feed the news job reads.
+type NewsSource struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Kind  NewsSourceKind         `protobuf:"varint,2,opt,name=kind,proto3,enum=eye.v1.NewsSourceKind" json:"kind,omitempty"`
+	Url   string                 `protobuf:"bytes,3,opt,name=url,proto3" json:"url,omitempty"`
+	// Shown beside each headline from this source.
+	Name    string `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
+	Enabled bool   `protobuf:"varint,5,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	// Standard five-field cron spec: when the feed is due.
+	Cron   string `protobuf:"bytes,6,opt,name=cron,proto3" json:"cron,omitempty"`
+	Weight int32  `protobuf:"varint,7,opt,name=weight,proto3" json:"weight,omitempty"`
+	// Last attempt, whatever its outcome.
+	LastFetchedAt *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=last_fetched_at,json=lastFetchedAt,proto3,oneof" json:"last_fetched_at,omitempty"`
+	LastSuccessAt *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=last_success_at,json=lastSuccessAt,proto3,oneof" json:"last_success_at,omitempty"`
+	// The last failure and when it happened. The source is failing when
+	// last_error_at is after last_success_at (or there was no success).
+	LastError     string                 `protobuf:"bytes,10,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
+	LastErrorAt   *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=last_error_at,json=lastErrorAt,proto3,oneof" json:"last_error_at,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NewsSource) Reset() {
+	*x = NewsSource{}
+	mi := &file_v1_analytics_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NewsSource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NewsSource) ProtoMessage() {}
+
+func (x *NewsSource) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_analytics_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NewsSource.ProtoReflect.Descriptor instead.
+func (*NewsSource) Descriptor() ([]byte, []int) {
+	return file_v1_analytics_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *NewsSource) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *NewsSource) GetKind() NewsSourceKind {
+	if x != nil {
+		return x.Kind
+	}
+	return NewsSourceKind_NEWS_SOURCE_KIND_UNSPECIFIED
+}
+
+func (x *NewsSource) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *NewsSource) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *NewsSource) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *NewsSource) GetCron() string {
+	if x != nil {
+		return x.Cron
+	}
+	return ""
+}
+
+func (x *NewsSource) GetWeight() int32 {
+	if x != nil {
+		return x.Weight
+	}
+	return 0
+}
+
+func (x *NewsSource) GetLastFetchedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastFetchedAt
+	}
+	return nil
+}
+
+func (x *NewsSource) GetLastSuccessAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastSuccessAt
+	}
+	return nil
+}
+
+func (x *NewsSource) GetLastError() string {
+	if x != nil {
+		return x.LastError
+	}
+	return ""
+}
+
+func (x *NewsSource) GetLastErrorAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastErrorAt
+	}
+	return nil
+}
+
+func (x *NewsSource) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *NewsSource) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+// NewsDocument is one headline: a title, a link and a short snippet, never
+// the article itself.
+type NewsDocument struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Id         string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	SourceId   string                 `protobuf:"bytes,2,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
+	SourceName string                 `protobuf:"bytes,3,opt,name=source_name,json=sourceName,proto3" json:"source_name,omitempty"`
+	Url        string                 `protobuf:"bytes,4,opt,name=url,proto3" json:"url,omitempty"`
+	Title      string                 `protobuf:"bytes,5,opt,name=title,proto3" json:"title,omitempty"`
+	Snippet    string                 `protobuf:"bytes,6,opt,name=snippet,proto3" json:"snippet,omitempty"`
+	// When the source published it; the only time a document is shown with.
+	PublishedAt   *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=published_at,json=publishedAt,proto3" json:"published_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NewsDocument) Reset() {
+	*x = NewsDocument{}
+	mi := &file_v1_analytics_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NewsDocument) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NewsDocument) ProtoMessage() {}
+
+func (x *NewsDocument) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_analytics_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NewsDocument.ProtoReflect.Descriptor instead.
+func (*NewsDocument) Descriptor() ([]byte, []int) {
+	return file_v1_analytics_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *NewsDocument) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *NewsDocument) GetSourceId() string {
+	if x != nil {
+		return x.SourceId
+	}
+	return ""
+}
+
+func (x *NewsDocument) GetSourceName() string {
+	if x != nil {
+		return x.SourceName
+	}
+	return ""
+}
+
+func (x *NewsDocument) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *NewsDocument) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *NewsDocument) GetSnippet() string {
+	if x != nil {
+		return x.Snippet
+	}
+	return ""
+}
+
+func (x *NewsDocument) GetPublishedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.PublishedAt
+	}
+	return nil
+}
+
+type ListDocumentsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Only documents from this source.
+	SourceId *string `protobuf:"bytes,1,opt,name=source_id,json=sourceId,proto3,oneof" json:"source_id,omitempty"`
+	// Only documents published at or after this time.
+	Since *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=since,proto3,oneof" json:"since,omitempty"`
+	// Defaults to 50, at most 1000.
+	PageSize      *int32  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
+	PageToken     *string `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDocumentsRequest) Reset() {
+	*x = ListDocumentsRequest{}
+	mi := &file_v1_analytics_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDocumentsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDocumentsRequest) ProtoMessage() {}
+
+func (x *ListDocumentsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_analytics_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDocumentsRequest.ProtoReflect.Descriptor instead.
+func (*ListDocumentsRequest) Descriptor() ([]byte, []int) {
+	return file_v1_analytics_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ListDocumentsRequest) GetSourceId() string {
+	if x != nil && x.SourceId != nil {
+		return *x.SourceId
+	}
+	return ""
+}
+
+func (x *ListDocumentsRequest) GetSince() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Since
+	}
+	return nil
+}
+
+func (x *ListDocumentsRequest) GetPageSize() int32 {
+	if x != nil && x.PageSize != nil {
+		return *x.PageSize
+	}
+	return 0
+}
+
+func (x *ListDocumentsRequest) GetPageToken() string {
+	if x != nil && x.PageToken != nil {
+		return *x.PageToken
+	}
+	return ""
+}
+
+type ListDocumentsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Documents     []*NewsDocument        `protobuf:"bytes,1,rep,name=documents,proto3" json:"documents,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDocumentsResponse) Reset() {
+	*x = ListDocumentsResponse{}
+	mi := &file_v1_analytics_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDocumentsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDocumentsResponse) ProtoMessage() {}
+
+func (x *ListDocumentsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_analytics_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDocumentsResponse.ProtoReflect.Descriptor instead.
+func (*ListDocumentsResponse) Descriptor() ([]byte, []int) {
+	return file_v1_analytics_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ListDocumentsResponse) GetDocuments() []*NewsDocument {
+	if x != nil {
+		return x.Documents
+	}
+	return nil
+}
+
+func (x *ListDocumentsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+type ListNewsSourcesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListNewsSourcesRequest) Reset() {
+	*x = ListNewsSourcesRequest{}
+	mi := &file_v1_analytics_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListNewsSourcesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListNewsSourcesRequest) ProtoMessage() {}
+
+func (x *ListNewsSourcesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_analytics_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListNewsSourcesRequest.ProtoReflect.Descriptor instead.
+func (*ListNewsSourcesRequest) Descriptor() ([]byte, []int) {
+	return file_v1_analytics_proto_rawDescGZIP(), []int{9}
+}
+
+type ListNewsSourcesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Sources       []*NewsSource          `protobuf:"bytes,1,rep,name=sources,proto3" json:"sources,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListNewsSourcesResponse) Reset() {
+	*x = ListNewsSourcesResponse{}
+	mi := &file_v1_analytics_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListNewsSourcesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListNewsSourcesResponse) ProtoMessage() {}
+
+func (x *ListNewsSourcesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_analytics_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListNewsSourcesResponse.ProtoReflect.Descriptor instead.
+func (*ListNewsSourcesResponse) Descriptor() ([]byte, []int) {
+	return file_v1_analytics_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ListNewsSourcesResponse) GetSources() []*NewsSource {
+	if x != nil {
+		return x.Sources
+	}
+	return nil
+}
+
+type CreateNewsSourceRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Defaults to RSS.
+	Kind NewsSourceKind `protobuf:"varint,1,opt,name=kind,proto3,enum=eye.v1.NewsSourceKind" json:"kind,omitempty"`
+	// Required; http or https.
+	Url string `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
+	// Required.
+	Name string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	// Defaults to true.
+	Enabled *bool `protobuf:"varint,4,opt,name=enabled,proto3,oneof" json:"enabled,omitempty"`
+	// Defaults to every 30 minutes.
+	Cron *string `protobuf:"bytes,5,opt,name=cron,proto3,oneof" json:"cron,omitempty"`
+	// Defaults to 1.
+	Weight        *int32 `protobuf:"varint,6,opt,name=weight,proto3,oneof" json:"weight,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateNewsSourceRequest) Reset() {
+	*x = CreateNewsSourceRequest{}
+	mi := &file_v1_analytics_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateNewsSourceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateNewsSourceRequest) ProtoMessage() {}
+
+func (x *CreateNewsSourceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_analytics_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateNewsSourceRequest.ProtoReflect.Descriptor instead.
+func (*CreateNewsSourceRequest) Descriptor() ([]byte, []int) {
+	return file_v1_analytics_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *CreateNewsSourceRequest) GetKind() NewsSourceKind {
+	if x != nil {
+		return x.Kind
+	}
+	return NewsSourceKind_NEWS_SOURCE_KIND_UNSPECIFIED
+}
+
+func (x *CreateNewsSourceRequest) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *CreateNewsSourceRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateNewsSourceRequest) GetEnabled() bool {
+	if x != nil && x.Enabled != nil {
+		return *x.Enabled
+	}
+	return false
+}
+
+func (x *CreateNewsSourceRequest) GetCron() string {
+	if x != nil && x.Cron != nil {
+		return *x.Cron
+	}
+	return ""
+}
+
+func (x *CreateNewsSourceRequest) GetWeight() int32 {
+	if x != nil && x.Weight != nil {
+		return *x.Weight
+	}
+	return 0
+}
+
+type UpdateNewsSourceRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Url           *string                `protobuf:"bytes,2,opt,name=url,proto3,oneof" json:"url,omitempty"`
+	Name          *string                `protobuf:"bytes,3,opt,name=name,proto3,oneof" json:"name,omitempty"`
+	Enabled       *bool                  `protobuf:"varint,4,opt,name=enabled,proto3,oneof" json:"enabled,omitempty"`
+	Cron          *string                `protobuf:"bytes,5,opt,name=cron,proto3,oneof" json:"cron,omitempty"`
+	Weight        *int32                 `protobuf:"varint,6,opt,name=weight,proto3,oneof" json:"weight,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateNewsSourceRequest) Reset() {
+	*x = UpdateNewsSourceRequest{}
+	mi := &file_v1_analytics_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateNewsSourceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateNewsSourceRequest) ProtoMessage() {}
+
+func (x *UpdateNewsSourceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_analytics_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateNewsSourceRequest.ProtoReflect.Descriptor instead.
+func (*UpdateNewsSourceRequest) Descriptor() ([]byte, []int) {
+	return file_v1_analytics_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *UpdateNewsSourceRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *UpdateNewsSourceRequest) GetUrl() string {
+	if x != nil && x.Url != nil {
+		return *x.Url
+	}
+	return ""
+}
+
+func (x *UpdateNewsSourceRequest) GetName() string {
+	if x != nil && x.Name != nil {
+		return *x.Name
+	}
+	return ""
+}
+
+func (x *UpdateNewsSourceRequest) GetEnabled() bool {
+	if x != nil && x.Enabled != nil {
+		return *x.Enabled
+	}
+	return false
+}
+
+func (x *UpdateNewsSourceRequest) GetCron() string {
+	if x != nil && x.Cron != nil {
+		return *x.Cron
+	}
+	return ""
+}
+
+func (x *UpdateNewsSourceRequest) GetWeight() int32 {
+	if x != nil && x.Weight != nil {
+		return *x.Weight
+	}
+	return 0
+}
+
+type DeleteNewsSourceRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteNewsSourceRequest) Reset() {
+	*x = DeleteNewsSourceRequest{}
+	mi := &file_v1_analytics_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteNewsSourceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteNewsSourceRequest) ProtoMessage() {}
+
+func (x *DeleteNewsSourceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_analytics_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteNewsSourceRequest.ProtoReflect.Descriptor instead.
+func (*DeleteNewsSourceRequest) Descriptor() ([]byte, []int) {
+	return file_v1_analytics_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *DeleteNewsSourceRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type DeleteNewsSourceResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteNewsSourceResponse) Reset() {
+	*x = DeleteNewsSourceResponse{}
+	mi := &file_v1_analytics_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteNewsSourceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteNewsSourceResponse) ProtoMessage() {}
+
+func (x *DeleteNewsSourceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_analytics_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteNewsSourceResponse.ProtoReflect.Descriptor instead.
+func (*DeleteNewsSourceResponse) Descriptor() ([]byte, []int) {
+	return file_v1_analytics_proto_rawDescGZIP(), []int{14}
+}
+
 var File_v1_analytics_proto protoreflect.FileDescriptor
 
 const file_v1_analytics_proto_rawDesc = "" +
@@ -857,7 +1602,83 @@ const file_v1_analytics_proto_rawDesc = "" +
 	"\x05label\x18\x03 \x01(\tR\x05label\x12\x1d\n" +
 	"\n" +
 	"change_pct\x18\x04 \x01(\x01R\tchangePct\x12\x14\n" +
-	"\x05stale\x18\x05 \x01(\bR\x05stale*\x99\x01\n" +
+	"\x05stale\x18\x05 \x01(\bR\x05stale\"\xda\x04\n" +
+	"\n" +
+	"NewsSource\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12*\n" +
+	"\x04kind\x18\x02 \x01(\x0e2\x16.eye.v1.NewsSourceKindR\x04kind\x12\x10\n" +
+	"\x03url\x18\x03 \x01(\tR\x03url\x12\x12\n" +
+	"\x04name\x18\x04 \x01(\tR\x04name\x12\x18\n" +
+	"\aenabled\x18\x05 \x01(\bR\aenabled\x12\x12\n" +
+	"\x04cron\x18\x06 \x01(\tR\x04cron\x12\x16\n" +
+	"\x06weight\x18\a \x01(\x05R\x06weight\x12G\n" +
+	"\x0flast_fetched_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampH\x00R\rlastFetchedAt\x88\x01\x01\x12G\n" +
+	"\x0flast_success_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampH\x01R\rlastSuccessAt\x88\x01\x01\x12\x1d\n" +
+	"\n" +
+	"last_error\x18\n" +
+	" \x01(\tR\tlastError\x12C\n" +
+	"\rlast_error_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampH\x02R\vlastErrorAt\x88\x01\x01\x129\n" +
+	"\n" +
+	"created_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"\n" +
+	"updated_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAtB\x12\n" +
+	"\x10_last_fetched_atB\x12\n" +
+	"\x10_last_success_atB\x10\n" +
+	"\x0e_last_error_at\"\xdd\x01\n" +
+	"\fNewsDocument\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
+	"\tsource_id\x18\x02 \x01(\tR\bsourceId\x12\x1f\n" +
+	"\vsource_name\x18\x03 \x01(\tR\n" +
+	"sourceName\x12\x10\n" +
+	"\x03url\x18\x04 \x01(\tR\x03url\x12\x14\n" +
+	"\x05title\x18\x05 \x01(\tR\x05title\x12\x18\n" +
+	"\asnippet\x18\x06 \x01(\tR\asnippet\x12=\n" +
+	"\fpublished_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\vpublishedAt\"\xea\x01\n" +
+	"\x14ListDocumentsRequest\x12 \n" +
+	"\tsource_id\x18\x01 \x01(\tH\x00R\bsourceId\x88\x01\x01\x125\n" +
+	"\x05since\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampH\x01R\x05since\x88\x01\x01\x12 \n" +
+	"\tpage_size\x18\x03 \x01(\x05H\x02R\bpageSize\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"page_token\x18\x04 \x01(\tH\x03R\tpageToken\x88\x01\x01B\f\n" +
+	"\n" +
+	"_source_idB\b\n" +
+	"\x06_sinceB\f\n" +
+	"\n" +
+	"_page_sizeB\r\n" +
+	"\v_page_token\"s\n" +
+	"\x15ListDocumentsResponse\x122\n" +
+	"\tdocuments\x18\x01 \x03(\v2\x14.eye.v1.NewsDocumentR\tdocuments\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x18\n" +
+	"\x16ListNewsSourcesRequest\"G\n" +
+	"\x17ListNewsSourcesResponse\x12,\n" +
+	"\asources\x18\x01 \x03(\v2\x12.eye.v1.NewsSourceR\asources\"\xe0\x01\n" +
+	"\x17CreateNewsSourceRequest\x12*\n" +
+	"\x04kind\x18\x01 \x01(\x0e2\x16.eye.v1.NewsSourceKindR\x04kind\x12\x10\n" +
+	"\x03url\x18\x02 \x01(\tR\x03url\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1d\n" +
+	"\aenabled\x18\x04 \x01(\bH\x00R\aenabled\x88\x01\x01\x12\x17\n" +
+	"\x04cron\x18\x05 \x01(\tH\x01R\x04cron\x88\x01\x01\x12\x1b\n" +
+	"\x06weight\x18\x06 \x01(\x05H\x02R\x06weight\x88\x01\x01B\n" +
+	"\n" +
+	"\b_enabledB\a\n" +
+	"\x05_cronB\t\n" +
+	"\a_weight\"\xdf\x01\n" +
+	"\x17UpdateNewsSourceRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
+	"\x03url\x18\x02 \x01(\tH\x00R\x03url\x88\x01\x01\x12\x17\n" +
+	"\x04name\x18\x03 \x01(\tH\x01R\x04name\x88\x01\x01\x12\x1d\n" +
+	"\aenabled\x18\x04 \x01(\bH\x02R\aenabled\x88\x01\x01\x12\x17\n" +
+	"\x04cron\x18\x05 \x01(\tH\x03R\x04cron\x88\x01\x01\x12\x1b\n" +
+	"\x06weight\x18\x06 \x01(\x05H\x04R\x06weight\x88\x01\x01B\x06\n" +
+	"\x04_urlB\a\n" +
+	"\x05_nameB\n" +
+	"\n" +
+	"\b_enabledB\a\n" +
+	"\x05_cronB\t\n" +
+	"\a_weight\")\n" +
+	"\x17DeleteNewsSourceRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x1a\n" +
+	"\x18DeleteNewsSourceResponse*\x99\x01\n" +
 	"\fHeatmapScope\x12\x1d\n" +
 	"\x19HEATMAP_SCOPE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17HEATMAP_SCOPE_PORTFOLIO\x10\x01\x12\x19\n" +
@@ -885,10 +1706,18 @@ const file_v1_analytics_proto_rawDesc = "" +
 	" HEATMAP_COLOR_METRIC_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fHEATMAP_COLOR_METRIC_CHANGE_PCT\x10\x01\x12 \n" +
 	"\x1cHEATMAP_COLOR_METRIC_PNL_PCT\x10\x02\x12%\n" +
-	"!HEATMAP_COLOR_METRIC_TARGET_DRIFT\x10\x032z\n" +
+	"!HEATMAP_COLOR_METRIC_TARGET_DRIFT\x10\x03*L\n" +
+	"\x0eNewsSourceKind\x12 \n" +
+	"\x1cNEWS_SOURCE_KIND_UNSPECIFIED\x10\x00\x12\x18\n" +
+	"\x14NEWS_SOURCE_KIND_RSS\x10\x012\xdb\x05\n" +
 	"\x10AnalyticsService\x12f\n" +
 	"\n" +
-	"GetHeatmap\x12\x19.eye.v1.GetHeatmapRequest\x1a\x1a.eye.v1.GetHeatmapResponse\"!\x82\xd3\xe4\x93\x02\x1b\x12\x19/api/v1/analytics/heatmapB\x81\x01\n" +
+	"GetHeatmap\x12\x19.eye.v1.GetHeatmapRequest\x1a\x1a.eye.v1.GetHeatmapResponse\"!\x82\xd3\xe4\x93\x02\x1b\x12\x19/api/v1/analytics/heatmap\x12q\n" +
+	"\rListDocuments\x12\x1c.eye.v1.ListDocumentsRequest\x1a\x1d.eye.v1.ListDocumentsResponse\"#\x82\xd3\xe4\x93\x02\x1d\x12\x1b/api/v1/analytics/documents\x12z\n" +
+	"\x0fListNewsSources\x12\x1e.eye.v1.ListNewsSourcesRequest\x1a\x1f.eye.v1.ListNewsSourcesResponse\"&\x82\xd3\xe4\x93\x02 \x12\x1e/api/v1/analytics/news-sources\x12r\n" +
+	"\x10CreateNewsSource\x12\x1f.eye.v1.CreateNewsSourceRequest\x1a\x12.eye.v1.NewsSource\")\x82\xd3\xe4\x93\x02#:\x01*\"\x1e/api/v1/analytics/news-sources\x12w\n" +
+	"\x10UpdateNewsSource\x12\x1f.eye.v1.UpdateNewsSourceRequest\x1a\x12.eye.v1.NewsSource\".\x82\xd3\xe4\x93\x02(:\x01*2#/api/v1/analytics/news-sources/{id}\x12\x82\x01\n" +
+	"\x10DeleteNewsSource\x12\x1f.eye.v1.DeleteNewsSourceRequest\x1a .eye.v1.DeleteNewsSourceResponse\"+\x82\xd3\xe4\x93\x02%*#/api/v1/analytics/news-sources/{id}B\x81\x01\n" +
 	"\n" +
 	"com.eye.v1B\x0eAnalyticsProtoP\x01Z*github.com/foxcool/greedy-eye/api/v1;apiv1\xa2\x02\x03EXX\xaa\x02\x06Eye.V1\xca\x02\x06Eye\\V1\xe2\x02\x12Eye\\V1\\GPBMetadata\xea\x02\aEye::V1b\x06proto3"
 
@@ -904,21 +1733,32 @@ func file_v1_analytics_proto_rawDescGZIP() []byte {
 	return file_v1_analytics_proto_rawDescData
 }
 
-var file_v1_analytics_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_v1_analytics_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_v1_analytics_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
+var file_v1_analytics_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_v1_analytics_proto_goTypes = []any{
-	(HeatmapScope)(0),             // 0: eye.v1.HeatmapScope
-	(HeatmapGroupBy)(0),           // 1: eye.v1.HeatmapGroupBy
-	(HeatmapWindow)(0),            // 2: eye.v1.HeatmapWindow
-	(HeatmapSizeMetric)(0),        // 3: eye.v1.HeatmapSizeMetric
-	(HeatmapColorMetric)(0),       // 4: eye.v1.HeatmapColorMetric
-	(*HeatmapNode)(nil),           // 5: eye.v1.HeatmapNode
-	(*GetHeatmapRequest)(nil),     // 6: eye.v1.GetHeatmapRequest
-	(*GetHeatmapResponse)(nil),    // 7: eye.v1.GetHeatmapResponse
-	(*HeatmapBreadth)(nil),        // 8: eye.v1.HeatmapBreadth
-	(*HeatmapBreadthLeaf)(nil),    // 9: eye.v1.HeatmapBreadthLeaf
-	(*timestamppb.Timestamp)(nil), // 10: google.protobuf.Timestamp
-	(*ValuationCoverage)(nil),     // 11: eye.v1.ValuationCoverage
+	(HeatmapScope)(0),                // 0: eye.v1.HeatmapScope
+	(HeatmapGroupBy)(0),              // 1: eye.v1.HeatmapGroupBy
+	(HeatmapWindow)(0),               // 2: eye.v1.HeatmapWindow
+	(HeatmapSizeMetric)(0),           // 3: eye.v1.HeatmapSizeMetric
+	(HeatmapColorMetric)(0),          // 4: eye.v1.HeatmapColorMetric
+	(NewsSourceKind)(0),              // 5: eye.v1.NewsSourceKind
+	(*HeatmapNode)(nil),              // 6: eye.v1.HeatmapNode
+	(*GetHeatmapRequest)(nil),        // 7: eye.v1.GetHeatmapRequest
+	(*GetHeatmapResponse)(nil),       // 8: eye.v1.GetHeatmapResponse
+	(*HeatmapBreadth)(nil),           // 9: eye.v1.HeatmapBreadth
+	(*HeatmapBreadthLeaf)(nil),       // 10: eye.v1.HeatmapBreadthLeaf
+	(*NewsSource)(nil),               // 11: eye.v1.NewsSource
+	(*NewsDocument)(nil),             // 12: eye.v1.NewsDocument
+	(*ListDocumentsRequest)(nil),     // 13: eye.v1.ListDocumentsRequest
+	(*ListDocumentsResponse)(nil),    // 14: eye.v1.ListDocumentsResponse
+	(*ListNewsSourcesRequest)(nil),   // 15: eye.v1.ListNewsSourcesRequest
+	(*ListNewsSourcesResponse)(nil),  // 16: eye.v1.ListNewsSourcesResponse
+	(*CreateNewsSourceRequest)(nil),  // 17: eye.v1.CreateNewsSourceRequest
+	(*UpdateNewsSourceRequest)(nil),  // 18: eye.v1.UpdateNewsSourceRequest
+	(*DeleteNewsSourceRequest)(nil),  // 19: eye.v1.DeleteNewsSourceRequest
+	(*DeleteNewsSourceResponse)(nil), // 20: eye.v1.DeleteNewsSourceResponse
+	(*timestamppb.Timestamp)(nil),    // 21: google.protobuf.Timestamp
+	(*ValuationCoverage)(nil),        // 22: eye.v1.ValuationCoverage
 }
 var file_v1_analytics_proto_depIdxs = []int32{
 	0,  // 0: eye.v1.GetHeatmapRequest.scope:type_name -> eye.v1.HeatmapScope
@@ -926,20 +1766,41 @@ var file_v1_analytics_proto_depIdxs = []int32{
 	2,  // 2: eye.v1.GetHeatmapRequest.window:type_name -> eye.v1.HeatmapWindow
 	3,  // 3: eye.v1.GetHeatmapRequest.size_metric:type_name -> eye.v1.HeatmapSizeMetric
 	4,  // 4: eye.v1.GetHeatmapRequest.color_metric:type_name -> eye.v1.HeatmapColorMetric
-	5,  // 5: eye.v1.GetHeatmapResponse.nodes:type_name -> eye.v1.HeatmapNode
-	10, // 6: eye.v1.GetHeatmapResponse.calculated_at:type_name -> google.protobuf.Timestamp
-	11, // 7: eye.v1.GetHeatmapResponse.coverage:type_name -> eye.v1.ValuationCoverage
-	8,  // 8: eye.v1.GetHeatmapResponse.breadth:type_name -> eye.v1.HeatmapBreadth
-	10, // 9: eye.v1.GetHeatmapResponse.source_read_at:type_name -> google.protobuf.Timestamp
-	9,  // 10: eye.v1.HeatmapBreadth.best:type_name -> eye.v1.HeatmapBreadthLeaf
-	9,  // 11: eye.v1.HeatmapBreadth.worst:type_name -> eye.v1.HeatmapBreadthLeaf
-	6,  // 12: eye.v1.AnalyticsService.GetHeatmap:input_type -> eye.v1.GetHeatmapRequest
-	7,  // 13: eye.v1.AnalyticsService.GetHeatmap:output_type -> eye.v1.GetHeatmapResponse
-	13, // [13:14] is the sub-list for method output_type
-	12, // [12:13] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	6,  // 5: eye.v1.GetHeatmapResponse.nodes:type_name -> eye.v1.HeatmapNode
+	21, // 6: eye.v1.GetHeatmapResponse.calculated_at:type_name -> google.protobuf.Timestamp
+	22, // 7: eye.v1.GetHeatmapResponse.coverage:type_name -> eye.v1.ValuationCoverage
+	9,  // 8: eye.v1.GetHeatmapResponse.breadth:type_name -> eye.v1.HeatmapBreadth
+	21, // 9: eye.v1.GetHeatmapResponse.source_read_at:type_name -> google.protobuf.Timestamp
+	10, // 10: eye.v1.HeatmapBreadth.best:type_name -> eye.v1.HeatmapBreadthLeaf
+	10, // 11: eye.v1.HeatmapBreadth.worst:type_name -> eye.v1.HeatmapBreadthLeaf
+	5,  // 12: eye.v1.NewsSource.kind:type_name -> eye.v1.NewsSourceKind
+	21, // 13: eye.v1.NewsSource.last_fetched_at:type_name -> google.protobuf.Timestamp
+	21, // 14: eye.v1.NewsSource.last_success_at:type_name -> google.protobuf.Timestamp
+	21, // 15: eye.v1.NewsSource.last_error_at:type_name -> google.protobuf.Timestamp
+	21, // 16: eye.v1.NewsSource.created_at:type_name -> google.protobuf.Timestamp
+	21, // 17: eye.v1.NewsSource.updated_at:type_name -> google.protobuf.Timestamp
+	21, // 18: eye.v1.NewsDocument.published_at:type_name -> google.protobuf.Timestamp
+	21, // 19: eye.v1.ListDocumentsRequest.since:type_name -> google.protobuf.Timestamp
+	12, // 20: eye.v1.ListDocumentsResponse.documents:type_name -> eye.v1.NewsDocument
+	11, // 21: eye.v1.ListNewsSourcesResponse.sources:type_name -> eye.v1.NewsSource
+	5,  // 22: eye.v1.CreateNewsSourceRequest.kind:type_name -> eye.v1.NewsSourceKind
+	7,  // 23: eye.v1.AnalyticsService.GetHeatmap:input_type -> eye.v1.GetHeatmapRequest
+	13, // 24: eye.v1.AnalyticsService.ListDocuments:input_type -> eye.v1.ListDocumentsRequest
+	15, // 25: eye.v1.AnalyticsService.ListNewsSources:input_type -> eye.v1.ListNewsSourcesRequest
+	17, // 26: eye.v1.AnalyticsService.CreateNewsSource:input_type -> eye.v1.CreateNewsSourceRequest
+	18, // 27: eye.v1.AnalyticsService.UpdateNewsSource:input_type -> eye.v1.UpdateNewsSourceRequest
+	19, // 28: eye.v1.AnalyticsService.DeleteNewsSource:input_type -> eye.v1.DeleteNewsSourceRequest
+	8,  // 29: eye.v1.AnalyticsService.GetHeatmap:output_type -> eye.v1.GetHeatmapResponse
+	14, // 30: eye.v1.AnalyticsService.ListDocuments:output_type -> eye.v1.ListDocumentsResponse
+	16, // 31: eye.v1.AnalyticsService.ListNewsSources:output_type -> eye.v1.ListNewsSourcesResponse
+	11, // 32: eye.v1.AnalyticsService.CreateNewsSource:output_type -> eye.v1.NewsSource
+	11, // 33: eye.v1.AnalyticsService.UpdateNewsSource:output_type -> eye.v1.NewsSource
+	20, // 34: eye.v1.AnalyticsService.DeleteNewsSource:output_type -> eye.v1.DeleteNewsSourceResponse
+	29, // [29:35] is the sub-list for method output_type
+	23, // [23:29] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_v1_analytics_proto_init() }
@@ -950,13 +1811,17 @@ func file_v1_analytics_proto_init() {
 	file_v1_marketdata_proto_init()
 	file_v1_analytics_proto_msgTypes[0].OneofWrappers = []any{}
 	file_v1_analytics_proto_msgTypes[3].OneofWrappers = []any{}
+	file_v1_analytics_proto_msgTypes[5].OneofWrappers = []any{}
+	file_v1_analytics_proto_msgTypes[7].OneofWrappers = []any{}
+	file_v1_analytics_proto_msgTypes[11].OneofWrappers = []any{}
+	file_v1_analytics_proto_msgTypes[12].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_analytics_proto_rawDesc), len(file_v1_analytics_proto_rawDesc)),
-			NumEnums:      5,
-			NumMessages:   5,
+			NumEnums:      6,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

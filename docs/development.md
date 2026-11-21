@@ -299,6 +299,8 @@ EYE_SCHEDULER_PRICEFETCHCRON="0 * * * *"  # empty = price job off
 # The interval is also the sweep's budget window: a provider divides what is
 # left of its monthly plan by it. Shortening it makes each sweep smaller, not
 # the month more expensive.
+# News job; each source has its own cron (CreateNewsSource). Empty = off.
+EYE_SCHEDULER_NEWSCRON="*/5 * * * *"
 
 # Provider request budgets are NOT set here. A plan belongs to the key it was
 # issued for, so both the rate and the volume live on the provider account,

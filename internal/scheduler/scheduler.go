@@ -17,6 +17,7 @@ import (
 	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
 	"github.com/foxcool/greedy-eye/internal/entity"
+	"github.com/foxcool/greedy-eye/internal/service/analytics"
 	"github.com/foxcool/greedy-eye/internal/service/automation"
 	"github.com/foxcool/greedy-eye/internal/service/marketdata"
 	"github.com/foxcool/greedy-eye/internal/service/portfolio"
@@ -82,6 +83,12 @@ type BalanceSweeper interface {
 	LogSweepReport(report portfolio.SweepReport, elapsed time.Duration)
 }
 
+// NewsIngester reads the news sources that are due and stores what is new.
+// Satisfied by *analytics.Handler.
+type NewsIngester interface {
+	IngestNews(ctx context.Context) (analytics.NewsReport, error)
+}
+
 // Config holds scheduler settings.
 type Config struct {
 	// PriceFetchCron is the cron spec for the external price fetch job.
@@ -98,6 +105,8 @@ type Config struct {
 	// venue (a proposal awaiting signatures, a transaction awaiting its
 	// block). Empty disables it.
 	ConfirmCron string
+	// NewsCron is the cron spec for the news job. Empty disables it.
+	NewsCron string
 }
 
 // ruleEntry tracks a scheduled rule so reloads can diff instead of rebuild.
@@ -117,6 +126,7 @@ type Scheduler struct {
 	usage     UsageReporter
 	balances  BalanceSweeper
 	confirmer WaitingConfirmer
+	news      NewsIngester
 	sweepOpts portfolio.SweepOpts
 	log       *slog.Logger
 
@@ -148,6 +158,11 @@ func New(cfg Config, rules RuleStore, exec RuleExecutor, prices PriceFetcher, re
 	if cfg.ConfirmCron != "" {
 		if _, err := cron.ParseStandard(cfg.ConfirmCron); err != nil {
 			return nil, fmt.Errorf("invalid confirmCron %q: %w", cfg.ConfirmCron, err)
+		}
+	}
+	if cfg.NewsCron != "" {
+		if _, err := cron.ParseStandard(cfg.NewsCron); err != nil {
+			return nil, fmt.Errorf("invalid newsCron %q: %w", cfg.NewsCron, err)
 		}
 	}
 	cl := &cronLogger{log: log}
@@ -187,6 +202,13 @@ func (s *Scheduler) WithConfirmer(c WaitingConfirmer) *Scheduler {
 	return s
 }
 
+// WithNewsIngester enables the news job. Without it NewsCron is inert: a
+// deployment that does not serve analytics has no news to ingest.
+func (s *Scheduler) WithNewsIngester(n NewsIngester) *Scheduler {
+	s.news = n
+	return s
+}
+
 // Start registers the static jobs, performs the initial rule load and starts
 // the cron loop. Missed fires during downtime are skipped, never caught up:
 // a stale trade plan is worse than no trade.
@@ -212,6 +234,11 @@ func (s *Scheduler) Start() error {
 	if s.cfg.BalanceSyncCron != "" && s.balances != nil {
 		if _, err := s.cron.AddFunc(s.cfg.BalanceSyncCron, s.syncBalances); err != nil {
 			return fmt.Errorf("register balance sync job: %w", err)
+		}
+	}
+	if s.cfg.NewsCron != "" && s.news != nil {
+		if _, err := s.cron.AddFunc(s.cfg.NewsCron, s.ingestNews); err != nil {
+			return fmt.Errorf("register news job: %w", err)
 		}
 	}
 	if _, err := s.cron.AddFunc(ruleReloadSpec, func() { s.reloadRules(context.Background()) }); err != nil {

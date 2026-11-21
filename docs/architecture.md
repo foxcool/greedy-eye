@@ -481,6 +481,14 @@ graph TB
   MarketData client (prices, asset labels); price resolution mirrors `portfolio.Handler.unitPrice`
   (duplicated consciously; extract a shared pricing package on the third consumer)
 - Ownership enforced on the scope portfolio (`middleware.EnsureOwner`)
+- **News** (`internal/service/analytics/news.go`, store `postgres.NewsStore`, reader
+  `internal/adapter/rss`): the one thing analytics stores. `sources` are feeds, each with its own
+  `cron`; `documents` are the headlines read from them, deduplicated by the hash of the canonical
+  URL. The row rules (what a document may hold, how a failure is kept) are in `schema.hcl`.
+  ListDocuments pages newest `published_at` first; an item with no parsable date is skipped
+  rather than given the fetch time. Source mutations are admin-only, since a source is read for
+  every user; ListNewsSources is not, because whoever reads the headlines needs to see a feed is
+  down
 
 **SettingsService** (`internal/service/settings/`):
 - RPCs implemented: GetSetting, SetSetting — a key/value store of the caller's own preferences,
@@ -1316,8 +1324,10 @@ somebody chose, since that would report one currency's number under another curr
   scam-filter verdicts to the catalogue (`scheduler.rescorecron`, daily —
   `internal/scheduler/rescore.go`), the balance sweep (`scheduler.balancesynccron`, offset
   half an hour from the price sweep so the two do not draw on one provider allowance in the same
-  minute), and the confirmation pass over rule executions waiting on a venue
-  (`scheduler.confirmcron`, every five minutes; `internal/scheduler/confirm.go`)
+  minute), the confirmation pass over rule executions waiting on a venue
+  (`scheduler.confirmcron`, every five minutes; `internal/scheduler/confirm.go`), and news
+  ingestion (`scheduler.newscron`, every five minutes; `internal/scheduler/news.go`), wired only
+  where analytics is served
 - **The scheduler keys are lowercase on purpose.** Env vars produce lowercase koanf keys, so a
   camelCase default would shadow the override rather than be replaced by it (`cmd/eye/config.go`)
 - **The balance sweep re-reads amounts, not prices.** Without it nothing refreshed quantities on
@@ -1436,8 +1446,10 @@ somebody chose, since that would report one currency's number under another curr
   Auth, Messenger). This caused excessive indirection and coupling.
 - **Decision**: Consolidate into 3 domain services: MarketDataService (assets + prices),
   PortfolioService (portfolios, accounts, holdings, ledger), AutomationService (rules + executions).
-  A fourth, AnalyticsService, was added later (2026-07) for derived read-only views; it owns no
-  store, which is what keeps it a separate service rather than a fourth data owner. A fifth,
+  A fourth, AnalyticsService, was added later (2026-07) for derived read-only views; it owned no
+  store, which is what kept it a separate service rather than a fourth data owner. News
+  (2026-11) gave it one — `sources` and `documents` — and it stays in analytics until a second
+  RPC family on documents appears, at which point it moves to its own service. A fifth,
   SettingsService (2026-08), stores per-user preferences; it is not a domain service — it exists
   because a dashboard layout must follow the user across devices, and putting that in one of the
   three would give a domain a table that has nothing to do with it.
