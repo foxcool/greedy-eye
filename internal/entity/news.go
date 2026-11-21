@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"slices"
 	"strings"
@@ -17,8 +18,8 @@ type NewsSourceKind string
 
 const NewsSourceRSS NewsSourceKind = "rss"
 
-// Length limits a stored document is cut to. The database checks the same
-// numbers: a document is a headline and a pointer, never the article.
+// Length limits a stored document is cut to. Mirrors the CHECK constraints in
+// schema.hcl.
 const (
 	MaxDocumentTitleRunes   = 300
 	MaxDocumentSnippetRunes = 300
@@ -26,7 +27,7 @@ const (
 )
 
 // NewsSource is one feed the news job reads, with the outcome of its last
-// fetch: a feed that fails must read as failing, not as one with no news.
+// fetch.
 type NewsSource struct {
 	ID            string
 	Kind          NewsSourceKind
@@ -90,9 +91,13 @@ func CanonicalURL(raw string) (string, error) {
 	if (u.Scheme == "http" && port == "80") || (u.Scheme == "https" && port == "443") {
 		port = ""
 	}
-	u.Host = host
-	if port != "" {
-		u.Host = host + ":" + port
+	switch {
+	case port != "":
+		u.Host = net.JoinHostPort(host, port)
+	case strings.Contains(host, ":"): // IPv6 literal
+		u.Host = "[" + host + "]"
+	default:
+		u.Host = host
 	}
 	u.User = nil
 	u.Fragment, u.RawFragment = "", ""

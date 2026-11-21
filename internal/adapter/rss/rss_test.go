@@ -99,8 +99,6 @@ func TestFetch(t *testing.T) {
 	assert.Contains(t, err.Error(), "larger than")
 }
 
-// TestFetchErrorDoesNotQuoteTheURL: the error is stored on the source and
-// shown to every reader, so a token in a feed URL must not ride along in it.
 func TestFetchErrorDoesNotQuoteTheURL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	addr := srv.URL

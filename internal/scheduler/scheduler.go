@@ -105,8 +105,7 @@ type Config struct {
 	// venue (a proposal awaiting signatures, a transaction awaiting its
 	// block). Empty disables it.
 	ConfirmCron string
-	// NewsCron is how often the news job checks which sources are due; each
-	// source carries its own cron. Empty disables news ingestion.
+	// NewsCron is the cron spec for the news job. Empty disables it.
 	NewsCron string
 }
 

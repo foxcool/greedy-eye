@@ -12,9 +12,7 @@ import (
 // (analytics.feedTimeout); this one stops a run from overlapping the next.
 const newsTimeout = 10 * time.Minute
 
-// ingestNews reads the news sources that are due. Every fire checks every
-// enabled source against its own cron, so this job's spec is how often a
-// source can be noticed as due, not how often it is read.
+// ingestNews runs on every fire; IngestNews picks the sources that are due.
 func (s *Scheduler) ingestNews() {
 	ctx, cancel := context.WithTimeout(spend.WithCaller(
 		spend.WithClass(context.Background(), spend.ClassBackground), "job:news"), newsTimeout)
@@ -26,8 +24,7 @@ func (s *Scheduler) ingestNews() {
 		s.log.Error("scheduler: news run failed", slog.Any("error", err))
 		return
 	}
-	// A failing feed is logged on every run it fails, besides being recorded
-	// on the source: an empty widget must have a reason somewhere.
+	// Logged on every failing run, besides being recorded on the source.
 	for _, f := range report.Failures {
 		s.log.Warn("scheduler: news source failed",
 			slog.String("source_id", f.SourceID),

@@ -74,8 +74,7 @@ type Config struct {
 		// on a venue: a proposal for signatures, a transaction for its block.
 		// Empty disables it. Lowercase key, as above.
 		ConfirmCron string `koanf:"confirmcron"`
-		// NewsCron is how often the news job checks which sources are due;
-		// each source carries its own cron. Empty disables news ingestion.
+		// NewsCron is the cron spec for the news job. Empty disables it.
 		// Lowercase key, as above.
 		NewsCron string `koanf:"newscron"`
 		// BalanceMaxAge is how old an account's newest holding may be before
@@ -139,8 +138,8 @@ func getConfig() (*Config, error) {
 		// Every five minutes: a pass reads only executions that are waiting,
 		// and a signed trade should not look unsigned for long.
 		"scheduler.confirmcron": "*/5 * * * *",
-		// Every five minutes: a fire only reads sources whose own cron came
-		// due, so this is the granularity of a source's schedule, not its rate.
+		// Every five minutes: a fire reads only sources whose own cron came due,
+		// so this is the granularity of a source's schedule, not its rate.
 		"scheduler.newscron": "*/5 * * * *",
 		"services": []any{
 			map[string]any{"type": ServiceConfigTypeMarketData},

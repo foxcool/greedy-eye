@@ -249,11 +249,11 @@ func (h *Handler) DeleteNewsSource(ctx context.Context, req *connect.Request[api
 // NewsReport is what one ingest run did. Every due source is in exactly one
 // of Fetched and Failed.
 type NewsReport struct {
-	Enabled  int // enabled sources
+	Enabled  int
 	Due      int // enabled sources whose cron fired since their last attempt
 	Fetched  int
 	Failed   int
-	Inserted int // new documents
+	Inserted int
 	Skipped  int // items with no title, no usable link or no date
 	Failures []NewsFailure
 }
@@ -284,35 +284,50 @@ func (h *Handler) IngestNews(ctx context.Context) (NewsReport, error) {
 			continue
 		}
 		report.Enabled++
-		due, fetchErr := sourceDue(src, now)
-		if !due {
-			continue
-		}
-		report.Due++
-		if fetchErr == nil {
-			var inserted, skipped int
-			inserted, skipped, fetchErr = h.ingestSource(ctx, src, now)
-			report.Inserted += inserted
-			report.Skipped += skipped
-		}
-		errText := ""
-		if fetchErr != nil {
-			report.Failed++
-			errText = entity.TruncateRunes(fetchErr.Error(), maxSourceErrorRunes)
-			report.Failures = append(report.Failures, NewsFailure{SourceID: src.ID, Name: src.Name, Error: errText})
-		} else {
-			report.Fetched++
-		}
-		if err := h.news.RecordSourceFetch(ctx, src.ID, now, errText); err != nil {
-			h.log.Error("news: source outcome not recorded",
-				slog.String("source_id", src.ID), slog.Any("error", err))
+		if isDue(src, now) {
+			report.Due++
+			h.runSource(ctx, src, now, &report)
 		}
 	}
 	return report, nil
 }
 
+// isDue reports whether the source's cron fired since its last attempt. A
+// source never attempted is due, and so is one whose cron does not parse:
+// ingestSource then fails it, so the bad cron is recorded on the source.
+func isDue(src *entity.NewsSource, now time.Time) bool {
+	sched, err := cron.ParseStandard(src.Cron)
+	if err != nil || src.LastFetchedAt == nil {
+		return true
+	}
+	return !sched.Next(*src.LastFetchedAt).After(now)
+}
+
+// runSource ingests one due source and records the outcome on the source and
+// in the report.
+func (h *Handler) runSource(ctx context.Context, src *entity.NewsSource, now time.Time, report *NewsReport) {
+	inserted, skipped, err := h.ingestSource(ctx, src, now)
+	report.Inserted += inserted
+	report.Skipped += skipped
+	var failure string // empty records a success
+	if err != nil {
+		failure = entity.TruncateRunes(err.Error(), maxSourceErrorRunes)
+		report.Failed++
+		report.Failures = append(report.Failures, NewsFailure{SourceID: src.ID, Name: src.Name, Error: failure})
+	} else {
+		report.Fetched++
+	}
+	if err := h.news.RecordSourceFetch(ctx, src.ID, now, failure); err != nil {
+		h.log.Error("news: source outcome not recorded",
+			slog.String("source_id", src.ID), slog.Any("error", err))
+	}
+}
+
 // ingestSource fetches one feed and stores what is new in it.
 func (h *Handler) ingestSource(ctx context.Context, src *entity.NewsSource, now time.Time) (inserted, skipped int, err error) {
+	if _, err := cron.ParseStandard(src.Cron); err != nil {
+		return 0, 0, fmt.Errorf("invalid cron %q: %w", src.Cron, err)
+	}
 	fetchCtx, cancel := context.WithTimeout(ctx, feedTimeout)
 	defer cancel()
 	items, err := h.feeds.Fetch(fetchCtx, src.URL)
@@ -364,21 +379,6 @@ func documentFromItem(sourceID string, it entity.FeedItem, now time.Time) (*enti
 		FetchedAt:   now,
 		URLHash:     hash,
 	}, true
-}
-
-// sourceDue reports whether the source's cron fired since its last attempt.
-// A source never attempted is due. A cron that does not parse makes the
-// source due with an error, so it is recorded as failing instead of never
-// running without a word.
-func sourceDue(src *entity.NewsSource, now time.Time) (bool, error) {
-	sched, err := cron.ParseStandard(src.Cron)
-	if err != nil {
-		return true, fmt.Errorf("invalid cron %q: %w", src.Cron, err)
-	}
-	if src.LastFetchedAt == nil {
-		return true, nil
-	}
-	return !sched.Next(*src.LastFetchedAt).After(now), nil
 }
 
 func requireUser(ctx context.Context) error {

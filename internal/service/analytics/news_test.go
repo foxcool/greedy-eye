@@ -143,21 +143,20 @@ func (m *memNews) RecordSourceFetch(_ context.Context, id string, at time.Time, 
 // recordedFeed is the RSS fixture the reader's own tests parse.
 const recordedFeed = "../../adapter/rss/testdata/rss2.xml"
 
-// fixtureFeeds answers each URL from a recorded file, or with an error.
-type fixtureFeeds map[string]any
+// fixtureFeeds answers each URL from a recorded file; a URL without one
+// answers with a feed error.
+type fixtureFeeds map[string]string
 
 func (f fixtureFeeds) Fetch(_ context.Context, url string) ([]entity.FeedItem, error) {
-	switch v := f[url].(type) {
-	case string:
-		data, err := os.ReadFile(v)
-		if err != nil {
-			return nil, err
-		}
-		return rss.Parse(data)
-	case error:
-		return nil, v
+	path, ok := f[url]
+	if !ok {
+		return nil, errors.New("feed answered 503 Service Unavailable")
 	}
-	return nil, errors.New("no fixture for " + url)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return rss.Parse(data)
 }
 
 func newsHandler(m *memNews, feeds FeedReader, now time.Time) *Handler {
@@ -167,7 +166,7 @@ func newsHandler(m *memNews, feeds FeedReader, now time.Time) *Handler {
 }
 
 func rssSource(name, url string) *entity.NewsSource {
-	return &entity.NewsSource{ID: uuid.NewString(), Kind: entity.NewsSourceRSS, URL: url, Name: name, Enabled: true, Cron: "*/30 * * * *", Weight: 1}
+	return &entity.NewsSource{ID: uuid.NewString(), Kind: entity.NewsSourceRSS, URL: url, Name: name, Enabled: true, Cron: defaultNewsCron, Weight: 1}
 }
 
 func asUser(roles ...string) context.Context {
@@ -206,10 +205,7 @@ func TestIngestNewsFailingSourceIsRecordedAndOthersRun(t *testing.T) {
 	broken := rssSource("Broken", "https://broken.example.com/rss")
 	good := rssSource("Good", "https://news.example.com/rss/")
 	m := newMemNews(broken, good)
-	feeds := fixtureFeeds{
-		broken.URL: errors.New("feed answered 503 Service Unavailable"),
-		good.URL:   recordedFeed,
-	}
+	feeds := fixtureFeeds{good.URL: recordedFeed}
 	now := time.Date(2026, 11, 19, 15, 0, 0, 0, time.UTC)
 
 	report, err := newsHandler(m, feeds, now).IngestNews(context.Background())
@@ -247,6 +243,22 @@ func TestIngestNewsHonoursEachSourceSchedule(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, report.Due)
 	assert.Equal(t, 1, report.Fetched)
+}
+
+func TestIngestNewsBadCronIsRecordedOnTheSource(t *testing.T) {
+	src := rssSource("Bad Cron", "https://news.example.com/rss/")
+	src.Cron = "every hour"
+	m := newMemNews(src)
+	now := time.Date(2026, 11, 19, 15, 0, 0, 0, time.UTC)
+
+	report, err := newsHandler(m, fixtureFeeds{src.URL: recordedFeed}, now).IngestNews(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, report.Due)
+	assert.Equal(t, 1, report.Failed)
+	assert.Equal(t, 0, report.Inserted, "a source with a bad cron is not read")
+	assert.Contains(t, m.sources[src.ID].LastError, "invalid cron")
+	require.NotNil(t, m.sources[src.ID].LastErrorAt)
+	assert.Nil(t, m.sources[src.ID].LastSuccessAt)
 }
 
 func TestListDocumentsNewestPublishedFirst(t *testing.T) {
@@ -307,9 +319,7 @@ func TestCreateNewsSourceValidatesAndDefaults(t *testing.T) {
 		"bad cron":     {Url: "https://x.example.com/rss", Name: "X", Cron: ref("every hour")},
 		"neg weight":   {Url: "https://x.example.com/rss", Name: "X", Weight: ref(int32(-1))},
 		"unknown kind": {Url: "https://x.example.com/rss", Name: "X", Kind: apiv1.NewsSourceKind(99)},
-		// Credentials in userinfo become an Authorization header on fetch and
-		// would be shown to every reader of ListNewsSources.
-		"userinfo": {Url: "https://user:secret@x.example.com/rss", Name: "X"},
+		"userinfo":     {Url: "https://user:secret@x.example.com/rss", Name: "X"},
 	} {
 		_, err := h.CreateNewsSource(admin, connect.NewRequest(req))
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), name)
