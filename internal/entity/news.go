@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"slices"
 	"strings"
@@ -90,9 +91,13 @@ func CanonicalURL(raw string) (string, error) {
 	if (u.Scheme == "http" && port == "80") || (u.Scheme == "https" && port == "443") {
 		port = ""
 	}
-	u.Host = host
-	if port != "" {
-		u.Host = host + ":" + port
+	switch {
+	case port != "":
+		u.Host = net.JoinHostPort(host, port)
+	case strings.Contains(host, ":"): // IPv6 literal
+		u.Host = "[" + host + "]"
+	default:
+		u.Host = host
 	}
 	u.User = nil
 	u.Fragment, u.RawFragment = "", ""

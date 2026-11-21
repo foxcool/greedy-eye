@@ -16,6 +16,9 @@ func TestCanonicalURL(t *testing.T) {
 		{"drops tracking params, sorts the rest", "https://example.com/a?utm_source=rss&b=2&fbclid=x&a=1", "https://example.com/a?a=1&b=2"},
 		{"empty path is root", "https://example.com", "https://example.com/"},
 		{"trims space", "  https://example.com/a \n", "https://example.com/a"},
+		{"keeps IPv6 brackets with a port", "https://[::1]:8443/a", "https://[::1]:8443/a"},
+		{"keeps IPv6 brackets without a port", "https://[2001:db8::1]/a", "https://[2001:db8::1]/a"},
+		{"keeps IPv6 brackets, drops default port", "https://[2001:DB8::1]:443/a", "https://[2001:db8::1]/a"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
