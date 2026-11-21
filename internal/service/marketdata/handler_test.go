@@ -1237,19 +1237,19 @@ func TestFindOrCreateAsset_BindsRefOnCreate(t *testing.T) {
 // however the source is spelled, and for no other.
 func TestFindOrCreateAsset_ContractTagFollowsEntityRule(t *testing.T) {
 	cases := []struct {
-		name    string
-		source  string
-		wantTag bool
+		name       string
+		source     string
+		wantSource string
+		wantTag    bool
 	}{
-		{"canonical", "onchain:eth", true},
-		{"mixed case", "OnChain:ETH", true},
-		{"chainless", "onchain:", false},
-		{"other namespace", "coingecko", false},
+		{"canonical", "onchain:eth", "onchain:eth", true},
+		{"mixed case", "OnChain:ETH", "onchain:eth", true},
+		{"other namespace", "coingecko", "coingecko", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &mockStore{}
-			s.On("FindAssetIDByExternalRef", mock.Anything, tc.source, "0xCAFE").Return("", store.ErrNotFound)
+			s.On("FindAssetIDByExternalRef", mock.Anything, tc.wantSource, "0xCAFE").Return("", store.ErrNotFound)
 			s.On("FindAssetByIdentity", mock.Anything, "TKN", mock.Anything, entity.AssetTypeCryptocurrency).
 				Return(nil, store.ErrNotFound)
 			var created *entity.Asset
@@ -1272,6 +1272,55 @@ func TestFindOrCreateAsset_ContractTagFollowsEntityRule(t *testing.T) {
 			assert.Equal(t, tc.wantTag, slices.Contains(created.Tags, "contract:0xCAFE"))
 		})
 	}
+}
+
+// TestFindOrCreateAsset_OnchainSourceIsCanonical: a contract spelled two ways
+// must stay one ref namespace, so the source is looked up and bound in the
+// spelling entity.OnchainSource gives, and the store's prefix rule on that
+// column means exactly what entity.ChainFromOnchainSource means.
+func TestFindOrCreateAsset_OnchainSourceIsCanonical(t *testing.T) {
+	t.Run("mixed case is looked up and bound canonically", func(t *testing.T) {
+		s := &mockStore{}
+		s.On("FindAssetIDByExternalRef", mock.Anything, "onchain:eth", "0xCAFE").Return("", store.ErrNotFound)
+		s.On("FindAssetByIdentity", mock.Anything, "TKN", mock.Anything, entity.AssetTypeCryptocurrency).
+			Return(nil, store.ErrNotFound)
+		s.On("CreateAsset", mock.Anything, mock.Anything).Return(testAsset("id-7"), nil)
+		var bound *entity.AssetExternalRef
+		s.On("CreateAssetExternalRef", mock.Anything, mock.MatchedBy(func(r *entity.AssetExternalRef) bool {
+			bound = r
+			return true
+		})).Return(&entity.AssetExternalRef{}, nil)
+		expectVerdict(s)
+
+		source, ref := " OnChain:ETH ", "0xCAFE"
+		_, err := newHandler(s).FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+			Symbol:            "TKN",
+			ExternalRefSource: &source,
+			ExternalRef:       &ref,
+		}))
+		require.NoError(t, err)
+		require.NotNil(t, bound)
+		assert.Equal(t, "onchain:eth", bound.Source)
+	})
+
+	t.Run("chainless is refused before any read or write", func(t *testing.T) {
+		for _, spelled := range []string{"onchain:", " OnChain: "} {
+			for _, dryRun := range []bool{true, false} {
+				s := &mockStore{}
+				source, ref := spelled, "0xCAFE"
+				_, err := newHandler(s).FindOrCreateAsset(syncContext(), connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+					Symbol:            "TKN",
+					ExternalRefSource: &source,
+					ExternalRef:       &ref,
+					DryRun:            dryRun,
+				}))
+				assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), "source %q dry_run=%v", spelled, dryRun)
+				s.AssertNotCalled(t, "FindAssetIDByExternalRef", mock.Anything, mock.Anything, mock.Anything)
+				s.AssertNotCalled(t, "CreateAsset", mock.Anything, mock.Anything)
+				s.AssertNotCalled(t, "CreateAssetExternalRef", mock.Anything, mock.Anything)
+			}
+		}
+	})
 }
 
 // TestFindOrCreateAsset_UnlistedContractDoesNotClaimTicker is the regression for

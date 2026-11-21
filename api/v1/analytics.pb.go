@@ -517,12 +517,14 @@ type GetHeatmapResponse struct {
 	// is not in a total. Same message CalculatePortfolioValue returns: one shape
 	// for the same statement, on every surface.
 	Coverage *ValuationCoverage `protobuf:"bytes,4,opt,name=coverage,proto3" json:"coverage,omitempty"`
+	// Summary of the move behind the map; see HeatmapBreadth.
+	Breadth *HeatmapBreadth `protobuf:"bytes,5,opt,name=breadth,proto3" json:"breadth,omitempty"`
 	// MARKET scope: when the ranking was read from the source; may be older than
 	// calculated_at.
-	SourceReadAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=source_read_at,json=sourceReadAt,proto3" json:"source_read_at,omitempty"`
+	SourceReadAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=source_read_at,json=sourceReadAt,proto3" json:"source_read_at,omitempty"`
 	// MARKET scope: the provider the ranking came from ("coingecko"), for
 	// attribution next to the map.
-	Source        string `protobuf:"bytes,6,opt,name=source,proto3" json:"source,omitempty"`
+	Source        string `protobuf:"bytes,7,opt,name=source,proto3" json:"source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -585,6 +587,13 @@ func (x *GetHeatmapResponse) GetCoverage() *ValuationCoverage {
 	return nil
 }
 
+func (x *GetHeatmapResponse) GetBreadth() *HeatmapBreadth {
+	if x != nil {
+		return x.Breadth
+	}
+	return nil
+}
+
 func (x *GetHeatmapResponse) GetSourceReadAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.SourceReadAt
@@ -597,6 +606,203 @@ func (x *GetHeatmapResponse) GetSource() string {
 		return x.Source
 	}
 	return ""
+}
+
+// HeatmapBreadth summarises the move of a holding-backed heatmap: how many
+// holdings rose, the average change and the extreme leaves, built from the
+// same holdings, prices and window as the nodes. Counts are per holding, as
+// in ValuationCoverage, and the denominator is the PRICED set: an unpriced
+// holding has no move to count, so it is reported beside the ratio ("5 of 6
+// priced, 3 unpriced"), not under it.
+//
+// A holding whose quote outlived its market (the rule of
+// ValuationCoverage.stale_count) is counted with the change its last quote
+// gives and flagged, not dropped and not scoped out per market.
+type HeatmapBreadth struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Priced holdings whose change over the window is above zero.
+	UpCount uint32 `protobuf:"varint,1,opt,name=up_count,json=upCount,proto3" json:"up_count,omitempty"`
+	// Holdings that drew a tile; equals coverage.priced_count.
+	PricedCount uint32 `protobuf:"varint,2,opt,name=priced_count,json=pricedCount,proto3" json:"priced_count,omitempty"`
+	// Holdings with no usable price; equals coverage.unpriced_count.
+	UnpricedCount uint32 `protobuf:"varint,3,opt,name=unpriced_count,json=unpricedCount,proto3" json:"unpriced_count,omitempty"`
+	// Priced holdings with no price at or after the window start, so no change:
+	// inside priced_count, never in up_count, the average or the extremes.
+	NoHistoryCount uint32 `protobuf:"varint,4,opt,name=no_history_count,json=noHistoryCount,proto3" json:"no_history_count,omitempty"`
+	// Holdings valued from a stale quote; equals coverage.stale_count.
+	StaleCount uint32 `protobuf:"varint,5,opt,name=stale_count,json=staleCount,proto3" json:"stale_count,omitempty"`
+	// Change % over the window weighted by holding value in the quote asset.
+	// Unset when no priced holding has history.
+	WeightedChangePct *float64 `protobuf:"fixed64,6,opt,name=weighted_change_pct,json=weightedChangePct,proto3,oneof" json:"weighted_change_pct,omitempty"`
+	// Leaves with the highest and lowest change. Unset when no priced holding
+	// has history.
+	Best          *HeatmapBreadthLeaf `protobuf:"bytes,7,opt,name=best,proto3" json:"best,omitempty"`
+	Worst         *HeatmapBreadthLeaf `protobuf:"bytes,8,opt,name=worst,proto3" json:"worst,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HeatmapBreadth) Reset() {
+	*x = HeatmapBreadth{}
+	mi := &file_v1_analytics_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HeatmapBreadth) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HeatmapBreadth) ProtoMessage() {}
+
+func (x *HeatmapBreadth) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_analytics_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HeatmapBreadth.ProtoReflect.Descriptor instead.
+func (*HeatmapBreadth) Descriptor() ([]byte, []int) {
+	return file_v1_analytics_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *HeatmapBreadth) GetUpCount() uint32 {
+	if x != nil {
+		return x.UpCount
+	}
+	return 0
+}
+
+func (x *HeatmapBreadth) GetPricedCount() uint32 {
+	if x != nil {
+		return x.PricedCount
+	}
+	return 0
+}
+
+func (x *HeatmapBreadth) GetUnpricedCount() uint32 {
+	if x != nil {
+		return x.UnpricedCount
+	}
+	return 0
+}
+
+func (x *HeatmapBreadth) GetNoHistoryCount() uint32 {
+	if x != nil {
+		return x.NoHistoryCount
+	}
+	return 0
+}
+
+func (x *HeatmapBreadth) GetStaleCount() uint32 {
+	if x != nil {
+		return x.StaleCount
+	}
+	return 0
+}
+
+func (x *HeatmapBreadth) GetWeightedChangePct() float64 {
+	if x != nil && x.WeightedChangePct != nil {
+		return *x.WeightedChangePct
+	}
+	return 0
+}
+
+func (x *HeatmapBreadth) GetBest() *HeatmapBreadthLeaf {
+	if x != nil {
+		return x.Best
+	}
+	return nil
+}
+
+func (x *HeatmapBreadth) GetWorst() *HeatmapBreadthLeaf {
+	if x != nil {
+		return x.Worst
+	}
+	return nil
+}
+
+// HeatmapBreadthLeaf names one leaf of the map by its node id.
+type HeatmapBreadthLeaf struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"` // HeatmapNode.id of the leaf
+	AssetId       string                 `protobuf:"bytes,2,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
+	Label         string                 `protobuf:"bytes,3,opt,name=label,proto3" json:"label,omitempty"`
+	ChangePct     float64                `protobuf:"fixed64,4,opt,name=change_pct,json=changePct,proto3" json:"change_pct,omitempty"`
+	Stale         bool                   `protobuf:"varint,5,opt,name=stale,proto3" json:"stale,omitempty"` // priced from a stale quote; see HeatmapBreadth
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HeatmapBreadthLeaf) Reset() {
+	*x = HeatmapBreadthLeaf{}
+	mi := &file_v1_analytics_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HeatmapBreadthLeaf) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HeatmapBreadthLeaf) ProtoMessage() {}
+
+func (x *HeatmapBreadthLeaf) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_analytics_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HeatmapBreadthLeaf.ProtoReflect.Descriptor instead.
+func (*HeatmapBreadthLeaf) Descriptor() ([]byte, []int) {
+	return file_v1_analytics_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *HeatmapBreadthLeaf) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *HeatmapBreadthLeaf) GetAssetId() string {
+	if x != nil {
+		return x.AssetId
+	}
+	return ""
+}
+
+func (x *HeatmapBreadthLeaf) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *HeatmapBreadthLeaf) GetChangePct() float64 {
+	if x != nil {
+		return x.ChangePct
+	}
+	return 0
+}
+
+func (x *HeatmapBreadthLeaf) GetStale() bool {
+	if x != nil {
+		return x.Stale
+	}
+	return false
 }
 
 var File_v1_analytics_proto protoreflect.FileDescriptor
@@ -625,14 +831,33 @@ const file_v1_analytics_proto_rawDesc = "" +
 	"\vsize_metric\x18\x05 \x01(\x0e2\x19.eye.v1.HeatmapSizeMetricR\n" +
 	"sizeMetric\x12=\n" +
 	"\fcolor_metric\x18\x06 \x01(\x0e2\x1a.eye.v1.HeatmapColorMetricR\vcolorMetric\x12$\n" +
-	"\x0equote_asset_id\x18\a \x01(\tR\fquoteAssetId\"\xb7\x02\n" +
+	"\x0equote_asset_id\x18\a \x01(\tR\fquoteAssetId\"\xe9\x02\n" +
 	"\x12GetHeatmapResponse\x12)\n" +
 	"\x05nodes\x18\x01 \x03(\v2\x13.eye.v1.HeatmapNodeR\x05nodes\x12$\n" +
 	"\x0equote_asset_id\x18\x02 \x01(\tR\fquoteAssetId\x12?\n" +
 	"\rcalculated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\fcalculatedAt\x125\n" +
-	"\bcoverage\x18\x04 \x01(\v2\x19.eye.v1.ValuationCoverageR\bcoverage\x12@\n" +
-	"\x0esource_read_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\fsourceReadAt\x12\x16\n" +
-	"\x06source\x18\x06 \x01(\tR\x06source*\x99\x01\n" +
+	"\bcoverage\x18\x04 \x01(\v2\x19.eye.v1.ValuationCoverageR\bcoverage\x120\n" +
+	"\abreadth\x18\x05 \x01(\v2\x16.eye.v1.HeatmapBreadthR\abreadth\x12@\n" +
+	"\x0esource_read_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\fsourceReadAt\x12\x16\n" +
+	"\x06source\x18\a \x01(\tR\x06source\"\xef\x02\n" +
+	"\x0eHeatmapBreadth\x12\x19\n" +
+	"\bup_count\x18\x01 \x01(\rR\aupCount\x12!\n" +
+	"\fpriced_count\x18\x02 \x01(\rR\vpricedCount\x12%\n" +
+	"\x0eunpriced_count\x18\x03 \x01(\rR\runpricedCount\x12(\n" +
+	"\x10no_history_count\x18\x04 \x01(\rR\x0enoHistoryCount\x12\x1f\n" +
+	"\vstale_count\x18\x05 \x01(\rR\n" +
+	"staleCount\x123\n" +
+	"\x13weighted_change_pct\x18\x06 \x01(\x01H\x00R\x11weightedChangePct\x88\x01\x01\x12.\n" +
+	"\x04best\x18\a \x01(\v2\x1a.eye.v1.HeatmapBreadthLeafR\x04best\x120\n" +
+	"\x05worst\x18\b \x01(\v2\x1a.eye.v1.HeatmapBreadthLeafR\x05worstB\x16\n" +
+	"\x14_weighted_change_pct\"\x93\x01\n" +
+	"\x12HeatmapBreadthLeaf\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x19\n" +
+	"\basset_id\x18\x02 \x01(\tR\aassetId\x12\x14\n" +
+	"\x05label\x18\x03 \x01(\tR\x05label\x12\x1d\n" +
+	"\n" +
+	"change_pct\x18\x04 \x01(\x01R\tchangePct\x12\x14\n" +
+	"\x05stale\x18\x05 \x01(\bR\x05stale*\x99\x01\n" +
 	"\fHeatmapScope\x12\x1d\n" +
 	"\x19HEATMAP_SCOPE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17HEATMAP_SCOPE_PORTFOLIO\x10\x01\x12\x19\n" +
@@ -680,7 +905,7 @@ func file_v1_analytics_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_analytics_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_v1_analytics_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_v1_analytics_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_v1_analytics_proto_goTypes = []any{
 	(HeatmapScope)(0),             // 0: eye.v1.HeatmapScope
 	(HeatmapGroupBy)(0),           // 1: eye.v1.HeatmapGroupBy
@@ -690,8 +915,10 @@ var file_v1_analytics_proto_goTypes = []any{
 	(*HeatmapNode)(nil),           // 5: eye.v1.HeatmapNode
 	(*GetHeatmapRequest)(nil),     // 6: eye.v1.GetHeatmapRequest
 	(*GetHeatmapResponse)(nil),    // 7: eye.v1.GetHeatmapResponse
-	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
-	(*ValuationCoverage)(nil),     // 9: eye.v1.ValuationCoverage
+	(*HeatmapBreadth)(nil),        // 8: eye.v1.HeatmapBreadth
+	(*HeatmapBreadthLeaf)(nil),    // 9: eye.v1.HeatmapBreadthLeaf
+	(*timestamppb.Timestamp)(nil), // 10: google.protobuf.Timestamp
+	(*ValuationCoverage)(nil),     // 11: eye.v1.ValuationCoverage
 }
 var file_v1_analytics_proto_depIdxs = []int32{
 	0,  // 0: eye.v1.GetHeatmapRequest.scope:type_name -> eye.v1.HeatmapScope
@@ -700,16 +927,19 @@ var file_v1_analytics_proto_depIdxs = []int32{
 	3,  // 3: eye.v1.GetHeatmapRequest.size_metric:type_name -> eye.v1.HeatmapSizeMetric
 	4,  // 4: eye.v1.GetHeatmapRequest.color_metric:type_name -> eye.v1.HeatmapColorMetric
 	5,  // 5: eye.v1.GetHeatmapResponse.nodes:type_name -> eye.v1.HeatmapNode
-	8,  // 6: eye.v1.GetHeatmapResponse.calculated_at:type_name -> google.protobuf.Timestamp
-	9,  // 7: eye.v1.GetHeatmapResponse.coverage:type_name -> eye.v1.ValuationCoverage
-	8,  // 8: eye.v1.GetHeatmapResponse.source_read_at:type_name -> google.protobuf.Timestamp
-	6,  // 9: eye.v1.AnalyticsService.GetHeatmap:input_type -> eye.v1.GetHeatmapRequest
-	7,  // 10: eye.v1.AnalyticsService.GetHeatmap:output_type -> eye.v1.GetHeatmapResponse
-	10, // [10:11] is the sub-list for method output_type
-	9,  // [9:10] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	10, // 6: eye.v1.GetHeatmapResponse.calculated_at:type_name -> google.protobuf.Timestamp
+	11, // 7: eye.v1.GetHeatmapResponse.coverage:type_name -> eye.v1.ValuationCoverage
+	8,  // 8: eye.v1.GetHeatmapResponse.breadth:type_name -> eye.v1.HeatmapBreadth
+	10, // 9: eye.v1.GetHeatmapResponse.source_read_at:type_name -> google.protobuf.Timestamp
+	9,  // 10: eye.v1.HeatmapBreadth.best:type_name -> eye.v1.HeatmapBreadthLeaf
+	9,  // 11: eye.v1.HeatmapBreadth.worst:type_name -> eye.v1.HeatmapBreadthLeaf
+	6,  // 12: eye.v1.AnalyticsService.GetHeatmap:input_type -> eye.v1.GetHeatmapRequest
+	7,  // 13: eye.v1.AnalyticsService.GetHeatmap:output_type -> eye.v1.GetHeatmapResponse
+	13, // [13:14] is the sub-list for method output_type
+	12, // [12:13] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_v1_analytics_proto_init() }
@@ -719,13 +949,14 @@ func file_v1_analytics_proto_init() {
 	}
 	file_v1_marketdata_proto_init()
 	file_v1_analytics_proto_msgTypes[0].OneofWrappers = []any{}
+	file_v1_analytics_proto_msgTypes[3].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_analytics_proto_rawDesc), len(file_v1_analytics_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

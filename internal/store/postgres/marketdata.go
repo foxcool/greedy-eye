@@ -348,8 +348,12 @@ func (s *MarketDataStore) findAssetBySymbol(ctx context.Context, symbol string, 
 
 // onchainSQL is the SQL form of entity.IsContractMarket on a market column, and
 // of entity.ChainFromOnchainSource on a ref source column: both are the
-// entity.OnchainPrefix rule. The prefix is a constant with no LIKE wildcards,
-// so it is safe to inline.
+// entity.OnchainPrefix rule. On a ref source the exact match holds because
+// every writer of an onchain source builds it with entity.OnchainSource:
+// FindOrCreateAsset rewrites a caller's spelling and refuses a chainless one,
+// wallet sync builds it from the chain, and discovered refs use provider
+// namespaces only. The prefix is a constant with no LIKE wildcards, so it is safe
+// to inline.
 func onchainSQL(column string) string {
 	return "(" + column + " LIKE '" + entity.OnchainPrefix + "%')"
 }

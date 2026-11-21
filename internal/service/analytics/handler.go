@@ -188,6 +188,7 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 	var oldestQuote time.Time
 
 	drawnAt := time.Now()
+	var breadth breadthTally
 
 	// Every asset is priced before any holding is valued: one market-data read
 	// per set, not one per holding. See priceAssets.
@@ -202,6 +203,9 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 	assets, err := h.priceAssets(ctx, assetIDs, quoteAssetID, from)
 	if err != nil {
 		return nil, err
+	}
+	for _, ap := range assets {
+		ap.stale = ap.priced && valuation.StaleAt(ap.quotedAt, drawnAt)
 	}
 
 	for _, hld := range holdings {
@@ -233,7 +237,7 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 		// question is how many POSITIONS on this map rest on a quote that may no
 		// longer be a price, and two positions in one dead security are two.
 		// A stale quote does not date the map; see oldestQuote.
-		if valuation.StaleAt(ap.quotedAt, drawnAt) {
+		if ap.stale {
 			coverage.StaleCount++
 		} else {
 			oldestQuote = olderOf(oldestQuote, ap.quotedAt)
@@ -247,6 +251,7 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 		}
 		holdingValue := hld.Amount.Shift(-entity.DecI32(hld.Decimals)).Mul(ap.unit)
 		values[key] = values[key].Add(holdingValue)
+		breadth.addHolding(ap, holdingValue)
 	}
 
 	var nodes []*apiv1.HeatmapNode
@@ -267,6 +272,7 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 			Price:      &price,
 			AssetId:    key.assetID,
 		})
+		breadth.addLeaf(nodes[len(nodes)-1], ap)
 	}
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].Size > nodes[j].Size })
 
@@ -292,6 +298,7 @@ func (h *Handler) heatmap(ctx context.Context, msg *apiv1.GetHeatmapRequest) (*c
 		QuoteAssetId: quoteAssetID,
 		CalculatedAt: timestamppb.New(time.Now()),
 		Coverage:     coverage,
+		Breadth:      breadth.result(coverage),
 	}), nil
 }
 
