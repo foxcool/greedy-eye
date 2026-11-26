@@ -144,7 +144,7 @@ func (m *mockStore) ListAccounts(ctx context.Context, opts ListAccountsOpts) ([]
 	return nil, args.String(1), args.Error(2)
 }
 
-// RecordSyncMiss and ClearSyncDeferral are lenient by default: nearly every
+// RecordSyncMiss and RecordSyncAnswer are lenient by default: nearly every
 // sync test would otherwise have to declare an expectation for the sweep's
 // bookkeeping, which it neither triggers deliberately nor looks at. A test that
 // DOES care declares its own expectation and gets the strict behaviour.
@@ -180,11 +180,11 @@ func (m *mockStore) ListChainFailures(ctx context.Context, accountID string) ([]
 	return nil, args.Error(1)
 }
 
-func (m *mockStore) ClearSyncDeferral(ctx context.Context, accountID string) error {
-	if !m.expects("ClearSyncDeferral") {
+func (m *mockStore) RecordSyncAnswer(ctx context.Context, accountID string, at time.Time) error {
+	if !m.expects("RecordSyncAnswer") {
 		return nil
 	}
-	args := m.Called(ctx, accountID)
+	args := m.Called(ctx, accountID, at)
 	return args.Error(0)
 }
 

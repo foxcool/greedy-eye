@@ -139,6 +139,15 @@ table "accounts" {
     type = timestamptz
     null = true
   }
+  # When a sync last got an answer from the account's source, including the
+  # answer "nothing here". holdings.updated_at cannot say this for an account
+  # that never held anything, and the balance sweep reads the later of the two
+  # as freshness, so an empty account waits its turn instead of being due on
+  # every fire. NULL = never answered.
+  column "answered_at" {
+    type = timestamptz
+    null = true
+  }
 
   primary_key {
     columns = [column.id]

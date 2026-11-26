@@ -1757,10 +1757,49 @@ func TestListStaleSyncTargets(t *testing.T) {
 
 		// And forgiveness returns it to the queue at once, because backoff
 		// earned while a credential was broken must not outlive the repair.
-		require.NoError(t, s.ClearSyncDeferral(ctx, acct.ID))
+		// The answer is backdated so the account is still stale and only the
+		// deferral is under test.
+		require.NoError(t, s.RecordSyncAnswer(ctx, acct.ID, now.Add(-50*time.Hour)))
 		got, err := s.ListStaleSyncTargets(ctx, now.Add(-12*time.Hour), now, 10)
 		require.NoError(t, err)
 		assert.Contains(t, idsOf(got), acct.ID)
+	})
+
+	// An account that has never held anything has no holding to date it. Its
+	// source answering "nothing here" is a true answer, so it never stands
+	// down either — before answered_at it was due on every fire and sorted
+	// ahead of everyone, holding a slot of every run.
+	t.Run("an empty account that answered waits its turn", func(t *testing.T) {
+		empty := account("empty wallet", entity.AccountTypeWallet)
+
+		got, err := s.ListStaleSyncTargets(ctx, now.Add(-12*time.Hour), now, 10)
+		require.NoError(t, err)
+		assert.Contains(t, idsOf(got), empty.ID,
+			"a new account gets its first turn without waiting a cycle")
+
+		require.NoError(t, s.RecordSyncAnswer(ctx, empty.ID, now))
+		got, err = s.ListStaleSyncTargets(ctx, now.Add(-12*time.Hour), now, 10)
+		require.NoError(t, err)
+		assert.NotContains(t, idsOf(got), empty.ID, "an account that just answered is fresh")
+
+		// Once the answer is older than the window it is due again, and it
+		// sorts by that answer rather than ahead of everyone.
+		later := now.Add(48 * time.Hour)
+		got, err = s.ListStaleSyncTargets(ctx, later.Add(-12*time.Hour), later, 1000)
+		require.NoError(t, err)
+		ids := idsOf(got)
+		require.Contains(t, ids, empty.ID)
+		assert.Less(t, indexOf(ids, stalest.ID), indexOf(ids, empty.ID),
+			"an account confirmed 200h ago goes before one that answered 48h ago")
+		assert.Less(t, indexOf(ids, neverSynced.ID), indexOf(ids, empty.ID),
+			"never answered is still the stalest state there is")
+
+		// An answer never moves freshness backwards: a slow sync that
+		// finishes after a newer one must not make the account look older.
+		require.NoError(t, s.RecordSyncAnswer(ctx, empty.ID, now.Add(-100*time.Hour)))
+		got, err = s.ListStaleSyncTargets(ctx, now.Add(-12*time.Hour), now, 10)
+		require.NoError(t, err)
+		assert.NotContains(t, idsOf(got), empty.ID)
 	})
 }
 
