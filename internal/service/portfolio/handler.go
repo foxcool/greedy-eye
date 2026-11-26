@@ -1920,12 +1920,16 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	// pressing sync is the most direct way to say "it works now", so it is
 	// taken at its word.
 	//
-	// Failing to clear is logged, not returned: the sync DID happen, and
+	// The answer is recorded even when it was "nothing here": an account with no
+	// holdings has no other record of freshness, and the sweep would take it
+	// first on every fire.
+	//
+	// Failing to record is logged, not returned: the sync DID happen, and
 	// reporting it as failed over bookkeeping would make the caller undo work
 	// that landed.
 	if !leftNoFresher(resp) {
-		if err := h.store.ClearSyncDeferral(ctx, account.ID); err != nil {
-			h.log.Warn("cannot clear the account's sync deferral",
+		if err := h.store.RecordSyncAnswer(ctx, account.ID, time.Now()); err != nil {
+			h.log.Warn("cannot record the account's sync answer",
 				"account_id", account.ID, "error", err)
 		}
 	}

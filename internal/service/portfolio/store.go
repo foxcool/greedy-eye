@@ -79,9 +79,10 @@ type Store interface {
 	// whole-chain failures, oldest run first.
 	ListChainFailures(ctx context.Context, accountID string) ([]*entity.ChainFailure, error)
 
-	// ClearSyncDeferral forgives what an account owes after it answers, from a
-	// swept sync or a hand-triggered one alike.
-	ClearSyncDeferral(ctx context.Context, accountID string) error
+	// RecordSyncAnswer notes that the account's source answered, even with
+	// nothing, and forgives what the account owes, from a swept sync or a
+	// hand-triggered one alike.
+	RecordSyncAnswer(ctx context.Context, accountID string, at time.Time) error
 
 	// CountDueSyncTargets counts what the sweep WOULD take if it had no budget,
 	// so a run can report how many are waiting behind the ones it picked.

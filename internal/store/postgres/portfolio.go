@@ -1254,7 +1254,7 @@ const sweepableAccounts = `
 		LEFT JOIN account_sync_attempts s ON s.account_id = a.id
 		WHERE (a.type IN ($1, $2) OR (a.type = $3 AND h.synced_at IS NOT NULL))
 		  AND a.disabled_at IS NULL
-		  AND (h.synced_at IS NULL OR h.synced_at < $4)
+		  AND (GREATEST(h.synced_at, a.answered_at) IS NULL OR GREATEST(h.synced_at, a.answered_at) < $4)
 		  AND (s.next_attempt_at IS NULL OR s.next_attempt_at <= $5)`
 
 // sweepableTypes are the type arguments sweepableAccounts expects, in order.
@@ -1271,6 +1271,11 @@ func sweepableTypes() (wallet, exchange, broker string) {
 // account: `holdings.updated_at` is written by the sync that produced them, so
 // it cannot claim a sync that did not land. An account with no holdings at all
 // sorts first — never synced is the stalest state there is, not a fresh one.
+//
+// Freshness is the later of that and accounts.answered_at. An account that has
+// never held anything has no holding to date it, so without answered_at its
+// truthful "nothing here" left it NULL-fresh: due on every fire, ahead of
+// everyone, and never stood down because it never complained.
 //
 // Which accounts are eligible at all is sweepableAccounts.
 //
@@ -1292,7 +1297,7 @@ func (s *PortfolioStore) ListStaleSyncTargets(ctx context.Context, olderThan, no
 	// set grows large (personal-f762).
 	query := fmt.Sprintf(`
 		SELECT %s%s
-		ORDER BY h.synced_at ASC NULLS FIRST, a.id`, prefixedAccountColumns("a"), sweepableAccounts)
+		ORDER BY GREATEST(h.synced_at, a.answered_at) ASC NULLS FIRST, a.id`, prefixedAccountColumns("a"), sweepableAccounts)
 
 	wallet, exchange, broker := sweepableTypes()
 	rows, err := s.pool.Query(ctx, query,
@@ -1612,7 +1617,12 @@ func (s *PortfolioStore) ClearSyncDeferrals(ctx context.Context, userID string, 
 	return int(tag.RowsAffected()), nil
 }
 
-// ClearSyncDeferral forgives whatever an account owes, because it just answered.
+// RecordSyncAnswer notes that the account's source answered at `at` and
+// forgives whatever the account owes.
+//
+// The answer is stamped even when it was "nothing here": that is the only
+// record of freshness an account with no holdings has, and without it the
+// sweep would pick an empty account first on every fire.
 //
 // It runs on ANY successful sync, including one a person triggered by hand:
 // backoff accrued while a credential was broken must not outlive the repair.
@@ -1622,9 +1632,15 @@ func (s *PortfolioStore) ClearSyncDeferrals(ctx context.Context, userID string, 
 // Deleting the row rather than zeroing it keeps "nothing owed" as the absence
 // of a record, so the selection query needs no special case for a healthy
 // account and the table stays a list of accounts in trouble.
-func (s *PortfolioStore) ClearSyncDeferral(ctx context.Context, accountID string) error {
-	if _, err := s.pool.Exec(ctx, `DELETE FROM account_sync_attempts WHERE account_id = $1`, accountID); err != nil {
-		return fmt.Errorf("failed to clear sync deferral: %w", err)
+func (s *PortfolioStore) RecordSyncAnswer(ctx context.Context, accountID string, at time.Time) error {
+	const query = `
+		WITH forgiven AS (
+			DELETE FROM account_sync_attempts WHERE account_id = $1
+		)
+		UPDATE accounts SET answered_at = GREATEST(answered_at, $2::timestamptz)
+		WHERE id = $1`
+	if _, err := s.pool.Exec(ctx, query, accountID, at); err != nil {
+		return fmt.Errorf("failed to record sync answer: %w", err)
 	}
 	return nil
 }

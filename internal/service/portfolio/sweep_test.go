@@ -341,7 +341,7 @@ func TestSweep_AccountLeftNoFresherIsStoodDown(t *testing.T) {
 	require.NoError(t, err)
 
 	s.AssertExpectations(t)
-	s.AssertNotCalled(t, "ClearSyncDeferral", mock.Anything, testAccountID)
+	s.AssertNotCalled(t, "RecordSyncAnswer", mock.Anything, testAccountID, mock.Anything)
 }
 
 // TestSweep_EmptyWalletIsNotStoodDown: a wallet holding nothing writes no
@@ -359,7 +359,7 @@ func TestSweep_EmptyWalletIsNotStoodDown(t *testing.T) {
 		Return([]*entity.Account{acct}, nil).Once()
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
-	s.On("ClearSyncDeferral", mock.Anything, testAccountID).Return(nil)
+	s.On("RecordSyncAnswer", mock.Anything, testAccountID, mock.Anything).Return(nil)
 	// Declared so that a call would be RECORDED. Without an expectation the
 	// lenient mock returns without registering anything and AssertNotCalled
 	// below passes whatever the code does — a test that cannot go red.
@@ -379,6 +379,9 @@ func TestSweep_EmptyWalletIsNotStoodDown(t *testing.T) {
 	require.NoError(t, err)
 
 	s.AssertNotCalled(t, "RecordSyncMiss", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	// And the empty answer is recorded: it is the only freshness an account
+	// with no holdings has, and without it the sweep takes it first every fire.
+	s.AssertCalled(t, "RecordSyncAnswer", mock.Anything, testAccountID, mock.Anything)
 }
 
 // TestSweep_PartialSyncIsNotStoodDown: some chains answered, so the account IS
@@ -397,7 +400,7 @@ func TestSweep_PartialSyncIsNotStoodDown(t *testing.T) {
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
 	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: "h1"}, nil)
-	s.On("ClearSyncDeferral", mock.Anything, testAccountID).Return(nil)
+	s.On("RecordSyncAnswer", mock.Anything, testAccountID, mock.Anything).Return(nil)
 	s.On("RecordSyncMiss", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(1, now, nil).Maybe()
 
@@ -432,7 +435,7 @@ func TestSyncAccount_SuccessClearsTheDeferral(t *testing.T) {
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
 	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: "h1"}, nil)
-	s.On("ClearSyncDeferral", mock.Anything, testAccountID).Return(nil).Once()
+	s.On("RecordSyncAnswer", mock.Anything, testAccountID, mock.Anything).Return(nil).Once()
 
 	ws := &mockWalletSyncer{}
 	ws.On("SyncWallet", mock.Anything, "0xabc", []string{"eth"}).Return([]entity.WalletBalance{
