@@ -49,6 +49,18 @@ enum LedgerEventKind {
   LEDGER_EVENT_KIND_OPENING = 8;      // A balance the ledger starts from
 }
 
+// IncomeKind is what an income event paid. Set on an income event and only
+// there. A tax withheld on a payment is an income event of the same kind with
+// an out leg.
+enum IncomeKind {
+  INCOME_KIND_UNSPECIFIED = 0;
+  INCOME_KIND_COUPON = 1;
+  INCOME_KIND_DIVIDEND = 2;
+  INCOME_KIND_INTEREST = 3;
+  INCOME_KIND_STAKING_REWARD = 4;
+  INCOME_KIND_OTHER = 5;
+}
+
 enum LedgerLegDirection {
   LEDGER_LEG_DIRECTION_UNSPECIFIED = 0;
   LEDGER_LEG_DIRECTION_IN = 1;  // The account received the amount
@@ -169,6 +181,9 @@ message LedgerEvent {
   repeated LedgerLeg legs = 8;
   google.protobuf.Timestamp created_at = 9;
   google.protobuf.Timestamp updated_at = 10;
+  // Set on an income event only. An income event written before income kinds
+  // existed reads as INCOME_KIND_OTHER.
+  IncomeKind income_kind = 11;
 }
 
 // LedgerLeg is one asset movement of an event. The amount is never negative;
@@ -358,6 +373,21 @@ service PortfolioService {
   rpc ListLedger(ListLedgerRequest) returns (ListLedgerResponse) {
     option (google.api.http) = {
       get: "/api/v1/accounts/{account_id}/ledger"
+    };
+  }
+
+  // GetIncomeReport sums the income events of one portfolio or one account
+  // over a period: a row per month (UTC) x income kind x asset with gross, tax
+  // and net, each valued in the display currency at the date of its event.
+  // Income is cash flow, not wealth: it never enters a portfolio total. An
+  // event with no price on its date stays out of the values and is listed as
+  // unvalued. Errors:
+  //   - InvalidArgument: neither or both of portfolio_id and account_id, or
+  //     from is not before to.
+  //   - NotFound: the portfolio or account is not the caller's.
+  rpc GetIncomeReport(GetIncomeReportRequest) returns (GetIncomeReportResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/income"
     };
   }
 
@@ -678,6 +708,8 @@ message ImportTransactionItem {
   reserved "type", "status", "asset_id", "symbol", "data", "external_id";
 
   LedgerEventKind kind = 7;
+  // Required when kind is INCOME, refused otherwise.
+  IncomeKind income_kind = 12;
   // Required. When the event happened.
   google.protobuf.Timestamp executed_at = 8;
   // Stable id from the source export; the dedup key when present. Without it
@@ -705,7 +737,9 @@ message ImportLedgerLeg {
 }
 
 message ImportTransactionsRequest {
-  // Target account; must be of type manual.
+  // Target account; must be the caller's. A manual account takes every kind.
+  // Any other account takes income only, and refuses per item the income
+  // kinds its own sync writes, so one payment cannot be recorded twice.
   string account_id = 1;
   repeated ImportTransactionItem transactions = 2;
   bool dry_run = 3;
@@ -889,6 +923,58 @@ message ListLedgerRequest {
 message ListLedgerResponse {
   repeated LedgerEvent events = 1;
   string next_page_token = 2;
+}
+
+message GetIncomeReportRequest {
+  // Exactly one of portfolio_id and account_id.
+  optional string portfolio_id = 1;
+  optional string account_id = 2;
+  // Required. executed_at range, from inclusive, to exclusive.
+  google.protobuf.Timestamp from = 3;
+  google.protobuf.Timestamp to = 4;
+  // Display currency (UUID or symbol). Defaults to the instance's quote asset.
+  optional string quote_asset_id = 5;
+}
+
+// IncomeReportRow is one month x income kind x asset. Amounts are raw integer
+// decimal strings scaled by `decimals`, values by `value_decimals` of the
+// response. net = gross - tax.
+message IncomeReportRow {
+  // First day of the month, UTC.
+  google.protobuf.Timestamp month = 1;
+  IncomeKind income_kind = 2;
+  string asset_id = 3;
+  string symbol = 4;
+  string gross_amount = 5;
+  string tax_amount = 6;
+  string net_amount = 7;
+  uint32 decimals = 8;
+  // Values of the events in this row that had a price on their date; an
+  // unvalued event adds to the amounts and not here.
+  string gross_value = 9;
+  string tax_value = 10;
+  string net_value = 11;
+  // Events of the row that carry no value.
+  int32 unvalued_events = 12;
+}
+
+// UnvaluedIncome is an income event with no price on its date.
+message UnvaluedIncome {
+  string event_id = 1;
+  google.protobuf.Timestamp executed_at = 2;
+  string asset_id = 3;
+  string symbol = 4;
+}
+
+message GetIncomeReportResponse {
+  string quote_asset_id = 1;
+  uint32 value_decimals = 2;
+  repeated IncomeReportRow rows = 3;
+  // Sums of the rows' values.
+  string gross_value = 4;
+  string tax_value = 5;
+  string net_value = 6;
+  repeated UnvaluedIncome unvalued = 7;
 }
 
 // SYNC ACCOUNT MESSAGES

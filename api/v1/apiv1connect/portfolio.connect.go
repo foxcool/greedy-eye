@@ -100,6 +100,9 @@ const (
 	// PortfolioServiceListLedgerProcedure is the fully-qualified name of the PortfolioService's
 	// ListLedger RPC.
 	PortfolioServiceListLedgerProcedure = "/eye.v1.PortfolioService/ListLedger"
+	// PortfolioServiceGetIncomeReportProcedure is the fully-qualified name of the PortfolioService's
+	// GetIncomeReport RPC.
+	PortfolioServiceGetIncomeReportProcedure = "/eye.v1.PortfolioService/GetIncomeReport"
 	// PortfolioServiceSyncAccountProcedure is the fully-qualified name of the PortfolioService's
 	// SyncAccount RPC.
 	PortfolioServiceSyncAccountProcedure = "/eye.v1.PortfolioService/SyncAccount"
@@ -169,6 +172,16 @@ type PortfolioServiceClient interface {
 	// executed_at first. The account must be the caller's: another account
 	// answers an empty page, as ListHoldings does.
 	ListLedger(context.Context, *connect.Request[v1.ListLedgerRequest]) (*connect.Response[v1.ListLedgerResponse], error)
+	// GetIncomeReport sums the income events of one portfolio or one account
+	// over a period: a row per month (UTC) x income kind x asset with gross, tax
+	// and net, each valued in the display currency at the date of its event.
+	// Income is cash flow, not wealth: it never enters a portfolio total. An
+	// event with no price on its date stays out of the values and is listed as
+	// unvalued. Errors:
+	//   - InvalidArgument: neither or both of portfolio_id and account_id, or
+	//     from is not before to.
+	//   - NotFound: the portfolio or account is not the caller's.
+	GetIncomeReport(context.Context, *connect.Request[v1.GetIncomeReportRequest]) (*connect.Response[v1.GetIncomeReportResponse], error)
 	// --- Account sync ---
 	// SyncAccount reads a wallet, exchange or broker account from its source and
 	// writes the assets and holdings it found. Errors:
@@ -365,6 +378,12 @@ func NewPortfolioServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(portfolioServiceMethods.ByName("ListLedger")),
 			connect.WithClientOptions(opts...),
 		),
+		getIncomeReport: connect.NewClient[v1.GetIncomeReportRequest, v1.GetIncomeReportResponse](
+			httpClient,
+			baseURL+PortfolioServiceGetIncomeReportProcedure,
+			connect.WithSchema(portfolioServiceMethods.ByName("GetIncomeReport")),
+			connect.WithClientOptions(opts...),
+		),
 		syncAccount: connect.NewClient[v1.SyncAccountRequest, v1.SyncAccountResponse](
 			httpClient,
 			baseURL+PortfolioServiceSyncAccountProcedure,
@@ -422,6 +441,7 @@ type portfolioServiceClient struct {
 	listAccounts              *connect.Client[v1.ListAccountsRequest, v1.ListAccountsResponse]
 	listProviders             *connect.Client[v1.ListProvidersRequest, v1.ListProvidersResponse]
 	listLedger                *connect.Client[v1.ListLedgerRequest, v1.ListLedgerResponse]
+	getIncomeReport           *connect.Client[v1.GetIncomeReportRequest, v1.GetIncomeReportResponse]
 	syncAccount               *connect.Client[v1.SyncAccountRequest, v1.SyncAccountResponse]
 	getAccountSweepSchedule   *connect.Client[v1.GetAccountSweepScheduleRequest, v1.GetAccountSweepScheduleResponse]
 	resetAccountSweepSchedule *connect.Client[v1.ResetAccountSweepScheduleRequest, v1.ResetAccountSweepScheduleResponse]
@@ -539,6 +559,11 @@ func (c *portfolioServiceClient) ListLedger(ctx context.Context, req *connect.Re
 	return c.listLedger.CallUnary(ctx, req)
 }
 
+// GetIncomeReport calls eye.v1.PortfolioService.GetIncomeReport.
+func (c *portfolioServiceClient) GetIncomeReport(ctx context.Context, req *connect.Request[v1.GetIncomeReportRequest]) (*connect.Response[v1.GetIncomeReportResponse], error) {
+	return c.getIncomeReport.CallUnary(ctx, req)
+}
+
 // SyncAccount calls eye.v1.PortfolioService.SyncAccount.
 func (c *portfolioServiceClient) SyncAccount(ctx context.Context, req *connect.Request[v1.SyncAccountRequest]) (*connect.Response[v1.SyncAccountResponse], error) {
 	return c.syncAccount.CallUnary(ctx, req)
@@ -616,6 +641,16 @@ type PortfolioServiceHandler interface {
 	// executed_at first. The account must be the caller's: another account
 	// answers an empty page, as ListHoldings does.
 	ListLedger(context.Context, *connect.Request[v1.ListLedgerRequest]) (*connect.Response[v1.ListLedgerResponse], error)
+	// GetIncomeReport sums the income events of one portfolio or one account
+	// over a period: a row per month (UTC) x income kind x asset with gross, tax
+	// and net, each valued in the display currency at the date of its event.
+	// Income is cash flow, not wealth: it never enters a portfolio total. An
+	// event with no price on its date stays out of the values and is listed as
+	// unvalued. Errors:
+	//   - InvalidArgument: neither or both of portfolio_id and account_id, or
+	//     from is not before to.
+	//   - NotFound: the portfolio or account is not the caller's.
+	GetIncomeReport(context.Context, *connect.Request[v1.GetIncomeReportRequest]) (*connect.Response[v1.GetIncomeReportResponse], error)
 	// --- Account sync ---
 	// SyncAccount reads a wallet, exchange or broker account from its source and
 	// writes the assets and holdings it found. Errors:
@@ -808,6 +843,12 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 		connect.WithSchema(portfolioServiceMethods.ByName("ListLedger")),
 		connect.WithHandlerOptions(opts...),
 	)
+	portfolioServiceGetIncomeReportHandler := connect.NewUnaryHandler(
+		PortfolioServiceGetIncomeReportProcedure,
+		svc.GetIncomeReport,
+		connect.WithSchema(portfolioServiceMethods.ByName("GetIncomeReport")),
+		connect.WithHandlerOptions(opts...),
+	)
 	portfolioServiceSyncAccountHandler := connect.NewUnaryHandler(
 		PortfolioServiceSyncAccountProcedure,
 		svc.SyncAccount,
@@ -884,6 +925,8 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 			portfolioServiceListProvidersHandler.ServeHTTP(w, r)
 		case PortfolioServiceListLedgerProcedure:
 			portfolioServiceListLedgerHandler.ServeHTTP(w, r)
+		case PortfolioServiceGetIncomeReportProcedure:
+			portfolioServiceGetIncomeReportHandler.ServeHTTP(w, r)
 		case PortfolioServiceSyncAccountProcedure:
 			portfolioServiceSyncAccountHandler.ServeHTTP(w, r)
 		case PortfolioServiceGetAccountSweepScheduleProcedure:
@@ -989,6 +1032,10 @@ func (UnimplementedPortfolioServiceHandler) ListProviders(context.Context, *conn
 
 func (UnimplementedPortfolioServiceHandler) ListLedger(context.Context, *connect.Request[v1.ListLedgerRequest]) (*connect.Response[v1.ListLedgerResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.ListLedger is not implemented"))
+}
+
+func (UnimplementedPortfolioServiceHandler) GetIncomeReport(context.Context, *connect.Request[v1.GetIncomeReportRequest]) (*connect.Response[v1.GetIncomeReportResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.GetIncomeReport is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) SyncAccount(context.Context, *connect.Request[v1.SyncAccountRequest]) (*connect.Response[v1.SyncAccountResponse], error) {

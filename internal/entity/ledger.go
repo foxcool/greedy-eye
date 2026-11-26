@@ -35,6 +35,27 @@ func (k LedgerEventKind) Valid() bool {
 	return false
 }
 
+// IncomeKind says what an income event paid. Only an income event has one.
+// The set is mirrored by a CHECK on ledger_events.income_kind.
+type IncomeKind string
+
+const (
+	IncomeCoupon        IncomeKind = "coupon"
+	IncomeDividend      IncomeKind = "dividend"
+	IncomeInterest      IncomeKind = "interest"
+	IncomeStakingReward IncomeKind = "staking_reward"
+	IncomeOther         IncomeKind = "other"
+)
+
+// Valid reports whether k is one of the known income kinds.
+func (k IncomeKind) Valid() bool {
+	switch k {
+	case IncomeCoupon, IncomeDividend, IncomeInterest, IncomeStakingReward, IncomeOther:
+		return true
+	}
+	return false
+}
+
 // LedgerDirection is whether the account received a leg's amount or gave it up.
 type LedgerDirection string
 
@@ -99,6 +120,9 @@ type LedgerEvent struct {
 	ID        string
 	AccountID string
 	Kind      LedgerEventKind
+	// IncomeKind is set on an income event and only there. A tax withheld on a
+	// payment is an income event of the same income kind with an out leg.
+	IncomeKind IncomeKind
 	// ExecutedAt is when the event happened, not when the row was written.
 	ExecutedAt time.Time
 	// ExternalRef is the source's id for the event; unique per (account, source).
@@ -110,6 +134,19 @@ type LedgerEvent struct {
 	Legs      []LedgerLeg
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// ReportedIncomeKind is the income kind a report files the event under. An
+// income event written before income kinds existed has none and is filed as
+// other; a non-income event has none at all.
+func (e *LedgerEvent) ReportedIncomeKind() IncomeKind {
+	if e.Kind != LedgerKindIncome {
+		return ""
+	}
+	if e.IncomeKind == "" {
+		return IncomeOther
+	}
+	return e.IncomeKind
 }
 
 // LedgerLeg is one asset movement of an event. Amount is a raw integer scaled
@@ -139,6 +176,10 @@ func (e *LedgerEvent) Validate() error {
 		return fmt.Errorf("unknown ledger source %q", e.Source)
 	case len(e.Legs) == 0:
 		return errors.New("a ledger event needs at least one leg")
+	case e.Kind == LedgerKindIncome && !e.IncomeKind.Valid():
+		return fmt.Errorf("an income event needs an income kind, got %q", e.IncomeKind)
+	case e.Kind != LedgerKindIncome && e.IncomeKind != "":
+		return fmt.Errorf("only an income event has an income kind, %s has %q", e.Kind, e.IncomeKind)
 	}
 	for i, l := range e.Legs {
 		switch {

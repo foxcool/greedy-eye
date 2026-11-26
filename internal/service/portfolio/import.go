@@ -41,6 +41,39 @@ func (h *Handler) importAccount(ctx context.Context, accountID string) (*entity.
 	return account, nil
 }
 
+// syncWrittenIncomeKinds are the income kinds an account's own sync records.
+// Importing one of them by hand as well would count one payment twice under
+// two sources, so the import refuses it for that account.
+//
+// The broker sync owns coupons, dividends and broker interest, the only
+// operations it is meant to read. Other account types sync no income, so
+// every income kind may be imported into them.
+func syncWrittenIncomeKinds(account *entity.Account) []entity.IncomeKind {
+	if account.Type == entity.AccountTypeBroker {
+		return []entity.IncomeKind{entity.IncomeCoupon, entity.IncomeDividend, entity.IncomeInterest}
+	}
+	return nil
+}
+
+// refuseLedgerImport says why an account cannot take this event, or nil.
+//
+// A manual account takes every kind: a person is its only author. Any other
+// account is synced, and the ledger never writes holdings, so income — which
+// no sync of that account records — is the only thing a person can add to it
+// without contradicting the sync. Trades and transfers there are the sync's.
+func refuseLedgerImport(account *entity.Account, e *entity.LedgerEvent) error {
+	if account.Type == entity.AccountTypeManual {
+		return nil
+	}
+	if e.Kind != entity.LedgerKindIncome {
+		return fmt.Errorf("a %s account takes only income by import; %s events come from its sync", account.Type, e.Kind)
+	}
+	if slices.Contains(syncWrittenIncomeKinds(account), e.IncomeKind) {
+		return fmt.Errorf("%s income on a %s account is recorded by its sync; importing it too would count it twice", e.IncomeKind, account.Type)
+	}
+	return nil
+}
+
 // resolveImportID validates a caller-provided batch id or generates one.
 func resolveImportID(raw *string) (string, error) {
 	if raw != nil && *raw != "" {
@@ -427,8 +460,11 @@ func (h *Handler) accountHoldingsByAsset(ctx context.Context, accountID string) 
 	}
 }
 
-// ImportTransactions batch-creates ledger events on a manual account: each
-// item is one event with its legs, written together. Dedup: an item with an
+// ImportTransactions batch-creates ledger events on an account the caller
+// owns: each item is one event with its legs, written together. A manual
+// account takes every kind; any other account takes income only, minus the
+// income kinds its own sync writes (refuseLedgerImport), refused per item so
+// the rest of the batch still lands. Dedup: an item with an
 // external_ref is skipped when the account already has that ref from an
 // import; an item without one is skipped when an imported event has the same
 // kind, executed_at and legs. Re-importing the same export therefore writes
@@ -438,7 +474,10 @@ func (h *Handler) ImportTransactions(ctx context.Context, req *connect.Request[a
 	if h.mdClient == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("asset resolution not configured"))
 	}
-	account, err := h.importAccount(ctx, req.Msg.AccountId)
+	if req.Msg.AccountId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("account_id is required"))
+	}
+	account, err := h.ownedAccount(ctx, req.Msg.AccountId)
 	if err != nil {
 		return nil, err
 	}
@@ -497,6 +536,9 @@ func (h *Handler) importOneLedgerEvent(
 	if err != nil {
 		return fail(err)
 	}
+	if err := refuseLedgerImport(account, event); err != nil {
+		return fail(err)
+	}
 
 	// The heuristic is only for rows the export gave no id: two genuinely
 	// separate events can share kind, time and amounts, and an id says so.
@@ -543,8 +585,9 @@ func (h *Handler) ledgerEventFromImport(ctx context.Context, accountID, importID
 		return nil, errors.New("executed_at is required")
 	}
 	event := &entity.LedgerEvent{
-		AccountID: accountID,
-		Kind:      protoLedgerKind(item.Kind),
+		AccountID:  accountID,
+		Kind:       protoLedgerKind(item.Kind),
+		IncomeKind: protoIncomeKind(item.IncomeKind),
 		// The column keeps microseconds; truncating here makes a re-import of
 		// the same export compare equal to what was stored.
 		ExecutedAt:  item.ExecutedAt.AsTime().UTC().Truncate(time.Microsecond),
