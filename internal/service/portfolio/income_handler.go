@@ -47,12 +47,14 @@ func (h *Handler) GetIncomeReport(ctx context.Context, req *connect.Request[apiv
 	if h.mdClient == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("market data client not configured"))
 	}
-	user, ok := middleware.UserFromContext(ctx)
-	if !ok {
+	if _, ok := middleware.UserFromContext(ctx); !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not found in context"))
 	}
 
-	opts := ListLedgerOpts{UserID: user.ID, Kind: entity.LedgerKindIncome, PageSize: maxImportBatch}
+	// Scoped by the ownership check of the named portfolio or account below,
+	// not by the caller's id: that check lets an admin read one they do not
+	// own, as ListHoldings does, and a user filter on top would answer empty.
+	opts := ListLedgerOpts{Kind: entity.LedgerKindIncome, PageSize: maxImportBatch}
 	portfolioID, accountID := req.Msg.GetPortfolioId(), req.Msg.GetAccountId()
 	switch {
 	case (portfolioID == "") == (accountID == ""):

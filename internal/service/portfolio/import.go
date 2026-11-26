@@ -688,7 +688,15 @@ func ledgerHeuristicKey(e *entity.LedgerEvent) string {
 		legs = append(legs, strings.Join([]string{l.AssetID, string(l.Direction), string(l.Role), value.String(), l.Chain}, "|"))
 	}
 	slices.Sort(legs)
-	return string(e.Kind) + "|" + e.ExecutedAt.UTC().Format(time.RFC3339Nano) + "|" + strings.Join(legs, ";")
+	// The income kind is part of what happened: a coupon and a dividend of the
+	// same amount on the same date are two payments, not one written twice.
+	// The reported kind, so an income event stored before kinds existed matches
+	// its re-import as other.
+	kind := string(e.Kind)
+	if e.Kind == entity.LedgerKindIncome {
+		kind += "/" + string(e.ReportedIncomeKind())
+	}
+	return kind + "|" + e.ExecutedAt.UTC().Format(time.RFC3339Nano) + "|" + strings.Join(legs, ";")
 }
 
 // importedLedgerKeys loads the dedup keys of the account's imported events:

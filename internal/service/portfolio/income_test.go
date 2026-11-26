@@ -184,3 +184,17 @@ func TestIncomeReportToProto_TotalsAreSumsOfRows(t *testing.T) {
 	assert.Equal(t, "105", out.Rows[1].NetValue, "net is gross minus tax in cents")
 	assert.Equal(t, "604", out.NetValue, "the total is the sum of the rows")
 }
+
+// Two payments without an id, same date and amount, different income kinds,
+// are two events: dedup must not fold the second into the first.
+func TestLedgerHeuristicKey_IncomeKindIsIdentity(t *testing.T) {
+	at := time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC)
+	coupon := incomeEvent("", at, entity.IncomeCoupon, incomeLeg("rub", entity.LedgerIn, "100", 2))
+	dividend := incomeEvent("", at, entity.IncomeDividend, incomeLeg("rub", entity.LedgerIn, "100", 2))
+	legacy := incomeEvent("", at, "", incomeLeg("rub", entity.LedgerIn, "100", 2))
+	other := incomeEvent("", at, entity.IncomeOther, incomeLeg("rub", entity.LedgerIn, "100", 2))
+
+	assert.NotEqual(t, ledgerHeuristicKey(coupon), ledgerHeuristicKey(dividend))
+	assert.Equal(t, ledgerHeuristicKey(legacy), ledgerHeuristicKey(other),
+		"an income event stored before kinds existed is the same event re-imported as other")
+}

@@ -125,4 +125,17 @@ func TestIncomeReport_ManualImport(t *testing.T) {
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 	_, foreignHolding := f.handler.GetAccount(stranger, connect.NewRequest(&apiv1.GetAccountRequest{Id: exchange.ID}))
 	assert.Equal(t, connect.CodeOf(foreignHolding), connect.CodeOf(err))
+
+	// An admin passes the ownership check of another user's account and must
+	// then see its income, not an empty report.
+	adminUser := createTestUser(t, NewUserStore(testDB.Pool))
+	adminUser.Roles = []string{"admin"}
+	asAdmin, err := f.handler.GetIncomeReport(middleware.ContextWithUser(f.ctx, adminUser), connect.NewRequest(&apiv1.GetIncomeReportRequest{
+		AccountId:    &exchange.ID,
+		From:         timestamppb.New(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)),
+		To:           timestamppb.New(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)),
+		QuoteAssetId: &usd.ID,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, report.Msg.NetValue, asAdmin.Msg.NetValue)
 }
