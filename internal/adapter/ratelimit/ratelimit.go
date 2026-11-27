@@ -70,7 +70,8 @@ type Limit struct {
 	Quota int
 	// Period is the window Quota resets on. Ignored when Quota is zero.
 	Period QuotaPeriod
-	// Backoff is the first pause after a refusal that names none; refusals
+	// Backoff is the first pause after a refusal that names none or names
+	// zero (Retry-After: 0, a past date); refusals
 	// in a row double it (escalate). Zero means defaultBackoff. A provider
 	// whose refusal means "this second is full" wants seconds, not minutes.
 	Backoff time.Duration

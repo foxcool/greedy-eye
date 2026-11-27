@@ -618,10 +618,15 @@ without linking them.
   block read 20 per item) and its plan is 140 CU/s with 10 s of burst, under half the account,
   leaving room for a second deployment on the same account. Its `Backoff` is 1 s, as Alchemy
   advises, and its client sends a call refused with 429 up to three times; the freeze holds each
-  retry back. The streak is in memory and a restart clears it — the spend it protects is not.
+  retry back. A request whose deadline falls inside the freeze is refused at once
+  (`ratelimit.ErrFrozen`) instead of sleeping to its timeout, and the Alchemy client then
+  answers with the 429. A cost larger than the burst is taken a full bucket at a time, charged
+  in full.
+  The streak is in memory and a restart clears it — the spend it protects is not.
   Built-in plans live in `defaultLimits`; the ACCOUNT overrides them field by field through
   `data.rps`/`.burst`/`.quota`/`.period`, because a plan belongs to the key rather than to the
-  service. The limit is re-resolved each time a client is built, so an edit applies without a
+  service. `rps` and `burst` are in the unit the provider's requests are costed in: compute units
+  for Alchemy, requests elsewhere. The limit is re-resolved each time a client is built, so an edit applies without a
   restart; accounts sharing a key are all enforced (smallest share wins), and a key-less bucket
   takes only the operator's limit — it is one per-IP budget for every user. Spend is persisted per period (`provider_usage`), so a restart does not hand the process
   a fresh month. Two instances on ONE key remain the sharp edge: they see each other's spend only

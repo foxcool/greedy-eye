@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -21,9 +22,9 @@ import (
 const maxTransfersPerPage = 1000
 
 // maxBlocksPerBatch bounds one JSON-RPC batch of block reads. Each item is
-// metered on its own, and a batch of 100 (about 1600 CU) went past the free
-// tier's throughput at once: the node refused items and the calls after it.
-// 20 is about 320 CU.
+// metered on its own, and a batch of 100 (2000 CU) went past the free tier's
+// throughput at once: the node refused items and the calls after it. 20 is
+// 400 CU.
 const maxBlocksPerBatch = 20
 
 // blockBatchAttempts is how often a batch item the node refused is asked
@@ -116,7 +117,9 @@ func (c *Client) postRPC(ctx context.Context, slug, method string, payload any, 
 // from Do quotes it itself, so that error is stripped of it (urlerr).
 //
 // A 429 is Alchemy saying this second's throughput is spent; the call is sent
-// again after the pause the rate budget now holds it for.
+// again after the pause the rate budget now holds it for. A pause past the
+// client timeout refuses the retry at once (ratelimit.ErrFrozen), and the
+// answer is the 429 itself rather than "deadline exceeded".
 func (c *Client) post(ctx context.Context, url, what string, payload any, cu int) ([]byte, error) {
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -126,6 +129,9 @@ func (c *Client) post(ctx context.Context, url, what string, payload any, cu int
 	for attempt := 1; ; attempt++ {
 		body, status, err := c.send(ctx, url, encoded)
 		if err != nil {
+			if attempt > 1 && errors.Is(err, ratelimit.ErrFrozen) {
+				return nil, fmt.Errorf("alchemy: API status %d for %s", http.StatusTooManyRequests, what)
+			}
 			return nil, err
 		}
 		switch {
@@ -256,10 +262,10 @@ func (c *Client) BlockTimes(ctx context.Context, slug string, blocks []uint64) (
 	out := make(map[uint64]time.Time, len(blocks))
 	for start := 0; start < len(blocks); start += maxBlocksPerBatch {
 		pending := blocks[start:min(start+maxBlocksPerBatch, len(blocks))]
-		var why string
+		var reasons map[uint64]string
 		for attempt := 0; len(pending) > 0; attempt++ {
 			if attempt == blockBatchAttempts {
-				return nil, fmt.Errorf("alchemy: block %d on %s has no answer: %s", pending[0], slug, why)
+				return nil, fmt.Errorf("alchemy: block %d on %s has no answer: %s", pending[0], slug, reasons[pending[0]])
 			}
 			if attempt > 0 {
 				select {
@@ -269,7 +275,7 @@ func (c *Client) BlockTimes(ctx context.Context, slug string, blocks []uint64) (
 				}
 			}
 			var err error
-			if pending, why, err = c.blockBatch(ctx, slug, pending, out); err != nil {
+			if pending, reasons, err = c.blockBatch(ctx, slug, pending, out); err != nil {
 				return nil, err
 			}
 		}
@@ -278,15 +284,15 @@ func (c *Client) BlockTimes(ctx context.Context, slug string, blocks []uint64) (
 }
 
 // blockBatch reads one batch into out and returns the blocks left without an
-// answer, with the node's last word on them.
-func (c *Client) blockBatch(ctx context.Context, slug string, chunk []uint64, out map[uint64]time.Time) ([]uint64, string, error) {
+// answer, with the node's reason for each.
+func (c *Client) blockBatch(ctx context.Context, slug string, chunk []uint64, out map[uint64]time.Time) ([]uint64, map[uint64]string, error) {
 	batch := make([]rpcRequest, len(chunk))
 	for i, b := range chunk {
 		batch[i] = rpcRequest{JSONRPC: "2.0", ID: i, Method: "eth_getBlockByNumber", Params: []any{hexQuantity(b), false}}
 	}
 	body, err := c.postRPC(ctx, slug, "eth_getBlockByNumber", batch, len(batch))
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 	var parsed []struct {
 		ID     int `json:"id"`
@@ -296,25 +302,25 @@ func (c *Client) blockBatch(ctx context.Context, slug string, chunk []uint64, ou
 		Error *rpcError `json:"error"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return nil, "", fmt.Errorf("alchemy: decode block batch: %w", err)
+		return nil, nil, fmt.Errorf("alchemy: decode block batch: %w", err)
 	}
-	why := "no item in the answer"
+	reasons := make(map[uint64]string, len(chunk))
 	for _, r := range parsed {
 		if r.ID < 0 || r.ID >= len(chunk) {
-			return nil, "", fmt.Errorf("alchemy: block batch on %s answered unknown id %d", slug, r.ID)
+			return nil, nil, fmt.Errorf("alchemy: block batch on %s answered unknown id %d", slug, r.ID)
 		}
 		block := chunk[r.ID]
 		switch {
 		case r.Error != nil:
-			why = r.Error.Message
+			reasons[block] = r.Error.Message
 			continue
 		case r.Result == nil:
-			why = "the node has no such block"
+			reasons[block] = "the node has no such block"
 			continue
 		}
 		ts, ok := hexToUint(r.Result.Timestamp)
 		if !ok || ts > math.MaxInt64 {
-			return nil, "", fmt.Errorf("alchemy: block %d on %s has timestamp %q", block, slug, r.Result.Timestamp)
+			return nil, nil, fmt.Errorf("alchemy: block %d on %s has timestamp %q", block, slug, r.Result.Timestamp)
 		}
 		out[block] = time.Unix(int64(ts), 0).UTC() // #nosec G115 -- checked against MaxInt64 above
 	}
@@ -322,9 +328,12 @@ func (c *Client) blockBatch(ctx context.Context, slug string, chunk []uint64, ou
 	for _, b := range chunk {
 		if _, ok := out[b]; !ok {
 			missing = append(missing, b)
+			if _, said := reasons[b]; !said {
+				reasons[b] = "no item in the answer"
+			}
 		}
 	}
-	return missing, why, nil
+	return missing, reasons, nil
 }
 
 func hexQuantity(n uint64) string { return "0x" + strconv.FormatUint(n, 16) }

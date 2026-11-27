@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -403,5 +404,64 @@ func TestThroughputRefusalIsRetried(t *testing.T) {
 		}
 		require.NoError(t, err)
 		assert.Equal(t, uint64(16), head)
+	}
+}
+
+// TestBlockTimes_EachBlockKeepsItsOwnReason: the failure names the block
+// with what the node said about that block, not about another one.
+func TestBlockTimes_EachBlockKeepsItsOwnReason(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, `[{"jsonrpc":"2.0","id":0,"error":{"code":429,"message":"capacity exceeded"}},`+
+			`{"jsonrpc":"2.0","id":1,"result":null}]`)
+	}))
+	t.Cleanup(srv.Close)
+	client := NewClient(Config{APIKey: "test-key"})
+	client.rpcURL = func(string) string { return srv.URL }
+	orig := blockRetryPause
+	blockRetryPause = 0
+	t.Cleanup(func() { blockRetryPause = orig })
+
+	_, err := client.BlockTimes(context.Background(), "bnb-mainnet", []uint64{1, 2})
+	require.ErrorContains(t, err, "block 1 on bnb-mainnet has no answer: capacity exceeded")
+}
+
+// TestThroughputRefusalWithLongPauseIsReturned: when the shared budget holds
+// the next attempt back longer than the client would wait, the 429 is the
+// answer, not a timeout spent sitting out the pause.
+func TestThroughputRefusalWithLongPauseIsReturned(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		backoff   time.Duration
+		wantCalls int
+	}{
+		{"plan's own 1 s pause is waited out", 0, 2}, // 0: no override, the plan's Backoff
+		{"pause past the client timeout", 40 * time.Second, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls++
+				if calls == 1 {
+					w.WriteHeader(http.StatusTooManyRequests)
+					return
+				}
+				writeJSON(w, `{"jsonrpc":"2.0","id":1,"result":"0x10"}`)
+			}))
+			t.Cleanup(srv.Close)
+			reg := ratelimit.NewRegistry()
+			cred := ratelimit.Credential{Provider: "alchemy", APIKey: "test-key", Limit: ratelimit.Limit{Backoff: tc.backoff}}
+			client := NewClient(Config{APIKey: "test-key", Transport: reg.Transport(cred, nil)})
+			client.rpcURL = func(string) string { return srv.URL }
+
+			start := time.Now()
+			_, err := client.BlockNumber(context.Background(), "eth-mainnet")
+			assert.Equal(t, tc.wantCalls, calls)
+			if tc.wantCalls == 1 {
+				require.ErrorContains(t, err, "API status 429")
+				assert.Less(t, time.Since(start), time.Second, "returned at once, not after the pause")
+				return
+			}
+			require.NoError(t, err)
+		})
 	}
 }
