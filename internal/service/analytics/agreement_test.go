@@ -62,6 +62,16 @@ func (m agreementMD) GetAsset(ctx context.Context, req *connect.Request[apiv1.Ge
 	return m.inner.GetAsset(ctx, req)
 }
 
+func (m agreementMD) ListAssets(_ context.Context, req *connect.Request[apiv1.ListAssetsRequest]) (*connect.Response[apiv1.ListAssetsResponse], error) {
+	resp := &apiv1.ListAssetsResponse{}
+	for _, id := range req.Msg.Ids {
+		if asset := m.inner.assets[id]; asset != nil {
+			resp.Assets = append(resp.Assets, asset)
+		}
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (m agreementMD) GetLatestPrice(ctx context.Context, req *connect.Request[apiv1.GetLatestPriceRequest]) (*connect.Response[apiv1.Price], error) {
 	return m.inner.GetLatestPrice(ctx, req)
 }
@@ -123,7 +133,7 @@ func agreementFixture() (*fakeStore, *fakeMD) {
 			"ghost": {Id: "ghost", Name: "Ghost", Symbol: strPtr("GHOST")},
 			"orph":  {Id: "orph", Name: "Orphaned Quote", Symbol: strPtr("ORPH")},
 			"twin":  {Id: "twin", Name: "Contested", Symbol: strPtr("TWIN")},
-			"scam":  {Id: "scam", Name: "Counterfeit", Symbol: strPtr("USDT")},
+			"scam":  {Id: "scam", Name: "Counterfeit", Symbol: strPtr("USDT"), IdentityVerdict: strPtr("scam")},
 			"USD":   {Id: "USD", Name: "US Dollar", Symbol: strPtr("USD")},
 		},
 		latest: map[string]*apiv1.Price{

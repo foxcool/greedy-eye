@@ -32,6 +32,11 @@ func (c *countingMD) GetAsset(_ context.Context, req *connect.Request[apiv1.GetA
 	return connect.NewResponse(&apiv1.Asset{Id: req.Msg.Id}), nil
 }
 
+func (c *countingMD) ListAssets(_ context.Context, _ *connect.Request[apiv1.ListAssetsRequest]) (*connect.Response[apiv1.ListAssetsResponse], error) {
+	c.calls++
+	return connect.NewResponse(&apiv1.ListAssetsResponse{}), nil
+}
+
 func (c *countingMD) GetLatestPrice(_ context.Context, req *connect.Request[apiv1.GetLatestPriceRequest]) (*connect.Response[apiv1.Price], error) {
 	c.calls++
 	if p, ok := c.latest[req.Msg.AssetId+"|"+req.Msg.BaseAssetId]; ok {

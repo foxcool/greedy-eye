@@ -398,6 +398,10 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 	for _, hld := range holdings {
 		assetIDs = append(assetIDs, hld.AssetID)
 	}
+	quarantined, err := h.assetQuarantine(ctx, holdings)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get asset verdicts: %w", err))
+	}
 	prices, err := quoting.Prefetch(ctx, h.mdClient, assetIDs, quoteAssetID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get prices: %w", err))
@@ -408,7 +412,7 @@ func (h *Handler) CalculatePortfolioValue(ctx context.Context, req *connect.Requ
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get price for %s: %w", hld.AssetID, err))
 		}
-		if hld.Excluded() {
+		if excludedByCurrentVerdict(hld, quarantined) {
 			// Count every quarantined holding; add its value only when priced.
 			// Quarantine is its own axis: an excluded holding is out of the total
 			// by decision, not for lack of a quote, so it stays out of coverage.
@@ -1044,10 +1048,14 @@ func (h *Handler) ListUnpricedHoldings(ctx context.Context, req *connect.Request
 		if err != nil {
 			return nil, toConnectError(err)
 		}
+		quarantined, err := h.assetQuarantine(ctx, page)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get asset verdicts: %w", err))
+		}
 		// One set read per store page, as the valuation does (see unitPrice).
 		assetIDs := make([]string, 0, len(page))
 		for _, hld := range page {
-			if !hld.Excluded() {
+			if !excludedByCurrentVerdict(hld, quarantined) {
 				assetIDs = append(assetIDs, hld.AssetID)
 			}
 		}
@@ -1061,7 +1069,7 @@ func (h *Handler) ListUnpricedHoldings(ctx context.Context, req *connect.Request
 			// is out of the total on purpose and is disclosed by its own counter,
 			// so mixing it into this worklist would merge two axes the coverage
 			// block keeps apart.
-			if hld.Excluded() {
+			if excludedByCurrentVerdict(hld, quarantined) {
 				continue
 			}
 			priced, err := h.unitPrice(ctx, prices, hld.AssetID, quoteAssetID)
@@ -2945,6 +2953,68 @@ func contractDisplaySymbol(refSource, ref string) (string, bool) {
 func isQuarantineVerdict(verdict string) bool {
 	return verdict == string(scamfilter.VerdictScam) ||
 		verdict == string(scamfilter.VerdictImpersonation)
+}
+
+// assetQuarantine reads the current asset verdicts for one holdings page. The
+// holding flag is a materialized sync result and can lag a verdict written
+// between syncs, so valuation and its unpriced worklist also derive the current
+// quarantine from the asset itself. ListAssets is batched because the catalogue
+// belongs to MarketDataService and may live in a different database.
+func (h *Handler) assetQuarantine(ctx context.Context, holdings []*entity.Holding) (map[string]bool, error) {
+	const batchSize = 1000 // MarketDataService's maximum ListAssets ID filter.
+
+	ids := make([]string, 0, len(holdings))
+	seen := make(map[string]struct{}, len(holdings))
+	for _, holding := range holdings {
+		if holding.Excluded() && !holding.ReleasableBySync() {
+			continue
+		}
+		if _, ok := seen[holding.AssetID]; ok {
+			continue
+		}
+		seen[holding.AssetID] = struct{}{}
+		ids = append(ids, holding.AssetID)
+	}
+
+	quarantined := make(map[string]bool)
+	for len(ids) > 0 {
+		batch := ids
+		if len(batch) > batchSize {
+			batch, ids = ids[:batchSize], ids[batchSize:]
+		} else {
+			ids = nil
+		}
+		pageSize := int32(batchSize)
+		pageToken := ""
+		for {
+			resp, err := h.mdClient.ListAssets(ctx, connect.NewRequest(&apiv1.ListAssetsRequest{
+				Ids: batch, PageSize: &pageSize, PageToken: &pageToken,
+			}))
+			if err != nil {
+				return nil, err
+			}
+			if resp == nil || resp.Msg == nil {
+				return nil, errors.New("market data returned no assets response")
+			}
+			for _, asset := range resp.Msg.Assets {
+				if asset != nil && isQuarantineVerdict(asset.GetIdentityVerdict()) {
+					quarantined[asset.GetId()] = true
+				}
+			}
+			if resp.Msg.GetNextPageToken() == "" {
+				break
+			}
+			pageToken = resp.Msg.GetNextPageToken()
+		}
+	}
+	return quarantined, nil
+}
+
+// excludedByCurrentVerdict keeps a person's exclusion and derives the machine
+// exclusion from the current asset verdict, including when a prior sync left a
+// stale flag on the holding.
+func excludedByCurrentVerdict(holding *entity.Holding, quarantined map[string]bool) bool {
+	return quarantined[holding.AssetID] || holding.Excluded() && !holding.ReleasableBySync()
 }
 
 // --- Ledger ---
