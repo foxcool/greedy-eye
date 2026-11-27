@@ -3343,6 +3343,9 @@ func ledgerEventToProto(e *entity.LedgerEvent) *apiv1.LedgerEvent {
 	if e.ImportID != "" {
 		out.ImportId = &e.ImportID
 	}
+	if e.Kind == entity.LedgerKindIncome {
+		out.IncomeKind = incomeKindToProto[e.ReportedIncomeKind()]
+	}
 	for _, l := range e.Legs {
 		out.Legs = append(out.Legs, &apiv1.LedgerLeg{
 			Id:        l.ID,
@@ -3368,6 +3371,14 @@ var ledgerKindToProto = map[entity.LedgerEventKind]apiv1.LedgerEventKind{
 	entity.LedgerKindOpening:     apiv1.LedgerEventKind_LEDGER_EVENT_KIND_OPENING,
 }
 
+var incomeKindToProto = map[entity.IncomeKind]apiv1.IncomeKind{
+	entity.IncomeCoupon:        apiv1.IncomeKind_INCOME_KIND_COUPON,
+	entity.IncomeDividend:      apiv1.IncomeKind_INCOME_KIND_DIVIDEND,
+	entity.IncomeInterest:      apiv1.IncomeKind_INCOME_KIND_INTEREST,
+	entity.IncomeStakingReward: apiv1.IncomeKind_INCOME_KIND_STAKING_REWARD,
+	entity.IncomeOther:         apiv1.IncomeKind_INCOME_KIND_OTHER,
+}
+
 var ledgerDirectionToProto = map[entity.LedgerDirection]apiv1.LedgerLegDirection{
 	entity.LedgerIn:  apiv1.LedgerLegDirection_LEDGER_LEG_DIRECTION_IN,
 	entity.LedgerOut: apiv1.LedgerLegDirection_LEDGER_LEG_DIRECTION_OUT,
@@ -3384,6 +3395,15 @@ var ledgerRoleToProto = map[entity.LedgerRole]apiv1.LedgerLegRole{
 // unspecified value comes back as "" and fails entity validation.
 func protoLedgerKind(k apiv1.LedgerEventKind) entity.LedgerEventKind {
 	for e, p := range ledgerKindToProto {
+		if p == k {
+			return e
+		}
+	}
+	return ""
+}
+
+func protoIncomeKind(k apiv1.IncomeKind) entity.IncomeKind {
+	for e, p := range incomeKindToProto {
 		if p == k {
 			return e
 		}

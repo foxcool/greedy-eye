@@ -1032,6 +1032,14 @@ table "ledger_events" {
     type = text
     null = false
   }
+  # What an income event paid: coupon | dividend | interest | staking_reward |
+  # other. Only an income event carries one. The code requires it on every new
+  # income event; the column stays nullable so income events written before it
+  # existed remain valid, and a report reads them as other.
+  column "income_kind" {
+    type = text
+    null = true
+  }
   # When the event happened, not when the row was written.
   column "executed_at" {
     type = timestamptz
@@ -1082,6 +1090,15 @@ table "ledger_events" {
 
   check "ledger_events_kind" {
     expr = "(kind = ANY (ARRAY['trade'::text, 'transfer_in'::text, 'transfer_out'::text, 'deposit'::text, 'withdrawal'::text, 'income'::text, 'fee'::text, 'opening'::text]))"
+  }
+
+  check "ledger_events_income_kind" {
+    expr = "((income_kind IS NULL) OR ((kind = 'income'::text) AND (income_kind = ANY (ARRAY['coupon'::text, 'dividend'::text, 'interest'::text, 'staking_reward'::text, 'other'::text]))))"
+  }
+
+  index "ledger_events_income" {
+    columns = [column.account_id, column.executed_at]
+    where   = "(kind = 'income'::text)"
   }
 
   # The ledger is the record of what happened: an account that has one is not

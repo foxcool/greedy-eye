@@ -50,11 +50,11 @@ func (s *PortfolioStore) CreateLedgerEvent(ctx context.Context, e *entity.Ledger
 	defer func() { _ = tx.Rollback(ctx) }() // no-op once committed
 
 	err = tx.QueryRow(ctx, `
-		INSERT INTO ledger_events (id, account_id, kind, executed_at, external_ref, source, import_id, raw, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+		INSERT INTO ledger_events (id, account_id, kind, income_kind, executed_at, external_ref, source, import_id, raw, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
 		RETURNING created_at, updated_at`,
-		e.ID, e.AccountID, string(e.Kind), e.ExecutedAt, nullableString(e.ExternalRef), e.Source,
-		nullableString(e.ImportID), raw,
+		e.ID, e.AccountID, string(e.Kind), nullableString(string(e.IncomeKind)), e.ExecutedAt,
+		nullableString(e.ExternalRef), e.Source, nullableString(e.ImportID), raw,
 	).Scan(&e.CreatedAt, &e.UpdatedAt)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -137,6 +137,15 @@ func (s *PortfolioStore) ListLedgerEvents(ctx context.Context, opts portfolio.Li
 		}
 		where = append(where, "e.account_id = "+arg(opts.AccountID))
 	}
+	if opts.PortfolioID != "" {
+		if !isValidUUID(opts.PortfolioID) {
+			return nil, "", fmt.Errorf("%w: invalid portfolio ID format", store.ErrInvalidArgument)
+		}
+		where = append(where, "e.account_id IN (SELECT id FROM accounts WHERE portfolio_id = "+arg(opts.PortfolioID)+")")
+	}
+	if opts.Kind != "" {
+		where = append(where, "e.kind = "+arg(string(opts.Kind)))
+	}
 	if opts.AssetID != "" {
 		if !isValidUUID(opts.AssetID) {
 			return nil, "", fmt.Errorf("%w: invalid asset ID format", store.ErrInvalidArgument)
@@ -162,7 +171,7 @@ func (s *PortfolioStore) ListLedgerEvents(ctx context.Context, opts portfolio.Li
 		whereClause = "WHERE " + strings.Join(where, " AND ")
 	}
 	query := fmt.Sprintf(`
-		SELECT e.id, e.account_id, e.kind, e.executed_at, e.external_ref, e.source, e.import_id, e.raw, e.created_at, e.updated_at
+		SELECT e.id, e.account_id, e.kind, e.income_kind, e.executed_at, e.external_ref, e.source, e.import_id, e.raw, e.created_at, e.updated_at
 		FROM ledger_events e
 		%s
 		ORDER BY e.executed_at, e.id
@@ -179,12 +188,15 @@ func (s *PortfolioStore) ListLedgerEvents(ctx context.Context, opts portfolio.Li
 	for rows.Next() {
 		var e entity.LedgerEvent
 		var kind string
-		var externalRef, importID *string
-		if err := rows.Scan(&e.ID, &e.AccountID, &kind, &e.ExecutedAt, &externalRef, &e.Source, &importID,
+		var externalRef, importID, incomeKind *string
+		if err := rows.Scan(&e.ID, &e.AccountID, &kind, &incomeKind, &e.ExecutedAt, &externalRef, &e.Source, &importID,
 			&e.Raw, &e.CreatedAt, &e.UpdatedAt); err != nil {
 			return nil, "", fmt.Errorf("failed to scan ledger event: %w", err)
 		}
 		e.Kind = entity.LedgerEventKind(kind)
+		if incomeKind != nil {
+			e.IncomeKind = entity.IncomeKind(*incomeKind)
+		}
 		if externalRef != nil {
 			e.ExternalRef = *externalRef
 		}

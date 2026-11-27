@@ -50,3 +50,17 @@ func TestLedgerEventValidate(t *testing.T) {
 	e.Source = LedgerSyncSource("binance")
 	assert.NoError(t, e.Validate(), "a provider-named sync source is valid")
 }
+
+// An income event says what it paid; no other event may claim an income kind.
+func TestLedgerEventValidate_IncomeKind(t *testing.T) {
+	event := func(kind LedgerEventKind, income IncomeKind) *LedgerEvent {
+		return &LedgerEvent{
+			AccountID: "acct", Kind: kind, IncomeKind: income, ExecutedAt: time.Now(), Source: "manual",
+			Legs: []LedgerLeg{{AssetID: "rub", Direction: LedgerIn, Role: LedgerRoleIncome, Amount: decimal.NewFromInt(100)}},
+		}
+	}
+	assert.NoError(t, event(LedgerKindIncome, IncomeCoupon).Validate())
+	assert.Error(t, event(LedgerKindIncome, "").Validate(), "income needs a kind")
+	assert.Error(t, event(LedgerKindIncome, "bonus").Validate(), "an unknown kind is refused")
+	assert.Error(t, event(LedgerKindDeposit, IncomeInterest).Validate(), "a deposit is not income")
+}

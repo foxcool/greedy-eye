@@ -178,6 +178,10 @@ type ListLedgerOpts struct {
 	// UserID scopes results to events of accounts owned by this user.
 	UserID    string
 	AccountID string
+	// PortfolioID keeps events of the accounts in this portfolio.
+	PortfolioID string
+	// Kind keeps events of one kind; empty keeps every kind.
+	Kind entity.LedgerEventKind
 	// AssetID keeps events with at least one leg in the asset.
 	AssetID string
 	// ExecutedFrom (inclusive) and ExecutedTo (exclusive) bound executed_at; zero is open.

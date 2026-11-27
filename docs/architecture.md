@@ -402,12 +402,20 @@ graph TB
   event with three legs, which the single-asset `transactions` row it replaced could not hold.
   The event and its legs are written in one database transaction, and an event has at least one
   leg. Idempotency: `external_ref` is unique per (account, source), so a repeated import or sync
-  cannot record an event twice. ImportTransactions (manual accounts only, dry-run plan first)
-  skips an item whose `external_ref` the account already has from an import, and an item without
+  cannot record an event twice. ImportTransactions (dry-run plan first) takes every kind into a
+  manual account and only income into any other account of the caller, refusing per item the
+  income kinds that account's own sync records (the broker's coupons, dividends and interest),
+  so one payment is not recorded under two sources; it never writes holdings. It skips an item whose `external_ref` the account already has from an import, and an item without
   one whose kind, `executed_at` and legs all match an imported event; re-importing an export
   writes nothing. ListLedger is scoped to the caller's accounts the way ListHoldings is: a
-  foreign account reads as an empty page. Wallet syncs write transfer history (see **Transfer
-  reader** below); there is no valuation of legs
+  foreign account reads as an empty page. An income event carries an `income_kind` (coupon,
+  dividend, interest, staking_reward, other); a tax withheld is an income event of the same kind
+  with an out leg. GetIncomeReport sums a portfolio's or an account's income per month (UTC) x
+  income kind x asset as gross, tax and net, valued in the display currency at each event's
+  date: a currency at the central bank rate in force on that date, anything else at the
+  nearest price within three days; an event with no such price is listed as unvalued, never
+  valued at zero. Income is cash flow and never enters a portfolio total. Wallet syncs write
+  transfer history (see **Transfer reader** below); no sync writes income yet
 - Ownership: every by-ID and list RPC enforces caller ownership (`middleware.EnsureOwner`);
   `user_id` list overrides are admin-only. See §8.1.
 - Accounts carry a capability model (capabilities + admin-managed system_scopes) and encrypted
@@ -430,8 +438,8 @@ graph TB
   principal leg, the quote as the counter leg moving the other way, side, price and execution id
   in `raw` (`external_ref` = `<execution_id>:<trade index>`, `import_id` = execution id); other
   accounts are not journaled here, since
-  ImportTransactions takes manual accounts only and a chain account's holdings come from its
-  sync (ADR-012).
+  ImportTransactions takes only income into a synced account and a chain account's holdings
+  come from its sync (ADR-012).
 - Before a trade reaches its venue the account's trading policy must allow it
   (`execution.ParsePolicy`, `Policy.Check`): `max_trade_amount` (in the trade's quote asset),
   `allowed_assets` and `max_slippage_bps` (default 50, ceiling 300) in the account's data. A
