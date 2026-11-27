@@ -1018,11 +1018,12 @@ message SyncAccountResponse {
   // appearing in somebody's list with no record of who made it is its own kind
   // of silence.
   int32 accounts_created = 8;
-  // Ledger events this sync wrote from the wallet's transfer history.
+  // Ledger events this sync wrote from the account's history: a wallet's
+  // transfers, a broker's income and the taxes on it.
   int32 ledger_events_created = 9;
-  // Chains whose transfer history this sync could not bring up to date, and
-  // movements it could not record. Kept apart from errors: the balances above
-  // are complete without the history.
+  // History this sync could not bring up to date (a wallet's chains, a
+  // broker's income), and movements it could not record. Kept apart from
+  // errors: the balances above are complete without the history.
   repeated string ledger_errors = 10;
 }
 
@@ -1124,6 +1125,10 @@ enum HealthReasonKind {
   // was sealed with is gone, or a value is corrupt. Nothing syncs it or takes
   // it as a provider; the message names the class, never the content.
   HEALTH_REASON_KIND_UNREADABLE = 9;
+  // The account's history at a source (a broker's income) was not read on
+  // the latest sync; the ledger may lack what happened since. since is the
+  // last time it was read in full, absent when it never was.
+  HEALTH_REASON_KIND_LEDGER_FAILING = 10;
 }
 
 // HealthReason is one thing wrong, as a phrase the server wrote and the fields

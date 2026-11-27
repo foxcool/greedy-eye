@@ -252,7 +252,7 @@ func (s *PortfolioStore) ListLedgerEvents(ctx context.Context, opts portfolio.Li
 	return events, nextPageToken, nil
 }
 
-// ListLedgerCursors returns the account's transfer cursors, one per chain.
+// ListLedgerCursors returns the account's history cursors, one per chain.
 func (s *PortfolioStore) ListLedgerCursors(ctx context.Context, accountID string) ([]*entity.LedgerCursor, error) {
 	if !isValidUUID(accountID) {
 		return nil, fmt.Errorf("%w: invalid account ID format", store.ErrInvalidArgument)
@@ -295,9 +295,10 @@ func (s *PortfolioStore) ListLedgerCursors(ctx context.Context, accountID string
 }
 
 // SaveLedgerCursor writes the cursor of one (account, chain), replacing it.
+// The chain is empty for a history that is the account's whole, not a chain's.
 func (s *PortfolioStore) SaveLedgerCursor(ctx context.Context, c *entity.LedgerCursor) error {
-	if c == nil || !isValidUUID(c.AccountID) || c.Chain == "" || !entity.ValidLedgerSource(c.Source) {
-		return fmt.Errorf("%w: ledger cursor needs an account, a chain and a source", store.ErrInvalidArgument)
+	if c == nil || !isValidUUID(c.AccountID) || !entity.ValidLedgerSource(c.Source) {
+		return fmt.Errorf("%w: ledger cursor needs an account and a source", store.ErrInvalidArgument)
 	}
 	if c.NextBlock > math.MaxInt64 {
 		return fmt.Errorf("%w: block %d is out of range", store.ErrInvalidArgument, c.NextBlock)

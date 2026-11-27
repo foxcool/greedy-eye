@@ -35,8 +35,9 @@ func (h *Handler) confirmationsFor(chain string) uint64 {
 	return defaultConfirmations
 }
 
-// transferOutcome is what one run of the transfer history did to the ledger.
-type transferOutcome struct {
+// ledgerOutcome is what one run of a ledger reader did: events written, and
+// what it could not read, one line per failure.
+type ledgerOutcome struct {
 	eventsCreated int32
 	errors        []string
 }
@@ -49,8 +50,8 @@ type transferOutcome struct {
 // A chain whose read fails, or whose source confirmed nothing past the cursor,
 // keeps its cursor and is reported. Events already written stay: their refs
 // make the retry write nothing twice.
-func (h *Handler) readTransfers(ctx context.Context, account *entity.Account, backfill bool) transferOutcome {
-	var out transferOutcome
+func (h *Handler) readTransfers(ctx context.Context, account *entity.Account, backfill bool) ledgerOutcome {
+	var out ledgerOutcome
 	if h.transferSource == nil {
 		if backfill {
 			out.errors = append(out.errors, "transfer history is not configured on this instance")
@@ -64,7 +65,7 @@ func (h *Handler) readTransfers(ctx context.Context, account *entity.Account, ba
 
 	cursors, err := h.store.ListLedgerCursors(ctx, account.ID)
 	if err != nil {
-		return transferOutcome{errors: []string{fmt.Sprintf("transfer history: %v", err)}}
+		return ledgerOutcome{errors: []string{fmt.Sprintf("transfer history: %v", err)}}
 	}
 	byChain := make(map[string]*entity.LedgerCursor, len(cursors))
 	for _, c := range cursors {
@@ -76,7 +77,7 @@ func (h *Handler) readTransfers(ctx context.Context, account *entity.Account, ba
 	if backfill || len(cursors) > 0 {
 		holdings, err := h.allHoldings(ctx, ListHoldingsOpts{AccountID: account.ID})
 		if err != nil {
-			return transferOutcome{errors: []string{fmt.Sprintf("transfer history: %v", err)}}
+			return ledgerOutcome{errors: []string{fmt.Sprintf("transfer history: %v", err)}}
 		}
 		for _, hld := range holdings {
 			if hld.Chain != "" && byChain[hld.Chain] == nil {

@@ -1197,8 +1197,10 @@ table "ledger_legs" {
   }
 }
 
-# How far an account's transfer history on one chain has been read into the
-# ledger. The row exists once someone asked for that history.
+# How far an account's history on one chain has been read into the ledger.
+# The row exists once someone asked for that history. A history that is not
+# per chain (a broker's income) has chain '' and is read by time: advanced_at
+# is the end of its last complete read, and the block columns stay empty.
 table "ledger_cursors" {
   schema = schema.public
 
@@ -1206,7 +1208,7 @@ table "ledger_cursors" {
     type = uuid
     null = false
   }
-  # This build's chain id ("eth", "base").
+  # This build's chain id ("eth", "base"); '' for a history not per chain.
   column "chain" {
     type = text
     null = false

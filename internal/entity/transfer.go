@@ -55,10 +55,13 @@ type TransferReader interface {
 }
 
 // LedgerCursor is how far an account's history on one chain has been read
-// into the ledger, and by which source.
+// into the ledger, and by which source. A history that is not per chain (a
+// broker's income) has an empty Chain and is read by time: AdvancedAt is the
+// end of the last complete read.
 type LedgerCursor struct {
 	AccountID string
-	Chain     string
+	// Chain is empty for a history that is the whole account's.
+	Chain string
 	// Source is the provider whose history this is. Another source's refs do
 	// not deduplicate against it, so it may not continue this cursor.
 	Source string

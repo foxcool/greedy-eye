@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -168,6 +169,20 @@ func (h *Handler) accountHealth(
 			sync = append(sync, chainReason(f, admin))
 		}
 	}
+	if a.Type == entity.AccountTypeBroker {
+		cursors, err := h.store.ListLedgerCursors(ctx, a.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range cursors {
+			// shortcut: only a broker's chain-less income history is reported, not a
+			// wallet's failing transfer chains; add them once a chain the source
+			// always refuses need not mark the wallet degraded (personal-7p4q).
+			if c.Chain == "" && c.LastError != "" {
+				sync = append(sync, ledgerReason(c, admin))
+			}
+		}
+	}
 	if deferral != nil {
 		sync = append(sync, deferralReason(deferral, now))
 	}
@@ -318,6 +333,25 @@ func chainReason(f *entity.ChainFailure, admin bool) *apiv1.HealthReason {
 	return r
 }
 
+// ledgerReason says an account's history at a source was not read on the
+// latest sync. The balances are unaffected; the ledger may lack what happened
+// since the last full read.
+func ledgerReason(c *entity.LedgerCursor, admin bool) *apiv1.HealthReason {
+	source := strings.TrimPrefix(c.Source, "sync:")
+	r := &apiv1.HealthReason{
+		Kind:    apiv1.HealthReasonKind_HEALTH_REASON_KIND_LEDGER_FAILING,
+		Message: fmt.Sprintf("its history from %s was not read on the latest sync; the ledger may lack what was paid since", source),
+	}
+	if !c.AdvancedAt.IsZero() {
+		r.Since = timestamppb.New(c.AdvancedAt)
+	}
+	if admin {
+		detail := c.LastError
+		r.Detail = &detail
+	}
+	return r
+}
+
 // unconfirmedReason names the positions the latest snapshot of an account did
 // not speak for and did not remove: a sync withholds removal for what it could
 // not read, and a row it withholds keeps its last amount with nothing but its
@@ -451,7 +485,8 @@ func stateOf(r *apiv1.HealthReason) apiv1.HealthState {
 	switch r.Kind {
 	case apiv1.HealthReasonKind_HEALTH_REASON_KIND_CHAIN_FAILING,
 		apiv1.HealthReasonKind_HEALTH_REASON_KIND_SWEEP_DEFERRED,
-		apiv1.HealthReasonKind_HEALTH_REASON_KIND_UNCONFIRMED_POSITIONS:
+		apiv1.HealthReasonKind_HEALTH_REASON_KIND_UNCONFIRMED_POSITIONS,
+		apiv1.HealthReasonKind_HEALTH_REASON_KIND_LEDGER_FAILING:
 		return apiv1.HealthState_HEALTH_STATE_DEGRADED
 	case apiv1.HealthReasonKind_HEALTH_REASON_KIND_DISABLED:
 		return apiv1.HealthState_HEALTH_STATE_DISABLED

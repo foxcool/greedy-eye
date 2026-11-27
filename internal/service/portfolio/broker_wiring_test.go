@@ -2,6 +2,7 @@ package portfolio
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -45,6 +46,16 @@ func replayServer(t *testing.T) *httptest.Server {
 			_, _ = w.Write(fixture("portfolio_shapes.json"))
 		case pathHasSuffix(r.URL.Path, "InstrumentsService/Bonds"):
 			_, _ = w.Write(fixture("bonds_shapes.json"))
+		case pathHasSuffix(r.URL.Path, "OperationsService/GetOperationsByCursor"):
+			var req struct {
+				Cursor string `json:"cursor"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			page := "operations_page1.json"
+			if req.Cursor != "" {
+				page = "operations_page2.json"
+			}
+			_, _ = w.Write(fixture(page))
 		default:
 			// Shares and Etfs: an empty universe, which is the case worth
 			// exercising here — the catalogue does not carry the position, so
@@ -77,9 +88,8 @@ func TestSyncAccount_BrokerEndToEndOverTheWire(t *testing.T) {
 	syncer := tinvestadapter.NewBrokerSyncer(client, "2000123456")
 
 	acct := brokerAccount()
-	s := &mockStore{}
+	s := newLedgerStore()
 	s.On("GetAccount", mock.Anything, testAccountID).Return(acct, nil)
-	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{}, "", nil)
 	var written []*entity.Holding
 	s.On("CreateHolding", mock.Anything, mock.Anything).Return(&entity.Holding{ID: testHoldingID}, nil).
 		Run(func(args mock.Arguments) {
@@ -100,6 +110,13 @@ func TestSyncAccount_BrokerEndToEndOverTheWire(t *testing.T) {
 	assert.Equal(t, int32(10), resp.Msg.HoldingsUpserted)
 	assert.Equal(t, int32(0), resp.Msg.PositionsSkipped)
 	require.Len(t, written, 10)
+
+	// The income history after it: every executed income operation of the
+	// recorded pages is one event, and the cursor moved.
+	assert.Empty(t, resp.Msg.LedgerErrors)
+	assert.Equal(t, int32(7), resp.Msg.LedgerEventsCreated)
+	assert.Len(t, s.events, 7)
+	assert.False(t, s.cursors[""].AdvancedAt.IsZero())
 
 	assert.Zero(t, md.unmarked, "a broker FIGI reaches MarketData with the sync's authority")
 
@@ -123,7 +140,8 @@ func TestSyncAccount_BrokerEndToEndOverTheWire(t *testing.T) {
 	assert.Equal(t, 4, byType[apiv1.AssetType_ASSET_TYPE_STOCK])
 	assert.Equal(t, 2, byType[apiv1.AssetType_ASSET_TYPE_FUND])
 	assert.Equal(t, 1, byType[apiv1.AssetType_ASSET_TYPE_BOND])
-	assert.Equal(t, 3, byType[apiv1.AssetType_ASSET_TYPE_FOREX])
+	// 3 cash lines, then the 2 currencies income was paid in.
+	assert.Equal(t, 5, byType[apiv1.AssetType_ASSET_TYPE_FOREX])
 
 	// The bond is the one instrument the served catalogue carries, so its venue
 	// is read rather than inferred: everything else is a counted guess.

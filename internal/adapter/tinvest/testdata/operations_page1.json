@@ -1,0 +1,78 @@
+{
+  "hasNext": true,
+  "nextCursor": "cursor-page-2",
+  "items": [
+    {
+      "cursor": "c-101",
+      "brokerAccountId": "acc-1",
+      "id": "op-coupon-1",
+      "parentOperationId": "",
+      "name": "Выплата купонов",
+      "date": "2026-10-15T09:12:00.123456Z",
+      "type": "OPERATION_TYPE_COUPON",
+      "description": "Выплата купонов по облигации ОФЗ 26238",
+      "state": "OPERATION_STATE_EXECUTED",
+      "instrumentUid": "uid-ofz-26238",
+      "figi": "BBG00BONDXX",
+      "instrumentType": "bond",
+      "instrumentKind": "INSTRUMENT_TYPE_BOND",
+      "positionUid": "pos-ofz-26238",
+      "payment": {"currency": "rub", "units": "1000", "nano": 0},
+      "price": {"currency": "rub", "units": "0", "nano": 0},
+      "commission": {"currency": "rub", "units": "0", "nano": 0},
+      "quantity": "0",
+      "quantityRest": "0",
+      "quantityDone": "0",
+      "childOperations": []
+    },
+    {
+      "cursor": "c-102",
+      "brokerAccountId": "acc-1",
+      "id": "op-bond-tax-1",
+      "parentOperationId": "op-coupon-1",
+      "name": "Удержание налога по купонам",
+      "date": "2026-10-15T09:12:01Z",
+      "type": "OPERATION_TYPE_BOND_TAX",
+      "description": "Удержание НДФЛ по купонам",
+      "state": "OPERATION_STATE_EXECUTED",
+      "figi": "BBG00BONDXX",
+      "instrumentType": "bond",
+      "payment": {"currency": "rub", "units": "-130", "nano": 0}
+    },
+    {
+      "cursor": "c-103",
+      "brokerAccountId": "acc-1",
+      "id": "op-dividend-1",
+      "name": "Выплата дивидендов",
+      "date": "2026-10-03T06:00:00Z",
+      "type": "OPERATION_TYPE_DIVIDEND",
+      "state": "OPERATION_STATE_EXECUTED",
+      "figi": "BBG004730N88",
+      "instrumentType": "share",
+      "payment": {"currency": "rub", "units": "517", "nano": 450000000}
+    },
+    {
+      "cursor": "c-104",
+      "brokerAccountId": "acc-1",
+      "id": "op-dividend-tax-1",
+      "name": "Удержание налога по дивидендам",
+      "date": "2026-10-03T06:00:01Z",
+      "type": "OPERATION_TYPE_DIVIDEND_TAX",
+      "state": "OPERATION_STATE_EXECUTED",
+      "figi": "BBG004730N88",
+      "instrumentType": "share",
+      "payment": {"currency": "rub", "units": "-67", "nano": -270000000}
+    },
+    {
+      "cursor": "c-105",
+      "brokerAccountId": "acc-1",
+      "id": "op-coupon-canceled",
+      "name": "Выплата купонов",
+      "date": "2026-10-01T09:00:00Z",
+      "type": "OPERATION_TYPE_COUPON",
+      "state": "OPERATION_STATE_CANCELED",
+      "figi": "BBG00BONDXX",
+      "payment": {"currency": "rub", "units": "999", "nano": 0}
+    }
+  ]
+}
