@@ -87,6 +87,13 @@ type Config struct {
 		// fire.
 		BalanceAccountsPerSweep int `koanf:"balanceaccountspersweep"`
 	} `koanf:"scheduler"`
+	Ledger struct {
+		// Confirmations overrides, per chain, how many blocks behind the
+		// head a wallet's transfer history is read, so a reorg cannot leave
+		// an event behind: EYE_LEDGER_CONFIRMATIONS_POLYGON=256. A chain not
+		// named keeps the service default.
+		Confirmations map[string]uint64 `koanf:"confirmations"`
+	} `koanf:"ledger"`
 }
 
 // ServiceConfig is a config for a service

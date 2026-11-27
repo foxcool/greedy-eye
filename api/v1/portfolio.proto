@@ -896,6 +896,11 @@ message ListLedgerResponse {
 
 message SyncAccountRequest {
   string account_id = 1;
+  // Start reading the wallet's transfer history into the ledger from its first
+  // block, on every chain it holds a position on and whose history is not read
+  // yet. A long history is finished by the syncs that follow; each of them
+  // continues where the last stopped. Wallet accounts only.
+  bool backfill_ledger = 2;
 }
 
 message SyncAccountResponse {
@@ -927,6 +932,12 @@ message SyncAccountResponse {
   // appearing in somebody's list with no record of who made it is its own kind
   // of silence.
   int32 accounts_created = 8;
+  // Ledger events this sync wrote from the wallet's transfer history.
+  int32 ledger_events_created = 9;
+  // Chains whose transfer history this sync could not bring up to date, and
+  // movements it could not record. Kept apart from errors: the balances above
+  // are complete without the history.
+  repeated string ledger_errors = 10;
 }
 
 message GetAccountSweepScheduleRequest {

@@ -64,12 +64,7 @@ func (r *Registry) WalletSyncers() map[string]credentials.WalletProvider {
 		// uses; the registry routes by chain, so both can be live at once.
 		alchemyadapter.ProviderName: {
 			Factory: func(a *entity.Account) (entity.WalletSyncer, error) {
-				return alchemyadapter.NewWalletSyncer(
-					alchemyadapter.NewClient(alchemyadapter.Config{
-						APIKey:    a.Data["api_key"],
-						Transport: r.transport(alchemyadapter.ProviderName, a),
-					}),
-				), nil
+				return r.alchemy(a), nil
 			},
 			Chains:         alchemyadapter.SupportedChains(),
 			HandlesAddress: alchemyadapter.HandlesAddress,
@@ -150,6 +145,29 @@ func (r *Registry) WalletSyncers() map[string]credentials.WalletProvider {
 			HandlesAddress: blockchairadapter.HandlesAddress,
 		},
 	}
+}
+
+// TransferReaders read an address's transfer history into the ledger, built
+// from the same accounts as the wallet syncers.
+func (r *Registry) TransferReaders() map[string]credentials.TransferProvider {
+	return map[string]credentials.TransferProvider{
+		alchemyadapter.ProviderName: {
+			// The same adapter as the wallet syncer, on the same key and budget.
+			Factory: func(a *entity.Account) (entity.TransferReader, error) {
+				return r.alchemy(a), nil
+			},
+			Chains: alchemyadapter.SupportedChains(),
+		},
+	}
+}
+
+// alchemy builds the Alchemy adapter on the account's key: it is both a
+// wallet syncer and a transfer reader.
+func (r *Registry) alchemy(a *entity.Account) *alchemyadapter.WalletSyncerAdapter {
+	return alchemyadapter.NewWalletSyncer(alchemyadapter.NewClient(alchemyadapter.Config{
+		APIKey:    a.Data["api_key"],
+		Transport: r.transport(alchemyadapter.ProviderName, a),
+	}))
 }
 
 // KeylessWalletSyncers are chain readers registered without any account.

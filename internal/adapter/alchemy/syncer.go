@@ -31,17 +31,24 @@ var network = map[string]struct {
 	// second identity for every token already held on polygon.
 	aliases       []string
 	symbol, title string
+
+	// internalTransfers: alchemy_getAssetTransfers serves category "internal"
+	// (coin moved by a contract call) here. Elsewhere the coin's history
+	// misses those movements. transferTimes: the same call returns block
+	// timestamps here; elsewhere they are read per block. Both from the API
+	// reference, 2026-11-26.
+	internalTransfers, transferTimes bool
 }{
-	"eth":       {slug: "eth-mainnet", symbol: "ETH", title: "Ethereum"},
-	"base":      {slug: "base-mainnet", symbol: "ETH", title: "Ethereum"},
-	"arbitrum":  {slug: "arb-mainnet", symbol: "ETH", title: "Ethereum"},
-	"optimism":  {slug: "opt-mainnet", symbol: "ETH", title: "Ethereum"},
+	"eth":       {slug: "eth-mainnet", symbol: "ETH", title: "Ethereum", internalTransfers: true, transferTimes: true},
+	"base":      {slug: "base-mainnet", symbol: "ETH", title: "Ethereum", internalTransfers: true, transferTimes: true},
+	"arbitrum":  {slug: "arb-mainnet", symbol: "ETH", title: "Ethereum", transferTimes: true},
+	"optimism":  {slug: "opt-mainnet", symbol: "ETH", title: "Ethereum", transferTimes: true},
 	"linea":     {slug: "linea-mainnet", symbol: "ETH", title: "Ethereum"},
 	"zksync":    {slug: "zksync-mainnet", symbol: "ETH", title: "Ethereum"},
 	"scroll":    {slug: "scroll-mainnet", symbol: "ETH", title: "Ethereum"},
-	"polygon":   {slug: "polygon-mainnet", aliases: []string{"matic-mainnet"}, symbol: "POL", title: "Polygon"},
-	"bsc":       {slug: "bnb-mainnet", symbol: "BNB", title: "BNB Chain"},
-	"avalanche": {slug: "avax-mainnet", symbol: "AVAX", title: "Avalanche"},
+	"polygon":   {slug: "polygon-mainnet", aliases: []string{"matic-mainnet"}, symbol: "POL", title: "Polygon", internalTransfers: true, transferTimes: true},
+	"bsc":       {slug: "bnb-mainnet", symbol: "BNB", title: "BNB Chain", internalTransfers: true},
+	"avalanche": {slug: "avax-mainnet", symbol: "AVAX", title: "Avalanche", internalTransfers: true},
 
 	// Fantom is deliberately absent. Moralis read it; Alchemy has deprecated
 	// it, and claiming a chain this adapter cannot read would put a wallet's

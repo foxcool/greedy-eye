@@ -1494,6 +1494,55 @@ func TestLedgerEventRoundtrip(t *testing.T) {
 	})
 }
 
+// TestLedgerCursorRoundtrip: a cursor is created and replaced per (account,
+// chain), keeps its block past 2^31, and goes with its account.
+func TestLedgerCursorRoundtrip(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewPortfolioStore(pool)
+	ctx := context.Background()
+
+	user := createTestUser(t, NewUserStore(pool))
+	account, err := s.CreateAccount(ctx, &entity.Account{UserID: user.ID, Name: "cursor", Type: entity.AccountTypeWallet,
+		Data: map[string]string{"address": "0x75304308839f839a553b60b5671bb2f043420167"}})
+	require.NoError(t, err)
+	at := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+
+	none, err := s.ListLedgerCursors(ctx, account.ID)
+	require.NoError(t, err)
+	assert.Empty(t, none)
+
+	require.NoError(t, s.SaveLedgerCursor(ctx, &entity.LedgerCursor{AccountID: account.ID, Chain: "eth", Source: "sync:alchemy",
+		NextBlock: 0, LastError: "not reconciled", CheckedAt: at, AdvancedAt: at}))
+	require.NoError(t, s.SaveLedgerCursor(ctx, &entity.LedgerCursor{AccountID: account.ID, Chain: "eth", Source: "sync:alchemy",
+		NextBlock: 3_000_000_000, Addresses: []string{"0xa", "0xb"}, Incomplete: "no internal", CheckedAt: at.Add(time.Hour), AdvancedAt: at.Add(time.Hour)}))
+	require.NoError(t, s.SaveLedgerCursor(ctx, &entity.LedgerCursor{AccountID: account.ID, Chain: "base", Source: "sync:alchemy",
+		NextBlock: 7, CheckedAt: at, AdvancedAt: at}))
+
+	got, err := s.ListLedgerCursors(ctx, account.ID)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "base", got[0].Chain)
+	eth := got[1]
+	assert.Equal(t, uint64(3_000_000_000), eth.NextBlock)
+	assert.Equal(t, []string{"0xa", "0xb"}, eth.Addresses)
+	assert.Empty(t, got[0].Addresses)
+	assert.Equal(t, "no internal", eth.Incomplete)
+	assert.Empty(t, eth.LastError, "a run that read clears the failure")
+	assert.True(t, at.Add(time.Hour).Equal(eth.CheckedAt))
+
+	t.Run("an invalid cursor is refused before SQL", func(t *testing.T) {
+		err := s.SaveLedgerCursor(ctx, &entity.LedgerCursor{AccountID: account.ID, Chain: "eth", Source: "alchemy"})
+		require.ErrorIs(t, err, store.ErrInvalidArgument)
+	})
+
+	t.Run("cursors go with the account", func(t *testing.T) {
+		require.NoError(t, s.DeleteAccountWithHoldings(ctx, account.ID))
+		var n int
+		require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM ledger_cursors WHERE account_id = $1", account.ID).Scan(&n))
+		assert.Zero(t, n)
+	})
+}
+
 // TestInHoldingsTxRollsBackTheWholeSnapshot: a sync rewrites the picture of an
 // account, so a run that dies halfway must leave the previous picture intact.
 // Prod 2026-07-25 had the opposite: SyncAccount aborted at the caller's 10s

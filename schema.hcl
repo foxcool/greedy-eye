@@ -1180,6 +1180,72 @@ table "ledger_legs" {
   }
 }
 
+# How far an account's transfer history on one chain has been read into the
+# ledger. The row exists once someone asked for that history.
+table "ledger_cursors" {
+  schema = schema.public
+
+  column "account_id" {
+    type = uuid
+    null = false
+  }
+  # This build's chain id ("eth", "base").
+  column "chain" {
+    type = text
+    null = false
+  }
+  # sync:<provider> whose history this is: refs from another source do not
+  # deduplicate against it.
+  column "source" {
+    type = text
+    null = false
+  }
+  # First block not yet read.
+  column "next_block" {
+    type = bigint
+    null = false
+  }
+  # Comma-separated, lower-case, sorted: the addresses whose history the
+  # cursor speaks for. An address beyond these was never read before it.
+  column "addresses" {
+    type = text
+    null = false
+  }
+  # What the source cannot read on this chain at all; null when nothing.
+  column "incomplete" {
+    type = text
+    null = true
+  }
+  # The last run's failure; null after a run that read.
+  column "last_error" {
+    type = text
+    null = true
+  }
+  column "checked_at" {
+    type = timestamptz
+    null = false
+  }
+  column "advanced_at" {
+    type = timestamptz
+    null = false
+  }
+
+  primary_key {
+    columns = [column.account_id, column.chain]
+  }
+
+  check "ledger_cursors_next_block_not_negative" {
+    expr = "(next_block >= 0)"
+  }
+
+  foreign_key "ledger_cursors_accounts" {
+    columns     = [column.account_id]
+    ref_columns = [table.accounts.column.id]
+    on_update   = NO_ACTION
+    on_delete   = CASCADE
+  }
+}
+
 table "rules" {
   schema = schema.public
 

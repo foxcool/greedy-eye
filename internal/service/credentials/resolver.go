@@ -84,6 +84,13 @@ func (p WalletProvider) matches(address string, chains []string) bool {
 	return true
 }
 
+// TransferProvider builds a transfer history reader from account credentials
+// and names the chains it reads.
+type TransferProvider struct {
+	Factory func(a *entity.Account) (entity.TransferReader, error)
+	Chains  []string
+}
+
 // ExchangeSyncerFactory builds an exchange syncer from account credentials.
 type ExchangeSyncerFactory func(a *entity.Account) (entity.ExchangeSyncer, error)
 
@@ -108,8 +115,11 @@ type MacroReaderFactory func(a *entity.Account) (marketdata.MacroReader, error)
 // Config wires a Resolver: per-provider factories. Credentials come from
 // accounts only.
 type Config struct {
-	Source          AccountSource
-	WalletSyncers   map[string]WalletProvider        // keyed by provider slug
+	Source        AccountSource
+	WalletSyncers map[string]WalletProvider // keyed by provider slug
+	// TransferReaders read an address's transfer history, keyed by provider
+	// slug. Chosen from the same onchain_lookup accounts as wallet syncers.
+	TransferReaders map[string]TransferProvider
 	ExchangeSyncers map[string]ExchangeSyncerFactory // keyed by provider slug
 	BrokerSyncers   map[string]BrokerSyncerFactory   // keyed by provider slug
 	// BrokerAccountListers are keyed by provider slug like the rest. A provider
@@ -384,6 +394,29 @@ func (r *Resolver) WalletSyncerFor(ctx context.Context, userID, address string, 
 	// reach for an EVM syncer on a Substrate address and report an empty wallet,
 	// which reads as "you hold nothing" rather than as an error.
 	return nil, nil
+}
+
+// TransferReaderFor resolves a transfer reader for the user (onchain_lookup
+// capability) that reads chain, with the slug of the provider behind it. A
+// nil reader means none is configured; there is no keyless one.
+func (r *Resolver) TransferReaderFor(ctx context.Context, userID, chain string) (entity.TransferReader, string, error) {
+	candidates, _, err := r.accountsFor(ctx, userID, entity.CapabilityOnchainLookup)
+	if err != nil {
+		return nil, "", err
+	}
+	for _, a := range candidates {
+		slug := a.Data[DataProviderKey]
+		provider, ok := r.cfg.TransferReaders[slug]
+		if !ok || !slices.Contains(provider.Chains, chain) {
+			continue
+		}
+		client, err := r.clientFor("transfer_reader", a, func() (any, error) { return provider.Factory(a) })
+		if err != nil {
+			return nil, "", fmt.Errorf("build transfer reader from account %s: %w", a.ID, err)
+		}
+		return client.(entity.TransferReader), slug, nil
+	}
+	return nil, "", nil
 }
 
 // ExchangeSyncerForAccount builds an exchange syncer from the account's own

@@ -330,6 +330,18 @@ func (m *mockStore) CreateLedgerEvent(ctx context.Context, e *entity.LedgerEvent
 	return nil, args.Error(1)
 }
 
+func (m *mockStore) ListLedgerCursors(ctx context.Context, accountID string) ([]*entity.LedgerCursor, error) {
+	args := m.Called(ctx, accountID)
+	if v := args.Get(0); v != nil {
+		return v.([]*entity.LedgerCursor), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockStore) SaveLedgerCursor(ctx context.Context, c *entity.LedgerCursor) error {
+	return m.Called(ctx, c).Error(0)
+}
+
 func (m *mockStore) ListLedgerEvents(ctx context.Context, opts ListLedgerOpts) ([]*entity.LedgerEvent, string, error) {
 	args := m.Called(ctx, opts)
 	if v := args.Get(0); v != nil {
