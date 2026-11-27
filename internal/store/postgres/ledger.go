@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -249,4 +250,77 @@ func (s *PortfolioStore) ListLedgerEvents(ctx context.Context, opts portfolio.Li
 		return nil, "", fmt.Errorf("failed to iterate ledger legs: %w", err)
 	}
 	return events, nextPageToken, nil
+}
+
+// ListLedgerCursors returns the account's transfer cursors, one per chain.
+func (s *PortfolioStore) ListLedgerCursors(ctx context.Context, accountID string) ([]*entity.LedgerCursor, error) {
+	if !isValidUUID(accountID) {
+		return nil, fmt.Errorf("%w: invalid account ID format", store.ErrInvalidArgument)
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT chain, source, next_block, addresses, incomplete, last_error, checked_at, advanced_at
+		FROM ledger_cursors
+		WHERE account_id = $1
+		ORDER BY chain`, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list ledger cursors: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*entity.LedgerCursor
+	for rows.Next() {
+		c := &entity.LedgerCursor{AccountID: accountID}
+		var next int64
+		var addresses string
+		var incomplete, lastError *string
+		if err := rows.Scan(&c.Chain, &c.Source, &next, &addresses, &incomplete, &lastError, &c.CheckedAt, &c.AdvancedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan ledger cursor: %w", err)
+		}
+		c.NextBlock = uint64(next) // #nosec G115 -- a CHECK keeps next_block non-negative
+		if addresses != "" {
+			c.Addresses = strings.Split(addresses, ",")
+		}
+		if incomplete != nil {
+			c.Incomplete = *incomplete
+		}
+		if lastError != nil {
+			c.LastError = *lastError
+		}
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate ledger cursors: %w", err)
+	}
+	return out, nil
+}
+
+// SaveLedgerCursor writes the cursor of one (account, chain), replacing it.
+func (s *PortfolioStore) SaveLedgerCursor(ctx context.Context, c *entity.LedgerCursor) error {
+	if c == nil || !isValidUUID(c.AccountID) || c.Chain == "" || !entity.ValidLedgerSource(c.Source) {
+		return fmt.Errorf("%w: ledger cursor needs an account, a chain and a source", store.ErrInvalidArgument)
+	}
+	if c.NextBlock > math.MaxInt64 {
+		return fmt.Errorf("%w: block %d is out of range", store.ErrInvalidArgument, c.NextBlock)
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO ledger_cursors (account_id, chain, source, next_block, addresses, incomplete, last_error, checked_at, advanced_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (account_id, chain) DO UPDATE
+		SET source      = EXCLUDED.source,
+		    next_block  = EXCLUDED.next_block,
+		    addresses   = EXCLUDED.addresses,
+		    incomplete  = EXCLUDED.incomplete,
+		    last_error  = EXCLUDED.last_error,
+		    checked_at  = EXCLUDED.checked_at,
+		    advanced_at = EXCLUDED.advanced_at`,
+		c.AccountID, c.Chain, c.Source, int64(c.NextBlock), // #nosec G115 -- checked against MaxInt64 above
+		strings.Join(c.Addresses, ","), nullableString(c.Incomplete), nullableString(truncateRunes(c.LastError, maxChainErrorLen)),
+		c.CheckedAt, c.AdvancedAt)
+	if err != nil {
+		if isConstraintError(err) {
+			return fmt.Errorf("%w: %v", store.ErrConstraint, err)
+		}
+		return fmt.Errorf("failed to save ledger cursor: %w", err)
+	}
+	return nil
 }

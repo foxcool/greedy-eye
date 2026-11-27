@@ -414,8 +414,8 @@ graph TB
   income kind x asset as gross, tax and net, valued in the display currency at each event's
   date: a currency at the central bank rate in force on that date, anything else at the
   nearest price within three days; an event with no such price is listed as unvalued, never
-  valued at zero. Income is cash flow and never enters a portfolio total. No sync writes ledger
-  events yet
+  valued at zero. Income is cash flow and never enters a portfolio total. Wallet syncs write
+  transfer history (see **Transfer reader** below); no sync writes income yet
 - Ownership: every by-ID and list RPC enforces caller ownership (`middleware.EnsureOwner`);
   `user_id` list overrides are admin-only. See §8.1.
 - Accounts carry a capability model (capabilities + admin-managed system_scopes) and encrypted
@@ -801,6 +801,60 @@ contract and dropped quantity rather than counted as a sync error: the position 
 from the snapshot, its value is in it once, and recording a failure would withhold the removal of
 positions that really are gone — trading a wrong number for a stale one. The durable repair is to
 undo the binding (`DeleteAssetExternalRef`).
+
+**Transfer reader (wallet history into the ledger)**:
+
+`entity.TransferReader` reads an address's transfers on one chain from a block, and states the
+range it covered: `TransferBatch.Next` is the first block its answer does not speak for. It is
+registered in `internal/provider` (`Registry.TransferReaders`, a factory and the chains it reads)
+and resolved like a wallet syncer, from the user's `onchain_lookup` accounts by provider slug
+(`credentials.Resolver.TransferReaderFor`). Alchemy (`alchemy_getAssetTransfers`) is the only
+implementation.
+
+- **When.** `SyncAccount` on a wallet reads the history after the balance snapshot landed, on
+  every chain that has a cursor (`ledger_cursors`: one row per account and chain, holding the
+  next block, the source, the addresses it speaks for, what the source cannot read there and
+  the last failure). A cursor is opened by `SyncAccount{backfill_ledger: true}` at block 0 on
+  each chain the account holds a position on; a long history is finished by the syncs that
+  follow, each continuing where the last stopped. The balance sweep therefore continues it too.
+  Once an account has any cursor, every sync also opens one on a chain it holds without one,
+  so a chain held later is read from its first block as well.
+- **Coverage is the reader's statement, not the caller's request.** The reader asks its own
+  source for the head and reads up to `confirmations` blocks behind it (64 by default, 128 on
+  polygon, `ledger.confirmations.<chain>` overrides), so a reorg does not leave an event behind.
+  A head not yet past the cursor covers nothing: `Next == from`, the cursor stays and the chain
+  is reported "not reconciled" — an empty list from a source that is behind is not "nothing
+  moved". A walk cut short by its page bound (10 pages of 1000 per direction) ends before the
+  last block it saw, since that block may continue on the next page; while everything seen is
+  still in the first block the walk goes on (40 more pages), because stopping there would never
+  pass that block, and past that bound the block is an error naming it. With several addresses
+  the cursor moves to the smallest `Next` among them. An address the account gained after its
+  history began has nothing read before the cursor, so the chain is read again from block 0 for
+  all addresses; events already written are refused by their ref. A transaction between the old
+  and the new address recorded before keeps only the old address's leg; the run names such
+  events in `ledger_errors`, and rewriting them is a reclassification.
+- **Events.** All transfers of one transaction touching the account are one event,
+  `external_ref = <chain>:<txhash>`, source `sync:<provider>`; the per-transfer ids stay in
+  `raw`. Kind: in only → `transfer_in`, out only → `transfer_out`, both → `trade` with the
+  incoming legs as principal and the outgoing as counter. A transfer between two of the
+  account's addresses gives a leg each way. Assets resolve the way sync resolves a balance:
+  by contract on the chain (`onchain:<chain>`), or the chain's coin. Spam is recorded like
+  anything else: its exclusion belongs to the verdict, not to the history.
+- **Failure.** A failed read, a failed write or an asset lookup the catalogue could not answer
+  keeps the cursor; events already written stay and the retry writes nothing twice (the
+  `external_ref` index). A movement that no retry can read better — a token whose scale the
+  source does not know, or one the catalogue refuses — gets no leg, is counted and named in
+  the response, and the cursor moves past it. A cursor read by one source is not continued by
+  another: their refs would not deduplicate. Ledger failures go to
+  `SyncAccountResponse.ledger_errors`, apart from `errors`, so the sweep's judgement of the
+  balance sync does not change.
+- **Native coin history.** `internal` transfers (coin moved by a contract call) are served on
+  eth, base, polygon, avalanche and bsc; elsewhere the cursor's `incomplete` says the coin's
+  history misses them. Block times come with the transfers on eth, base, polygon, arbitrum and
+  optimism; any transfer that arrives without one is read from its block in JSON-RPC
+  batches. Gas (`role=fee` from receipts)
+  is not read yet. Trusting the source's head assumes its transfer index is not more than
+  `confirmations` behind its node; a second, independent reader is what would check that.
 
 **Account credential model**:
 - Provider credentials live in `accounts.data` (encrypted at rest, ADR-005), keyed by a `provider`

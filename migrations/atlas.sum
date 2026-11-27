@@ -1,4 +1,4 @@
-h1:V5AcsMaDoRXuFs1+itop4Ac4RgTLsj7aniXNa96wAIo=
+h1:qdwN0PVucCgS+gxpGIqY/8Y6GH+ZlBvjZ+rN5LXuJgs=
 20260902112348_baseline_v0_11_0.sql h1:KOXTm9nMdJzPUoDs7EVD51k9i5A9OzPpCLf5KDiL4p0=
 20260902112400_holdings_excluded_source.sql h1:D4LmiSSSygyvxLWoRqv/Xae3WZBzBQwBxehqIgKAChg=
 20260903032052_account_sync_attempts.sql h1:ThJ+BtI/cFTiqZ4nYtgDqIIbkIpTMMh4FcwyY3BuCKc=
@@ -16,3 +16,4 @@ h1:V5AcsMaDoRXuFs1+itop4Ac4RgTLsj7aniXNa96wAIo=
 20261120200506_news_sources_documents.sql h1:cqmDKcA6j+uCbJGJfU2aSY3Z7dphFN6VRkY8aPTBWwg=
 20261126143120_account_answered_at.sql h1:IlQQI4eB8Pqihhxl7OZOE/chvpPM9lAlIFIeZM0w62w=
 20261126153324_ledger_income_kind.sql h1:z5nQ2XaabhiTzgaUaRyKYaYDxapGpSZk1I185BVR0KA=
+20261127015844_ledger_cursors.sql h1:fcrKWLikenYgfGsIbQi8lV17W3b3gCyYkz4FoQTYP5A=

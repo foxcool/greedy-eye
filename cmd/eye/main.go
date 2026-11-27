@@ -151,6 +151,7 @@ func run() error {
 	credResolver := credentials.NewResolver(credentials.Config{
 		Source:          portfolioStore,
 		WalletSyncers:   providers.WalletSyncers(),
+		TransferReaders: providers.TransferReaders(),
 		ExchangeSyncers: providers.ExchangeSyncers(),
 		BrokerSyncers:   providers.BrokerSyncers(),
 		// What a token reaches, so an operator never types a broker's account
@@ -215,6 +216,8 @@ func run() error {
 		WithMarketDataClient(mdClient).
 		WithSettingsClient(settingsClient).
 		WithWalletSyncerSource(credResolver).
+		WithTransferReaderSource(credResolver).
+		WithLedgerConfirmations(config.Ledger.Confirmations).
 		WithExchangeSyncerSource(credResolver).
 		WithBrokerSyncerSource(credResolver).
 		WithBrokerAccountListerSource(credResolver).

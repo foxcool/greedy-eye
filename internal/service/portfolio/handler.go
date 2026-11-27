@@ -36,6 +36,12 @@ type WalletSyncerSource interface {
 	WalletSyncerFor(ctx context.Context, userID, address string, chains []string) (entity.WalletSyncer, error)
 }
 
+// TransferReaderSource resolves the reader of an address's transfer history
+// on one chain, and the provider slug behind it (see internal/service/credentials).
+type TransferReaderSource interface {
+	TransferReaderFor(ctx context.Context, userID, chain string) (entity.TransferReader, string, error)
+}
+
 // ExchangeSyncerSource builds an exchange syncer from a specific account's own
 // stored credentials (see internal/service/credentials).
 type ExchangeSyncerSource interface {
@@ -60,11 +66,17 @@ type BrokerAccountListerSource interface {
 // Handler implements apiv1connect.PortfolioServiceHandler.
 type Handler struct {
 	apiv1connect.UnimplementedPortfolioServiceHandler
-	store          Store
-	mdClient       MarketDataClient     // optional; nil if not configured
-	setClient      SettingsClient       // optional; nil means valuation defaults
-	walletSyncer   entity.WalletSyncer  // optional; nil if not configured
-	syncerSource   WalletSyncerSource   // optional; takes precedence over walletSyncer
+	store        Store
+	mdClient     MarketDataClient    // optional; nil if not configured
+	setClient    SettingsClient      // optional; nil means valuation defaults
+	walletSyncer entity.WalletSyncer // optional; nil if not configured
+	syncerSource WalletSyncerSource  // optional; takes precedence over walletSyncer
+	// transferSource reads wallet transfer history into the ledger; nil
+	// leaves the ledger to imports.
+	transferSource TransferReaderSource
+	// confirmations is how far behind a chain's head the ledger reads, per
+	// chain; a chain absent here uses defaultConfirmations.
+	confirmations  map[string]uint64
 	exchangeSource ExchangeSyncerSource // optional; resolves per-account exchange syncers
 	brokerSource   BrokerSyncerSource   // optional; resolves per-account broker syncers
 	// brokerListerSource resolves the reader that says which accounts a token
@@ -113,6 +125,22 @@ func (h *Handler) WithWalletSyncer(ws entity.WalletSyncer) *Handler {
 func (h *Handler) WithWalletSyncerSource(src WalletSyncerSource) *Handler {
 	copied := h.clone()
 	copied.syncerSource = src
+	return copied
+}
+
+// WithTransferReaderSource returns a new Handler that reads wallet transfer
+// history into the ledger after each wallet sync.
+func (h *Handler) WithTransferReaderSource(src TransferReaderSource) *Handler {
+	copied := h.clone()
+	copied.transferSource = src
+	return copied
+}
+
+// WithLedgerConfirmations overrides, per chain, how many blocks behind the
+// head the ledger reads.
+func (h *Handler) WithLedgerConfirmations(byChain map[string]uint64) *Handler {
+	copied := h.clone()
+	copied.confirmations = byChain
 	return copied
 }
 
@@ -1863,6 +1891,9 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	if err != nil {
 		return nil, err
 	}
+	if req.Msg.BackfillLedger && account.Type != entity.AccountTypeWallet {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("backfill_ledger reads a wallet's transfer history; this account is not a wallet"))
+	}
 	if account.Disabled() {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
 			"account %q is %w since %s; enable it to sync",
@@ -1899,6 +1930,13 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 		return nil, err
 	}
 
+	// The history is read after the snapshot landed, so both describe the
+	// same moment as nearly as two calls can.
+	var ledger transferOutcome
+	if account.Type == entity.AccountTypeWallet {
+		ledger = h.readTransfers(ctx, account, req.Msg.BackfillLedger)
+	}
+
 	// Price what this sync touched, so CalculatePortfolioValue returns current
 	// values. Naming the assets matters: an unfiltered request re-prices the
 	// whole catalogue, which on a monthly provider quota costs as much as an
@@ -1924,6 +1962,8 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 		AssetsDefaultedMarket: intToI32(out.skips.DefaultedMarket),
 		AccountsCreated:       out.accountsCreated,
 		Errors:                out.errors,
+		LedgerEventsCreated:   ledger.eventsCreated,
+		LedgerErrors:          ledger.errors,
 	}
 
 	// An account that answered owes the sweep nothing, and that holds for a
@@ -2080,12 +2120,7 @@ func (h *Handler) syncWalletBalances(ctx context.Context, account *entity.Accoun
 	// over many, so "addresses" accepts a list. Every address on an account
 	// belongs to the same ecosystem: the syncer is resolved once, from the
 	// first, and reused for the rest.
-	addresses := splitAddresses(account.Data["addresses"])
-	if len(addresses) == 0 {
-		if single := strings.TrimSpace(account.Data["address"]); single != "" {
-			addresses = []string{single}
-		}
-	}
+	addresses := walletAddresses(account)
 	if len(addresses) == 0 {
 		return nil, nil, chainVerdict{}, connect.NewError(connect.CodeInvalidArgument,
 			errors.New("account.data.address or account.data.addresses is required for wallet sync"))
@@ -3351,6 +3386,17 @@ func splitChains(raw string) []string {
 		}
 	}
 	return result
+}
+
+// walletAddresses is the account's list of addresses, or its single one.
+func walletAddresses(account *entity.Account) []string {
+	addresses := splitAddresses(account.Data["addresses"])
+	if len(addresses) == 0 {
+		if single := strings.TrimSpace(account.Data["address"]); single != "" {
+			addresses = []string{single}
+		}
+	}
+	return addresses
 }
 
 // splitAddresses reads the comma- or space-separated address list an account

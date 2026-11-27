@@ -8,12 +8,9 @@
 package alchemy
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/foxcool/greedy-eye/internal/adapter/internal/urlerr"
-	"io"
 	"net/http"
 	neturl "net/url"
 	"time"
@@ -239,39 +236,11 @@ func networkErrors(parsed tokensResponse) []NetworkError {
 	return out
 }
 
-// postTokens issues one Portfolio API request and returns its raw body.
+// postTokens issues one Portfolio API request and returns its raw body. The
+// key is a path segment here and is kept out of every error by post.
 func (c *Client) postTokens(ctx context.Context, payload tokensRequest) ([]byte, error) {
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("alchemy: encode request: %w", err)
-	}
-
-	// The key is a path segment here, not a header. It therefore must never
-	// reach an error message or a log line — and not quoting the URL below is
-	// not enough: a transport error from Do quotes it itself, so that error is
-	// stripped of it (urlerr).
 	url := fmt.Sprintf("%s/%s/assets/tokens/by-address", c.baseURL, neturl.PathEscape(c.apiKey))
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(encoded))
-	if err != nil {
-		return nil, fmt.Errorf("alchemy: create request: %w", urlerr.Strip(err))
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("alchemy: do request: %w", urlerr.Strip(err))
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("alchemy: API status %d for tokens/by-address", resp.StatusCode)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("alchemy: read response: %w", err)
-	}
-	return body, nil
+	return c.post(ctx, url, "tokens/by-address", payload)
 }
 
 // maxContractsPerCall is the page size of alchemy_getTokenBalances: maxCount
@@ -316,38 +285,10 @@ func (c *Client) TokenBalances(ctx context.Context, slug, address string, contra
 	if len(contracts) > maxContractsPerCall {
 		return nil, fmt.Errorf("alchemy: %d contracts in one call, the API answers %d", len(contracts), maxContractsPerCall)
 	}
-	encoded, err := json.Marshal(rpcRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "alchemy_getTokenBalances",
-		Params:  []any{address, contracts, map[string]int{"maxCount": maxContractsPerCall}},
-	})
+	body, err := c.postRPC(ctx, slug, "alchemy_getTokenBalances",
+		rpcCall("alchemy_getTokenBalances", address, contracts, map[string]int{"maxCount": maxContractsPerCall}))
 	if err != nil {
-		return nil, fmt.Errorf("alchemy: encode request: %w", err)
-	}
-
-	// The key is a path segment, as in postTokens, and is kept out of every
-	// error the same way.
-	url := fmt.Sprintf("%s/%s", c.rpcURL(slug), neturl.PathEscape(c.apiKey))
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(encoded))
-	if err != nil {
-		return nil, fmt.Errorf("alchemy: create request: %w", urlerr.Strip(err))
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("alchemy: do request: %w", urlerr.Strip(err))
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("alchemy: API status %d for alchemy_getTokenBalances on %s", resp.StatusCode, slug)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("alchemy: read response: %w", err)
+		return nil, err
 	}
 	var parsed tokenBalancesResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {

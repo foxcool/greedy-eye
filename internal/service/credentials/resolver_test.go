@@ -970,3 +970,34 @@ func TestDisabledAccountWithoutAPriceAdapterIsNoSource(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, inv.Skipped)
 }
+
+type fakeTransferReader struct{ name string }
+
+func (f *fakeTransferReader) ReadTransfers(context.Context, string, string, uint64, uint64) (entity.TransferBatch, error) {
+	return entity.TransferBatch{}, nil
+}
+
+// TestTransferReaderFor resolves from the onchain_lookup accounts by provider
+// slug, routed by chain, and names the provider behind the reader.
+func TestTransferReaderFor(t *testing.T) {
+	now := time.Now()
+	r := NewResolver(Config{
+		Source: &fakeSource{
+			user: map[string][]*entity.Account{"u1": {account("own-moralis", "moralis", now), account("own-alchemy", "alchemy", now)}},
+		},
+		TransferReaders: map[string]TransferProvider{"alchemy": {
+			Factory: func(a *entity.Account) (entity.TransferReader, error) { return &fakeTransferReader{name: a.ID}, nil },
+			Chains:  []string{"eth", "base"},
+		}},
+	})
+
+	reader, slug, err := r.TransferReaderFor(context.Background(), "u1", "base")
+	require.NoError(t, err)
+	assert.Equal(t, "alchemy", slug)
+	assert.Equal(t, "own-alchemy", reader.(*fakeTransferReader).name)
+
+	reader, slug, err = r.TransferReaderFor(context.Background(), "u1", "fantom")
+	require.NoError(t, err)
+	assert.Nil(t, reader, "no reader for the chain is no reader, not a wrong one")
+	assert.Empty(t, slug)
+}

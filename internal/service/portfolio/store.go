@@ -126,6 +126,11 @@ type Store interface {
 	CreateLedgerEvent(ctx context.Context, e *entity.LedgerEvent) (*entity.LedgerEvent, error)
 	// ListLedgerEvents pages events with all their legs, oldest executed_at first.
 	ListLedgerEvents(ctx context.Context, opts ListLedgerOpts) ([]*entity.LedgerEvent, string, error)
+	// ListLedgerCursors returns how far each chain's transfer history of the
+	// account has been read.
+	ListLedgerCursors(ctx context.Context, accountID string) ([]*entity.LedgerCursor, error)
+	// SaveLedgerCursor writes one (account, chain) cursor, replacing it.
+	SaveLedgerCursor(ctx context.Context, c *entity.LedgerCursor) error
 
 	// UnsolicitedAssets maps each asset with a non-zero position to whether
 	// every such position came from sync and no ledger leg outside a sync

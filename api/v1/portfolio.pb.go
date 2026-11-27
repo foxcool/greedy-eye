@@ -4521,10 +4521,15 @@ func (x *GetIncomeReportResponse) GetUnvalued() []*UnvaluedIncome {
 }
 
 type SyncAccountRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	AccountId string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	// Start reading the wallet's transfer history into the ledger from its first
+	// block, on every chain it holds a position on and whose history is not read
+	// yet. A long history is finished by the syncs that follow; each of them
+	// continues where the last stopped. Wallet accounts only.
+	BackfillLedger bool `protobuf:"varint,2,opt,name=backfill_ledger,json=backfillLedger,proto3" json:"backfill_ledger,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *SyncAccountRequest) Reset() {
@@ -4564,6 +4569,13 @@ func (x *SyncAccountRequest) GetAccountId() string {
 	return ""
 }
 
+func (x *SyncAccountRequest) GetBackfillLedger() bool {
+	if x != nil {
+		return x.BackfillLedger
+	}
+	return false
+}
+
 type SyncAccountResponse struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	AccountId        string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
@@ -4594,8 +4606,14 @@ type SyncAccountResponse struct {
 	// appearing in somebody's list with no record of who made it is its own kind
 	// of silence.
 	AccountsCreated int32 `protobuf:"varint,8,opt,name=accounts_created,json=accountsCreated,proto3" json:"accounts_created,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Ledger events this sync wrote from the wallet's transfer history.
+	LedgerEventsCreated int32 `protobuf:"varint,9,opt,name=ledger_events_created,json=ledgerEventsCreated,proto3" json:"ledger_events_created,omitempty"`
+	// Chains whose transfer history this sync could not bring up to date, and
+	// movements it could not record. Kept apart from errors: the balances above
+	// are complete without the history.
+	LedgerErrors  []string `protobuf:"bytes,10,rep,name=ledger_errors,json=ledgerErrors,proto3" json:"ledger_errors,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SyncAccountResponse) Reset() {
@@ -4682,6 +4700,20 @@ func (x *SyncAccountResponse) GetAccountsCreated() int32 {
 		return x.AccountsCreated
 	}
 	return 0
+}
+
+func (x *SyncAccountResponse) GetLedgerEventsCreated() int32 {
+	if x != nil {
+		return x.LedgerEventsCreated
+	}
+	return 0
+}
+
+func (x *SyncAccountResponse) GetLedgerErrors() []string {
+	if x != nil {
+		return x.LedgerErrors
+	}
+	return nil
 }
 
 type GetAccountSweepScheduleRequest struct {
@@ -5717,10 +5749,11 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"grossValue\x12\x1b\n" +
 	"\ttax_value\x18\x05 \x01(\tR\btaxValue\x12\x1b\n" +
 	"\tnet_value\x18\x06 \x01(\tR\bnetValue\x122\n" +
-	"\bunvalued\x18\a \x03(\v2\x16.eye.v1.UnvaluedIncomeR\bunvalued\"3\n" +
+	"\bunvalued\x18\a \x03(\v2\x16.eye.v1.UnvaluedIncomeR\bunvalued\"\\\n" +
 	"\x12SyncAccountRequest\x12\x1d\n" +
 	"\n" +
-	"account_id\x18\x01 \x01(\tR\taccountId\"\xdb\x02\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\x12'\n" +
+	"\x0fbackfill_ledger\x18\x02 \x01(\bR\x0ebackfillLedger\"\xb4\x03\n" +
 	"\x13SyncAccountResponse\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12'\n" +
@@ -5730,7 +5763,10 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x0fholdings_zeroed\x18\x05 \x01(\x05R\x0eholdingsZeroed\x12+\n" +
 	"\x11positions_skipped\x18\x06 \x01(\x05R\x10positionsSkipped\x126\n" +
 	"\x17assets_defaulted_market\x18\a \x01(\x05R\x15assetsDefaultedMarket\x12)\n" +
-	"\x10accounts_created\x18\b \x01(\x05R\x0faccountsCreated\"S\n" +
+	"\x10accounts_created\x18\b \x01(\x05R\x0faccountsCreated\x122\n" +
+	"\x15ledger_events_created\x18\t \x01(\x05R\x13ledgerEventsCreated\x12#\n" +
+	"\rledger_errors\x18\n" +
+	" \x03(\tR\fledgerErrors\"S\n" +
 	"\x1eGetAccountSweepScheduleRequest\x12\"\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tH\x00R\taccountId\x88\x01\x01B\r\n" +

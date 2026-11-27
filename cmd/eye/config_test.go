@@ -28,3 +28,15 @@ func TestGetConfigFileFlag(t *testing.T) {
 		})
 	}
 }
+
+// A chain's confirmations come from env as a per-chain key.
+func TestGetConfigLedgerConfirmationsFromEnv(t *testing.T) {
+	orig := os.Args
+	t.Cleanup(func() { os.Args = orig })
+	os.Args = []string{"eye"}
+	t.Setenv("EYE_LEDGER_CONFIRMATIONS_POLYGON", "256")
+
+	cfg, err := getConfig()
+	require.NoError(t, err)
+	assert.Equal(t, map[string]uint64{"polygon": 256}, cfg.Ledger.Confirmations)
+}

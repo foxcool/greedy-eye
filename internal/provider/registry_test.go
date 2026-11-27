@@ -386,3 +386,20 @@ func TestBrokerAccountListerNeedsNoAccountID(t *testing.T) {
 	_, err = lister(&entity.Account{ID: "acc-tls", Data: map[string]string{"api_key": "t"}})
 	assert.ErrorIs(t, err, tinvestadapter.ErrNoRootCA)
 }
+
+// TestTransferReadersRideOnWalletAccounts: a transfer reader is chosen from
+// the same onchain_lookup accounts as a wallet syncer, so its slug must be one
+// an account can name for a wallet, over chains that slug syncs.
+func TestTransferReadersRideOnWalletAccounts(t *testing.T) {
+	r := testRegistry()
+	wallets := r.WalletSyncers()
+	require.NotEmpty(t, r.TransferReaders())
+	for slug, tp := range r.TransferReaders() {
+		wallet, ok := wallets[slug]
+		require.True(t, ok, "transfer reader %q has no wallet syncer an account could name", slug)
+		assert.Subset(t, wallet.Chains, tp.Chains, slug)
+		reader, err := tp.Factory(&entity.Account{Data: map[string]string{"api_key": "k"}})
+		require.NoError(t, err)
+		assert.NotNil(t, reader)
+	}
+}
