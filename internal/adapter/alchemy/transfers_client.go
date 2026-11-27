@@ -19,8 +19,17 @@ import (
 // API's default and the largest page its documentation names.
 const maxTransfersPerPage = 1000
 
-// maxBlocksPerBatch bounds one JSON-RPC batch of block reads.
-const maxBlocksPerBatch = 100
+// maxBlocksPerBatch bounds one JSON-RPC batch of block reads. Each item is
+// metered on its own, and a batch of 100 (about 1600 CU) went past the free
+// tier's throughput at once: the node refused items and the calls after it.
+// 20 is about 320 CU.
+const maxBlocksPerBatch = 20
+
+// blockBatchAttempts is how often a batch item the node refused is asked
+// again, blockRetryPause apart, before the read fails naming the node's answer.
+const blockBatchAttempts = 3
+
+var blockRetryPause = time.Second
 
 // TransferQuery is one alchemy_getAssetTransfers request. Exactly one of
 // FromAddress and ToAddress is set: the API matches both only as AND.
@@ -195,51 +204,81 @@ func (c *Client) AssetTransfers(ctx context.Context, slug string, q TransferQuer
 }
 
 // BlockTimes reads the timestamps of the given blocks in JSON-RPC batches.
-// A block the API did not answer for is an error: an event without its time
-// cannot be written.
+// An item the node refused (throughput) is asked again; a block still without
+// an answer is an error, because an event without its time cannot be written.
 func (c *Client) BlockTimes(ctx context.Context, slug string, blocks []uint64) (map[uint64]time.Time, error) {
 	out := make(map[uint64]time.Time, len(blocks))
 	for start := 0; start < len(blocks); start += maxBlocksPerBatch {
-		chunk := blocks[start:min(start+maxBlocksPerBatch, len(blocks))]
-		batch := make([]rpcRequest, len(chunk))
-		for i, b := range chunk {
-			batch[i] = rpcRequest{JSONRPC: "2.0", ID: i, Method: "eth_getBlockByNumber", Params: []any{hexQuantity(b), false}}
-		}
-		body, err := c.postRPC(ctx, slug, "eth_getBlockByNumber", batch)
-		if err != nil {
-			return nil, err
-		}
-		var parsed []struct {
-			ID     int `json:"id"`
-			Result *struct {
-				Timestamp string `json:"timestamp"`
-			} `json:"result"`
-			Error *rpcError `json:"error"`
-		}
-		if err := json.Unmarshal(body, &parsed); err != nil {
-			return nil, fmt.Errorf("alchemy: decode block batch: %w", err)
-		}
-		for _, r := range parsed {
-			if r.ID < 0 || r.ID >= len(chunk) {
-				return nil, fmt.Errorf("alchemy: block batch on %s answered unknown id %d", slug, r.ID)
+		pending := blocks[start:min(start+maxBlocksPerBatch, len(blocks))]
+		var why string
+		for attempt := 0; len(pending) > 0; attempt++ {
+			if attempt == blockBatchAttempts {
+				return nil, fmt.Errorf("alchemy: block %d on %s has no answer: %s", pending[0], slug, why)
 			}
-			block := chunk[r.ID]
-			if r.Error != nil || r.Result == nil {
-				return nil, fmt.Errorf("alchemy: block %d on %s has no answer", block, slug)
+			if attempt > 0 {
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(blockRetryPause):
+				}
 			}
-			ts, ok := hexToUint(r.Result.Timestamp)
-			if !ok || ts > math.MaxInt64 {
-				return nil, fmt.Errorf("alchemy: block %d on %s has timestamp %q", block, slug, r.Result.Timestamp)
-			}
-			out[block] = time.Unix(int64(ts), 0).UTC() // #nosec G115 -- checked against MaxInt64 above
-		}
-		for _, b := range chunk {
-			if _, ok := out[b]; !ok {
-				return nil, fmt.Errorf("alchemy: block %d on %s has no answer", b, slug)
+			var err error
+			if pending, why, err = c.blockBatch(ctx, slug, pending, out); err != nil {
+				return nil, err
 			}
 		}
 	}
 	return out, nil
+}
+
+// blockBatch reads one batch into out and returns the blocks left without an
+// answer, with the node's last word on them.
+func (c *Client) blockBatch(ctx context.Context, slug string, chunk []uint64, out map[uint64]time.Time) ([]uint64, string, error) {
+	batch := make([]rpcRequest, len(chunk))
+	for i, b := range chunk {
+		batch[i] = rpcRequest{JSONRPC: "2.0", ID: i, Method: "eth_getBlockByNumber", Params: []any{hexQuantity(b), false}}
+	}
+	body, err := c.postRPC(ctx, slug, "eth_getBlockByNumber", batch)
+	if err != nil {
+		return nil, "", err
+	}
+	var parsed []struct {
+		ID     int `json:"id"`
+		Result *struct {
+			Timestamp string `json:"timestamp"`
+		} `json:"result"`
+		Error *rpcError `json:"error"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, "", fmt.Errorf("alchemy: decode block batch: %w", err)
+	}
+	why := "no item in the answer"
+	for _, r := range parsed {
+		if r.ID < 0 || r.ID >= len(chunk) {
+			return nil, "", fmt.Errorf("alchemy: block batch on %s answered unknown id %d", slug, r.ID)
+		}
+		block := chunk[r.ID]
+		switch {
+		case r.Error != nil:
+			why = r.Error.Message
+			continue
+		case r.Result == nil:
+			why = "the node has no such block"
+			continue
+		}
+		ts, ok := hexToUint(r.Result.Timestamp)
+		if !ok || ts > math.MaxInt64 {
+			return nil, "", fmt.Errorf("alchemy: block %d on %s has timestamp %q", block, slug, r.Result.Timestamp)
+		}
+		out[block] = time.Unix(int64(ts), 0).UTC() // #nosec G115 -- checked against MaxInt64 above
+	}
+	var missing []uint64
+	for _, b := range chunk {
+		if _, ok := out[b]; !ok {
+			missing = append(missing, b)
+		}
+	}
+	return missing, why, nil
 }
 
 func hexQuantity(n uint64) string { return "0x" + strconv.FormatUint(n, 16) }

@@ -291,3 +291,84 @@ func TestReadTransfers_NoResultIsNotAnEmptyPage(t *testing.T) {
 	require.ErrorContains(t, err, "answered no result")
 	assert.Equal(t, uint64(3), batch.Next)
 }
+
+// blockBatchFake answers eth_getBlockByNumber batches, refusing an item as the
+// node does over its throughput while refuse says so.
+type blockBatchFake struct {
+	mu     sync.Mutex
+	sizes  []int
+	refuse func(call int, block uint64) bool
+	calls  int
+}
+
+func (f *blockBatchFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	body, _ := io.ReadAll(r.Body)
+	var batch []struct {
+		ID     int   `json:"id"`
+		Params []any `json:"params"`
+	}
+	_ = json.Unmarshal(body, &batch)
+	f.mu.Lock()
+	f.calls++
+	call := f.calls
+	f.sizes = append(f.sizes, len(batch))
+	f.mu.Unlock()
+	out := "["
+	for i, b := range batch {
+		if i > 0 {
+			out += ","
+		}
+		n, _ := hexToUint(b.Params[0].(string))
+		if f.refuse != nil && f.refuse(call, n) {
+			out += fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"error":{"code":429,"message":"Your app has exceeded its compute units per second capacity"}}`, b.ID)
+			continue
+		}
+		out += fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":{"timestamp":"%s"}}`, b.ID, hexQuantity(1_700_000_000+n))
+	}
+	writeJSON(w, out+"]")
+}
+
+func blockClient(t *testing.T, f *blockBatchFake) *Client {
+	t.Helper()
+	srv := httptest.NewServer(f)
+	t.Cleanup(srv.Close)
+	client := NewClient(Config{APIKey: "test-key"})
+	client.rpcURL = func(string) string { return srv.URL }
+	orig := blockRetryPause
+	blockRetryPause = 0
+	t.Cleanup(func() { blockRetryPause = orig })
+	return client
+}
+
+// TestBlockTimes_BatchesStayUnderThroughput: one batch of block reads is
+// metered item by item, so it is kept small.
+func TestBlockTimes_BatchesStayUnderThroughput(t *testing.T) {
+	f := &blockBatchFake{}
+	blocks := make([]uint64, 45)
+	for i := range blocks {
+		blocks[i] = uint64(i + 1)
+	}
+	times, err := blockClient(t, f).BlockTimes(context.Background(), "bnb-mainnet", blocks)
+	require.NoError(t, err)
+	assert.Equal(t, []int{20, 20, 5}, f.sizes)
+	assert.Len(t, times, 45)
+}
+
+// TestBlockTimes_RefusedItemIsAskedAgain: an item the node refused for
+// throughput is asked again, alone, and the read succeeds.
+func TestBlockTimes_RefusedItemIsAskedAgain(t *testing.T) {
+	f := &blockBatchFake{refuse: func(call int, block uint64) bool { return call == 1 && block == 3 }}
+	times, err := blockClient(t, f).BlockTimes(context.Background(), "bnb-mainnet", []uint64{1, 2, 3, 4})
+	require.NoError(t, err)
+	assert.Equal(t, []int{4, 1}, f.sizes, "only the refused block is asked again")
+	assert.Equal(t, time.Unix(1_700_000_003, 0).UTC(), times[3])
+}
+
+// TestBlockTimes_RefusalPastTheAttemptsNamesTheNode: a block still refused
+// after the attempts fails the read with what the node said.
+func TestBlockTimes_RefusalPastTheAttemptsNamesTheNode(t *testing.T) {
+	f := &blockBatchFake{refuse: func(_ int, block uint64) bool { return block == 2 }}
+	_, err := blockClient(t, f).BlockTimes(context.Background(), "bnb-mainnet", []uint64{1, 2})
+	require.ErrorContains(t, err, "block 2 on bnb-mainnet has no answer: Your app has exceeded its compute units per second capacity")
+	assert.Equal(t, blockBatchAttempts, f.calls)
+}
