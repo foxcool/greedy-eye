@@ -13,6 +13,16 @@
       "payment": {"currency": "rub", "units": "0", "nano": 420000000}
     },
     {
+      "cursor": "c-201b",
+      "brokerAccountId": "acc-1",
+      "id": "op-overnight-2",
+      "name": "Доход по сделкам овернайт",
+      "date": "2026-09-20T21:00:00Z",
+      "type": "OPERATION_TYPE_OVERNIGHT",
+      "state": "OPERATION_STATE_EXECUTED",
+      "payment": {"currency": "rub", "units": "0", "nano": 420000000}
+    },
+    {
       "cursor": "c-202",
       "brokerAccountId": "acc-1",
       "id": "op-usd-dividend-1",

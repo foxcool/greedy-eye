@@ -119,9 +119,9 @@ func TestTInvestIncome_RecordedOperations(t *testing.T) {
 
 	first := sync()
 	require.Empty(t, first.LedgerErrors)
-	assert.Equal(t, int32(7), first.LedgerEventsCreated)
-	assert.Equal(t, 7, count(events))
-	assert.Equal(t, 7, count(events+" AND kind = 'income' AND source = 'sync:tinvest'"))
+	assert.Equal(t, int32(8), first.LedgerEventsCreated, "two overnight payments of one sum on one day are two")
+	assert.Equal(t, 8, count(events))
+	assert.Equal(t, 8, count(events+" AND kind = 'income' AND source = 'sync:tinvest'"))
 	assert.Equal(t, 1, count("SELECT count(*) FROM holdings WHERE account_id = $1"), "income writes no holding")
 
 	var amount, direction, incomeKind string
@@ -145,7 +145,7 @@ func TestTInvestIncome_RecordedOperations(t *testing.T) {
 	second := sync()
 	require.Empty(t, second.LedgerErrors)
 	assert.Zero(t, second.LedgerEventsCreated, "a second run creates 0 rows")
-	assert.Equal(t, 7, count(events))
+	assert.Equal(t, 8, count(events))
 
 	// The broker says an operation id may change: the same payments under new
 	// ids are recognised by what they are, read back from the database.

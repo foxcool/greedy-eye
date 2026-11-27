@@ -114,8 +114,8 @@ func TestSyncAccount_BrokerEndToEndOverTheWire(t *testing.T) {
 	// The income history after it: every executed income operation of the
 	// recorded pages is one event, and the cursor moved.
 	assert.Empty(t, resp.Msg.LedgerErrors)
-	assert.Equal(t, int32(7), resp.Msg.LedgerEventsCreated)
-	assert.Len(t, s.events, 7)
+	assert.Equal(t, int32(8), resp.Msg.LedgerEventsCreated)
+	assert.Len(t, s.events, 8)
 	assert.False(t, s.cursors[""].AdvancedAt.IsZero())
 
 	assert.Zero(t, md.unmarked, "a broker FIGI reaches MarketData with the sync's authority")

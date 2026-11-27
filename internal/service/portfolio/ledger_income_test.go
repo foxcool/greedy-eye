@@ -233,3 +233,35 @@ func TestIncomeKey_IsWhatThePaymentIs(t *testing.T) {
 	}
 	assert.NotEqual(t, key, incomeKey(event(base), "q"), "paper")
 }
+
+// TestReadBrokerIncome_SameContentIsAMultiset: the content match only stands
+// in for an id the broker renamed. Two operations with distinct ids and the
+// same content (overnight interest names no paper) are two payments, in one
+// read and after it; a renamed one still matches a recorded one, once.
+func TestReadBrokerIncome_SameContentIsAMultiset(t *testing.T) {
+	at := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+	overnight := func(id string) entity.BrokerIncome { return payment(id, "interest", "0.42", "RUB", at) }
+	syncer := &incomeSyncer{income: []entity.BrokerIncome{overnight("op-a"), overnight("op-b")}}
+	s := newLedgerStore()
+	h := incomeHandler(s, syncer)
+
+	first := h.readBrokerIncome(context.Background(), brokerAccount())
+	require.Empty(t, first.errors)
+	assert.Equal(t, int32(2), first.eventsCreated, "two distinct operations in one read are two events")
+
+	again := h.readBrokerIncome(context.Background(), brokerAccount())
+	require.Empty(t, again.errors)
+	assert.Zero(t, again.eventsCreated, "a resync writes no row")
+
+	syncer.income = []entity.BrokerIncome{overnight("op-a-renamed"), overnight("op-b")}
+	renamed := h.readBrokerIncome(context.Background(), brokerAccount())
+	require.Empty(t, renamed.errors)
+	assert.Zero(t, renamed.eventsCreated, "a renamed operation matches the recorded one it replaced")
+
+	syncer.income = []entity.BrokerIncome{overnight("op-a-renamed"), overnight("op-b"), overnight("op-c")}
+	third := h.readBrokerIncome(context.Background(), brokerAccount())
+	require.Empty(t, third.errors)
+	assert.Equal(t, int32(1), third.eventsCreated, "a third operation of the same content has nothing left to match")
+	assert.Len(t, s.events, 3)
+	assert.NotNil(t, s.events["sync:tinvest|op-c"])
+}

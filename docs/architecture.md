@@ -878,7 +878,11 @@ operations only).
   an operation id may change over time, so before writing, the read compares each operation
   with what this source recorded in the same window: the same income kind, paper, moment (to
   the microsecond), asset, direction and amount is the same payment under a new id, and is not
-  written again. Two papers paying the same sum at the same moment stay two payments. An
+  written again. The match is counted, not a set: a new id may stand in only for a recorded
+  event whose id this read no longer carries, and each such event once. Operations with
+  distinct ids in one read are always distinct (two overnight payments of one sum on one day
+  name no paper and are two), and two papers paying the same sum at the same moment stay two
+  payments. An
   income operation with no payment fails the read; a payment of zero moved nothing and is passed
   over. Not read: trades, fees, deposits and withdrawals, accrued
   interest paid on buying a bond, amortization and redemption (their principal is in the

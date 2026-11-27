@@ -99,6 +99,12 @@ func (h *Handler) accountLedgerCursor(ctx context.Context, accountID string) (*e
 // The ref is the operation id, which the broker says may change over time. A
 // payment already recorded under another id (same kind, paper, moment, asset,
 // direction and amount) is the same payment and is not written again.
+//
+// Content stands in for an id only where an id went missing. Operations with
+// distinct ids in one read are always distinct, whatever their content: two
+// overnight payments of the same sum on the same day name no paper and are
+// still two. So a new id matches a recorded event by content only if that
+// event's ref is absent from this read, and each such event is matched once.
 func (h *Handler) writeBrokerIncome(ctx context.Context, accountID, source string, reader entity.BrokerIncomeReader, from, to time.Time) (int32, error) {
 	ops, err := reader.ReadIncome(ctx, from, to)
 	if err != nil {
@@ -107,6 +113,22 @@ func (h *Handler) writeBrokerIncome(ctx context.Context, accountID, source strin
 	recorded, err := h.recordedIncome(ctx, accountID, source, from, to)
 	if err != nil {
 		return 0, err
+	}
+	// What a renamed id may stand in for: per content key, the recorded refs
+	// this read does not carry any more.
+	read := make(map[string]bool, len(ops))
+	for _, op := range ops {
+		read[op.ID] = true
+	}
+	known := map[string]bool{}
+	vanished := map[string][]string{}
+	for key, refs := range recorded {
+		for _, ref := range refs {
+			known[ref] = true
+			if !read[ref] {
+				vanished[key] = append(vanished[key], ref)
+			}
+		}
 	}
 	assets := map[string]string{} // currency → asset id
 	var created int32
@@ -122,12 +144,14 @@ func (h *Handler) writeBrokerIncome(ctx context.Context, accountID, source strin
 		if err != nil {
 			return created, err
 		}
+		if known[op.ID] {
+			continue // recorded under this id
+		}
 		key := incomeKey(event, op.Instrument)
-		if ref, ok := recorded[key]; ok {
-			if ref != op.ID {
-				h.log.Info("broker income recorded under another operation id; not written again",
-					"account_id", accountID, "recorded_ref", ref, "ref", op.ID)
-			}
+		if refs := vanished[key]; len(refs) > 0 {
+			vanished[key] = refs[1:]
+			h.log.Info("broker income recorded under another operation id; not written again",
+				"account_id", accountID, "recorded_ref", refs[0], "ref", op.ID)
 			continue
 		}
 		if _, err := h.store.CreateLedgerEvent(ctx, event); err != nil {
@@ -136,7 +160,6 @@ func (h *Handler) writeBrokerIncome(ctx context.Context, accountID, source strin
 			}
 			return created, fmt.Errorf("write operation %s: %w", op.ID, err)
 		}
-		recorded[key] = op.ID
 		created++
 	}
 	return created, nil
@@ -150,9 +173,9 @@ type incomeRaw struct {
 }
 
 // recordedIncome maps the content key of every income event this source
-// recorded for the account in [from, to) to its ref.
-func (h *Handler) recordedIncome(ctx context.Context, accountID, source string, from, to time.Time) (map[string]string, error) {
-	out := map[string]string{}
+// recorded for the account in [from, to) to their refs.
+func (h *Handler) recordedIncome(ctx context.Context, accountID, source string, from, to time.Time) (map[string][]string, error) {
+	out := map[string][]string{}
 	opts := ListLedgerOpts{AccountID: accountID, Kind: entity.LedgerKindIncome, ExecutedFrom: from, ExecutedTo: to}
 	for {
 		page, next, err := h.store.ListLedgerEvents(ctx, opts)
@@ -165,7 +188,8 @@ func (h *Handler) recordedIncome(ctx context.Context, accountID, source string, 
 			}
 			var raw incomeRaw
 			_ = json.Unmarshal(e.Raw, &raw) // an unreadable raw names no paper
-			out[incomeKey(e, raw.Instrument)] = e.ExternalRef
+			key := incomeKey(e, raw.Instrument)
+			out[key] = append(out[key], e.ExternalRef)
 		}
 		if next == "" || len(page) == 0 || next == opts.PageToken {
 			return out, nil

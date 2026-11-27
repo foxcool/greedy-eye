@@ -67,7 +67,7 @@ func TestReadIncome_RecordedPages(t *testing.T) {
 	for _, inc := range got {
 		byID[inc.ID] = inc
 	}
-	assert.Len(t, byID, 7, "canceled, in-progress and redemption operations are not income")
+	assert.Len(t, byID, 8, "canceled, in-progress and redemption operations are not income")
 	for id, want := range map[string]struct {
 		kind     entity.IncomeKind
 		currency string
@@ -78,6 +78,7 @@ func TestReadIncome_RecordedPages(t *testing.T) {
 		"op-dividend-1":              {entity.IncomeDividend, "RUB", "517.45"},
 		"op-dividend-tax-1":          {entity.IncomeDividend, "RUB", "-67.27"},
 		"op-overnight-1":             {entity.IncomeInterest, "RUB", "0.42"},
+		"op-overnight-2":             {entity.IncomeInterest, "RUB", "0.42"},
 		"op-usd-dividend-1":          {entity.IncomeDividend, "USD", "2.75"},
 		"op-tax-correction-coupon-1": {entity.IncomeCoupon, "RUB", "13"},
 	} {
