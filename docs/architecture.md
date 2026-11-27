@@ -42,7 +42,7 @@ different audiences:
 
 | ADR | Title | Status |
 |---|---|---|
-| ADR-001 | Modular Monolith vs Microservices | accepted |
+| ADR-001 | Modular Monolith vs Microservices | accepted; ADR-013 (proposed) states what the transition capability requires |
 | ADR-002 | Connect-RPC over h2c instead of gRPC-Gateway | accepted (supersedes the original gRPC + gRPC-Gateway decision) |
 | ADR-003 | 3-service domain API instead of 8 services | accepted; historical, the API now has five services |
 | ADR-004 | User management delegated to external service (psina) | accepted |
@@ -54,6 +54,7 @@ different audiences:
 | ADR-010 | The base of a pair and the currency of a total are different things | accepted |
 | ADR-011 | Provider spend is split into background and interactive classes, with a reserve for people | accepted |
 | ADR-012 | A trade reaches a chain through a Safe the user controls; GE never holds a key that spends | accepted; not implemented yet |
+| ADR-013 | Hybrid deployment contract: one process in production, a split checked in CI | proposed |
 
 **Related documents**
 - [providers.md](providers.md) — which external providers can be connected, what
@@ -235,7 +236,9 @@ graph TB
 
 **Scalability:**
 - Modular architecture with clear service boundaries
-- Deployment capability as monolith or separate microservices
+- One process is the production mode; running the domains as separate processes is a capability
+  CI checks, not a deployment target (ADR-013, proposed). Ownership and the checks are in §8.6;
+  the split is only partly verified until they all exist (Debt 3)
 - Connection pooling and efficient resource usage
 
 **Security:**
@@ -1481,12 +1484,97 @@ somebody chose, since that would report one currency's number under another curr
 - Rule jobs call `ExecuteRule` in-process on behalf of the rule owner, so executions are recorded identically to the RPC path
 - Single-instance only: on multi-instance deployments enable the scheduler on exactly one node via config; `pg_try_advisory_lock`-based leader election is a future option if needed
 
+### 8.6 Service boundaries
+
+Reference for ADR-013 (proposed): who owns each table and each job, and where the wiring still
+shares state inside one process. The decision lives in the ADR; this section is the map and is
+edited without editing the ADR. Measured on main at v0.28.0+ (2026-11-27).
+
+**Table ownership.** `schema.hcl` declares 22 tables, all in `public` (`schema.hcl:1`):
+`grep -c '^table' schema.hcl` prints 22. Each is placed below under the schema its domain would
+get. "Store" is the type in `internal/store/postgres` whose SQL reads or writes the table,
+found by grepping each store file for `FROM`/`JOIN`/`INSERT INTO`/`UPDATE`/`DELETE FROM` on the
+table name.
+
+| Schema (domain) | Table | Store that writes it | Store that also reads or writes it |
+| --- | --- | --- | --- |
+| `md` (marketdata) | `assets` | `MarketDataStore` | — |
+| `md` | `asset_external_refs` | `MarketDataStore` | — |
+| `md` | `asset_risk_flags` | `MarketDataStore` | — |
+| `md` | `prices` | `MarketDataStore` | — |
+| `md` | `price_fetch_attempts` | `MarketDataStore` | — |
+| `md` | `price_unasked_deferrals` | `MarketDataStore` | — |
+| `pf` (portfolio) | `accounts` | `PortfolioStore` | in-process readers of `accounts.data`, see edges below |
+| `pf` | `portfolios` | `PortfolioStore` | — |
+| `pf` | `holdings` | `PortfolioStore` | **`MarketDataStore.MergeAssets` writes it** (`asset_merge.go:241`) |
+| `pf` | `ledger_events` | `PortfolioStore` (`ledger.go`) | — |
+| `pf` | `ledger_legs` | `PortfolioStore` (`ledger.go`) | **`MarketDataStore.MergeAssets` writes it** (`asset_merge.go:242`) |
+| `pf` | `ledger_cursors` | `PortfolioStore` (`ledger.go`) | — |
+| `pf` | `account_sync_attempts` | `PortfolioStore` | — |
+| `pf` | `account_sync_claims` | `PortfolioStore` | — |
+| `pf` | `account_chain_failures` | `PortfolioStore` | — |
+| `pf` | `provider_usage` (interim) | `ProviderUsageStore`, through `ratelimit.Registry` | every process that builds a registry (`main.go:119`) |
+| `auto` (automation) | `rules` | `AutomationStore` | **`MarketDataStore.MergeAssets` rewrites it** (`asset_merge.go:261`) |
+| `auto` | `rule_executions` | `AutomationStore` | — |
+| `usr` (settings) | `users` | `UserStore` | written from every service by `UserProvisioningInterceptor` (`main.go:183`) |
+| `usr` | `user_settings` | `SettingsStore` | — |
+| `an` (analytics) | `sources` | `NewsStore` | — |
+| `an` | `documents` | `NewsStore` | — |
+
+6 + 10 + 2 + 2 + 2 = 22. Apart from `MergeAssets`, the SQL of every store touches only its own
+domain's tables (`ledger.go` reads `accounts`, which is portfolio's too). `provider_usage` sits
+with portfolio only until the credentials boundary is decided (ADR-013, decision 3).
+
+**Foreign keys across schemas.** `schema.hcl` has 26 foreign keys. Under the map above, 8 cross a
+schema: `accounts → users`, `portfolios → users`, `holdings → assets`, `ledger_legs → assets`,
+`rules → users`, `rules → portfolios`, `rule_executions → users`, `rule_executions → portfolios`.
+`user_settings → users` stays inside `usr`.
+
+**Background work.** The scheduler registers its jobs in `internal/scheduler/scheduler.go`
+(`Start`), and `cmd/eye/main.go:281-291` hands it handlers directly.
+
+| Job | Caller label | Calls | Owner | Registered today |
+| --- | --- | --- | --- | --- |
+| Price sweep | `job:price_sweep` | marketdata handler | marketdata | in every process with `scheduler.enabled` |
+| Catalogue rescore | `job:rescore` | marketdata handler | marketdata | in every process with `scheduler.enabled` |
+| Rule reload and rule runs | — | automation store and handler | automation | in every process with `scheduler.enabled` |
+| Confirm waiting executions | — | automation handler | automation | in every process with `scheduler.enabled` |
+| Balance sweep | `job:balance_sync` | portfolio handler | portfolio | only where portfolio is served (`main.go:255`) |
+| News ingest | `job:news` | analytics handler | analytics | only where analytics is served (`main.go:265`) |
+| Rekey of `accounts.data` | — | portfolio store (`rekey.go:84`) | portfolio | in every process with a master key (`main.go:145`); an advisory lock keeps one pass at a time |
+
+**Where the wiring shares in-process state.** Each edge below works in one process and has no
+remote form; `remotes:` does not change it (`cmd/eye/remotes.go:68-70` lists the first three).
+
+| Edge | Where | What breaks when the domains run apart |
+| --- | --- | --- |
+| One pool, one DSN for every store | `main.go:79` | no per-domain role can be applied |
+| Credentials resolver reads `accounts.data` through the portfolio store | `main.go:152`; read outside portfolio by marketdata (`main.go:192-193`) and analytics (`main.go:263`) | marketdata and analytics need SELECT on `pf.accounts` to reach provider keys |
+| Users written by every service | `main.go:183` | every role needs INSERT on `usr.users` |
+| Scheduler holds marketdata and automation handlers | `main.go:281-291` | jobs run once per process |
+| One rate-limit registry per process | `main.go:119` | N processes on one key keep N budgets |
+| Portfolio reports price-source health from its own registry | `main.go:229` | health shows portfolio's spend, not marketdata's |
+| Asset merge writes three domains in one transaction | `asset_merge.go:241-263` | `eye_md` cannot update `holdings`, `ledger_legs`, `rules` |
+| Rekey runs wherever the master key is | `main.go:145` | any process may rewrite `pf.accounts` |
+
+The edge `marketdata → portfolio` for holding provenance has a remote form
+(`holdingProvenance`, `remotes.go`) and is not in this list.
+
+**What a call carries over a hop.** Identity, sync authority and spend labels, as §8.1 and
+ADR-011 describe. The trust boundary is the network: sibling ports are not published past the
+edge, and the edge strips the trusted headers from outside requests (`trust-strip`).
+
+**Reading another domain's data.** Through the consumer's port over the generated client
+(§8.1, `cmd/eye/ports.go`), gathered before the decision, one request per set: a loop of RPCs
+per item is not a read path (`GetPrices` replaced the per-holding `GetLatestPrice` loop).
+
 ---
 
 ## 9. Architecture Decisions
 
 ### ADR-001: Modular Monolith vs Microservices
-- **Status**: accepted
+- **Status**: accepted. It never said what the "transition capability" requires or what checks
+  it; ADR-013 (proposed) does
 - **Context**: Choice between microservice architecture and monolith for MVP
 - **Decision**: Modular monolith with microservices transition capability
 - **Consequences**:
@@ -2027,6 +2115,124 @@ somebody chose, since that would report one currency's number under another curr
   into a known operation); policy only in Safe guard contracts (a contract deployment for a mode
   where a person already signs every transaction).
 
+### ADR-013: Hybrid deployment contract: one process in production, a split checked in CI
+
+- **Status**: proposed (2026-11-27). Every decision below is a recommendation for the owner to
+  accept or change. Decisions 1-2 and 4-10 restate a design the owner approved on 2026-10-26,
+  checked against main at v0.28.0+. Decisions 11-14 are new: they cover code that landed after
+  that design (ledger tables, news tables, `account_sync_claims`, the asset merge, price-source
+  health). When accepted, this ADR amends ADR-001 and §4.2 ("Deployment capability as monolith
+  or separate microservices"). The map it relies on is §8.6.
+- **Context**: ADR-001 says "modular monolith with microservices transition capability" and
+  nothing says what that capability requires or what checks it. Since then the cross-domain
+  reads go through ports that the generated clients satisfy (`cmd/eye/ports.go`), `remotes:`
+  sends a domain's calls over the wire, a loopback stand runs every PR with all cross-domain
+  calls going over HTTP, and depguard forbids cross-domain imports. The rest is unchecked, and
+  §8.6 lists where it fails today. All 22 tables sit in `public` under one role, so no service is
+  stopped from reading another's tables. Every process with `scheduler.enabled` registers the
+  marketdata and automation jobs. Every service writes `users`. Marketdata reads provider keys
+  through the portfolio store. The asset merge writes three domains in one transaction. The
+  child tasks that will fix these (per-domain schemas and roles, per-service DSN, single writer
+  for users, credentials boundary, per-service budgets and jobs, the N-container stand) each
+  need the same answers first: whose table, whose job, which check.
+- **Decision** (proposed):
+
+  1. **Modes.** One process serving every domain is the production mode. Running the domains as
+     separate processes is a capability that CI verifies, not a deployment target. One user gets
+     nothing from a split production deployment; the value is that the boundary becomes a
+     property a build can fail on.
+  2. **Cut line: by domain.** Tables and jobs belong to a domain (marketdata, portfolio,
+     automation, analytics, settings), and a process serves any set of domains. A separate
+     "worker" is the same config: a process that serves a domain, runs the scheduler, and has no
+     route on the edge. *Alternative*: an API/worker split. *Rejected*: the worker would read
+     every table, and the boundary would stop being checked in background code, which is where
+     the sweeps and most of the bugs live.
+  3. **Provider keys and `provider_usage`.** Stay with portfolio for now (`pf`), and the
+     credentials-boundary task settles who owns them, in its own ADR. *Alternatives*: a `cred`
+     domain now (splits `accounts` between two owners before that decision is made); price
+     keys moved to marketdata now (a service account would be split into layers, and one T-Invest
+     key serves both domains).
+  4. **`users` and `user_settings`.** Schema `usr`, owned by the settings domain. Every other
+     role gets INSERT and SELECT on `usr.users` and nothing else, for the provisioning upsert
+     (`INSERT … ON CONFLICT DO NOTHING` followed by a read, `UserStore.GetOrCreate`). This is
+     the one documented exception to "a role touches only its own schema". `users` mirrors the
+     identity psina issued, and a narrow insert does not couple one domain to another.
+     *Alternative*: a single writer behind an `EnsureUser` RPC with a cache. *Rejected*: a new
+     RPC and a hop per first request, for a table that holds no logic. The approved design
+     granted INSERT only; the code reads the row back, so SELECT is needed too.
+  5. **Foreign keys across schemas stay real.** The 8 cross-schema FKs (§8.6) are kept.
+     Postgres checks a foreign key internally, without the referencing role's grants, so
+     integrity holds while a direct read of the parent is denied. A split into separate
+     databases must first turn them into soft references that are validated over RPC. That
+     split is out of scope here. *Alternative*: soft references now. *Rejected*: it gives up
+     integrity for a mode that does not go to production.
+  6. **Which check runs when.**
+
+     | Check | Catches | Runs | State |
+     | --- | --- | --- | --- |
+     | depguard rules in `.golangci.yml` | a service importing a store or a sibling service | every PR (`make lint`) | in place |
+     | `cmd/eye/ports.go` | a port the generated client stops satisfying | every PR (build) | in place |
+     | Loopback smoke (`make test-smoke-loopback`) | a local handler passed where a client belongs, identity or spend labels lost on a hop | every PR (`smoke-loopback` in `ci.yml`) | in place |
+     | Monolith smoke (`make test-smoke`) | the production shape | every PR (`smoke-tests`) | in place |
+     | Grant integration tests | a domain's SQL reaching a neighbour's schema; a table left in `public` | every PR (`make test-integration`) | missing: per-domain schemas and roles task |
+     | N-container stand | distributed startup, config, a job registered twice, a provider key in two registries | push to main and PRs with a label | missing: distributed stand task |
+
+     The stand catches startup, config and job duplication. Those breaks are rare and come
+     from wiring changes, so they should not slow every PR. *Alternatives*: every PR (costly);
+     nightly (a red run comes detached from the PR that caused it).
+  7. **Identity over a hop**, as built: `X-User-*` is forwarded, `X-Service-Token` admits a
+     service call, and `X-Sync-Authority`, `X-Spend-Class` and `X-Spend-Caller` are honoured
+     only with that token (§8.1, ADR-011). The trust boundary is the network: sibling ports are
+     not published past the edge, and the edge strips the trusted headers. Revisit it when a
+     public instance or a second operator appears. A signed token with an impersonation claim
+     buys a single operator nothing.
+  8. **Spend labels over a hop** are part of the contract, not an option (ADR-011, wire form).
+     Without them a background sweep that crosses a hop spends the reserve kept for people.
+  9. **Reading another domain's data**: gathered before the decision, one request per set,
+     through the consumer's port. An RPC per item in a loop is not a read path.
+  10. **Where contracts live**: at the consumer, as a subset of the generated Connect client;
+      proto is the source of truth (§8.1).
+  11. **News tables.** `sources` and `documents` go to schema `an`, owned by analytics, the
+      domain that serves news today (ADR-003). *Alternative*: a schema named `news`, so the move
+      to its own service that ADR-003 foresees renames no schema. *Reason for `an`*: one schema
+      per serving domain keeps the role-to-schema rule with no exception, and the move would
+      re-grant anyway.
+  12. **Ledger and sync tables.** `ledger_events`, `ledger_legs`, `ledger_cursors` (which
+      replaced `transactions`) and `account_sync_claims` go to `pf`. Only `PortfolioStore` reads
+      or writes them, apart from the merge (decision 13).
+  13. **Asset merge.** The merge, an admin operation, runs only in a process that serves
+      marketdata, portfolio and automation together. When any of the three is remote, it is
+      refused with `FailedPrecondition` instead of failing on a grant halfway through. Debt 7
+      stays open until a split becomes a deployment target. *Alternative*: a cross-service
+      protocol where each owner repoints its own rows over RPC and the catalogue deletes last.
+      *Rejected for now*: two new RPCs and a lost single transaction, for a rare admin operation
+      in a mode that does not go to production. A second grant exception (`eye_md` updating
+      `asset_id` in `pf` and `auto`) is rejected too: it reopens the boundary for a write.
+  14. **Job owners.** Every job runs only where its owning domain is served, as the balance
+      sweep and news ingest already do:
+
+      - price sweep and rescore belong to marketdata
+      - rule reload, rule runs and confirm belong to automation
+      - balance sweep belongs to portfolio
+      - news belongs to analytics
+      - rekey of `accounts.data` belongs to portfolio
+
+      A provider's rate budget lives in the process of the domain that calls it. Portfolio's
+      report of price-source health (`main.go:229`) follows that budget, so it is read from
+      marketdata rather than from portfolio's own registry.
+- **Consequences**:
+  - ➕ Each open child task of the split executes a numbered decision here, so whose table and
+    whose job are not re-argued per task or in review comments
+  - ➕ The ownership map has one home (§8.6) and becomes a check once tables leave `public`
+  - ➖ Until the grant tests and the N-container stand land, decisions 4-5 and 13-14 are
+    written down, not enforced (Debt 3)
+  - ➖ `usr.users` stays writable by every role (narrowly), and the asset merge stays a
+    one-process operation
+  - ➖ A trust model that rests on the network has to be revisited before a public instance
+- **Rejected**: rewriting ADR-001 in place (its history, and why it could not be checked, would
+  be lost); a separate `docs/adr/` directory (every ADR lives in §9); a distributed production
+  deployment (cost with no user-facing benefit).
+
 ---
 
 ## 10. Quality Requirements
@@ -2115,14 +2321,16 @@ System Quality
 
 #### Debt 3: No end-to-end test of the deployed shape
 
-- Description: Unit tests and store-level integration tests (testcontainers) exist. There is no
-  test that runs the service the way it is deployed, and none at all for the microservice mode
-  the architecture claims to support.
-- Impact: The "splittable into services" property is verified only at the type level (each
-  cross-service port is a subset of its generated client, `cmd/eye/ports.go`); that a split
-  deployment actually works is asserted, never verified.
-- Resolution Plan: per-domain schemas and Postgres roles as an enforced service boundary, plus a
-  distributed stand in CI.
+- Description: The production shape is checked: the monolith smoke suite runs on every PR. The
+  split is checked only in part. On every PR, depguard forbids cross-domain imports,
+  `cmd/eye/ports.go` keeps each port a subset of its generated client, and the loopback stand
+  sends every cross-domain call over the wire. Nothing checks table ownership (all 22 tables
+  share `public` and one role), and nothing runs the domains as separate processes.
+- Impact: The edges §8.6 lists (credentials, users, scheduler, rate budgets, asset merge) break
+  only in a split deployment, and no test would see them.
+- Resolution Plan: the two missing checks in ADR-013 decision 6. Grant integration tests on
+  per-domain schemas and roles run on every PR; the N-container stand runs on push to main and on
+  labelled PRs. Done when both are green and revoking one grant turns them red.
 
 #### Debt 4: Volume-weighted provider budgets
 
