@@ -1211,6 +1211,22 @@ func TestCreateHolding_StampsManualSource(t *testing.T) {
 	s.AssertExpectations(t)
 }
 
+// TestCreateHolding_ExclusionIsAPersons: an excluded holding made by hand is a
+// person's exclusion, which no verdict or sync lifts.
+func TestCreateHolding_ExclusionIsAPersons(t *testing.T) {
+	s := &mockStore{}
+	s.On("GetAccount", mock.Anything, testAccountID).Return(testAccount(testAccountID), nil)
+	s.On("CreateHolding", mock.Anything, mock.MatchedBy(func(h *entity.Holding) bool {
+		return h.Excluded() && h.ExcludedSource() == entity.ExcludedByUser
+	})).Return(testHolding(testHoldingID), nil)
+
+	_, err := newHandler(s).CreateHolding(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CreateHoldingRequest{
+		Holding: &apiv1.Holding{AssetId: testAssetID, AccountId: testAccountID, Amount: "1", Decimals: 0, Excluded: true},
+	}))
+	require.NoError(t, err)
+	s.AssertExpectations(t)
+}
+
 func TestCreateHolding_NegativeAmount(t *testing.T) {
 	h := newHandler(&mockStore{})
 
@@ -1619,21 +1635,26 @@ func TestListUnpricedHoldings_ResumesWithoutSkipping(t *testing.T) {
 // undo the distinction the coverage block is careful to keep.
 func TestListUnpricedHoldings_SkipsPricedAndQuarantined(t *testing.T) {
 	const (
-		goodAsset = "00000000-0000-0000-0000-0000000000d1"
-		deadAsset = "00000000-0000-0000-0000-0000000000d2"
+		goodAsset     = "00000000-0000-0000-0000-0000000000d1"
+		deadAsset     = "00000000-0000-0000-0000-0000000000d2"
+		unpricedAsset = "00000000-0000-0000-0000-0000000000d3"
 	)
 	s := &mockStore{}
 	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
 		{ID: "h-priced", AssetID: goodAsset, Amount: decimal.NewFromInt(1), Decimals: 0},
 		entitytest.Holding(entity.Holding{ID: "h-quarantined", AssetID: deadAsset, Amount: decimal.NewFromInt(1), Decimals: 0}, entitytest.HoldingState{Excluded: true}),
-		{ID: "h-unpriced", AssetID: deadAsset, Amount: decimal.NewFromInt(1), Decimals: 0},
+		{ID: "h-unpriced", AssetID: unpricedAsset, Amount: decimal.NewFromInt(1), Decimals: 0},
 	}, "", nil)
 
 	md := &mockMDClient{}
 	md.On("GetLatestPrice", mock.Anything, latestIn(goodAsset, "USD")).
 		Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil)
-	md.On("GetLatestPrice", mock.Anything, latestIn(deadAsset, "USD")).
+	md.On("GetLatestPrice", mock.Anything, latestIn(unpricedAsset, "USD")).
 		Return((*connect.Response[apiv1.Price])(nil), connect.NewError(connect.CodeNotFound, errors.New("no price")))
+	md.On("ListAssets", mock.Anything, mock.Anything).Return(
+		connect.NewResponse(&apiv1.ListAssetsResponse{Assets: []*apiv1.Asset{{
+			Id: deadAsset, IdentityVerdict: strPtr("scam"),
+		}}}), nil)
 	md.On("GetAsset", mock.Anything, assetReq("USD")).
 		Return(connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil)
 	md.On("GetAsset", mock.Anything, assetReq("USD")).
@@ -1649,6 +1670,118 @@ func TestListUnpricedHoldings_SkipsPricedAndQuarantined(t *testing.T) {
 	require.Len(t, resp.Msg.Holdings, 1, "the priced row and the quarantined row both stay out")
 	assert.Equal(t, "h-unpriced", resp.Msg.Holdings[0].HoldingId)
 	assert.Empty(t, resp.Msg.NextPageToken, "nothing held back, so the walk is over")
+}
+
+func TestListUnpricedHoldings_UsesCurrentAssetVerdict(t *testing.T) {
+	const asset = "00000000-0000-0000-0000-0000000000e1"
+	s := &mockStore{}
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{{
+		ID: "h-verdict", AssetID: asset, Amount: decimal.NewFromInt(1), Decimals: 0,
+	}}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("GetAsset", mock.Anything, assetReq("USD")).Return(
+		connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil)
+	md.On("GetAsset", mock.Anything, mock.Anything).Return(
+		connect.NewResponse(&apiv1.Asset{Id: asset, Symbol: strPtr("FAKE")}), nil)
+	md.On("ListAssets", mock.Anything, mock.MatchedBy(func(req *connect.Request[apiv1.ListAssetsRequest]) bool {
+		return slices.Equal(req.Msg.Ids, []string{asset})
+	})).Return(connect.NewResponse(&apiv1.ListAssetsResponse{Assets: []*apiv1.Asset{{
+		Id: asset, IdentityVerdict: strPtr("scam"),
+	}}}), nil)
+
+	resp, err := newHandler(s).WithMarketDataClient(md).ListUnpricedHoldings(
+		ctxWithUser(testUserID), unpricedReq("", 0, ""))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.Holdings, "a quarantined asset is not an unpriced work item before sync")
+}
+
+func TestListUnpricedHoldings_ReleasesOnlyQuarantineExclusions(t *testing.T) {
+	const (
+		quarantineAsset = "00000000-0000-0000-0000-0000000000e3"
+		userAsset       = "00000000-0000-0000-0000-0000000000e4"
+	)
+	s := &mockStore{}
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
+		entitytest.Holding(entity.Holding{ID: "h-machine", AssetID: quarantineAsset, Amount: decimal.NewFromInt(1)},
+			entitytest.HoldingState{Excluded: true, ExcludedSource: entity.ExcludedByQuarantine}),
+		entitytest.Holding(entity.Holding{ID: "h-user", AssetID: userAsset, Amount: decimal.NewFromInt(1)},
+			entitytest.HoldingState{Excluded: true, ExcludedSource: entity.ExcludedByUser}),
+	}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("GetLatestPrice", mock.Anything, mock.Anything).
+		Return((*connect.Response[apiv1.Price])(nil), connect.NewError(connect.CodeNotFound, errors.New("no price")))
+	md.On("GetAsset", mock.Anything, assetReq("USD")).Return(
+		connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil)
+	md.On("GetAsset", mock.Anything, mock.Anything).Return(
+		connect.NewResponse(&apiv1.Asset{Symbol: strPtr("FAKE")}), nil)
+	md.On("ListAssets", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
+	md.On("GetPricingStatus", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.GetPricingStatusResponse{}), nil)
+
+	resp, err := newHandler(s).WithMarketDataClient(md).ListUnpricedHoldings(
+		ctxWithUser(testUserID), unpricedReq("", 0, ""))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Holdings, 1)
+	assert.Equal(t, "h-machine", resp.Msg.Holdings[0].HoldingId,
+		"a cleared verdict releases a machine exclusion immediately, while a user exclusion stays out")
+}
+
+func TestCalculatePortfolioValue_UsesCurrentAssetVerdict(t *testing.T) {
+	const asset = "00000000-0000-0000-0000-0000000000e2"
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{{
+		ID: "h-verdict", AssetID: asset, Amount: decimal.NewFromInt(100000000), Decimals: 8,
+	}}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("ListAssets", mock.Anything, mock.MatchedBy(func(req *connect.Request[apiv1.ListAssetsRequest]) bool {
+		return slices.Equal(req.Msg.Ids, []string{asset})
+	})).Return(connect.NewResponse(&apiv1.ListAssetsResponse{Assets: []*apiv1.Asset{{
+		Id: asset, IdentityVerdict: strPtr("impersonation"),
+	}}}), nil)
+	md.On("GetLatestPrice", mock.Anything, latestIn(asset, "USD")).Return(
+		connect.NewResponse(&apiv1.Price{Last: "300000000", Decimals: 8, BaseAssetId: "USD"}), nil)
+
+	resp, err := newHandler(s).WithMarketDataClient(md).CalculatePortfolioValue(
+		ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{PortfolioId: testPortfolioID}))
+	require.NoError(t, err)
+	assert.Equal(t, "0", resp.Msg.TotalValueAmount, "the current asset verdict applies before the next sync")
+	assert.Equal(t, uint32(1), resp.Msg.ExcludedCount)
+	assert.Equal(t, "300", resp.Msg.ExcludedValueAmount)
+}
+
+func TestCalculatePortfolioValue_ReleasesOnlyQuarantineExclusions(t *testing.T) {
+	const (
+		quarantineAsset = "00000000-0000-0000-0000-0000000000e5"
+		userAsset       = "00000000-0000-0000-0000-0000000000e6"
+	)
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
+		entitytest.Holding(entity.Holding{ID: "h-machine", AssetID: quarantineAsset, Amount: decimal.NewFromInt(100000000), Decimals: 8},
+			entitytest.HoldingState{Excluded: true, ExcludedSource: entity.ExcludedByQuarantine}),
+		entitytest.Holding(entity.Holding{ID: "h-user", AssetID: userAsset, Amount: decimal.NewFromInt(100000000), Decimals: 8},
+			entitytest.HoldingState{Excluded: true, ExcludedSource: entity.ExcludedByUser}),
+	}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("ListAssets", mock.Anything, mock.Anything).
+		Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
+	md.On("GetLatestPrice", mock.Anything, latestIn(quarantineAsset, "USD")).Return(
+		connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil)
+	md.On("GetLatestPrice", mock.Anything, latestIn(userAsset, "USD")).Return(
+		connect.NewResponse(&apiv1.Price{Last: "200000000", Decimals: 8, BaseAssetId: "USD"}), nil)
+
+	resp, err := newHandler(s).WithMarketDataClient(md).CalculatePortfolioValue(
+		ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{PortfolioId: testPortfolioID}))
+	require.NoError(t, err)
+	assert.Equal(t, "100", resp.Msg.TotalValueAmount, "a cleared quarantine exclusion returns to the total immediately")
+	assert.Equal(t, uint32(1), resp.Msg.ExcludedCount)
+	assert.Equal(t, "200", resp.Msg.ExcludedValueAmount, "a user-authored exclusion remains excluded")
 }
 
 // TestListUnpricedHoldings_FiltersByReason: NEVER_PRICED is bindings and markets
@@ -1873,6 +2006,10 @@ func TestCalculatePortfolioValue_DisclosesExcluded(t *testing.T) {
 	md := &mockMDClient{}
 	md.On("GetLatestPrice", mock.Anything, latestIn(legitAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "300000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 3.0
 	md.On("GetLatestPrice", mock.Anything, latestIn(scamAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil)  // 1.0
+	md.On("ListAssets", mock.Anything, mock.Anything).Return(
+		connect.NewResponse(&apiv1.ListAssetsResponse{Assets: []*apiv1.Asset{{
+			Id: scamAsset, IdentityVerdict: strPtr("scam"),
+		}}}), nil)
 
 	h := newHandler(s).WithMarketDataClient(md)
 	resp, err := h.CalculatePortfolioValue(ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{
@@ -1987,6 +2124,10 @@ func TestCalculatePortfolioValue_ReportsUnpricedCoverage(t *testing.T) {
 		return r.Msg.AssetId == unpricedAsset
 	})).Return(nil, connect.NewError(connect.CodeNotFound, errors.New("not found")))
 	md.On("GetLatestPrice", mock.Anything, latestIn(scamAsset, "USD")).Return(connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil) // 1.0
+	md.On("ListAssets", mock.Anything, mock.Anything).Return(
+		connect.NewResponse(&apiv1.ListAssetsResponse{Assets: []*apiv1.Asset{{
+			Id: scamAsset, IdentityVerdict: strPtr("scam"),
+		}}}), nil)
 	symbol := "FXUS"
 	md.On("GetAsset", mock.Anything, assetReq("USD")).
 		Return(connect.NewResponse(&apiv1.Asset{Id: "USD", Symbol: strPtr("USD")}), nil).Maybe()
@@ -2330,6 +2471,9 @@ func (m *mockMDClient) FindOrCreateAsset(ctx context.Context, req *connect.Reque
 }
 
 func (m *mockMDClient) ListAssets(ctx context.Context, req *connect.Request[apiv1.ListAssetsRequest]) (*connect.Response[apiv1.ListAssetsResponse], error) {
+	if !m.expects("ListAssets") {
+		return connect.NewResponse(&apiv1.ListAssetsResponse{}), nil
+	}
 	args := m.Called(ctx, req)
 	if v := args.Get(0); v != nil {
 		return v.(*connect.Response[apiv1.ListAssetsResponse]), args.Error(1)
@@ -4730,4 +4874,78 @@ func TestImportPositions_RolledBackBatchKeepsItsCatalogueAssets(t *testing.T) {
 	assert.Equal(t, int32(1), resp.Msg.AssetsCreated, "the asset exists, rollback or not")
 	require.NotNil(t, resp.Msg.Items[0].Error)
 	assert.Contains(t, *resp.Msg.Items[0].Error, "stays in the catalogue")
+}
+
+// TestCalculatePortfolioValue_UnrecordedExclusionByHandStands: an exclusion with
+// no recorded author on a hand-made row is a person's and stays when the asset
+// has no quarantining verdict; the same on a synced row is released, as the
+// next sync would release it.
+func TestCalculatePortfolioValue_UnrecordedExclusionByHandStands(t *testing.T) {
+	const (
+		handAsset = "00000000-0000-0000-0000-0000000000f1"
+		syncAsset = "00000000-0000-0000-0000-0000000000f2"
+	)
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return([]*entity.Holding{
+		entitytest.Holding(entity.Holding{ID: "h-hand", AssetID: handAsset, Amount: decimal.NewFromInt(100000000), Decimals: 8},
+			entitytest.HoldingState{Source: entity.SourceManual, Excluded: true}),
+		entitytest.Holding(entity.Holding{ID: "h-sync", AssetID: syncAsset, Amount: decimal.NewFromInt(100000000), Decimals: 8},
+			entitytest.HoldingState{Source: entity.SourceSync, Excluded: true}),
+	}, "", nil)
+
+	md := &mockMDClient{}
+	md.On("ListAssets", mock.Anything, mock.Anything).Return(connect.NewResponse(&apiv1.ListAssetsResponse{}), nil)
+	md.On("GetLatestPrice", mock.Anything, mock.Anything).Return(
+		connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil)
+
+	resp, err := newHandler(s).WithMarketDataClient(md).CalculatePortfolioValue(
+		ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{PortfolioId: testPortfolioID}))
+	require.NoError(t, err)
+	assert.Equal(t, "100", resp.Msg.TotalValueAmount, "only the synced row is released (cents)")
+	assert.Equal(t, uint32(1), resp.Msg.ExcludedCount)
+}
+
+// TestCalculatePortfolioValue_VerdictPastTheFirstBatch: the verdict lookup is
+// split at 1000 ids; a quarantined asset in the second batch is still out.
+func TestCalculatePortfolioValue_VerdictPastTheFirstBatch(t *testing.T) {
+	holdings := make([]*entity.Holding, 0, 1001)
+	for i := range 1001 {
+		holdings = append(holdings, &entity.Holding{
+			ID: fmt.Sprintf("h-%04d", i), AssetID: fmt.Sprintf("00000000-0000-0000-0000-%012d", i),
+			Amount: decimal.NewFromInt(100000000), Decimals: 8,
+		})
+	}
+	last := holdings[1000].AssetID
+	s := &mockStore{}
+	s.On("GetPortfolio", mock.Anything, testPortfolioID).Return(testPortfolio(testPortfolioID), nil)
+	s.On("ListHoldings", mock.Anything, mock.Anything).Return(holdings, "", nil)
+
+	md := &batchedVerdicts{mockMDClient: &mockMDClient{}, scam: last}
+	md.On("GetLatestPrice", mock.Anything, mock.Anything).Return(
+		connect.NewResponse(&apiv1.Price{Last: "100000000", Decimals: 8, BaseAssetId: "USD"}), nil)
+
+	resp, err := newHandler(s).WithMarketDataClient(md).CalculatePortfolioValue(
+		ctxWithUser(testUserID), connect.NewRequest(&apiv1.CalculatePortfolioValueRequest{PortfolioId: testPortfolioID}))
+	require.NoError(t, err)
+	assert.Equal(t, []int{1000, 1}, md.batches)
+	assert.Equal(t, "100000", resp.Msg.TotalValueAmount, "1000 counted, in cents")
+	assert.Equal(t, uint32(1), resp.Msg.ExcludedCount)
+}
+
+// batchedVerdicts answers ListAssets with a scam verdict for one asset and
+// records the size of every id batch it was asked.
+type batchedVerdicts struct {
+	*mockMDClient
+	scam    string
+	batches []int
+}
+
+func (m *batchedVerdicts) ListAssets(_ context.Context, req *connect.Request[apiv1.ListAssetsRequest]) (*connect.Response[apiv1.ListAssetsResponse], error) {
+	m.batches = append(m.batches, len(req.Msg.Ids))
+	resp := &apiv1.ListAssetsResponse{}
+	if slices.Contains(req.Msg.Ids, m.scam) {
+		resp.Assets = []*apiv1.Asset{{Id: m.scam, IdentityVerdict: strPtr("scam")}}
+	}
+	return connect.NewResponse(resp), nil
 }
