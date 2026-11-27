@@ -3,6 +3,7 @@ package portfolio
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -405,4 +406,52 @@ func TestReadTransfers_GainedAddressReadFailsKeepsTheCursor(t *testing.T) {
 	assert.Equal(t, []uint64{0}, r.froms, "the gained address is re-read from the start")
 	assert.Equal(t, uint64(500), s.cursors["eth"].NextBlock)
 	assert.Equal(t, []string{walletA}, s.cursors["eth"].Addresses)
+}
+
+// TestReadTransfers_ChainHeldLaterIsOpenedWithoutBackfill: an account that
+// asked for its history once gets a cursor on a chain it holds later, on an
+// ordinary sync.
+func TestReadTransfers_ChainHeldLaterIsOpenedWithoutBackfill(t *testing.T) {
+	s := newLedgerStore(&entity.Holding{Chain: "eth"}, &entity.Holding{Chain: "base"})
+	s.cursors["eth"] = &entity.LedgerCursor{AccountID: "acct-1", Chain: "eth", Source: "sync:alchemy", NextBlock: 50, Addresses: []string{walletA}}
+	r := &fakeReader{read: func(_ string, from uint64) (entity.TransferBatch, error) {
+		return entity.TransferBatch{Next: from + 10}, nil
+	}}
+	out := ledgerHandler(s, r).readTransfers(context.Background(), walletAccount(walletA), false)
+	require.Empty(t, out.errors)
+	require.NotNil(t, s.cursors["base"], "the new chain has a cursor")
+	assert.Equal(t, uint64(10), s.cursors["base"].NextBlock, "read from the first block")
+	assert.Equal(t, uint64(60), s.cursors["eth"].NextBlock)
+}
+
+// refusingMD refuses every asset as the catalogue refuses a token for good,
+// and counts how often it was asked.
+type refusingMD struct {
+	mockMDClient
+	calls int
+}
+
+func (m *refusingMD) FindOrCreateAsset(context.Context, *connect.Request[apiv1.FindOrCreateAssetRequest]) (*connect.Response[apiv1.FindOrCreateAssetResponse], error) {
+	m.calls++
+	return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("not an asset"))
+}
+
+// TestReadTransfers_RefusedTokenIsAskedOnce: a token the catalogue refuses is
+// asked about once per run, however many times it moved.
+func TestReadTransfers_RefusedTokenIsAskedOnce(t *testing.T) {
+	s := newLedgerStore(&entity.Holding{Chain: "eth"})
+	var moves []entity.AssetTransfer
+	for i := range 5 {
+		tx := fmt.Sprintf("0x%02x", i)
+		moves = append(moves, move(tx, tx+":log:0x0", uint64(10+i), stranger, walletA, "0xspam", "SPAM", "1"))
+	}
+	r := &fakeReader{read: func(string, uint64) (entity.TransferBatch, error) {
+		return entity.TransferBatch{Next: 50, Transfers: moves}, nil
+	}}
+	md := &refusingMD{}
+	out := ledgerHandler(s, r).WithMarketDataClient(md).readTransfers(context.Background(), walletAccount(walletA), true)
+	require.Len(t, out.errors, 1)
+	assert.Contains(t, out.errors[0], "5 movement(s) not recorded")
+	assert.Equal(t, 1, md.calls)
+	assert.Equal(t, uint64(50), s.cursors["eth"].NextBlock)
 }

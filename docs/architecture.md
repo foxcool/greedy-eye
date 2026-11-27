@@ -817,6 +817,8 @@ implementation.
   the last failure). A cursor is opened by `SyncAccount{backfill_ledger: true}` at block 0 on
   each chain the account holds a position on; a long history is finished by the syncs that
   follow, each continuing where the last stopped. The balance sweep therefore continues it too.
+  Once an account has any cursor, every sync also opens one on a chain it holds without one,
+  so a chain held later is read from its first block as well.
 - **Coverage is the reader's statement, not the caller's request.** The reader asks its own
   source for the head and reads up to `confirmations` blocks behind it (64 by default, 128 on
   polygon, `ledger.confirmations.<chain>` overrides), so a reorg does not leave an event behind.

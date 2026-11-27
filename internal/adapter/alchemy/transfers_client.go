@@ -165,7 +165,7 @@ func (c *Client) AssetTransfers(ctx context.Context, slug string, q TransferQuer
 		return TransferPage{}, err
 	}
 	var parsed struct {
-		Result struct {
+		Result *struct {
 			Transfers []json.RawMessage `json:"transfers"`
 			PageKey   string            `json:"pageKey"`
 		} `json:"result"`
@@ -176,6 +176,10 @@ func (c *Client) AssetTransfers(ctx context.Context, slug string, q TransferQuer
 	}
 	if parsed.Error != nil {
 		return TransferPage{}, fmt.Errorf("alchemy: alchemy_getAssetTransfers on %s: %s", slug, parsed.Error.Message)
+	}
+	// No result is not an empty page: read as one, it would cover the range.
+	if parsed.Result == nil {
+		return TransferPage{}, fmt.Errorf("alchemy: alchemy_getAssetTransfers on %s answered no result", slug)
 	}
 	page := TransferPage{
 		PageKey:   parsed.Result.PageKey,

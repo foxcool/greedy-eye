@@ -282,3 +282,12 @@ func TestReadTransfers_MissingTimeIsReadFromTheBlock(t *testing.T) {
 	assert.Equal(t, time.Date(2026, 1, 1, 0, 0, 7, 0, time.UTC), batch.Transfers[0].At)
 	assert.Equal(t, 1, f.blockReqs)
 }
+
+// TestReadTransfers_NoResultIsNotAnEmptyPage: a response with a null result
+// read as an empty page would cover the whole range with nothing recorded.
+func TestReadTransfers_NoResultIsNotAnEmptyPage(t *testing.T) {
+	f := &rpcFake{head: 100, transfers: func(map[string]any) string { return `null` }}
+	batch, err := transferReaderAgainst(t, f).ReadTransfers(context.Background(), me, "eth", 3, 0)
+	require.ErrorContains(t, err, "answered no result")
+	assert.Equal(t, uint64(3), batch.Next)
+}

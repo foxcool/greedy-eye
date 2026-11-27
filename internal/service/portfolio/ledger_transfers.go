@@ -42,9 +42,9 @@ type transferOutcome struct {
 }
 
 // readTransfers continues the account's transfer history into the ledger on
-// every chain that has a cursor. With backfill, chains holding a position and
-// having no cursor get one at block 0 first: the full history is read on
-// request, and from then on after each sync.
+// every chain that has a cursor. With backfill, or once the account has any
+// cursor, chains holding a position and having no cursor get one at block 0:
+// the full history is read on request, and from then on after each sync.
 //
 // A chain whose read fails, or whose source confirmed nothing past the cursor,
 // keeps its cursor and is reported. Events already written stay: their refs
@@ -70,7 +70,10 @@ func (h *Handler) readTransfers(ctx context.Context, account *entity.Account, ba
 	for _, c := range cursors {
 		byChain[c.Chain] = c
 	}
-	if backfill {
+	// An account with any cursor has asked for its history, so a chain it
+	// holds without one (new since, or one whose first read found no source)
+	// is opened on every sync, not only on the request.
+	if backfill || len(cursors) > 0 {
 		holdings, err := h.allHoldings(ctx, ListHoldingsOpts{AccountID: account.ID})
 		if err != nil {
 			return transferOutcome{errors: []string{fmt.Sprintf("transfer history: %v", err)}}
@@ -245,7 +248,7 @@ func (h *Handler) writeTransferEvents(ctx context.Context, accountID string, own
 		byTx[t.TxHash] = append(byTx[t.TxHash], t)
 	}
 
-	b := eventBuilder{h: h, accountID: accountID, chain: chain, source: source, assets: map[string]string{}, own: map[string]bool{}}
+	b := eventBuilder{h: h, accountID: accountID, chain: chain, source: source, assets: map[string]string{}, refused: map[string]string{}, own: map[string]bool{}}
 	for _, a := range own {
 		b.own[a] = true
 	}
@@ -292,6 +295,7 @@ type eventBuilder struct {
 	accountID, chain, source string
 	own                      map[string]bool
 	assets                   map[string]string // contract ("" for the coin) → asset id
+	refused                  map[string]string // contract → why the catalogue refused it
 	skips                    legSkips
 }
 
@@ -357,11 +361,18 @@ func (b *eventBuilder) asset(ctx context.Context, t entity.AssetTransfer) (strin
 	if id, ok := b.assets[t.ContractAddress]; ok {
 		return id, true, nil
 	}
+	// A refusal is final for the run: a spam token moved a thousand times is
+	// asked about once.
+	if why, ok := b.refused[t.ContractAddress]; ok {
+		b.skips.add(t, why)
+		return "", false, nil
+	}
 	id, err := b.h.transferAsset(ctx, t)
 	if err != nil {
 		if code := connect.CodeOf(err); code != connect.CodeInvalidArgument && code != connect.CodeFailedPrecondition {
 			return "", false, fmt.Errorf("resolve asset of %s: %w", t.TxHash, err)
 		}
+		b.refused[t.ContractAddress] = err.Error()
 		b.skips.add(t, err.Error())
 		return "", false, nil
 	}
