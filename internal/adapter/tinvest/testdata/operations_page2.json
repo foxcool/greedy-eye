@@ -1,0 +1,69 @@
+{
+  "hasNext": false,
+  "nextCursor": "",
+  "items": [
+    {
+      "cursor": "c-201",
+      "brokerAccountId": "acc-1",
+      "id": "op-overnight-1",
+      "name": "Доход по сделкам овернайт",
+      "date": "2026-09-20T21:00:00Z",
+      "type": "OPERATION_TYPE_OVERNIGHT",
+      "state": "OPERATION_STATE_EXECUTED",
+      "payment": {"currency": "rub", "units": "0", "nano": 420000000}
+    },
+    {
+      "cursor": "c-201b",
+      "brokerAccountId": "acc-1",
+      "id": "op-overnight-2",
+      "name": "Доход по сделкам овернайт",
+      "date": "2026-09-20T21:00:00Z",
+      "type": "OPERATION_TYPE_OVERNIGHT",
+      "state": "OPERATION_STATE_EXECUTED",
+      "payment": {"currency": "rub", "units": "0", "nano": 420000000}
+    },
+    {
+      "cursor": "c-202",
+      "brokerAccountId": "acc-1",
+      "id": "op-usd-dividend-1",
+      "name": "Выплата дивидендов",
+      "date": "2025-03-11T12:00:00Z",
+      "type": "OPERATION_TYPE_DIVIDEND",
+      "state": "OPERATION_STATE_EXECUTED",
+      "figi": "BBG000BPH459",
+      "instrumentType": "share",
+      "payment": {"currency": "usd", "units": "2", "nano": 750000000}
+    },
+    {
+      "cursor": "c-203",
+      "brokerAccountId": "acc-1",
+      "id": "op-tax-correction-coupon-1",
+      "name": "Корректировка налога по купонам",
+      "date": "2025-12-31T15:00:00Z",
+      "type": "OPERATION_TYPE_TAX_CORRECTION_COUPON",
+      "state": "OPERATION_STATE_EXECUTED",
+      "payment": {"currency": "rub", "units": "13", "nano": 0}
+    },
+    {
+      "cursor": "c-204",
+      "brokerAccountId": "acc-1",
+      "id": "op-repayment-1",
+      "name": "Частичное погашение облигаций",
+      "date": "2025-11-01T09:00:00Z",
+      "type": "OPERATION_TYPE_BOND_REPAYMENT",
+      "state": "OPERATION_STATE_EXECUTED",
+      "figi": "BBG00BONDXX",
+      "payment": {"currency": "rub", "units": "250", "nano": 0}
+    },
+    {
+      "cursor": "c-205",
+      "brokerAccountId": "acc-1",
+      "id": "op-coupon-progress",
+      "name": "Выплата купонов",
+      "date": "2026-10-20T09:00:00Z",
+      "type": "OPERATION_TYPE_COUPON",
+      "state": "OPERATION_STATE_PROGRESS",
+      "payment": {"currency": "rub", "units": "500", "nano": 0}
+    }
+  ]
+}

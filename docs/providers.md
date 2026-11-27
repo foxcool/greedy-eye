@@ -200,6 +200,11 @@ brought in by quantity and is not valued (accrued interest and the bond model ar
 not built). A position the broker reports as blocked becomes its own
 `locked` holding beside the liquid part.
 
+After the positions, each sync reads the account's income operations into the
+ledger: coupons, dividends, overnight interest and the taxes on them, the whole
+history on the first sync. A failure there does not fail the sync; it shows in
+`ledger_errors` and in account health.
+
 The sync's own report says what it could not name (`positions_skipped`) and what
 it placed on a guessed venue (`assets_defaulted_market`); a non-zero skip count
 also holds back the removal of positions the snapshot no longer contains, since

@@ -51,6 +51,18 @@ func (s *ledgerStore) SaveLedgerCursor(_ context.Context, c *entity.LedgerCursor
 	return nil
 }
 
+func (s *ledgerStore) ListLedgerEvents(_ context.Context, opts ListLedgerOpts) ([]*entity.LedgerEvent, string, error) {
+	var out []*entity.LedgerEvent
+	for _, e := range s.events {
+		if (opts.Kind == "" || e.Kind == opts.Kind) &&
+			(opts.ExecutedFrom.IsZero() || !e.ExecutedAt.Before(opts.ExecutedFrom)) &&
+			(opts.ExecutedTo.IsZero() || e.ExecutedAt.Before(opts.ExecutedTo)) {
+			out = append(out, e)
+		}
+	}
+	return out, "", nil
+}
+
 func (s *ledgerStore) CreateLedgerEvent(_ context.Context, e *entity.LedgerEvent) (*entity.LedgerEvent, error) {
 	if s.writeErr != nil {
 		return nil, s.writeErr

@@ -1932,7 +1932,7 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 
 	// The history is read after the snapshot landed, so both describe the
 	// same moment as nearly as two calls can.
-	var ledger transferOutcome
+	ledger := out.ledger
 	if account.Type == entity.AccountTypeWallet {
 		ledger = h.readTransfers(ctx, account, req.Msg.BackfillLedger)
 	}
@@ -2000,6 +2000,9 @@ type syncOutcome struct {
 	unidentified     int32
 	syncedAssetIDs   []string
 	errors           []string
+	// ledger is what the account's own history reader wrote after the
+	// snapshot; a broker's income, for now.
+	ledger ledgerOutcome
 }
 
 // merge folds one account's outcome into the aggregate, naming the account on
@@ -2019,6 +2022,10 @@ func (o *syncOutcome) merge(other syncOutcome, accountName string) {
 	o.syncedAssetIDs = append(o.syncedAssetIDs, other.syncedAssetIDs...)
 	for _, e := range other.errors {
 		o.errors = append(o.errors, fmt.Sprintf("%s: %s", accountName, e))
+	}
+	o.ledger.eventsCreated += other.ledger.eventsCreated
+	for _, e := range other.ledger.errors {
+		o.ledger.errors = append(o.ledger.errors, fmt.Sprintf("%s: %s", accountName, e))
 	}
 }
 
@@ -2101,7 +2108,15 @@ func (h *Handler) syncOneAccount(ctx context.Context, account *entity.Account) (
 			"removal_withheld", skips.Total() > 0)
 	}
 
+	// The history is read after the snapshot landed, so both describe the
+	// same moment as nearly as two calls can.
+	var ledger ledgerOutcome
+	if account.Type == entity.AccountTypeBroker {
+		ledger = h.readBrokerIncome(ctx, account)
+	}
+
 	return syncOutcome{
+		ledger:           ledger,
 		assetsUpserted:   result.assetsUpserted,
 		holdingsUpserted: result.holdingsUpserted,
 		holdingsZeroed:   result.holdingsZeroed,

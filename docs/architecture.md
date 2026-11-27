@@ -415,7 +415,8 @@ graph TB
   date: a currency at the central bank rate in force on that date, anything else at the
   nearest price within three days; an event with no such price is listed as unvalued, never
   valued at zero. Income is cash flow and never enters a portfolio total. Wallet syncs write
-  transfer history (see **Transfer reader** below); no sync writes income yet
+  transfer history (see **Transfer reader** below); broker syncs write income (see **Broker
+  income reader** below)
 - Ownership: every by-ID and list RPC enforces caller ownership (`middleware.EnsureOwner`);
   `user_id` list overrides are admin-only. See §8.1.
 - Accounts carry a capability model (capabilities + admin-managed system_scopes) and encrypted
@@ -867,6 +868,41 @@ implementation.
   batches. Gas (`role=fee` from receipts)
   is not read yet. Trusting the source's head assumes its transfer index is not more than
   `confirmations` behind its node; a second, independent reader is what would check that.
+
+**Broker income reader (broker income into the ledger)**:
+
+A broker syncer that also implements `entity.BrokerIncomeReader` reads its account's income
+operations. T-Invest is the only one (`OperationsService/GetOperationsByCursor`, executed
+operations only).
+
+- **When.** `SyncAccount` on a broker account (each account of a fan-out on its own) reads the
+  income after the balance snapshot landed. The cursor is the account's chain-less row in
+  `ledger_cursors` (`chain = ''`): its `advanced_at` is the end of the last complete read. The
+  first read takes the whole history; each later one starts 14 days before the last ended, so
+  an operation booked late under an earlier date is still found, and its ref refuses a second
+  write. The API's own cursor only pages one read.
+- **What.** Coupons, dividends, the broker's overnight interest, and the taxes on each (and their
+  corrections) — the operation-type mapping is `incomeOperationTypes` in
+  `internal/adapter/tinvest/operations.go`. Each operation is one `income` event of its income
+  kind with one leg in the payment currency at scale 9: in when the payment is positive, out
+  (a tax withheld) when negative. `external_ref` is the operation id, source `sync:tinvest`;
+  `raw` holds the paper that paid (`instrument`) beside the operation as received. The API says
+  an operation id may change over time, so before writing, the read compares each operation
+  with what this source recorded in the same window: the same income kind, paper, moment (to
+  the microsecond), asset, direction and amount is the same payment under a new id, and is not
+  written again. The match is counted, not a set: a new id may stand in only for a recorded
+  event whose id this read no longer carries, and each such event once. Operations with
+  distinct ids in one read are always distinct (two overnight payments of one sum on one day
+  name no paper and are two), and two papers paying the same sum at the same moment stay two
+  payments. An
+  income operation with no payment fails the read; a payment of zero moved nothing and is passed
+  over. Not read: trades, fees, deposits and withdrawals, accrued
+  interest paid on buying a bond, amortization and redemption (their principal is in the
+  snapshot already), and taxes that name no income.
+- **Failure.** Best effort: a failed read writes nothing, keeps `advanced_at`, stores the
+  failure on the cursor and in `ledger_errors`; the balance sync is not failed by it.
+  `GetAccountHealth` reports the stored failure as `LEDGER_FAILING` (DEGRADED), with `since` the
+  last complete read. A disabled account is not synced, so its income is not read.
 
 **Account credential model**:
 - Provider credentials live in `accounts.data` (encrypted at rest, ADR-005), keyed by a `provider`
