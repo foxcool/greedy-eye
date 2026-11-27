@@ -817,6 +817,10 @@ func (h *Handler) CreateHolding(ctx context.Context, req *connect.Request[apiv1.
 	if err := holding.StampSource(entity.SourceManual); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	// An exclusion made here is a person's, stamped as UpdateHolding does.
+	if holding.Excluded() {
+		holding.SetExcluded(true, entity.ExcludedByUser)
+	}
 	// The target account (and portfolio, when set) must belong to the caller.
 	if _, err := h.ownedAccount(ctx, holding.AccountID); err != nil {
 		return nil, err
@@ -2966,7 +2970,7 @@ func (h *Handler) assetQuarantine(ctx context.Context, holdings []*entity.Holdin
 	ids := make([]string, 0, len(holdings))
 	seen := make(map[string]struct{}, len(holdings))
 	for _, holding := range holdings {
-		if holding.Excluded() && !holding.ReleasableBySync() {
+		if holding.Excluded() && !releasableByVerdict(holding) {
 			continue
 		}
 		if _, ok := seen[holding.AssetID]; ok {
@@ -3014,7 +3018,21 @@ func (h *Handler) assetQuarantine(ctx context.Context, holdings []*entity.Holdin
 // exclusion from the current asset verdict, including when a prior sync left a
 // stale flag on the holding.
 func excludedByCurrentVerdict(holding *entity.Holding, quarantined map[string]bool) bool {
-	return quarantined[holding.AssetID] || holding.Excluded() && !holding.ReleasableBySync()
+	return quarantined[holding.AssetID] || holding.Excluded() && !releasableByVerdict(holding)
+}
+
+// releasableByVerdict reports whether the current verdict may lift the
+// holding's exclusion: one the quarantine raised, or one with no recorded
+// author on a row a sync wrote, which only a sync could have raised. With no
+// author on a row made by hand, the exclusion is a person's.
+func releasableByVerdict(holding *entity.Holding) bool {
+	switch holding.ExcludedSource() {
+	case entity.ExcludedByQuarantine:
+		return true
+	case entity.ExclusionUnrecorded:
+		return holding.Excluded() && holding.Source() == entity.SourceSync
+	}
+	return false
 }
 
 // --- Ledger ---
