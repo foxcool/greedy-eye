@@ -11,10 +11,13 @@ import (
 // BrokerIncome is one payment of income into a broker account, or of a tax
 // on it, as the broker booked it.
 type BrokerIncome struct {
-	// ID is the broker's id of the operation.
+	// ID is the broker's id of the operation. It may change over time.
 	ID   string
 	At   time.Time
 	Kind IncomeKind
+	// Instrument is the broker's id of the paper that paid, empty for income
+	// no paper paid (interest on cash).
+	Instrument string
 	// Currency is the ISO code the payment was made in, upper case.
 	Currency string
 	// Amount is signed: positive came into the account, negative left it (a
@@ -25,7 +28,8 @@ type BrokerIncome struct {
 }
 
 // BrokerIncomeReader reads the income history of the one broker account a
-// BrokerSyncer was built for. A syncer that can implements it too.
+// BrokerSyncer was built for. A syncer that can read income implements it
+// beside BrokerSyncer.
 type BrokerIncomeReader interface {
 	// ReadIncome returns the executed income operations dated in [from, to);
 	// a zero from reads the account's whole history. It returns all of them

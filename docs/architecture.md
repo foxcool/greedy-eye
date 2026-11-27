@@ -873,8 +873,14 @@ operations only).
   corrections) — the operation-type mapping is `incomeOperationTypes` in
   `internal/adapter/tinvest/operations.go`. Each operation is one `income` event of its income
   kind with one leg in the payment currency at scale 9: in when the payment is positive, out
-  (a tax withheld) when negative. `external_ref` is the operation id, source `sync:tinvest`,
-  the operation itself in `raw`. Not read: trades, fees, deposits and withdrawals, accrued
+  (a tax withheld) when negative. `external_ref` is the operation id, source `sync:tinvest`;
+  `raw` holds the paper that paid (`instrument`) beside the operation as received. The API says
+  an operation id may change over time, so before writing, the read compares each operation
+  with what this source recorded in the same window: the same income kind, paper, moment (to
+  the microsecond), asset, direction and amount is the same payment under a new id, and is not
+  written again. Two papers paying the same sum at the same moment stay two payments. An
+  income operation with no payment fails the read; a payment of zero moved nothing and is passed
+  over. Not read: trades, fees, deposits and withdrawals, accrued
   interest paid on buying a bond, amortization and redemption (their principal is in the
   snapshot already), and taxes that name no income.
 - **Failure.** Best effort: a failed read writes nothing, keeps `advanced_at`, stores the

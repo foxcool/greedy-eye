@@ -182,3 +182,54 @@ func TestLedgerReason_AdminSeesTheDetailAndTheLastFullRead(t *testing.T) {
 	assert.Equal(t, "boom", *r.Detail)
 	assert.True(t, at.Equal(r.Since.AsTime()))
 }
+
+// TestReadBrokerIncome_RenamedOperationIsNotWrittenTwice: the broker says an
+// operation id may change. The same payment under a new id is recognised by
+// its content and not written again; two papers paying the same sum at the
+// same moment are still two payments.
+func TestReadBrokerIncome_RenamedOperationIsNotWrittenTwice(t *testing.T) {
+	// Inside the window the second run re-reads.
+	at := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second).Add(123456789)
+	coupon := func(id, paper string) entity.BrokerIncome {
+		p := payment(id, "coupon", "36.4", "RUB", at)
+		p.Instrument = paper
+		return p
+	}
+	syncer := &incomeSyncer{income: []entity.BrokerIncome{coupon("op-1", "ofz-a"), coupon("op-2", "ofz-b")}}
+	s := newLedgerStore()
+	h := incomeHandler(s, syncer)
+
+	first := h.readBrokerIncome(context.Background(), brokerAccount())
+	require.Empty(t, first.errors)
+	assert.Equal(t, int32(2), first.eventsCreated, "two papers, two payments")
+
+	syncer.income = []entity.BrokerIncome{coupon("op-1-renamed", "ofz-a"), coupon("op-2", "ofz-b"), coupon("op-3", "ofz-c")}
+	again := h.readBrokerIncome(context.Background(), brokerAccount())
+	require.Empty(t, again.errors)
+	assert.Equal(t, int32(1), again.eventsCreated, "only the new paper's payment is written")
+	assert.Len(t, s.events, 3)
+	assert.Nil(t, s.events["sync:tinvest|op-1-renamed"])
+}
+
+func TestIncomeKey_IsWhatThePaymentIs(t *testing.T) {
+	at := time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
+	event := func(op entity.BrokerIncome) *entity.LedgerEvent {
+		e, err := brokerIncomeEvent(testAccountID, "sync:tinvest", "asset-RUB", op)
+		require.NoError(t, err)
+		return e
+	}
+	base := payment("a", "coupon", "1", "RUB", at)
+	key := incomeKey(event(base), "p")
+	renamed := base
+	renamed.ID = "b"
+	assert.Equal(t, key, incomeKey(event(renamed), "p"), "the id is not part of it")
+	for name, other := range map[string]entity.BrokerIncome{
+		"amount":    payment("a", "coupon", "2", "RUB", at),
+		"direction": payment("a", "coupon", "-1", "RUB", at),
+		"kind":      payment("a", "dividend", "1", "RUB", at),
+		"moment":    payment("a", "coupon", "1", "RUB", at.Add(time.Microsecond)),
+	} {
+		assert.NotEqual(t, key, incomeKey(event(other), "p"), name)
+	}
+	assert.NotEqual(t, key, incomeKey(event(base), "q"), "paper")
+}

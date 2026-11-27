@@ -34,11 +34,14 @@ func (s fixedBrokerSource) BrokerSyncerForAccount(*entity.Account) (entity.Broke
 // tinvestReplay serves one cash line, the recorded bond catalogue and the recorded
 // operations pages from the adapter's testdata. With failing set, the
 // operations method answers 500 and everything else still works.
-func tinvestReplay(t *testing.T, failing *atomic.Bool) *httptest.Server {
+func tinvestReplay(t *testing.T, failing, renamed *atomic.Bool) *httptest.Server {
 	t.Helper()
 	page := func(name string) []byte {
 		raw, err := os.ReadFile(filepath.Join("..", "..", "adapter", "tinvest", "testdata", name))
 		require.NoError(t, err)
+		if renamed.Load() {
+			raw = []byte(strings.ReplaceAll(string(raw), `"id": "op-`, `"id": "renamed-op-`))
+		}
 		return raw
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -84,8 +87,8 @@ func TestTInvestIncome_RecordedOperations(t *testing.T) {
 		Data: map[string]string{"provider": "tinvest", "api_key": "t", "broker_account_id": "acc-1"}})
 	require.NoError(t, err)
 
-	var failing atomic.Bool
-	srv := tinvestReplay(t, &failing)
+	var failing, renamed atomic.Bool
+	srv := tinvestReplay(t, &failing, &renamed)
 	client, err := tinvestadapter.NewClient(tinvestadapter.Config{Token: "t", BaseURL: srv.URL, Transport: http.DefaultTransport})
 	require.NoError(t, err)
 	h := portfolio.NewHandler(s, slog.New(slog.DiscardHandler)).
@@ -105,6 +108,14 @@ func TestTInvestIncome_RecordedOperations(t *testing.T) {
 		return n
 	}
 	const events = "SELECT count(*) FROM ledger_events WHERE account_id = $1"
+	// The recorded operations are older than the re-read window, so a later
+	// run would not be sent them at all. Rewinding the cursor makes it read
+	// the whole history again, which is what the dedup must survive.
+	rewind := func() {
+		t.Helper()
+		_, err := pool.Exec(ctx, "UPDATE ledger_cursors SET advanced_at = '0001-01-01T00:00:00Z' WHERE account_id = $1", account.ID)
+		require.NoError(t, err)
+	}
 
 	first := sync()
 	require.Empty(t, first.LedgerErrors)
@@ -130,10 +141,21 @@ func TestTInvestIncome_RecordedOperations(t *testing.T) {
 	assert.Empty(t, read.LastError)
 	assert.False(t, read.AdvancedAt.IsZero())
 
+	rewind()
 	second := sync()
 	require.Empty(t, second.LedgerErrors)
 	assert.Zero(t, second.LedgerEventsCreated, "a second run creates 0 rows")
 	assert.Equal(t, 7, count(events))
+
+	// The broker says an operation id may change: the same payments under new
+	// ids are recognised by what they are, read back from the database.
+	renamed.Store(true)
+	rewind()
+	moved := sync()
+	require.Empty(t, moved.LedgerErrors)
+	assert.Zero(t, moved.LedgerEventsCreated, "renamed operations create 0 rows")
+	assert.Equal(t, 0, count(events+" AND external_ref LIKE 'renamed-%'"))
+	renamed.Store(false)
 
 	failing.Store(true)
 	time.Sleep(10 * time.Millisecond) // so a moved cursor would show

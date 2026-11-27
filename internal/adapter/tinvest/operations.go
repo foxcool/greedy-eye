@@ -63,11 +63,13 @@ func IncomeKindOf(operationType string) (entity.IncomeKind, bool) {
 
 // operationItem is the part of an OperationItem the ledger reads.
 type operationItem struct {
-	ID      string     `json:"id"`
-	Date    time.Time  `json:"date"`
-	Type    string     `json:"type"`
-	State   string     `json:"state"`
-	Payment MoneyValue `json:"payment"`
+	ID            string      `json:"id"`
+	Date          time.Time   `json:"date"`
+	Type          string      `json:"type"`
+	State         string      `json:"state"`
+	InstrumentUID string      `json:"instrumentUid"`
+	FIGI          string      `json:"figi"`
+	Payment       *MoneyValue `json:"payment"`
 }
 
 type operationsPage struct {
@@ -163,26 +165,33 @@ func incomeOf(raw json.RawMessage, from, to time.Time) (entity.BrokerIncome, boo
 	if op.ID == "" || op.Date.IsZero() {
 		return entity.BrokerIncome{}, false, fmt.Errorf("tinvest: %s operation without an id or a date", op.Type)
 	}
+	// A payment with no currency is not a payment of zero: it is one this
+	// adapter cannot read, and passing over it would understate the income.
+	if op.Payment == nil || strings.TrimSpace(op.Payment.Currency) == "" {
+		return entity.BrokerIncome{}, false, fmt.Errorf("tinvest: operation %s: no payment", op.ID)
+	}
 	amount, ok := op.Payment.Decimal()
 	if !ok {
 		return entity.BrokerIncome{}, false, fmt.Errorf("tinvest: operation %s: unreadable payment", op.ID)
 	}
 	if amount.IsZero() {
-		return entity.BrokerIncome{}, false, nil
+		return entity.BrokerIncome{}, false, nil // nothing moved
 	}
 	code := strings.ToUpper(strings.TrimSpace(op.Payment.Currency))
 	if !settlementCurrencies[code] {
 		return entity.BrokerIncome{}, false, fmt.Errorf("tinvest: operation %s: payment in %q, not a currency this adapter knows", op.ID, op.Payment.Currency)
 	}
-	// shortcut: the contract says an operation id may change over time; only
-	// executed operations are read, whose id is assumed stable. Move dedup to
-	// a content key if a resync ever writes a payment twice (personal-3shp).
+	instrument := op.InstrumentUID
+	if instrument == "" {
+		instrument = op.FIGI
+	}
 	return entity.BrokerIncome{
-		ID:       op.ID,
-		At:       op.Date,
-		Kind:     kind,
-		Currency: code,
-		Amount:   amount,
-		Raw:      raw,
+		ID:         op.ID,
+		At:         op.Date,
+		Kind:       kind,
+		Instrument: instrument,
+		Currency:   code,
+		Amount:     amount,
+		Raw:        raw,
 	}, true, nil
 }

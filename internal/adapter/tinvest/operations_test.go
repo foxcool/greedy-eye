@@ -91,6 +91,9 @@ func TestReadIncome_RecordedPages(t *testing.T) {
 		assert.NotEmpty(t, inc.Raw, id)
 	}
 	assert.True(t, time.Date(2026, 10, 15, 9, 12, 0, 123456000, time.UTC).Equal(byID["op-coupon-1"].At))
+	assert.Equal(t, "uid-ofz-26238", byID["op-coupon-1"].Instrument, "the instrument uid first")
+	assert.Equal(t, "BBG00BONDXX", byID["op-bond-tax-1"].Instrument, "the figi when there is no uid")
+	assert.Empty(t, byID["op-overnight-1"].Instrument)
 
 	require.Len(t, *seen, 2)
 	first := (*seen)[0]
@@ -158,6 +161,10 @@ func TestReadIncome_Refusals(t *testing.T) {
 			"type":"OPERATION_TYPE_COUPON","state":"OPERATION_STATE_EXECUTED","payment":{"currency":"xau","units":"1"}}]}`,
 		"unreadable payment": `{"hasNext":false,"items":[{"id":"x","date":"2026-10-01T00:00:00Z",
 			"type":"OPERATION_TYPE_COUPON","state":"OPERATION_STATE_EXECUTED","payment":{"currency":"rub","units":"1e"}}]}`,
+		"no payment": `{"hasNext":false,"items":[{"id":"x","date":"2026-10-01T00:00:00Z",
+			"type":"OPERATION_TYPE_COUPON","state":"OPERATION_STATE_EXECUTED"}]}`,
+		"a payment with no currency": `{"hasNext":false,"items":[{"id":"x","date":"2026-10-01T00:00:00Z",
+			"type":"OPERATION_TYPE_COUPON","state":"OPERATION_STATE_EXECUTED","payment":{"units":"0"}}]}`,
 		"no id": `{"hasNext":false,"items":[{"date":"2026-10-01T00:00:00Z",
 			"type":"OPERATION_TYPE_COUPON","state":"OPERATION_STATE_EXECUTED","payment":{"currency":"rub","units":"1"}}]}`,
 	} {
@@ -172,6 +179,19 @@ func TestReadIncome_Refusals(t *testing.T) {
 			assert.Error(t, err)
 		})
 	}
+
+	t.Run("a zero payment moved nothing", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"hasNext":false,"items":[{"id":"x","date":"2026-10-01T00:00:00Z",
+				"type":"OPERATION_TYPE_COUPON","state":"OPERATION_STATE_EXECUTED","payment":{"currency":"rub","units":"0"}}]}`))
+		}))
+		t.Cleanup(srv.Close)
+		c, err := NewClient(Config{Token: "t", BaseURL: srv.URL, Transport: srv.Client().Transport})
+		require.NoError(t, err)
+		got, err := NewBrokerSyncer(c, "acc-1").ReadIncome(context.Background(), time.Time{}, time.Time{})
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
 
 	t.Run("a cursor that repeats", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
