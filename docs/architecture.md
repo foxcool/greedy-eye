@@ -608,10 +608,17 @@ without linking them.
   provider + digest of the API key, injected into every adapter client as an `http.RoundTripper`.
   Because clients are per-account and short-lived, a limiter inside a client paces one account and
   is blind to the rest — a sweep over three accounts on one key would triple the observed rate.
-  `429`/`418`/`430` freeze the bucket for `Retry-After` (default 1 min, capped at 15) while the
-  response still reaches the adapter, which owns the error handling; each further refusal with no
-  success between them doubles that pause, up to 2h, so an instance that has run into a spent plan
-  stops re-asking. The streak is in memory and a restart clears it — the spend it protects is not.
+  `429`/`418`/`430` freeze the bucket for `Retry-After` (default the plan's `Backoff`, 1 min
+  unless the plan says otherwise; capped at 15) while the response still reaches the adapter,
+  which owns the error handling; each further refusal with no success between them doubles that
+  pause, up to 2h, so an instance that has run into a spent plan stops re-asking.
+  A request may carry its cost (`ratelimit.WithCost`) and then takes that many tokens: Alchemy
+  meters throughput in compute units per second for the whole account (300 CU/s on the free tier,
+  10 s window), so its client tags every call with its CU (`alchemy_getAssetTransfers` 120, a
+  block read 20 per item) and its plan is 140 CU/s with 10 s of burst, under half the account,
+  leaving room for a second deployment on the same account. Its `Backoff` is 1 s, as Alchemy
+  advises, and its client sends a call refused with 429 up to three times; the freeze holds each
+  retry back. The streak is in memory and a restart clears it — the spend it protects is not.
   Built-in plans live in `defaultLimits`; the ACCOUNT overrides them field by field through
   `data.rps`/`.burst`/`.quota`/`.period`, because a plan belongs to the key rather than to the
   service. The limit is re-resolved each time a client is built, so an edit applies without a
@@ -2126,9 +2133,10 @@ System Quality
 
 #### Debt 4: Volume-weighted provider budgets
 
-- Description: The quota accounting understands "one request = one unit". Moralis bills in
-  compute units and Binance in request weight, so their daily budgets carry no `Quota` at all and
-  are effectively untracked.
+- Description: The quota accounting understands "one request = one unit". Rate pacing can weigh
+  a request (`WithCost`, used by Alchemy), but volume quotas still count requests: Moralis bills
+  in compute units, Alchemy's monthly allowance is in compute units and Binance meters request
+  weight, so their budgets carry no `Quota` at all and are effectively untracked.
 - Impact: Those two providers can be exhausted without the system noticing in advance.
 - Resolution Plan: weighted cost per call, and reading the provider's own remaining-budget headers
   where they exist (`X-MBX-USED-WEIGHT-*`).

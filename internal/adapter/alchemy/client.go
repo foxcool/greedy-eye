@@ -240,7 +240,7 @@ func networkErrors(parsed tokensResponse) []NetworkError {
 // key is a path segment here and is kept out of every error by post.
 func (c *Client) postTokens(ctx context.Context, payload tokensRequest) ([]byte, error) {
 	url := fmt.Sprintf("%s/%s/assets/tokens/by-address", c.baseURL, neturl.PathEscape(c.apiKey))
-	return c.post(ctx, url, "tokens/by-address", payload)
+	return c.post(ctx, url, "tokens/by-address", payload, portfolioThroughputCU)
 }
 
 // maxContractsPerCall is the page size of alchemy_getTokenBalances: maxCount
@@ -286,7 +286,7 @@ func (c *Client) TokenBalances(ctx context.Context, slug, address string, contra
 		return nil, fmt.Errorf("alchemy: %d contracts in one call, the API answers %d", len(contracts), maxContractsPerCall)
 	}
 	body, err := c.postRPC(ctx, slug, "alchemy_getTokenBalances",
-		rpcCall("alchemy_getTokenBalances", address, contracts, map[string]int{"maxCount": maxContractsPerCall}))
+		rpcCall("alchemy_getTokenBalances", address, contracts, map[string]int{"maxCount": maxContractsPerCall}), 1)
 	if err != nil {
 		return nil, err
 	}

@@ -274,7 +274,7 @@ func TestRetryAfterParsing(t *testing.T) {
 			if tc.header != "" {
 				resp.Header.Set("Retry-After", tc.header)
 			}
-			assert.Equal(t, tc.want, retryAfter(resp))
+			assert.Equal(t, tc.want, retryAfter(resp, defaultBackoff))
 		})
 	}
 }
@@ -786,4 +786,80 @@ func TestRejectedKeyIsUnusableUntilItIsAnswered(t *testing.T) {
 	get()
 	_, unusable = reg.Budget(keyless).Unusable()
 	assert.False(t, unusable)
+}
+
+// TestCostDrawsItsUnitsFromTheBucket: a request that costs n units takes n
+// tokens, so a provider metering compute units is paced in them.
+func TestCostDrawsItsUnitsFromTheBucket(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	defer srv.Close()
+
+	reg := newTestRegistry(t, 1000)
+	tr, ok := reg.Transport(Credential{Provider: "test", APIKey: "key", Limit: Limit{RPS: 1, Burst: 100}}, nil).(*limitedTransport)
+	require.True(t, ok)
+
+	send := func(cost int) {
+		req, err := http.NewRequestWithContext(WithCost(t.Context(), cost), http.MethodGet, srv.URL, nil)
+		require.NoError(t, err)
+		resp, err := (&http.Client{Transport: tr}).Do(req)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+	}
+	send(60)
+	assert.InDelta(t, 40, tr.bucket.limiter.Tokens(), 1, "60 of 100 taken")
+
+	// Past the burst the cost is clamped to a full bucket, so the request
+	// waits for one instead of being refused outright.
+	ctx, cancel := context.WithTimeout(WithCost(t.Context(), 1000), 50*time.Millisecond)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	require.NoError(t, err)
+	_, err = (&http.Client{Transport: tr}).Do(req)
+	require.Error(t, err, "a full bucket is a minute away at 1 unit a second")
+	assert.NotContains(t, err.Error(), "burst", "clamped, not refused for exceeding the burst")
+}
+
+// TestRequestWithoutCostCostsOne: providers that meter requests are untouched.
+func TestRequestWithoutCostCostsOne(t *testing.T) {
+	assert.Equal(t, 1, costOf(t.Context()))
+	assert.Equal(t, 1, costOf(WithCost(t.Context(), 0)))
+	assert.Equal(t, 120, costOf(WithCost(t.Context(), 120)))
+}
+
+// TestBackoffFollowsTheProvider: a refusal that names no pause pauses for the
+// provider's own Backoff, a second; others keep the minute.
+func TestBackoffFollowsTheProvider(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	for _, tc := range []struct {
+		limit Limit
+		want  time.Duration
+	}{
+		{Limit{RPS: 1000, Burst: 10, Backoff: time.Second}, time.Second},
+		{Limit{RPS: 1000, Burst: 10}, defaultBackoff},
+	} {
+		reg := newTestRegistry(t, 1000)
+		tr, ok := reg.Transport(Credential{Provider: "test", APIKey: "key", Limit: tc.limit}, nil).(*limitedTransport)
+		require.True(t, ok)
+		now := time.Now()
+		tr.now = func() time.Time { return now }
+		resp, err := (&http.Client{Transport: tr}).Get(srv.URL) //nolint:noctx // fixed URL
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		assert.Equal(t, tc.want, tr.bucket.frozenFor(now))
+	}
+}
+
+// TestAlchemyIsPacedInComputeUnits: the free tier allows 300 CU/s for the
+// whole account; this deployment keeps under half of it, and a refusal pauses
+// seconds, not a minute.
+func TestAlchemyIsPacedInComputeUnits(t *testing.T) {
+	l := defaultLimits["alchemy"]
+	assert.LessOrEqual(t, l.RPS, 150.0, "under half of 300 CU/s")
+	assert.GreaterOrEqual(t, l.Burst, 400, "a 20-block batch (400 CU) fits one bucket")
+	assert.LessOrEqual(t, float64(l.Burst), 10*l.RPS, "no more than the 10 s window holds")
+	assert.Equal(t, time.Second, l.Backoff)
 }

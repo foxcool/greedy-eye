@@ -70,6 +70,10 @@ type Limit struct {
 	Quota int
 	// Period is the window Quota resets on. Ignored when Quota is zero.
 	Period QuotaPeriod
+	// Backoff is the first pause after a refusal that names none; refusals
+	// in a row double it (escalate). Zero means defaultBackoff. A provider
+	// whose refusal means "this second is full" wants seconds, not minutes.
+	Backoff time.Duration
 }
 
 // keylessTier is the tier assumed when a credential carries no API key.
@@ -152,13 +156,16 @@ var defaultLimits = map[string]Limit{
 	"coingecko:" + keylessTier: {RPS: 0.4, Burst: 1},
 	"coingecko:pro":            {RPS: 8, Burst: 2, Quota: 500000, Period: QuotaMonth},
 
-	// Alchemy meters compute units, not requests: 30M CU/month on the free
-	// tier against roughly 1.3M for an hourly sweep of four wallets, and 500
-	// CU/second where this cap is 5 requests. So the RPS below is politeness,
-	// not the real ceiling — and the real ceiling is a unit this registry
-	// cannot count, which is personal-a3v.10 and not fixed here. Deliberately
-	// no Quota: a monthly request count would be a number that means nothing.
-	"alchemy": {RPS: 5, Burst: 2},
+	// Alchemy meters throughput in compute units per second: 300 CU/s on the
+	// free tier for the whole ACCOUNT, whichever app or deployment spends it,
+	// over a 10 s token bucket. Its requests carry their CU (WithCost), so
+	// RPS and Burst here are CU: 140 CU/s and 10 s of it is under half the
+	// account, which leaves the other half to a second deployment on the same
+	// account. 5 requests a second used to be the cap: 600 CU/s of
+	// getAssetTransfers, and every refusal froze the key for a minute.
+	// A refusal pauses a second and doubles, as Alchemy advises. Deliberately
+	// no Quota: 30M CU a month is a unit the request counters do not hold.
+	"alchemy": {RPS: 140, Burst: 1400, Backoff: time.Second},
 
 	// FRED allows 120 requests a minute per key; a widget reads two series a
 	// few times a day behind a cache, so this is only politeness.
@@ -928,6 +935,9 @@ func applyOverride(limit *Limit, o Limit) {
 	if o.Burst > 0 {
 		limit.Burst = o.Burst
 	}
+	if o.Backoff > 0 {
+		limit.Backoff = o.Backoff
+	}
 	// A quota can only be set deliberately, and it comes with its period.
 	if o.Quota > 0 && o.Period != QuotaNone {
 		limit.Quota = o.Quota
@@ -983,6 +993,9 @@ type bucket struct {
 	limiter  *rate.Limiter
 	provider string
 	fp       string
+	// backoff is the first pause after a refusal that names none: the
+	// longest any entry asks for (see Limit.Backoff).
+	backoff time.Duration
 
 	mu sync.Mutex
 	// entries is the limit each account presented for this key, by account.
@@ -1032,6 +1045,7 @@ func newBucket(provider, fp, who string, l Limit, now time.Time) *bucket {
 		limiter:  rate.NewLimiter(rate.Limit(l.RPS), max(l.Burst, 1)),
 		provider: provider,
 		fp:       fp,
+		backoff:  backoffOf(l),
 		entries:  map[string]Limit{who: l},
 		windows:  make(map[QuotaPeriod]*window),
 	}
@@ -1064,17 +1078,34 @@ func (b *bucket) setEntry(who string, l Limit) {
 	}
 	b.entries[who] = l
 
-	rps, burst := l.RPS, l.Burst
+	rps, burst, backoff := l.RPS, l.Burst, backoffOf(l)
 	for _, e := range b.entries {
 		rps = min(rps, e.RPS)
 		burst = min(burst, e.Burst)
+		backoff = max(backoff, backoffOf(e))
 	}
+	b.backoff = backoff
 	if b.limiter.Limit() != rate.Limit(rps) {
 		b.limiter.SetLimit(rate.Limit(rps))
 	}
 	if burst = max(burst, 1); b.limiter.Burst() != burst {
 		b.limiter.SetBurst(burst)
 	}
+}
+
+// backoffBase is the first pause after a refusal that names none.
+func (b *bucket) backoffBase() time.Duration {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.backoff
+}
+
+// backoffOf is the first pause a limit asks for after a refusal.
+func backoffOf(l Limit) time.Duration {
+	if l.Backoff > 0 {
+		return l.Backoff
+	}
+	return defaultBackoff
 }
 
 // storage is the window new spend is persisted under. One window only, so the

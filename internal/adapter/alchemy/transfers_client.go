@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/foxcool/greedy-eye/internal/adapter/internal/urlerr"
+	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
 )
 
 // maxTransfersPerPage is maxCount of alchemy_getAssetTransfers: 0x3e8, the
@@ -80,41 +81,86 @@ type rpcError struct {
 	Message string `json:"message"`
 }
 
-// postRPC sends one JSON-RPC body (a single call or a batch) to a network and
-// returns the response body.
-func (c *Client) postRPC(ctx context.Context, slug, method string, payload any) ([]byte, error) {
-	url := fmt.Sprintf("%s/%s", c.rpcURL(slug), neturl.PathEscape(c.apiKey))
-	return c.post(ctx, url, method+" on "+slug, payload)
+// Throughput cost in compute units, from Alchemy's cost table (2026-11-27).
+// A batch costs the sum of its items. The Portfolio API is billed 360 CU but
+// counts 1 against throughput, which is what the rate budget paces.
+var methodCU = map[string]int{
+	"eth_blockNumber":           10,
+	"eth_getBlockByNumber":      20,
+	"alchemy_getAssetTransfers": 120,
+	"alchemy_getTokenBalances":  20,
 }
 
-// post sends a JSON body and returns the response body. The key is a path
-// segment of url, so url never reaches an error: a transport error from Do
-// quotes it itself, so that error is stripped of it (urlerr).
-func (c *Client) post(ctx context.Context, url, what string, payload any) ([]byte, error) {
+const (
+	portfolioThroughputCU = 1
+	unknownMethodCU       = 26 // eth_call, the common case
+)
+
+// rateLimitAttempts is how often a call refused for throughput is sent. The
+// shared budget holds the next attempt back for the provider's pause.
+const rateLimitAttempts = 3
+
+// postRPC sends one JSON-RPC body (a single call or `items` of the same
+// method in a batch) to a network and returns the response body.
+func (c *Client) postRPC(ctx context.Context, slug, method string, payload any, items int) ([]byte, error) {
+	url := fmt.Sprintf("%s/%s", c.rpcURL(slug), neturl.PathEscape(c.apiKey))
+	cu, ok := methodCU[method]
+	if !ok {
+		cu = unknownMethodCU
+	}
+	return c.post(ctx, url, method+" on "+slug, payload, cu*max(items, 1))
+}
+
+// post sends a JSON body costing cu and returns the response body. The key is
+// a path segment of url, so url never reaches an error: a transport error
+// from Do quotes it itself, so that error is stripped of it (urlerr).
+//
+// A 429 is Alchemy saying this second's throughput is spent; the call is sent
+// again after the pause the rate budget now holds it for.
+func (c *Client) post(ctx context.Context, url, what string, payload any, cu int) ([]byte, error) {
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("alchemy: encode request: %w", err)
 	}
+	ctx = ratelimit.WithCost(ctx, cu)
+	for attempt := 1; ; attempt++ {
+		body, status, err := c.send(ctx, url, encoded)
+		if err != nil {
+			return nil, err
+		}
+		switch {
+		case status == http.StatusOK:
+			return body, nil
+		case status == http.StatusTooManyRequests && attempt < rateLimitAttempts:
+			continue
+		default:
+			return nil, fmt.Errorf("alchemy: API status %d for %s", status, what)
+		}
+	}
+}
+
+// send performs one POST and returns the status with the body of a 200.
+func (c *Client) send(ctx context.Context, url string, encoded []byte) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(encoded))
 	if err != nil {
-		return nil, fmt.Errorf("alchemy: create request: %w", urlerr.Strip(err))
+		return nil, 0, fmt.Errorf("alchemy: create request: %w", urlerr.Strip(err))
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("alchemy: do request: %w", urlerr.Strip(err))
+		return nil, 0, fmt.Errorf("alchemy: do request: %w", urlerr.Strip(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("alchemy: API status %d for %s", resp.StatusCode, what)
+		return nil, resp.StatusCode, nil
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("alchemy: read response: %w", err)
+		return nil, 0, fmt.Errorf("alchemy: read response: %w", err)
 	}
-	return body, nil
+	return body, http.StatusOK, nil
 }
 
 // rpcCall is a single JSON-RPC request. No params is an empty list on the
@@ -128,7 +174,7 @@ func rpcCall(method string, params ...any) rpcRequest {
 
 // BlockNumber returns the network's head as the API's node sees it.
 func (c *Client) BlockNumber(ctx context.Context, slug string) (uint64, error) {
-	body, err := c.postRPC(ctx, slug, "eth_blockNumber", rpcCall("eth_blockNumber"))
+	body, err := c.postRPC(ctx, slug, "eth_blockNumber", rpcCall("eth_blockNumber"), 1)
 	if err != nil {
 		return 0, err
 	}
@@ -169,7 +215,7 @@ func (c *Client) AssetTransfers(ctx context.Context, slug string, q TransferQuer
 	if q.PageKey != "" {
 		params["pageKey"] = q.PageKey
 	}
-	body, err := c.postRPC(ctx, slug, "alchemy_getAssetTransfers", rpcCall("alchemy_getAssetTransfers", params))
+	body, err := c.postRPC(ctx, slug, "alchemy_getAssetTransfers", rpcCall("alchemy_getAssetTransfers", params), 1)
 	if err != nil {
 		return TransferPage{}, err
 	}
@@ -238,7 +284,7 @@ func (c *Client) blockBatch(ctx context.Context, slug string, chunk []uint64, ou
 	for i, b := range chunk {
 		batch[i] = rpcRequest{JSONRPC: "2.0", ID: i, Method: "eth_getBlockByNumber", Params: []any{hexQuantity(b), false}}
 	}
-	body, err := c.postRPC(ctx, slug, "eth_getBlockByNumber", batch)
+	body, err := c.postRPC(ctx, slug, "eth_getBlockByNumber", batch, len(batch))
 	if err != nil {
 		return nil, "", err
 	}

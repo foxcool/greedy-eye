@@ -89,7 +89,9 @@ func (t *limitedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	if err := t.waitOutFreeze(ctx); err != nil {
 		return nil, err
 	}
-	if err := t.bucket.limiter.Wait(ctx); err != nil {
+	// A request costs what its provider meters it at (WithCost), never more
+	// than a full bucket: WaitN refuses n past the burst outright.
+	if err := t.bucket.limiter.WaitN(ctx, min(costOf(ctx), t.bucket.limiter.Burst())); err != nil {
 		return nil, err
 	}
 
@@ -113,7 +115,7 @@ func (t *limitedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		// paying for an answer we keep being given, and it heals itself: one
 		// successful response resets the run.
 		streak := t.bucket.noteBackoff(caller)
-		t.bucket.freezeUntil(t.clock().Add(escalate(retryAfter(resp), streak)))
+		t.bucket.freezeUntil(t.clock().Add(escalate(retryAfter(resp, t.bucket.backoffBase()), streak)))
 	} else if t.keyed && spend.RejectsCredential(resp.StatusCode) {
 		// Recorded, not enforced: the request path stays open, so a person
 		// checking whether a repaired key works gets an answer. Unattended work
@@ -161,10 +163,10 @@ func (t *limitedTransport) waitOutFreeze(ctx context.Context) error {
 // retryAfter reads the header in both of its permitted forms, falling back to
 // a fixed pause when it is absent or unreadable. The result is always within
 // [0, maxBackoff].
-func retryAfter(resp *http.Response) time.Duration {
+func retryAfter(resp *http.Response, fallback time.Duration) time.Duration {
 	raw := resp.Header.Get("Retry-After")
 	if raw == "" {
-		return defaultBackoff
+		return fallback
 	}
 
 	if secs, err := strconv.Atoi(raw); err == nil {
@@ -174,7 +176,7 @@ func retryAfter(resp *http.Response) time.Duration {
 		return clampBackoff(time.Until(at))
 	}
 
-	return defaultBackoff
+	return fallback
 }
 
 func clampBackoff(d time.Duration) time.Duration {

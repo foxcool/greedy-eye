@@ -372,3 +372,36 @@ func TestBlockTimes_RefusalPastTheAttemptsNamesTheNode(t *testing.T) {
 	require.ErrorContains(t, err, "block 2 on bnb-mainnet has no answer: Your app has exceeded its compute units per second capacity")
 	assert.Equal(t, blockBatchAttempts, f.calls)
 }
+
+// TestThroughputRefusalIsRetried: a 429 is Alchemy saying this second is
+// full; the call goes again, and only a refusal past the attempts fails it.
+func TestThroughputRefusalIsRetried(t *testing.T) {
+	for _, tc := range []struct {
+		refusals, wantCalls int
+		wantErr             bool
+	}{
+		{refusals: 1, wantCalls: 2},
+		{refusals: 10, wantCalls: rateLimitAttempts, wantErr: true},
+	} {
+		var calls int
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			calls++
+			if calls <= tc.refusals {
+				w.WriteHeader(http.StatusTooManyRequests)
+				return
+			}
+			writeJSON(w, `{"jsonrpc":"2.0","id":1,"result":"0x10"}`)
+		}))
+		client := NewClient(Config{APIKey: "test-key"})
+		client.rpcURL = func(string) string { return srv.URL }
+		head, err := client.BlockNumber(context.Background(), "eth-mainnet")
+		srv.Close()
+		assert.Equal(t, tc.wantCalls, calls)
+		if tc.wantErr {
+			require.ErrorContains(t, err, "API status 429")
+			continue
+		}
+		require.NoError(t, err)
+		assert.Equal(t, uint64(16), head)
+	}
+}
