@@ -2,6 +2,8 @@ package ratelimit
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -89,7 +91,7 @@ func (t *limitedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	if err := t.waitOutFreeze(ctx); err != nil {
 		return nil, err
 	}
-	if err := t.bucket.limiter.Wait(ctx); err != nil {
+	if err := t.waitCost(ctx, costOf(ctx)); err != nil {
 		return nil, err
 	}
 
@@ -113,7 +115,8 @@ func (t *limitedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		// paying for an answer we keep being given, and it heals itself: one
 		// successful response resets the run.
 		streak := t.bucket.noteBackoff(caller)
-		t.bucket.freezeUntil(t.clock().Add(escalate(retryAfter(resp), streak)))
+		base := t.bucket.backoffBase()
+		t.bucket.freezeUntil(t.clock().Add(escalate(retryAfter(resp, base), base, streak)))
 	} else if t.keyed && spend.RejectsCredential(resp.StatusCode) {
 		// Recorded, not enforced: the request path stays open, so a person
 		// checking whether a repaired key works gets an answer. Unattended work
@@ -126,12 +129,28 @@ func (t *limitedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return resp, nil
 }
 
+// waitCost takes a request's cost (WithCost) from the bucket. WaitN refuses n
+// past the burst outright, and an account may set a burst smaller than one
+// call, so a larger cost is taken a full bucket at a time: it is charged in
+// full and waits as long as its units take to refill.
+func (t *limitedTransport) waitCost(ctx context.Context, cost int) error {
+	for cost > 0 {
+		n := min(cost, t.bucket.limiter.Burst())
+		if err := t.bucket.limiter.WaitN(ctx, n); err != nil {
+			return err
+		}
+		cost -= n
+	}
+	return nil
+}
+
 // escalate doubles the provider's own pause once per consecutive refusal,
 // bounded by maxEscalatedBackoff. A streak of one returns base unchanged, so a
-// single 429 behaves exactly as it did before.
-func escalate(base time.Duration, streak int64) time.Duration {
+// single 429 behaves exactly as it did before. A zero base (Retry-After: 0 or
+// a past date) is replaced by fallback, the plan's Backoff.
+func escalate(base, fallback time.Duration, streak int64) time.Duration {
 	if base <= 0 {
-		base = defaultBackoff
+		base = fallback
 	}
 	d := base
 	for i := int64(1); i < streak && d < maxEscalatedBackoff; i++ {
@@ -140,11 +159,23 @@ func escalate(base time.Duration, streak int64) time.Duration {
 	return min(d, maxEscalatedBackoff)
 }
 
+// ErrFrozen is a request refused at once because the back-off after a
+// provider's refusal outlasts the request's deadline. It also matches
+// context.DeadlineExceeded, which waiting would have ended in.
+var ErrFrozen = errors.New("ratelimit: rate budget frozen past the request deadline")
+
 // waitOutFreeze blocks until an active back-off expires, or the context ends.
+// A freeze that ends after the deadline fails at once with ErrFrozen: the
+// freeze is read here, as the wait starts, so a pause another refusal has
+// just doubled is seen.
 func (t *limitedTransport) waitOutFreeze(ctx context.Context) error {
-	d := t.bucket.frozenFor(t.clock())
+	now := t.clock()
+	d := t.bucket.frozenFor(now)
 	if d <= 0 {
 		return nil
+	}
+	if deadline, ok := ctx.Deadline(); ok && now.Add(d).After(deadline) {
+		return fmt.Errorf("%w for %s: %w", ErrFrozen, d.Round(time.Second), context.DeadlineExceeded)
 	}
 
 	timer := time.NewTimer(d)
@@ -161,10 +192,10 @@ func (t *limitedTransport) waitOutFreeze(ctx context.Context) error {
 // retryAfter reads the header in both of its permitted forms, falling back to
 // a fixed pause when it is absent or unreadable. The result is always within
 // [0, maxBackoff].
-func retryAfter(resp *http.Response) time.Duration {
+func retryAfter(resp *http.Response, fallback time.Duration) time.Duration {
 	raw := resp.Header.Get("Retry-After")
 	if raw == "" {
-		return defaultBackoff
+		return fallback
 	}
 
 	if secs, err := strconv.Atoi(raw); err == nil {
@@ -174,7 +205,7 @@ func retryAfter(resp *http.Response) time.Duration {
 		return clampBackoff(time.Until(at))
 	}
 
-	return defaultBackoff
+	return fallback
 }
 
 func clampBackoff(d time.Duration) time.Duration {

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/foxcool/greedy-eye/internal/adapter/ratelimit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -290,4 +291,177 @@ func TestReadTransfers_NoResultIsNotAnEmptyPage(t *testing.T) {
 	batch, err := transferReaderAgainst(t, f).ReadTransfers(context.Background(), me, "eth", 3, 0)
 	require.ErrorContains(t, err, "answered no result")
 	assert.Equal(t, uint64(3), batch.Next)
+}
+
+// blockBatchFake answers eth_getBlockByNumber batches, refusing an item as the
+// node does over its throughput while refuse says so.
+type blockBatchFake struct {
+	mu     sync.Mutex
+	sizes  []int
+	refuse func(call int, block uint64) bool
+	calls  int
+}
+
+func (f *blockBatchFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	body, _ := io.ReadAll(r.Body)
+	var batch []struct {
+		ID     int   `json:"id"`
+		Params []any `json:"params"`
+	}
+	_ = json.Unmarshal(body, &batch)
+	f.mu.Lock()
+	f.calls++
+	call := f.calls
+	f.sizes = append(f.sizes, len(batch))
+	f.mu.Unlock()
+	out := "["
+	for i, b := range batch {
+		if i > 0 {
+			out += ","
+		}
+		n, _ := hexToUint(b.Params[0].(string))
+		if f.refuse != nil && f.refuse(call, n) {
+			out += fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"error":{"code":429,"message":"Your app has exceeded its compute units per second capacity"}}`, b.ID)
+			continue
+		}
+		out += fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":{"timestamp":"%s"}}`, b.ID, hexQuantity(1_700_000_000+n))
+	}
+	writeJSON(w, out+"]")
+}
+
+func blockClient(t *testing.T, f *blockBatchFake) *Client {
+	t.Helper()
+	srv := httptest.NewServer(f)
+	t.Cleanup(srv.Close)
+	client := NewClient(Config{APIKey: "test-key"})
+	client.rpcURL = func(string) string { return srv.URL }
+	orig := blockRetryPause
+	blockRetryPause = 0
+	t.Cleanup(func() { blockRetryPause = orig })
+	return client
+}
+
+// TestBlockTimes_BatchesStayUnderThroughput: one batch of block reads is
+// metered item by item, so it is kept small.
+func TestBlockTimes_BatchesStayUnderThroughput(t *testing.T) {
+	f := &blockBatchFake{}
+	blocks := make([]uint64, 45)
+	for i := range blocks {
+		blocks[i] = uint64(i + 1)
+	}
+	times, err := blockClient(t, f).BlockTimes(context.Background(), "bnb-mainnet", blocks)
+	require.NoError(t, err)
+	assert.Equal(t, []int{20, 20, 5}, f.sizes)
+	assert.Len(t, times, 45)
+}
+
+// TestBlockTimes_RefusedItemIsAskedAgain: an item the node refused for
+// throughput is asked again, alone, and the read succeeds.
+func TestBlockTimes_RefusedItemIsAskedAgain(t *testing.T) {
+	f := &blockBatchFake{refuse: func(call int, block uint64) bool { return call == 1 && block == 3 }}
+	times, err := blockClient(t, f).BlockTimes(context.Background(), "bnb-mainnet", []uint64{1, 2, 3, 4})
+	require.NoError(t, err)
+	assert.Equal(t, []int{4, 1}, f.sizes, "only the refused block is asked again")
+	assert.Equal(t, time.Unix(1_700_000_003, 0).UTC(), times[3])
+}
+
+// TestBlockTimes_RefusalPastTheAttemptsNamesTheNode: a block still refused
+// after the attempts fails the read with what the node said.
+func TestBlockTimes_RefusalPastTheAttemptsNamesTheNode(t *testing.T) {
+	f := &blockBatchFake{refuse: func(_ int, block uint64) bool { return block == 2 }}
+	_, err := blockClient(t, f).BlockTimes(context.Background(), "bnb-mainnet", []uint64{1, 2})
+	require.ErrorContains(t, err, "block 2 on bnb-mainnet has no answer: Your app has exceeded its compute units per second capacity")
+	assert.Equal(t, blockBatchAttempts, f.calls)
+}
+
+// TestThroughputRefusalIsRetried: a 429 is Alchemy saying this second is
+// full; the call goes again, and only a refusal past the attempts fails it.
+func TestThroughputRefusalIsRetried(t *testing.T) {
+	for _, tc := range []struct {
+		refusals, wantCalls int
+		wantErr             bool
+	}{
+		{refusals: 1, wantCalls: 2},
+		{refusals: 10, wantCalls: rateLimitAttempts, wantErr: true},
+	} {
+		var calls int
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			calls++
+			if calls <= tc.refusals {
+				w.WriteHeader(http.StatusTooManyRequests)
+				return
+			}
+			writeJSON(w, `{"jsonrpc":"2.0","id":1,"result":"0x10"}`)
+		}))
+		client := NewClient(Config{APIKey: "test-key"})
+		client.rpcURL = func(string) string { return srv.URL }
+		head, err := client.BlockNumber(context.Background(), "eth-mainnet")
+		srv.Close()
+		assert.Equal(t, tc.wantCalls, calls)
+		if tc.wantErr {
+			require.ErrorContains(t, err, "API status 429")
+			continue
+		}
+		require.NoError(t, err)
+		assert.Equal(t, uint64(16), head)
+	}
+}
+
+// TestBlockTimes_EachBlockKeepsItsOwnReason: the failure names the block
+// with what the node said about that block, not about another one.
+func TestBlockTimes_EachBlockKeepsItsOwnReason(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, `[{"jsonrpc":"2.0","id":0,"error":{"code":429,"message":"capacity exceeded"}},`+
+			`{"jsonrpc":"2.0","id":1,"result":null}]`)
+	}))
+	t.Cleanup(srv.Close)
+	client := NewClient(Config{APIKey: "test-key"})
+	client.rpcURL = func(string) string { return srv.URL }
+	orig := blockRetryPause
+	blockRetryPause = 0
+	t.Cleanup(func() { blockRetryPause = orig })
+
+	_, err := client.BlockTimes(context.Background(), "bnb-mainnet", []uint64{1, 2})
+	require.ErrorContains(t, err, "block 1 on bnb-mainnet has no answer: capacity exceeded")
+}
+
+// TestThroughputRefusalWithLongPauseIsReturned: when the shared budget holds
+// the next attempt back longer than the client would wait, the 429 is the
+// answer, not a timeout spent sitting out the pause.
+func TestThroughputRefusalWithLongPauseIsReturned(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		backoff   time.Duration
+		wantCalls int
+	}{
+		{"plan's own 1 s pause is waited out", 0, 2}, // 0: no override, the plan's Backoff
+		{"pause past the client timeout", 40 * time.Second, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls++
+				if calls == 1 {
+					w.WriteHeader(http.StatusTooManyRequests)
+					return
+				}
+				writeJSON(w, `{"jsonrpc":"2.0","id":1,"result":"0x10"}`)
+			}))
+			t.Cleanup(srv.Close)
+			reg := ratelimit.NewRegistry()
+			cred := ratelimit.Credential{Provider: "alchemy", APIKey: "test-key", Limit: ratelimit.Limit{Backoff: tc.backoff}}
+			client := NewClient(Config{APIKey: "test-key", Transport: reg.Transport(cred, nil)})
+			client.rpcURL = func(string) string { return srv.URL }
+
+			start := time.Now()
+			_, err := client.BlockNumber(context.Background(), "eth-mainnet")
+			assert.Equal(t, tc.wantCalls, calls)
+			if tc.wantCalls == 1 {
+				require.ErrorContains(t, err, "API status 429")
+				assert.Less(t, time.Since(start), time.Second, "returned at once, not after the pause")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }

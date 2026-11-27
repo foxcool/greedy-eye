@@ -227,14 +227,18 @@ func TestFreezeBlocksUntilDeadline(t *testing.T) {
 	tr.now = func() time.Time { return now }
 	tr.bucket.freezeUntil(now.Add(time.Hour))
 
-	// Context expiry proves the freeze is actually blocking.
-	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	// A cancel with no deadline proves the freeze is actually blocking: a
+	// deadline inside the freeze would be refused at once (ErrFrozen).
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
+	time.AfterFunc(50*time.Millisecond, cancel)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
 	require.NoError(t, err)
 
+	start := time.Now()
 	_, err = (&http.Client{Transport: tr}).Do(req)
-	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.GreaterOrEqual(t, time.Since(start), 40*time.Millisecond, "waited in the freeze until cancelled")
 	assert.EqualValues(t, 0, hits.Load(), "request must not reach the provider while frozen")
 
 	// Move past the deadline; the same transport recovers by itself.
@@ -274,7 +278,7 @@ func TestRetryAfterParsing(t *testing.T) {
 			if tc.header != "" {
 				resp.Header.Set("Retry-After", tc.header)
 			}
-			assert.Equal(t, tc.want, retryAfter(resp))
+			assert.Equal(t, tc.want, retryAfter(resp, defaultBackoff))
 		})
 	}
 }
@@ -668,9 +672,16 @@ func TestSuccessResetsEscalation(t *testing.T) {
 // stops growing. Believing a provider will never come back is a claim, and this
 // package does not make claims — it only stops paying for a refused answer.
 func TestEscalationIsBounded(t *testing.T) {
-	assert.Equal(t, maxEscalatedBackoff, escalate(time.Minute, 1000))
-	assert.Equal(t, time.Minute, escalate(time.Minute, 1), "one refusal is the provider's own pause")
-	assert.Equal(t, defaultBackoff, escalate(0, 1), "a provider that names no pause gets the default")
+	assert.Equal(t, maxEscalatedBackoff, escalate(time.Minute, defaultBackoff, 1000))
+	assert.Equal(t, time.Minute, escalate(time.Minute, defaultBackoff, 1), "one refusal is the provider's own pause")
+	assert.Equal(t, defaultBackoff, escalate(0, defaultBackoff, 1), "a provider that names no pause gets the default")
+}
+
+// TestEscalationFromZeroTakesTheFallback: Retry-After: 0 or a past date starts
+// from the plan's own pause, not the default minute, and doubles from there.
+func TestEscalationFromZeroTakesTheFallback(t *testing.T) {
+	assert.Equal(t, time.Second, escalate(0, time.Second, 1))
+	assert.Equal(t, 4*time.Second, escalate(0, time.Second, 3))
 }
 
 // TestUnusableReportsWhyAndWhen: the sweep asks this before it selects targets,
@@ -786,4 +797,110 @@ func TestRejectedKeyIsUnusableUntilItIsAnswered(t *testing.T) {
 	get()
 	_, unusable = reg.Budget(keyless).Unusable()
 	assert.False(t, unusable)
+}
+
+// TestCostDrawsItsUnitsFromTheBucket: a request that costs n units takes n
+// tokens, so a provider metering compute units is paced in them.
+func TestCostDrawsItsUnitsFromTheBucket(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	defer srv.Close()
+
+	reg := newTestRegistry(t, 1000)
+	tr, ok := reg.Transport(Credential{Provider: "test", APIKey: "key", Limit: Limit{RPS: 1, Burst: 100}}, nil).(*limitedTransport)
+	require.True(t, ok)
+
+	send := func(cost int) {
+		req, err := http.NewRequestWithContext(WithCost(t.Context(), cost), http.MethodGet, srv.URL, nil)
+		require.NoError(t, err)
+		resp, err := (&http.Client{Transport: tr}).Do(req)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+	}
+	send(60)
+	assert.InDelta(t, 40, tr.bucket.limiter.Tokens(), 1, "60 of 100 taken")
+
+	// Past the burst the cost is taken a full bucket at a time, so it is
+	// charged in full: 250 units at 1000 a second, burst 100, refill 0.15 s.
+	reg = newTestRegistry(t, 1000)
+	tr, ok = reg.Transport(Credential{Provider: "fast", APIKey: "key", Limit: Limit{RPS: 1000, Burst: 100}}, nil).(*limitedTransport)
+	require.True(t, ok)
+	start := time.Now()
+	send(250) // send reads tr when called: a cost past the burst waits, it is not refused
+	assert.GreaterOrEqual(t, time.Since(start), 140*time.Millisecond,
+		"150 units past the burst take their refill; a cost clamped to the burst would not wait")
+}
+
+// TestRequestWithoutCostCostsOne: providers that meter requests are untouched.
+func TestRequestWithoutCostCostsOne(t *testing.T) {
+	assert.Equal(t, 1, costOf(t.Context()))
+	assert.Equal(t, 1, costOf(WithCost(t.Context(), 0)))
+	assert.Equal(t, 120, costOf(WithCost(t.Context(), 120)))
+}
+
+// TestBackoffFollowsTheProvider: a refusal without Retry-After, or with
+// Retry-After: 0, pauses for the provider's own Backoff, a second; providers
+// without one keep the minute.
+func TestBackoffFollowsTheProvider(t *testing.T) {
+	for _, tc := range []struct {
+		limit      Limit
+		retryAfter string
+		want       time.Duration
+	}{
+		{Limit{RPS: 1000, Burst: 10, Backoff: time.Second}, "", time.Second},
+		{Limit{RPS: 1000, Burst: 10, Backoff: time.Second}, "0", time.Second},
+		{Limit{RPS: 1000, Burst: 10}, "", defaultBackoff},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			if tc.retryAfter != "" {
+				w.Header().Set("Retry-After", tc.retryAfter)
+			}
+			w.WriteHeader(http.StatusTooManyRequests)
+		}))
+		reg := newTestRegistry(t, 1000)
+		tr, ok := reg.Transport(Credential{Provider: "test", APIKey: "key", Limit: tc.limit}, nil).(*limitedTransport)
+		require.True(t, ok)
+		now := time.Now()
+		tr.now = func() time.Time { return now }
+		resp, err := (&http.Client{Transport: tr}).Get(srv.URL) //nolint:noctx // fixed URL
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		srv.Close()
+		assert.Equal(t, tc.want, tr.bucket.frozenFor(now), "Retry-After %q", tc.retryAfter)
+	}
+}
+
+// TestAlchemyIsPacedInComputeUnits: the free tier allows 300 CU/s for the
+// whole account; this deployment keeps under half of it, and a refusal pauses
+// seconds, not a minute.
+func TestAlchemyIsPacedInComputeUnits(t *testing.T) {
+	l := defaultLimits["alchemy"]
+	assert.LessOrEqual(t, l.RPS, 150.0, "under half of 300 CU/s")
+	assert.GreaterOrEqual(t, l.Burst, 400, "a 20-block batch (400 CU) fits one bucket")
+	assert.LessOrEqual(t, float64(l.Burst), 10*l.RPS, "no more than the 10 s window holds")
+	assert.Equal(t, time.Second, l.Backoff)
+}
+
+// TestFreezePastTheDeadlineFailsAtOnce: a request whose deadline falls inside
+// the freeze is refused at once, not after sleeping to its timeout, and still
+// reads as a deadline; one whose deadline outlasts the freeze waits it out.
+func TestFreezePastTheDeadlineFailsAtOnce(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	defer srv.Close()
+	reg := newTestRegistry(t, 1000)
+	tr, ok := reg.Transport(Credential{Provider: "test", APIKey: "key"}, nil).(*limitedTransport)
+	require.True(t, ok)
+
+	tr.bucket.freezeUntil(time.Now().Add(time.Hour))
+	start := time.Now()
+	_, err := (&http.Client{Transport: tr, Timeout: 30 * time.Second}).Get(srv.URL) //nolint:noctx // the client timeout is the deadline
+	require.ErrorIs(t, err, ErrFrozen)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Less(t, time.Since(start), time.Second)
+
+	tr, ok = reg.Transport(Credential{Provider: "test", APIKey: "other"}, nil).(*limitedTransport)
+	require.True(t, ok)
+	tr.bucket.freezeUntil(time.Now().Add(50 * time.Millisecond))
+	resp, err := (&http.Client{Transport: tr, Timeout: 30 * time.Second}).Get(srv.URL) //nolint:noctx // the client timeout is the deadline
+	require.NoError(t, err, "a freeze inside the deadline is waited out")
+	require.NoError(t, resp.Body.Close())
 }
