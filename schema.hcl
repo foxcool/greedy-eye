@@ -1033,11 +1033,19 @@ table "ledger_events" {
     null = false
   }
   # What an income event paid: coupon | dividend | interest | staking_reward |
-  # other. Only an income event carries one. The code requires it on every new
+  # other | tax. Only an income event carries one. The code requires it on every new
   # income event; the column stays nullable so income events written before it
   # existed remain valid, and a report reads them as other.
   column "income_kind" {
     type = text
+    null = true
+  }
+  # The asset that paid an income event (the share of a dividend, the bond of
+  # a coupon), resolved through the catalogue. Empty when no paper paid
+  # (interest on cash), when the paper is not in the catalogue, and always on
+  # a tax that names no income.
+  column "payer_asset_id" {
+    type = uuid
     null = true
   }
   # When the event happened, not when the row was written.
@@ -1101,11 +1109,27 @@ table "ledger_events" {
     where   = "(kind = 'income'::text)"
   }
 
+  check "ledger_events_payer" {
+    expr = "((payer_asset_id IS NULL) OR ((kind = 'income'::text) AND (income_kind IS DISTINCT FROM 'tax'::text)))"
+  }
+
+  index "ledger_events_payer_asset_id" {
+    columns = [column.payer_asset_id]
+    where   = "(payer_asset_id IS NOT NULL)"
+  }
+
   # The ledger is the record of what happened: an account that has one is not
   # deleted out from under it.
   foreign_key "ledger_events_accounts" {
     columns     = [column.account_id]
     ref_columns = [table.accounts.column.id]
+    on_update   = NO_ACTION
+    on_delete   = NO_ACTION
+  }
+
+  foreign_key "ledger_events_payer_assets" {
+    columns     = [column.payer_asset_id]
+    ref_columns = [table.assets.column.id]
     on_update   = NO_ACTION
     on_delete   = NO_ACTION
   }

@@ -460,6 +460,7 @@ func (h *Handler) MergeAssets(ctx context.Context, req *connect.Request[apiv1.Me
 		DryRun:            dryRun,
 		HoldingsMoved:     res.HoldingsMoved,
 		LedgerLegsMoved:   res.LedgerLegsMoved,
+		LedgerPayersMoved: res.LedgerPayersMoved,
 		PricesMoved:       res.PricesMoved,
 		PricesDropped:     res.PricesDropped,
 		ExternalRefsMoved: res.ExternalRefsMoved,

@@ -187,6 +187,12 @@ message LedgerEvent {
   // Set on an income event only. An income event written before income kinds
   // existed reads as INCOME_KIND_OTHER.
   IncomeKind income_kind = 11;
+  // Output only. The asset that paid an income event: the share of a
+  // dividend, the bond of a coupon. Absent when no paper paid (interest on
+  // cash), when the paper is not in the catalogue (GetIncomeReport names it
+  // under unresolved_payers), and always on INCOME_KIND_TAX, which no paper
+  // paid.
+  optional string payer_asset_id = 12;
 }
 
 // LedgerLeg is one asset movement of an event. The amount is never negative;
@@ -391,6 +397,19 @@ service PortfolioService {
   rpc GetIncomeReport(GetIncomeReportRequest) returns (GetIncomeReportResponse) {
     option (google.api.http) = {
       get: "/api/v1/income"
+    };
+  }
+
+  // BackfillIncomePayers names the paying asset on income events written
+  // before events carried one, from the operation each kept as received, and
+  // retries those whose paper the catalogue did not know then. Run once per
+  // instance; idempotent: an event that names its payer is not read again, so
+  // a second run sets nothing. Admin-only. Errors:
+  //   - PermissionDenied: the caller is not an admin.
+  rpc BackfillIncomePayers(BackfillIncomePayersRequest) returns (BackfillIncomePayersResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/income/payers/backfill"
+      body: "*"
     };
   }
 
@@ -937,9 +956,12 @@ message GetIncomeReportRequest {
   google.protobuf.Timestamp to = 4;
   // Display currency (UUID or symbol). Defaults to the instance's quote asset.
   optional string quote_asset_id = 5;
+  // Only the income this asset paid (LedgerEvent.payer_asset_id): its
+  // dividends or coupons and the taxes withheld on them.
+  optional string asset_id = 6;
 }
 
-// IncomeReportRow is one month x income kind x asset. Amounts are raw integer
+// IncomeReportRow is one month x income kind x paying asset x asset paid in. Amounts are raw integer
 // decimal strings scaled by `decimals`, values by `value_decimals` of the
 // response. net = gross - tax. On an INCOME_KIND_TAX row gross is zero and a
 // refund lowers tax, which is negative when refunds outweigh withholdings.
@@ -960,6 +982,21 @@ message IncomeReportRow {
   string net_value = 11;
   // Events of the row that carry no value.
   int32 unvalued_events = 12;
+  // The asset that paid the row's events (asset_id and symbol are the asset
+  // paid in); empty when no paper paid, on INCOME_KIND_TAX, and when the paper
+  // is unresolved.
+  string payer_asset_id = 13;
+  string payer_symbol = 14;
+}
+
+// UnresolvedPayer is a paper income events name that the catalogue does not
+// hold: their rows have no payer until a sync brings the asset in and
+// BackfillIncomePayers runs.
+message UnresolvedPayer {
+  // The namespace and id the paper is bound by ("tinvest", a FIGI).
+  string ref_source = 1;
+  string ref = 2;
+  int32 events = 3;
 }
 
 // UnvaluedIncome is an income event with no price on its date.
@@ -979,6 +1016,18 @@ message GetIncomeReportResponse {
   string tax_value = 5;
   string net_value = 6;
   repeated UnvaluedIncome unvalued = 7;
+  // Papers the period's events name and the catalogue does not hold.
+  repeated UnresolvedPayer unresolved_payers = 8;
+}
+
+message BackfillIncomePayersRequest {}
+
+message BackfillIncomePayersResponse {
+  // Income events that named no payer and could name one.
+  int32 events_read = 1;
+  int32 payers_set = 2;
+  // What is left: papers still not in the catalogue, with their event counts.
+  repeated UnresolvedPayer unresolved_payers = 3;
 }
 
 // SYNC ACCOUNT MESSAGES

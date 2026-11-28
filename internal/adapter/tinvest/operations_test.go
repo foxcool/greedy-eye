@@ -97,6 +97,15 @@ func TestReadIncome_RecordedPages(t *testing.T) {
 	assert.Equal(t, "uid-ofz-26238", byID["op-coupon-1"].Instrument, "the instrument uid first")
 	assert.Equal(t, "BBG00BONDXX", byID["op-bond-tax-1"].Instrument, "the figi when there is no uid")
 	assert.Empty(t, byID["op-overnight-1"].Instrument)
+	assert.Equal(t, "BBG00BONDXX", byID["op-coupon-1"].PayerRef, "the payer is the figi a position binds, never the uid")
+	assert.Equal(t, "BBG004730N88", byID["op-dividend-tax-1"].PayerRef)
+	assert.Empty(t, byID["op-overnight-1"].PayerRef)
+
+	ref, err := IncomePayerRef(byID["op-coupon-1"].Raw)
+	require.NoError(t, err)
+	assert.Equal(t, "BBG00BONDXX", ref, "read back from the operation as received")
+	_, err = IncomePayerRef([]byte("{"))
+	assert.Error(t, err)
 
 	require.Len(t, *seen, 2)
 	first := (*seen)[0]

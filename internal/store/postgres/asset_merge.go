@@ -19,9 +19,9 @@ import (
 // A dry run executes the same statements and rolls them back, so the plan is
 // the commit's own count rather than a second query that could drift from it.
 //
-// shortcut: one transaction across catalogue, portfolio (holdings, ledger legs)
-// and automation (rules) tables, valid while every domain lives in one
-// database; it has to become a cross-service protocol when per-domain schemas
+// shortcut: one transaction across catalogue, portfolio (holdings, ledger legs
+// and payers) and automation (rules) tables, valid while every domain lives in
+// one database; it has to become a cross-service protocol when per-domain schemas
 // land (Debt 7 in docs/architecture.md).
 func (s *MarketDataStore) MergeAssets(ctx context.Context, opts marketdata.MergeAssetsOpts) (*marketdata.MergeAssetsResult, error) {
 	src, errSrc := uuid.Parse(opts.SourceID)
@@ -240,6 +240,7 @@ func mergeSteps(res *marketdata.MergeAssetsResult) []mergeStep {
 		{"base prices", &res.PricesMoved, `UPDATE prices SET base_asset_id = $2 WHERE base_asset_id = $1`},
 		{"holdings", &res.HoldingsMoved, `UPDATE holdings SET asset_id = $2 WHERE asset_id = $1`},
 		{"ledger legs", &res.LedgerLegsMoved, `UPDATE ledger_legs SET asset_id = $2 WHERE asset_id = $1`},
+		{"income payers", &res.LedgerPayersMoved, `UPDATE ledger_events SET payer_asset_id = $2 WHERE payer_asset_id = $1`},
 		{"external refs", &res.ExternalRefsMoved, `UPDATE asset_external_refs SET asset_id = $2 WHERE asset_id = $1`},
 		{"risk flags", &res.RiskFlagsMoved, `UPDATE asset_risk_flags SET asset_id = $2 WHERE asset_id = $1`},
 	}

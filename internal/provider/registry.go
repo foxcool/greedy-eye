@@ -13,6 +13,7 @@
 package provider
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -307,6 +308,14 @@ func (r *Registry) BrokerSyncers() map[string]credentials.BrokerSyncerFactory {
 			}
 			return tinvestadapter.NewBrokerSyncer(client, brokerAccountID), nil
 		},
+	}
+}
+
+// IncomePayerRefs read, from an income operation a broker sync recorded, the
+// id the paying paper is bound by in the catalogue.
+func (r *Registry) IncomePayerRefs() map[string]func(json.RawMessage) (string, error) {
+	return map[string]func(json.RawMessage) (string, error){
+		tinvestadapter.ProviderName: tinvestadapter.IncomePayerRef,
 	}
 }
 

@@ -14,16 +14,18 @@ import (
 // a date is the caller's policy (see incomePrices); the report only applies it.
 type incomePrice func(assetID string, at time.Time) (decimal.Decimal, bool)
 
-// incomeRowKey is what one report row groups: a month, an income kind, an asset.
+// incomeRowKey is what one report row groups: a month, an income kind, the
+// asset that paid (empty when none is known) and the asset paid in.
 type incomeRowKey struct {
 	month   time.Time
 	kind    entity.IncomeKind
+	payerID string
 	assetID string
 }
 
-// incomeRow is the sums of one month x income kind x asset. Amounts are in the
-// asset's units, values in the display currency; a value only counts events
-// that had a price, the amount counts all of them.
+// incomeRow is the sums of one month x income kind x payer x asset. Amounts
+// are in the asset's units, values in the display currency; a value only
+// counts events that had a price, the amount counts all of them.
 type incomeRow struct {
 	incomeRowKey
 	decimals             uint32
@@ -49,7 +51,7 @@ type incomeReport struct {
 }
 
 // buildIncomeReport sums income events into rows of month (UTC) x income kind
-// x asset. An in leg is a payment and counts as gross; an out leg is what was
+// x paying asset x asset paid in. An in leg is a payment and counts as gross; an out leg is what was
 // withheld from it and counts as tax, so net = gross - tax. On a tax that
 // names no income (kind tax) nothing was paid: an in leg is a refund and
 // lowers the tax, which goes below zero when refunds outweigh what the
@@ -70,7 +72,7 @@ func buildIncomeReport(events []*entity.LedgerEvent, price incomePrice) incomeRe
 		unvaluedAssets := map[string]bool{}
 
 		for _, l := range e.Legs {
-			key := incomeRowKey{month: month, kind: e.ReportedIncomeKind(), assetID: l.AssetID}
+			key := incomeRowKey{month: month, kind: e.ReportedIncomeKind(), payerID: e.PayerAssetID, assetID: l.AssetID}
 			row := rows[key]
 			if row == nil {
 				row = &incomeRow{incomeRowKey: key}
@@ -116,6 +118,7 @@ func buildIncomeReport(events []*entity.LedgerEvent, price incomePrice) incomeRe
 		return cmp.Or(
 			a.month.Compare(b.month),
 			cmp.Compare(a.kind, b.kind),
+			cmp.Compare(a.payerID, b.payerID),
 			cmp.Compare(a.assetID, b.assetID),
 		)
 	})

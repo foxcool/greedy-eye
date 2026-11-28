@@ -155,6 +155,17 @@ func (s *BrokerSyncer) ReadIncome(ctx context.Context, from, to time.Time) ([]en
 	}
 }
 
+// IncomePayerRef is the paper a recorded operation names, as a position binds
+// it (its FIGI, not instrumentUid), read back from the operation as received:
+// what an income event written before payers existed is resolved from.
+func IncomePayerRef(operation json.RawMessage) (string, error) {
+	var op operationItem
+	if err := json.Unmarshal(operation, &op); err != nil {
+		return "", fmt.Errorf("tinvest: decode operation: %w", err)
+	}
+	return strings.TrimSpace(op.FIGI), nil
+}
+
 // incomeOf reads one operation. An income operation that cannot be read fails
 // the read: dropping it would understate the income with nothing to show.
 // One that is not income, or not executed, or outside [from, to), is passed
@@ -199,6 +210,7 @@ func incomeOf(raw json.RawMessage, from, to time.Time) (entity.BrokerIncome, boo
 		At:         op.Date,
 		Kind:       kind,
 		Instrument: instrument,
+		PayerRef:   strings.TrimSpace(op.FIGI),
 		Currency:   code,
 		Amount:     amount,
 		Raw:        raw,

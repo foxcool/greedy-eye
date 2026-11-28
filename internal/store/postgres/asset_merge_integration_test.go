@@ -26,6 +26,7 @@ import (
 var mergeTables = map[string][]string{
 	"holdings":                {"asset_id"},
 	"ledger_legs":             {"asset_id"},
+	"ledger_events":           {"payer_asset_id"},
 	"prices":                  {"asset_id", "base_asset_id"},
 	"asset_external_refs":     {"asset_id"},
 	"asset_risk_flags":        {"asset_id"},

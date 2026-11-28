@@ -79,6 +79,9 @@ type Handler struct {
 	confirmations  map[string]uint64
 	exchangeSource ExchangeSyncerSource // optional; resolves per-account exchange syncers
 	brokerSource   BrokerSyncerSource   // optional; resolves per-account broker syncers
+	// incomePayerRefs reads the paying paper back from a recorded income
+	// event, per provider slug; see WithIncomePayerRefs.
+	incomePayerRefs map[string]IncomePayerRefFunc
 	// brokerListerSource resolves the reader that says which accounts a token
 	// reaches. Optional: without it a broker account must name its own.
 	brokerListerSource BrokerAccountListerSource
@@ -3446,6 +3449,9 @@ func ledgerEventToProto(e *entity.LedgerEvent) *apiv1.LedgerEvent {
 	}
 	if e.ImportID != "" {
 		out.ImportId = &e.ImportID
+	}
+	if e.PayerAssetID != "" {
+		out.PayerAssetId = &e.PayerAssetID
 	}
 	if e.Kind == entity.LedgerKindIncome {
 		out.IncomeKind = incomeKindToProto[e.ReportedIncomeKind()]

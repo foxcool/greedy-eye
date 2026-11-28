@@ -126,6 +126,9 @@ type Store interface {
 	CreateLedgerEvent(ctx context.Context, e *entity.LedgerEvent) (*entity.LedgerEvent, error)
 	// ListLedgerEvents pages events with all their legs, oldest executed_at first.
 	ListLedgerEvents(ctx context.Context, opts ListLedgerOpts) ([]*entity.LedgerEvent, string, error)
+	// SetLedgerEventPayer names the asset that paid an event which names none
+	// yet; false when the event already names one (or is gone).
+	SetLedgerEventPayer(ctx context.Context, eventID, payerAssetID string) (bool, error)
 	// ListLedgerCursors returns how far each chain's transfer history of the
 	// account has been read.
 	ListLedgerCursors(ctx context.Context, accountID string) ([]*entity.LedgerCursor, error)
@@ -184,6 +187,10 @@ type ListLedgerOpts struct {
 	Kind entity.LedgerEventKind
 	// AssetID keeps events with at least one leg in the asset.
 	AssetID string
+	// PayerAssetID keeps events this asset paid.
+	PayerAssetID string
+	// PayerMissing keeps events that could name a payer and name none.
+	PayerMissing bool
 	// ExecutedFrom (inclusive) and ExecutedTo (exclusive) bound executed_at; zero is open.
 	ExecutedFrom time.Time
 	ExecutedTo   time.Time

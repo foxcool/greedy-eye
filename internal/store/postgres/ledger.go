@@ -50,10 +50,10 @@ func (s *PortfolioStore) CreateLedgerEvent(ctx context.Context, e *entity.Ledger
 	defer func() { _ = tx.Rollback(ctx) }() // no-op once committed
 
 	err = tx.QueryRow(ctx, `
-		INSERT INTO ledger_events (id, account_id, kind, income_kind, executed_at, external_ref, source, import_id, raw, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+		INSERT INTO ledger_events (id, account_id, kind, income_kind, payer_asset_id, executed_at, external_ref, source, import_id, raw, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
 		RETURNING created_at, updated_at`,
-		e.ID, e.AccountID, string(e.Kind), nullableString(string(e.IncomeKind)), e.ExecutedAt,
+		e.ID, e.AccountID, string(e.Kind), nullableString(string(e.IncomeKind)), nullableString(e.PayerAssetID), e.ExecutedAt,
 		nullableString(e.ExternalRef), e.Source, nullableString(e.ImportID), raw,
 	).Scan(&e.CreatedAt, &e.UpdatedAt)
 	if err != nil {
@@ -152,6 +152,16 @@ func (s *PortfolioStore) ListLedgerEvents(ctx context.Context, opts portfolio.Li
 		}
 		where = append(where, "EXISTS (SELECT 1 FROM ledger_legs l WHERE l.event_id = e.id AND l.asset_id = "+arg(opts.AssetID)+")")
 	}
+	if opts.PayerAssetID != "" {
+		if !isValidUUID(opts.PayerAssetID) {
+			return nil, "", fmt.Errorf("%w: invalid payer asset ID format", store.ErrInvalidArgument)
+		}
+		where = append(where, "e.payer_asset_id = "+arg(opts.PayerAssetID))
+	}
+	if opts.PayerMissing {
+		// The negation of the ledger_events_payer CHECK's right side.
+		where = append(where, "e.payer_asset_id IS NULL AND e.kind = 'income' AND e.income_kind IS DISTINCT FROM 'tax'")
+	}
 	if !opts.ExecutedFrom.IsZero() {
 		where = append(where, "e.executed_at >= "+arg(opts.ExecutedFrom))
 	}
@@ -171,7 +181,7 @@ func (s *PortfolioStore) ListLedgerEvents(ctx context.Context, opts portfolio.Li
 		whereClause = "WHERE " + strings.Join(where, " AND ")
 	}
 	query := fmt.Sprintf(`
-		SELECT e.id, e.account_id, e.kind, e.income_kind, e.executed_at, e.external_ref, e.source, e.import_id, e.raw, e.created_at, e.updated_at
+		SELECT e.id, e.account_id, e.kind, e.income_kind, e.payer_asset_id, e.executed_at, e.external_ref, e.source, e.import_id, e.raw, e.created_at, e.updated_at
 		FROM ledger_events e
 		%s
 		ORDER BY e.executed_at, e.id
@@ -188,14 +198,17 @@ func (s *PortfolioStore) ListLedgerEvents(ctx context.Context, opts portfolio.Li
 	for rows.Next() {
 		var e entity.LedgerEvent
 		var kind string
-		var externalRef, importID, incomeKind *string
-		if err := rows.Scan(&e.ID, &e.AccountID, &kind, &incomeKind, &e.ExecutedAt, &externalRef, &e.Source, &importID,
+		var externalRef, importID, incomeKind, payer *string
+		if err := rows.Scan(&e.ID, &e.AccountID, &kind, &incomeKind, &payer, &e.ExecutedAt, &externalRef, &e.Source, &importID,
 			&e.Raw, &e.CreatedAt, &e.UpdatedAt); err != nil {
 			return nil, "", fmt.Errorf("failed to scan ledger event: %w", err)
 		}
 		e.Kind = entity.LedgerEventKind(kind)
 		if incomeKind != nil {
 			e.IncomeKind = entity.IncomeKind(*incomeKind)
+		}
+		if payer != nil {
+			e.PayerAssetID = *payer
 		}
 		if externalRef != nil {
 			e.ExternalRef = *externalRef
@@ -250,6 +263,24 @@ func (s *PortfolioStore) ListLedgerEvents(ctx context.Context, opts portfolio.Li
 		return nil, "", fmt.Errorf("failed to iterate ledger legs: %w", err)
 	}
 	return events, nextPageToken, nil
+}
+
+// SetLedgerEventPayer names the payer of an event that names none. The
+// ledger_events_payer CHECK refuses one on an event that cannot have a payer.
+func (s *PortfolioStore) SetLedgerEventPayer(ctx context.Context, eventID, payerAssetID string) (bool, error) {
+	if !isValidUUID(eventID) || !isValidUUID(payerAssetID) {
+		return false, fmt.Errorf("%w: invalid event or asset ID format", store.ErrInvalidArgument)
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE ledger_events SET payer_asset_id = $2, updated_at = NOW()
+		WHERE id = $1 AND payer_asset_id IS NULL`, eventID, payerAssetID)
+	if err != nil {
+		if isConstraintError(err) {
+			return false, fmt.Errorf("%w: %v", store.ErrConstraint, err)
+		}
+		return false, fmt.Errorf("failed to set ledger event payer: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 // ListLedgerCursors returns the account's history cursors, one per chain.

@@ -1340,8 +1340,10 @@ type MergeAssetsResponse struct {
 	RiskFlagsMoved    int64 `protobuf:"varint,7,opt,name=risk_flags_moved,json=riskFlagsMoved,proto3" json:"risk_flags_moved,omitempty"`
 	// Rules whose configuration named source and now names target.
 	RulesRewritten int64 `protobuf:"varint,8,opt,name=rules_rewritten,json=rulesRewritten,proto3" json:"rules_rewritten,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Income events whose paying asset was source.
+	LedgerPayersMoved int64 `protobuf:"varint,9,opt,name=ledger_payers_moved,json=ledgerPayersMoved,proto3" json:"ledger_payers_moved,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *MergeAssetsResponse) Reset() {
@@ -1426,6 +1428,13 @@ func (x *MergeAssetsResponse) GetRiskFlagsMoved() int64 {
 func (x *MergeAssetsResponse) GetRulesRewritten() int64 {
 	if x != nil {
 		return x.RulesRewritten
+	}
+	return 0
+}
+
+func (x *MergeAssetsResponse) GetLedgerPayersMoved() int64 {
+	if x != nil {
+		return x.LedgerPayersMoved
 	}
 	return 0
 }
@@ -3904,7 +3913,7 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\x16expected_target_symbol\x18\x04 \x01(\tR\x14expectedTargetSymbol\x12\x1c\n" +
 	"\adry_run\x18\x05 \x01(\bH\x00R\x06dryRun\x88\x01\x01B\n" +
 	"\n" +
-	"\b_dry_run\"\xce\x02\n" +
+	"\b_dry_run\"\xfe\x02\n" +
 	"\x13MergeAssetsResponse\x12\x17\n" +
 	"\adry_run\x18\x01 \x01(\bR\x06dryRun\x12%\n" +
 	"\x0eholdings_moved\x18\x02 \x01(\x03R\rholdingsMoved\x12*\n" +
@@ -3913,7 +3922,8 @@ const file_v1_marketdata_proto_rawDesc = "" +
 	"\x0eprices_dropped\x18\x05 \x01(\x03R\rpricesDropped\x12.\n" +
 	"\x13external_refs_moved\x18\x06 \x01(\x03R\x11externalRefsMoved\x12(\n" +
 	"\x10risk_flags_moved\x18\a \x01(\x03R\x0eriskFlagsMoved\x12'\n" +
-	"\x0frules_rewritten\x18\b \x01(\x03R\x0erulesRewritten\"\x86\x02\n" +
+	"\x0frules_rewritten\x18\b \x01(\x03R\x0erulesRewritten\x12.\n" +
+	"\x13ledger_payers_moved\x18\t \x01(\x03R\x11ledgerPayersMoved\"\x86\x02\n" +
 	"\x11ListAssetsRequest\x12 \n" +
 	"\tpage_size\x18\x01 \x01(\x05H\x00R\bpageSize\x88\x01\x01\x12\"\n" +
 	"\n" +

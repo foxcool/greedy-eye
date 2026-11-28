@@ -101,6 +101,33 @@ func TestBuildIncomeReport_GroupsByMonthKindAsset(t *testing.T) {
 	assert.Equal(t, "5", report.rows[1].gross.String())
 }
 
+// Two shares paying dividends in one currency in one month are two rows, each
+// naming its payer; the tax withheld on a dividend joins its payer's row.
+func TestBuildIncomeReport_GroupsByPayer(t *testing.T) {
+	at := time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)
+	paidBy := func(e *entity.LedgerEvent, payer string) *entity.LedgerEvent {
+		e.PayerAssetID = payer
+		return e
+	}
+	events := []*entity.LedgerEvent{
+		paidBy(incomeEvent("nvtk", at, entity.IncomeDividend, incomeLeg("rub", entity.LedgerIn, "100", 2)), "NVTK"),
+		paidBy(incomeEvent("nvtk-tax", at, entity.IncomeDividend, incomeLeg("rub", entity.LedgerOut, "13", 2)), "NVTK"),
+		paidBy(incomeEvent("gazp", at, entity.IncomeDividend, incomeLeg("rub", entity.LedgerIn, "50", 2)), "GAZP"),
+		incomeEvent("unknown", at, entity.IncomeDividend, incomeLeg("rub", entity.LedgerIn, "7", 2)),
+	}
+
+	report := buildIncomeReport(events, fixedPrice(map[string]string{"rub": "1"}))
+
+	require.Len(t, report.rows, 3)
+	byPayer := map[string]incomeRow{}
+	for _, r := range report.rows {
+		byPayer[r.payerID] = r
+	}
+	assert.Equal(t, "87", byPayer["NVTK"].net().String())
+	assert.Equal(t, "50", byPayer["GAZP"].gross.String())
+	assert.Equal(t, "7", byPayer[""].gross.String(), "an event naming no payer keeps its own row")
+}
+
 // The rate in force on a date is the last one set at or before it: a rate
 // published the next morning does not reach back, and a holiday keeps the
 // previous rate in force rather than leaving the date unvalued.
@@ -180,7 +207,7 @@ func TestIncomeReportToProto_TotalsAreSumsOfRows(t *testing.T) {
 			grossValue: decimal.RequireFromString("1.211408"), taxValue: decimal.RequireFromString("0.15748")},
 	}}
 
-	out := incomeReportToProto(report, nil, "usd")
+	out := incomeReportToProto(report, nil, nil, "usd")
 
 	assert.Equal(t, "499", out.Rows[0].NetValue)
 	assert.Equal(t, "121", out.Rows[1].GrossValue)

@@ -55,12 +55,24 @@ func (s *ledgerStore) ListLedgerEvents(_ context.Context, opts ListLedgerOpts) (
 	var out []*entity.LedgerEvent
 	for _, e := range s.events {
 		if (opts.Kind == "" || e.Kind == opts.Kind) &&
+			(opts.PayerAssetID == "" || e.PayerAssetID == opts.PayerAssetID) &&
+			(!opts.PayerMissing || (e.PayerAssetID == "" && entity.CanHavePayer(e.Kind, e.IncomeKind))) &&
 			(opts.ExecutedFrom.IsZero() || !e.ExecutedAt.Before(opts.ExecutedFrom)) &&
 			(opts.ExecutedTo.IsZero() || e.ExecutedAt.Before(opts.ExecutedTo)) {
 			out = append(out, e)
 		}
 	}
 	return out, "", nil
+}
+
+func (s *ledgerStore) SetLedgerEventPayer(_ context.Context, eventID, payerAssetID string) (bool, error) {
+	for _, e := range s.events {
+		if e.ID == eventID && e.PayerAssetID == "" {
+			e.PayerAssetID = payerAssetID
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *ledgerStore) CreateLedgerEvent(_ context.Context, e *entity.LedgerEvent) (*entity.LedgerEvent, error) {
@@ -73,6 +85,9 @@ func (s *ledgerStore) CreateLedgerEvent(_ context.Context, e *entity.LedgerEvent
 	key := e.Source + "|" + e.ExternalRef
 	if _, ok := s.events[key]; ok {
 		return nil, store.ErrAlreadyExists
+	}
+	if e.ID == "" {
+		e.ID = key
 	}
 	s.events[key] = e
 	return e, nil
