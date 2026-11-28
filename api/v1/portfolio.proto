@@ -59,6 +59,9 @@ enum IncomeKind {
   INCOME_KIND_INTEREST = 3;
   INCOME_KIND_STAKING_REWARD = 4;
   INCOME_KIND_OTHER = 5;
+  // A tax the source names no income for (a broker's annual withholding and
+  // its corrections). An out leg is withheld, an in leg refunded.
+  INCOME_KIND_TAX = 6;
 }
 
 enum LedgerLegDirection {

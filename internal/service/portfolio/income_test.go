@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	apiv1 "github.com/foxcool/greedy-eye/api/v1"
 	"github.com/foxcool/greedy-eye/internal/entity"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
@@ -160,6 +161,9 @@ func TestRefuseLedgerImport(t *testing.T) {
 	}
 	assert.Error(t, refuseLedgerImport(broker, coupon), "the broker sync records coupons")
 	assert.Error(t, refuseLedgerImport(broker, interest), "and broker interest")
+	tax := &entity.LedgerEvent{Kind: entity.LedgerKindIncome, IncomeKind: entity.IncomeTax}
+	assert.Error(t, refuseLedgerImport(broker, tax), "and the taxes that name no income")
+	assert.NoError(t, refuseLedgerImport(manual, tax))
 	assert.NoError(t, refuseLedgerImport(broker, reward))
 	assert.NoError(t, refuseLedgerImport(exchange, interest), "exchange earn is imported by hand")
 	assert.Error(t, refuseLedgerImport(exchange, trade), "trades on a synced account are its sync's")
@@ -197,4 +201,17 @@ func TestLedgerHeuristicKey_IncomeKindIsIdentity(t *testing.T) {
 	assert.NotEqual(t, ledgerHeuristicKey(coupon), ledgerHeuristicKey(dividend))
 	assert.Equal(t, ledgerHeuristicKey(legacy), ledgerHeuristicKey(other),
 		"an income event stored before kinds existed is the same event re-imported as other")
+}
+
+// TestIncomeKindsReachTheAPI: every income kind the ledger accepts has an API
+// value and comes back from it, so no stored event reads as unspecified.
+func TestIncomeKindsReachTheAPI(t *testing.T) {
+	for _, k := range []entity.IncomeKind{entity.IncomeCoupon, entity.IncomeDividend, entity.IncomeInterest,
+		entity.IncomeStakingReward, entity.IncomeOther, entity.IncomeTax} {
+		require.True(t, k.Valid(), k)
+		p, ok := incomeKindToProto[k]
+		require.True(t, ok, k)
+		assert.Equal(t, k, protoIncomeKind(p), k)
+	}
+	assert.Equal(t, apiv1.IncomeKind_INCOME_KIND_TAX, incomeKindToProto[entity.IncomeTax])
 }

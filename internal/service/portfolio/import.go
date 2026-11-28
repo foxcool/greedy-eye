@@ -45,12 +45,12 @@ func (h *Handler) importAccount(ctx context.Context, accountID string) (*entity.
 // Importing one of them by hand as well would count one payment twice under
 // two sources, so the import refuses it for that account.
 //
-// The broker sync owns coupons, dividends and broker interest, the only
-// operations it is meant to read. Other account types sync no income, so
+// The broker sync owns coupons, dividends, broker interest and the taxes that
+// name no income, the only operations it is meant to read. Other account types sync no income, so
 // every income kind may be imported into them.
 func syncWrittenIncomeKinds(account *entity.Account) []entity.IncomeKind {
 	if account.Type == entity.AccountTypeBroker {
-		return []entity.IncomeKind{entity.IncomeCoupon, entity.IncomeDividend, entity.IncomeInterest}
+		return []entity.IncomeKind{entity.IncomeCoupon, entity.IncomeDividend, entity.IncomeInterest, entity.IncomeTax}
 	}
 	return nil
 }

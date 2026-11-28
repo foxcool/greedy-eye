@@ -3480,6 +3480,7 @@ var incomeKindToProto = map[entity.IncomeKind]apiv1.IncomeKind{
 	entity.IncomeInterest:      apiv1.IncomeKind_INCOME_KIND_INTEREST,
 	entity.IncomeStakingReward: apiv1.IncomeKind_INCOME_KIND_STAKING_REWARD,
 	entity.IncomeOther:         apiv1.IncomeKind_INCOME_KIND_OTHER,
+	entity.IncomeTax:           apiv1.IncomeKind_INCOME_KIND_TAX,
 }
 
 var ledgerDirectionToProto = map[entity.LedgerDirection]apiv1.LedgerLegDirection{

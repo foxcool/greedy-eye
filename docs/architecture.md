@@ -409,8 +409,10 @@ graph TB
   one whose kind, `executed_at` and legs all match an imported event; re-importing an export
   writes nothing. ListLedger is scoped to the caller's accounts the way ListHoldings is: a
   foreign account reads as an empty page. An income event carries an `income_kind` (coupon,
-  dividend, interest, staking_reward, other); a tax withheld is an income event of the same kind
-  with an out leg. GetIncomeReport sums a portfolio's or an account's income per month (UTC) x
+  dividend, interest, staking_reward, other, tax); a tax withheld is an income event of the same kind
+  with an out leg. A tax that names no income (a broker's annual withholding and its
+  corrections) is kind `tax`: an out leg withheld, an in leg refunded, so the report's net for
+  the period matches the broker's. GetIncomeReport sums a portfolio's or an account's income per month (UTC) x
   income kind x asset as gross, tax and net, valued in the display currency at each event's
   date: a currency at the central bank rate in force on that date, anything else at the
   nearest price within three days; an event with no such price is listed as unvalued, never
@@ -896,9 +898,10 @@ operations only).
   name no paper and are two), and two papers paying the same sum at the same moment stay two
   payments. An
   income operation with no payment fails the read; a payment of zero moved nothing and is passed
-  over. Not read: trades, fees, deposits and withdrawals, accrued
-  interest paid on buying a bond, amortization and redemption (their principal is in the
-  snapshot already), and taxes that name no income.
+  over. Taxes that name no income (`OPERATION_TYPE_TAX`, `TAX_CORRECTION`, `BENEFIT_TAX` and
+  their `_PROGRESSIVE` forms) are written as kind `tax`. Not read: trades, fees (stamp duty
+  among them), deposits and withdrawals, accrued interest paid on buying a bond, amortization
+  and redemption (their principal is in the snapshot already).
 - **Failure.** Best effort: a failed read writes nothing, keeps `advanced_at`, stores the
   failure on the cursor and in `ledger_errors`; the balance sync is not failed by it.
   `GetAccountHealth` reports the stored failure as `LEDGER_FAILING` (DEGRADED), with `since` the

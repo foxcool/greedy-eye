@@ -1093,7 +1093,7 @@ table "ledger_events" {
   }
 
   check "ledger_events_income_kind" {
-    expr = "((income_kind IS NULL) OR ((kind = 'income'::text) AND (income_kind = ANY (ARRAY['coupon'::text, 'dividend'::text, 'interest'::text, 'staking_reward'::text, 'other'::text]))))"
+    expr = "((income_kind IS NULL) OR ((kind = 'income'::text) AND (income_kind = ANY (ARRAY['coupon'::text, 'dividend'::text, 'interest'::text, 'staking_reward'::text, 'other'::text, 'tax'::text]))))"
   }
 
   index "ledger_events_income" {

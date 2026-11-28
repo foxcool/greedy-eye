@@ -119,9 +119,9 @@ func TestTInvestIncome_RecordedOperations(t *testing.T) {
 
 	first := sync()
 	require.Empty(t, first.LedgerErrors)
-	assert.Equal(t, int32(8), first.LedgerEventsCreated, "two overnight payments of one sum on one day are two")
-	assert.Equal(t, 8, count(events))
-	assert.Equal(t, 8, count(events+" AND kind = 'income' AND source = 'sync:tinvest'"))
+	assert.Equal(t, int32(10), first.LedgerEventsCreated, "two overnight payments of one sum on one day are two")
+	assert.Equal(t, 10, count(events))
+	assert.Equal(t, 10, count(events+" AND kind = 'income' AND source = 'sync:tinvest'"))
 	assert.Equal(t, 1, count("SELECT count(*) FROM holdings WHERE account_id = $1"), "income writes no holding")
 
 	var amount, direction, incomeKind string
@@ -131,6 +131,16 @@ func TestTInvestIncome_RecordedOperations(t *testing.T) {
 	assert.Equal(t, "67270000000", amount, "the tax to the kopeck at scale 9")
 	assert.Equal(t, "out", direction)
 	assert.Equal(t, "dividend", incomeKind)
+
+	// A tax that names no income is written as tax, its sign the direction.
+	for ref, want := range map[string]string{"op-tax-1": "out", "op-tax-correction-1": "in"} {
+		var dir, kind string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT l.direction, e.income_kind FROM ledger_events e
+			JOIN ledger_legs l ON l.event_id = e.id WHERE e.account_id = $1 AND e.external_ref = $2`, account.ID, ref).
+			Scan(&dir, &kind))
+		assert.Equal(t, want, dir, ref)
+		assert.Equal(t, "tax", kind, ref)
+	}
 
 	cursors, err := s.ListLedgerCursors(ctx, account.ID)
 	require.NoError(t, err)
@@ -145,7 +155,7 @@ func TestTInvestIncome_RecordedOperations(t *testing.T) {
 	second := sync()
 	require.Empty(t, second.LedgerErrors)
 	assert.Zero(t, second.LedgerEventsCreated, "a second run creates 0 rows")
-	assert.Equal(t, 8, count(events))
+	assert.Equal(t, 10, count(events))
 
 	// The broker says an operation id may change: the same payments under new
 	// ids are recognised by what they are, read back from the database.

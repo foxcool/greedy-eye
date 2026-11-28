@@ -27,11 +27,10 @@ const operationStateExecuted = "OPERATION_STATE_EXECUTED"
 // it, and the income kind each is filed under. The sign of the payment says
 // which way the money went, so a tax correction refunding a tax is income in.
 //
-// Left out on purpose: trades, fees, deposits and withdrawals; the accrued
-// interest paid when buying a bond (kept out until trades are in the ledger);
-// bond amortization and redemption, whose principal the snapshot already
-// holds; tax operations that name no income (OPERATION_TYPE_TAX and its
-// corrections), which cannot be filed under a kind.
+// Left out on purpose: trades, fees (the stamp duty OUT_STAMP_DUTY among
+// them), deposits and withdrawals; the accrued interest paid when buying a
+// bond (kept out until trades are in the ledger); bond amortization and
+// redemption, whose principal the snapshot already holds.
 var incomeOperationTypes = map[string]entity.IncomeKind{
 	"OPERATION_TYPE_COUPON":                entity.IncomeCoupon,
 	"OPERATION_TYPE_BOND_TAX":              entity.IncomeCoupon,
@@ -52,6 +51,16 @@ var incomeOperationTypes = map[string]entity.IncomeKind{
 	"OPERATION_TYPE_TAX_REPO_HOLD_PROGRESSIVE":   entity.IncomeInterest,
 	"OPERATION_TYPE_TAX_REPO_REFUND":             entity.IncomeInterest,
 	"OPERATION_TYPE_TAX_REPO_REFUND_PROGRESSIVE": entity.IncomeInterest,
+
+	// Taxes that name no income: the annual withholding (on coupons and
+	// sales alike), its corrections, and the tax on a material benefit. They
+	// are filed as tax so the net matches the broker's.
+	"OPERATION_TYPE_TAX":                        entity.IncomeTax,
+	"OPERATION_TYPE_TAX_PROGRESSIVE":            entity.IncomeTax,
+	"OPERATION_TYPE_TAX_CORRECTION":             entity.IncomeTax,
+	"OPERATION_TYPE_TAX_CORRECTION_PROGRESSIVE": entity.IncomeTax,
+	"OPERATION_TYPE_BENEFIT_TAX":                entity.IncomeTax,
+	"OPERATION_TYPE_BENEFIT_TAX_PROGRESSIVE":    entity.IncomeTax,
 }
 
 // IncomeKindOf is the income kind an operation type is filed under; false

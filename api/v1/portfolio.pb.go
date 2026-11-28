@@ -223,6 +223,9 @@ const (
 	IncomeKind_INCOME_KIND_INTEREST       IncomeKind = 3
 	IncomeKind_INCOME_KIND_STAKING_REWARD IncomeKind = 4
 	IncomeKind_INCOME_KIND_OTHER          IncomeKind = 5
+	// A tax the source names no income for (a broker's annual withholding and
+	// its corrections). An out leg is withheld, an in leg refunded.
+	IncomeKind_INCOME_KIND_TAX IncomeKind = 6
 )
 
 // Enum value maps for IncomeKind.
@@ -234,6 +237,7 @@ var (
 		3: "INCOME_KIND_INTEREST",
 		4: "INCOME_KIND_STAKING_REWARD",
 		5: "INCOME_KIND_OTHER",
+		6: "INCOME_KIND_TAX",
 	}
 	IncomeKind_value = map[string]int32{
 		"INCOME_KIND_UNSPECIFIED":    0,
@@ -242,6 +246,7 @@ var (
 		"INCOME_KIND_INTEREST":       3,
 		"INCOME_KIND_STAKING_REWARD": 4,
 		"INCOME_KIND_OTHER":          5,
+		"INCOME_KIND_TAX":            6,
 	}
 )
 
@@ -5847,7 +5852,7 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x1cLEDGER_EVENT_KIND_WITHDRAWAL\x10\x05\x12\x1c\n" +
 	"\x18LEDGER_EVENT_KIND_INCOME\x10\x06\x12\x19\n" +
 	"\x15LEDGER_EVENT_KIND_FEE\x10\a\x12\x1d\n" +
-	"\x19LEDGER_EVENT_KIND_OPENING\x10\b*\xac\x01\n" +
+	"\x19LEDGER_EVENT_KIND_OPENING\x10\b*\xc1\x01\n" +
 	"\n" +
 	"IncomeKind\x12\x1b\n" +
 	"\x17INCOME_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
@@ -5855,7 +5860,8 @@ const file_v1_portfolio_proto_rawDesc = "" +
 	"\x14INCOME_KIND_DIVIDEND\x10\x02\x12\x18\n" +
 	"\x14INCOME_KIND_INTEREST\x10\x03\x12\x1e\n" +
 	"\x1aINCOME_KIND_STAKING_REWARD\x10\x04\x12\x15\n" +
-	"\x11INCOME_KIND_OTHER\x10\x05*u\n" +
+	"\x11INCOME_KIND_OTHER\x10\x05\x12\x13\n" +
+	"\x0fINCOME_KIND_TAX\x10\x06*u\n" +
 	"\x12LedgerLegDirection\x12$\n" +
 	" LEDGER_LEG_DIRECTION_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17LEDGER_LEG_DIRECTION_IN\x10\x01\x12\x1c\n" +
