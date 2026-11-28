@@ -126,6 +126,10 @@ type LedgerEvent struct {
 	// IncomeKind is set on an income event and only there. A tax withheld on a
 	// payment is an income event of the same income kind with an out leg.
 	IncomeKind IncomeKind
+	// PayerAssetID is the asset that paid an income event: the share of a
+	// dividend, the bond of a coupon. Empty when no paper paid, when the
+	// paper is not in the catalogue, and always on a tax that names no income.
+	PayerAssetID string
 	// ExecutedAt is when the event happened, not when the row was written.
 	ExecutedAt time.Time
 	// ExternalRef is the source's id for the event; unique per (account, source).
@@ -150,6 +154,13 @@ func (e *LedgerEvent) ReportedIncomeKind() IncomeKind {
 		return IncomeOther
 	}
 	return e.IncomeKind
+}
+
+// CanHavePayer reports whether an event of this kind may name the asset that
+// paid it: income only, and not a tax that names no income, which no paper
+// paid. Mirrored by a CHECK on ledger_events.payer_asset_id.
+func CanHavePayer(kind LedgerEventKind, income IncomeKind) bool {
+	return kind == LedgerKindIncome && income != IncomeTax
 }
 
 // LedgerLeg is one asset movement of an event. Amount is a raw integer scaled
@@ -183,6 +194,8 @@ func (e *LedgerEvent) Validate() error {
 		return fmt.Errorf("an income event needs an income kind, got %q", e.IncomeKind)
 	case e.Kind != LedgerKindIncome && e.IncomeKind != "":
 		return fmt.Errorf("only an income event has an income kind, %s has %q", e.Kind, e.IncomeKind)
+	case e.PayerAssetID != "" && !CanHavePayer(e.Kind, e.IncomeKind):
+		return fmt.Errorf("a %s event of income kind %q names no payer", e.Kind, e.IncomeKind)
 	}
 	for i, l := range e.Legs {
 		switch {

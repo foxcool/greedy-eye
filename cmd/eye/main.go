@@ -220,6 +220,7 @@ func run() error {
 		WithLedgerConfirmations(config.Ledger.Confirmations).
 		WithExchangeSyncerSource(credResolver).
 		WithBrokerSyncerSource(credResolver).
+		WithIncomePayerRefs(providers.IncomePayerRefs()).
 		WithBrokerAccountListerSource(credResolver).
 		// The registry that builds the clients also describes them to the
 		// account form, so the two cannot drift.

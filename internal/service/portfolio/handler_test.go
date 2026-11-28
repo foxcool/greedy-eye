@@ -350,6 +350,11 @@ func (m *mockStore) ListLedgerEvents(ctx context.Context, opts ListLedgerOpts) (
 	return nil, args.String(1), args.Error(2)
 }
 
+func (m *mockStore) SetLedgerEventPayer(ctx context.Context, eventID, payerAssetID string) (bool, error) {
+	args := m.Called(ctx, eventID, payerAssetID)
+	return args.Bool(0), args.Error(1)
+}
+
 func (m *mockStore) UnsolicitedAssets(ctx context.Context, assetIDs []string) (map[string]bool, error) {
 	args := m.Called(ctx, assetIDs)
 	if v := args.Get(0); v != nil {

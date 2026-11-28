@@ -64,3 +64,15 @@ func TestLedgerEventValidate_IncomeKind(t *testing.T) {
 	assert.Error(t, event(LedgerKindIncome, "bonus").Validate(), "an unknown kind is refused")
 	assert.Error(t, event(LedgerKindDeposit, IncomeInterest).Validate(), "a deposit is not income")
 }
+
+func TestLedgerEventValidate_Payer(t *testing.T) {
+	event := func(kind LedgerEventKind, income IncomeKind) *LedgerEvent {
+		return &LedgerEvent{
+			AccountID: "acct", Kind: kind, IncomeKind: income, PayerAssetID: "share", ExecutedAt: time.Now(), Source: "manual",
+			Legs: []LedgerLeg{{AssetID: "rub", Direction: LedgerIn, Role: LedgerRoleIncome, Amount: decimal.NewFromInt(100)}},
+		}
+	}
+	assert.NoError(t, event(LedgerKindIncome, IncomeDividend).Validate())
+	assert.Error(t, event(LedgerKindIncome, IncomeTax).Validate(), "no paper paid a tax that names no income")
+	assert.Error(t, event(LedgerKindTrade, "").Validate(), "only income has a payer")
+}

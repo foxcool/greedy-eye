@@ -378,6 +378,7 @@ graph TB
   ecosystems, exchange balances via Binance, broker positions via T-Invest);
   ImportPositions / ImportTransactions (the latter writes ledger events);
   ListLedger (an account's ledger events with their legs; see Ledger below);
+  GetIncomeReport and BackfillIncomePayers (admin; see Ledger below);
   ListProviders (the adapter registry's descriptors — see External Adapters below);
   GetAccountSweepSchedule / ResetAccountSweepSchedule (which accounts the balance sweep is
   standing down, why and until when — and forgiving that back-off, so repairing a credential
@@ -414,16 +415,33 @@ graph TB
   foreign account reads as an empty page. An income event carries an `income_kind` (coupon,
   dividend, interest, staking_reward, other, tax); a tax withheld is an income event of the same kind
   with an out leg. A tax that names no income (a broker's annual withholding and its
-  corrections) is kind `tax`: an out leg withheld, an in leg refunded. On a `tax` row a refund
+  corrections) is kind `tax`: an out leg withheld, an in leg refunded. An income event names the
+  asset that paid it in `payer_asset_id` (the share of a dividend, the bond of a coupon, and the
+  same on the tax withheld on either): a column on the event, not a leg, because the payer moves
+  nothing and a leg is an amount that moved. It is empty when no paper paid (interest on cash),
+  when the paper is not in the catalogue, and always on kind `tax`, which no paper paid (a CHECK
+  holds that). The payer is resolved through MarketDataService (`ListAssets` by the paper's id,
+  then `GetAsset` to confirm the binding in the provider's namespace), never by reading the
+  catalogue's tables, and never created: an operation says which paper paid, not where it
+  trades (ADR-006). A paper the account holds is in the catalogue already, because the balance
+  sync wrote it first; one sold before the first sync is not, and stays unresolved. On a `tax` row a refund
   lowers the tax rather than adding to gross (tax goes below zero when refunds outweigh what the
   month withheld), so gross stays what was paid and the period's net matches the broker's. A
   build that reads more operation types finds them in the past through
   `SyncAccount{backfill_ledger: true}` on the broker account, which re-reads its whole income
   history; what is recorded is not written twice. GetIncomeReport sums a portfolio's or an account's income per month (UTC) x
-  income kind x asset as gross, tax and net, valued in the display currency at each event's
+  income kind x paying asset x asset paid in as gross, tax and net (`asset_id` filters to what one
+  asset paid; `payer_symbol` is the paper, `symbol` the currency), valued in the display currency at each event's
   date: a currency at the central bank rate in force on that date, anything else at the
   nearest price within three days; an event with no such price is listed as unvalued, never
-  valued at zero. Income is cash flow and never enters a portfolio total. Wallet syncs write
+  valued at zero. Papers the period's events name and the catalogue does not hold are listed in
+  `unresolved_payers` with their event counts, so a row without a payer is explained, not
+  dropped. Events written before payers existed are given one by the admin-only
+  `BackfillIncomePayers`, which reads the paper back from each event's `raw` through the
+  provider's own decoder (`IncomePayerRefs` in the provider registry), sets only events that
+  name none, and returns what is still unresolved; a second run sets nothing. Run it once per
+  instance, and again after a sync brought an unresolved paper in. Income is cash flow and never
+  enters a portfolio total. Wallet syncs write
   transfer history (see **Transfer reader** below); broker syncs write income (see **Broker
   income reader** below)
 - Ownership: every by-ID and list RPC enforces caller ownership (`middleware.EnsureOwner`);
@@ -895,7 +913,9 @@ operations only).
   `internal/adapter/tinvest/operations.go`. Each operation is one `income` event of its income
   kind with one leg in the payment currency at scale 9: in when the payment is positive, out
   (a tax withheld) when negative. `external_ref` is the operation id, source `sync:tinvest`;
-  `raw` holds the paper that paid (`instrument`) beside the operation as received. The API says
+  `raw` holds the paper that paid (`instrument`) beside the operation as received. The payer is
+  resolved from the operation's FIGI under the `tinvest` namespace, the binding a position gets,
+  not from `instrumentUid`; an operation without a FIGI names no payer. The API says
   an operation id may change over time, so before writing, the read compares each operation
   with what this source recorded in the same window: the same income kind, paper, moment (to
   the microsecond), asset, direction and amount is the same payment under a new id, and is not
@@ -1562,14 +1582,14 @@ table name.
 | `pf` (portfolio) | `accounts` | `PortfolioStore` | in-process readers of `accounts.data`, see edges below |
 | `pf` | `portfolios` | `PortfolioStore` | — |
 | `pf` | `holdings` | `PortfolioStore` | **`MarketDataStore.MergeAssets` writes it** (`asset_merge.go:241`) |
-| `pf` | `ledger_events` | `PortfolioStore` (`ledger.go`) | — |
+| `pf` | `ledger_events` | `PortfolioStore` (`ledger.go`) | **`MarketDataStore.MergeAssets` writes it** (`asset_merge.go:243`, `payer_asset_id`) |
 | `pf` | `ledger_legs` | `PortfolioStore` (`ledger.go`) | **`MarketDataStore.MergeAssets` writes it** (`asset_merge.go:242`) |
 | `pf` | `ledger_cursors` | `PortfolioStore` (`ledger.go`) | — |
 | `pf` | `account_sync_attempts` | `PortfolioStore` | — |
 | `pf` | `account_sync_claims` | `PortfolioStore` | — |
 | `pf` | `account_chain_failures` | `PortfolioStore` | — |
 | `pf` | `provider_usage` (interim) | `ProviderUsageStore`, through `ratelimit.Registry` | every process that builds a registry (`main.go:119`) |
-| `auto` (automation) | `rules` | `AutomationStore` | **`MarketDataStore.MergeAssets` rewrites it** (`asset_merge.go:261`) |
+| `auto` (automation) | `rules` | `AutomationStore` | **`MarketDataStore.MergeAssets` rewrites it** (`asset_merge.go:262`) |
 | `auto` | `rule_executions` | `AutomationStore` | — |
 | `usr` (settings) | `users` | `UserStore` | written from every service by `UserProvisioningInterceptor` (`main.go:183`) |
 | `usr` | `user_settings` | `SettingsStore` | — |
@@ -1580,8 +1600,9 @@ table name.
 domain's tables (`ledger.go` reads `accounts`, which is portfolio's too). `provider_usage` sits
 with portfolio only until the credentials boundary is decided (ADR-013, decision 3).
 
-**Foreign keys across schemas.** `schema.hcl` has 26 foreign keys. Under the map above, 8 cross a
+**Foreign keys across schemas.** `schema.hcl` has 27 foreign keys. Under the map above, 9 cross a
 schema: `accounts → users`, `portfolios → users`, `holdings → assets`, `ledger_legs → assets`,
+`ledger_events → assets` (the paying asset of an income event),
 `rules → users`, `rules → portfolios`, `rule_executions → users`, `rule_executions → portfolios`.
 `user_settings → users` stays inside `usr`.
 
@@ -1609,7 +1630,7 @@ remote form; `remotes:` does not change it (`cmd/eye/remotes.go:68-70` lists the
 | Scheduler holds marketdata and automation handlers | `main.go:281-291` | jobs run once per process |
 | One rate-limit registry per process | `main.go:119` | N processes on one key keep N budgets |
 | Portfolio reports price-source health from its own registry | `main.go:229` | health shows portfolio's spend, not marketdata's |
-| Asset merge writes three domains in one transaction | `asset_merge.go:241-263` | `eye_md` cannot update `holdings`, `ledger_legs`, `rules` |
+| Asset merge writes three domains in one transaction | `asset_merge.go:241-264` | `eye_md` cannot update `holdings`, `ledger_legs`, `ledger_events`, `rules` |
 | Rekey runs wherever the master key is | `main.go:145` | any process may rewrite `pf.accounts` |
 
 The edge `marketdata → portfolio` for holding provenance has a remote form
@@ -2214,7 +2235,7 @@ per item is not a read path (`GetPrices` replaced the per-holding `GetLatestPric
      *Alternative*: a single writer behind an `EnsureUser` RPC with a cache. *Rejected*: a new
      RPC and a hop per first request, for a table that holds no logic. The approved design
      granted INSERT only; the code reads the row back, so SELECT is needed too.
-  5. **Foreign keys across schemas stay real.** The 8 cross-schema FKs (§8.6) are kept.
+  5. **Foreign keys across schemas stay real.** The 9 cross-schema FKs (§8.6) are kept.
      Postgres checks a foreign key internally, without the referencing role's grants, so
      integrity holds while a direct read of the parent is denied. A split into separate
      databases must first turn them into soft references that are validated over RPC. That
@@ -2445,7 +2466,7 @@ System Quality
 
 #### Debt 7: Asset merge writes across domains in one transaction
 
-- Description: `MergeAssets` (MarketDataService) repoints holdings and ledger legs (portfolio)
+- Description: `MergeAssets` (MarketDataService) repoints holdings, ledger legs and income payers (portfolio)
   and rule configurations (automation) in the same transaction that deletes the duplicate
   catalogue row, through the marketdata store.
 - Impact: valid only while every domain shares one database; per-domain schemas (Debt 3) would

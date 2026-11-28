@@ -132,6 +132,9 @@ func (h *Handler) writeBrokerIncome(ctx context.Context, accountID, source strin
 		}
 	}
 	assets := map[string]string{} // currency → asset id
+	payers := h.newPayerResolver()
+	provider := strings.TrimPrefix(source, entity.LedgerSyncSource(""))
+	unresolved := unresolvedPayers{}
 	var created int32
 	for _, op := range ops {
 		assetID, ok := assets[op.Currency]
@@ -155,6 +158,15 @@ func (h *Handler) writeBrokerIncome(ctx context.Context, accountID, source strin
 				"account_id", accountID, "recorded_ref", refs[0], "ref", op.ID)
 			continue
 		}
+		if op.PayerRef != "" && entity.CanHavePayer(event.Kind, event.IncomeKind) {
+			ref := payerRef{source: provider, ref: op.PayerRef}
+			if event.PayerAssetID, err = payers.asset(ctx, ref); err != nil {
+				return created, err
+			}
+			if event.PayerAssetID == "" {
+				unresolved[ref]++
+			}
+		}
 		if _, err := h.store.CreateLedgerEvent(ctx, event); err != nil {
 			if errors.Is(err, store.ErrAlreadyExists) {
 				continue
@@ -162,6 +174,12 @@ func (h *Handler) writeBrokerIncome(ctx context.Context, accountID, source strin
 			return created, fmt.Errorf("write operation %s: %w", op.ID, err)
 		}
 		created++
+	}
+	if len(unresolved) > 0 {
+		// Written without a payer; GetIncomeReport names these papers, and
+		// BackfillIncomePayers sets the payer once the catalogue holds them.
+		h.log.Info("broker income paid by papers the catalogue does not hold",
+			"account_id", accountID, "papers", unresolved.refs())
 	}
 	return created, nil
 }

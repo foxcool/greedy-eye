@@ -324,8 +324,8 @@ service MarketDataService {
   }
 
   // MergeAssets folds a duplicate catalogue row (source) into the asset it
-  // duplicates (target): holdings, ledger legs, prices, external refs, risk
-  // flags and rule configurations move to target, and source is deleted, in
+  // duplicates (target): holdings, ledger legs, income payers, prices,
+  // external refs, risk flags and rule configurations move to target, and source is deleted, in
   // one transaction. A rule configuration is rewritten wherever a string in
   // it carries source's id, in any UUID spelling. Target keeps its name, tags
   // and verdict. Admin-only.
@@ -635,6 +635,8 @@ message MergeAssetsResponse {
   int64 risk_flags_moved = 7;
   // Rules whose configuration named source and now names target.
   int64 rules_rewritten = 8;
+  // Income events whose paying asset was source.
+  int64 ledger_payers_moved = 9;
 }
 
 message ListAssetsRequest {

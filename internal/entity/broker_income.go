@@ -18,6 +18,10 @@ type BrokerIncome struct {
 	// Instrument is the broker's id of the paper that paid, empty for income
 	// no paper paid (interest on cash).
 	Instrument string
+	// PayerRef is the paper's id as a position binds it in the catalogue (a
+	// FIGI), in the provider's namespace like BrokerPosition.Ref; empty when
+	// the operation names no paper.
+	PayerRef string
 	// Currency is the ISO code the payment was made in, upper case.
 	Currency string
 	// Amount is signed: positive came into the account, negative left it (a

@@ -103,6 +103,9 @@ const (
 	// PortfolioServiceGetIncomeReportProcedure is the fully-qualified name of the PortfolioService's
 	// GetIncomeReport RPC.
 	PortfolioServiceGetIncomeReportProcedure = "/eye.v1.PortfolioService/GetIncomeReport"
+	// PortfolioServiceBackfillIncomePayersProcedure is the fully-qualified name of the
+	// PortfolioService's BackfillIncomePayers RPC.
+	PortfolioServiceBackfillIncomePayersProcedure = "/eye.v1.PortfolioService/BackfillIncomePayers"
 	// PortfolioServiceSyncAccountProcedure is the fully-qualified name of the PortfolioService's
 	// SyncAccount RPC.
 	PortfolioServiceSyncAccountProcedure = "/eye.v1.PortfolioService/SyncAccount"
@@ -182,6 +185,13 @@ type PortfolioServiceClient interface {
 	//     from is not before to.
 	//   - NotFound: the portfolio or account is not the caller's.
 	GetIncomeReport(context.Context, *connect.Request[v1.GetIncomeReportRequest]) (*connect.Response[v1.GetIncomeReportResponse], error)
+	// BackfillIncomePayers names the paying asset on income events written
+	// before events carried one, from the operation each kept as received, and
+	// retries those whose paper the catalogue did not know then. Run once per
+	// instance; idempotent: an event that names its payer is not read again, so
+	// a second run sets nothing. Admin-only. Errors:
+	//   - PermissionDenied: the caller is not an admin.
+	BackfillIncomePayers(context.Context, *connect.Request[v1.BackfillIncomePayersRequest]) (*connect.Response[v1.BackfillIncomePayersResponse], error)
 	// --- Account sync ---
 	// SyncAccount reads a wallet, exchange or broker account from its source and
 	// writes the assets and holdings it found. Errors:
@@ -384,6 +394,12 @@ func NewPortfolioServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(portfolioServiceMethods.ByName("GetIncomeReport")),
 			connect.WithClientOptions(opts...),
 		),
+		backfillIncomePayers: connect.NewClient[v1.BackfillIncomePayersRequest, v1.BackfillIncomePayersResponse](
+			httpClient,
+			baseURL+PortfolioServiceBackfillIncomePayersProcedure,
+			connect.WithSchema(portfolioServiceMethods.ByName("BackfillIncomePayers")),
+			connect.WithClientOptions(opts...),
+		),
 		syncAccount: connect.NewClient[v1.SyncAccountRequest, v1.SyncAccountResponse](
 			httpClient,
 			baseURL+PortfolioServiceSyncAccountProcedure,
@@ -442,6 +458,7 @@ type portfolioServiceClient struct {
 	listProviders             *connect.Client[v1.ListProvidersRequest, v1.ListProvidersResponse]
 	listLedger                *connect.Client[v1.ListLedgerRequest, v1.ListLedgerResponse]
 	getIncomeReport           *connect.Client[v1.GetIncomeReportRequest, v1.GetIncomeReportResponse]
+	backfillIncomePayers      *connect.Client[v1.BackfillIncomePayersRequest, v1.BackfillIncomePayersResponse]
 	syncAccount               *connect.Client[v1.SyncAccountRequest, v1.SyncAccountResponse]
 	getAccountSweepSchedule   *connect.Client[v1.GetAccountSweepScheduleRequest, v1.GetAccountSweepScheduleResponse]
 	resetAccountSweepSchedule *connect.Client[v1.ResetAccountSweepScheduleRequest, v1.ResetAccountSweepScheduleResponse]
@@ -564,6 +581,11 @@ func (c *portfolioServiceClient) GetIncomeReport(ctx context.Context, req *conne
 	return c.getIncomeReport.CallUnary(ctx, req)
 }
 
+// BackfillIncomePayers calls eye.v1.PortfolioService.BackfillIncomePayers.
+func (c *portfolioServiceClient) BackfillIncomePayers(ctx context.Context, req *connect.Request[v1.BackfillIncomePayersRequest]) (*connect.Response[v1.BackfillIncomePayersResponse], error) {
+	return c.backfillIncomePayers.CallUnary(ctx, req)
+}
+
 // SyncAccount calls eye.v1.PortfolioService.SyncAccount.
 func (c *portfolioServiceClient) SyncAccount(ctx context.Context, req *connect.Request[v1.SyncAccountRequest]) (*connect.Response[v1.SyncAccountResponse], error) {
 	return c.syncAccount.CallUnary(ctx, req)
@@ -651,6 +673,13 @@ type PortfolioServiceHandler interface {
 	//     from is not before to.
 	//   - NotFound: the portfolio or account is not the caller's.
 	GetIncomeReport(context.Context, *connect.Request[v1.GetIncomeReportRequest]) (*connect.Response[v1.GetIncomeReportResponse], error)
+	// BackfillIncomePayers names the paying asset on income events written
+	// before events carried one, from the operation each kept as received, and
+	// retries those whose paper the catalogue did not know then. Run once per
+	// instance; idempotent: an event that names its payer is not read again, so
+	// a second run sets nothing. Admin-only. Errors:
+	//   - PermissionDenied: the caller is not an admin.
+	BackfillIncomePayers(context.Context, *connect.Request[v1.BackfillIncomePayersRequest]) (*connect.Response[v1.BackfillIncomePayersResponse], error)
 	// --- Account sync ---
 	// SyncAccount reads a wallet, exchange or broker account from its source and
 	// writes the assets and holdings it found. Errors:
@@ -849,6 +878,12 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 		connect.WithSchema(portfolioServiceMethods.ByName("GetIncomeReport")),
 		connect.WithHandlerOptions(opts...),
 	)
+	portfolioServiceBackfillIncomePayersHandler := connect.NewUnaryHandler(
+		PortfolioServiceBackfillIncomePayersProcedure,
+		svc.BackfillIncomePayers,
+		connect.WithSchema(portfolioServiceMethods.ByName("BackfillIncomePayers")),
+		connect.WithHandlerOptions(opts...),
+	)
 	portfolioServiceSyncAccountHandler := connect.NewUnaryHandler(
 		PortfolioServiceSyncAccountProcedure,
 		svc.SyncAccount,
@@ -927,6 +962,8 @@ func NewPortfolioServiceHandler(svc PortfolioServiceHandler, opts ...connect.Han
 			portfolioServiceListLedgerHandler.ServeHTTP(w, r)
 		case PortfolioServiceGetIncomeReportProcedure:
 			portfolioServiceGetIncomeReportHandler.ServeHTTP(w, r)
+		case PortfolioServiceBackfillIncomePayersProcedure:
+			portfolioServiceBackfillIncomePayersHandler.ServeHTTP(w, r)
 		case PortfolioServiceSyncAccountProcedure:
 			portfolioServiceSyncAccountHandler.ServeHTTP(w, r)
 		case PortfolioServiceGetAccountSweepScheduleProcedure:
@@ -1036,6 +1073,10 @@ func (UnimplementedPortfolioServiceHandler) ListLedger(context.Context, *connect
 
 func (UnimplementedPortfolioServiceHandler) GetIncomeReport(context.Context, *connect.Request[v1.GetIncomeReportRequest]) (*connect.Response[v1.GetIncomeReportResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.GetIncomeReport is not implemented"))
+}
+
+func (UnimplementedPortfolioServiceHandler) BackfillIncomePayers(context.Context, *connect.Request[v1.BackfillIncomePayersRequest]) (*connect.Response[v1.BackfillIncomePayersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("eye.v1.PortfolioService.BackfillIncomePayers is not implemented"))
 }
 
 func (UnimplementedPortfolioServiceHandler) SyncAccount(context.Context, *connect.Request[v1.SyncAccountRequest]) (*connect.Response[v1.SyncAccountResponse], error) {

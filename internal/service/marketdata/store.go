@@ -260,6 +260,7 @@ type MergeAssetsOpts struct {
 type MergeAssetsResult struct {
 	HoldingsMoved     int64
 	LedgerLegsMoved   int64
+	LedgerPayersMoved int64
 	PricesMoved       int64
 	PricesDropped     int64
 	ExternalRefsMoved int64

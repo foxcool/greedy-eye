@@ -74,6 +74,7 @@ func (h *Handler) GetIncomeReport(ctx context.Context, req *connect.Request[apiv
 	if req.Msg.From == nil || req.Msg.To == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("from and to are required"))
 	}
+	opts.PayerAssetID = req.Msg.GetAssetId()
 	opts.ExecutedFrom, opts.ExecutedTo = req.Msg.From.AsTime(), req.Msg.To.AsTime()
 	if !opts.ExecutedFrom.Before(opts.ExecutedTo) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("from must be before to"))
@@ -101,7 +102,30 @@ func (h *Handler) GetIncomeReport(ctx context.Context, req *connect.Request[apiv
 		opts.PageToken = next
 	}
 
-	assets, err := h.incomeAssets(ctx, events)
+	var legIDs, payerIDs []string
+	unresolved := unresolvedPayers{}
+	for _, e := range events {
+		for _, l := range e.Legs {
+			legIDs = append(legIDs, l.AssetID)
+		}
+		if e.PayerAssetID != "" {
+			payerIDs = append(payerIDs, e.PayerAssetID)
+			continue
+		}
+		ref, err := h.recordedPayerRef(e)
+		if err != nil {
+			h.log.Warn("income event payer not readable", "event_id", e.ID, "error", err)
+		} else if ref != (payerRef{}) {
+			unresolved[ref]++
+		}
+	}
+	assets, err := h.assetsByID(ctx, legIDs)
+	if err != nil {
+		return nil, err
+	}
+	// Apart from assets: what is in there gets priced, and a payer is not
+	// what an event moved.
+	payers, err := h.assetsByID(ctx, payerIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -110,23 +134,23 @@ func (h *Handler) GetIncomeReport(ctx context.Context, req *connect.Request[apiv
 		return nil, err
 	}
 	report := buildIncomeReport(events, price)
-	return connect.NewResponse(incomeReportToProto(report, assets, quoteAssetID)), nil
+	out := incomeReportToProto(report, assets, payers, quoteAssetID)
+	out.UnresolvedPayers = unresolved.toProto()
+	return connect.NewResponse(out), nil
 }
 
-// incomeAssets loads every asset the events moved, for its type and symbol.
-func (h *Handler) incomeAssets(ctx context.Context, events []*entity.LedgerEvent) (map[string]*apiv1.Asset, error) {
+// assetsByID loads each named asset once, for its type and symbol.
+func (h *Handler) assetsByID(ctx context.Context, ids []string) (map[string]*apiv1.Asset, error) {
 	assets := map[string]*apiv1.Asset{}
-	for _, e := range events {
-		for _, l := range e.Legs {
-			if _, seen := assets[l.AssetID]; seen {
-				continue
-			}
-			resp, err := h.mdClient.GetAsset(ctx, connect.NewRequest(&apiv1.GetAssetRequest{Id: l.AssetID}))
-			if err != nil {
-				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get asset %s: %w", l.AssetID, err))
-			}
-			assets[l.AssetID] = resp.Msg
+	for _, id := range ids {
+		if _, seen := assets[id]; seen {
+			continue
 		}
+		resp, err := h.mdClient.GetAsset(ctx, connect.NewRequest(&apiv1.GetAssetRequest{Id: id}))
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get asset %s: %w", id, err))
+		}
+		assets[id] = resp.Msg
 	}
 	return assets, nil
 }
@@ -276,9 +300,15 @@ func (h *Handler) inverseSeries(ctx context.Context, assetID, quoteAssetID strin
 	return inverse, nil
 }
 
-func incomeReportToProto(r incomeReport, assets map[string]*apiv1.Asset, quoteAssetID string) *apiv1.GetIncomeReportResponse {
+func incomeReportToProto(r incomeReport, assets, payers map[string]*apiv1.Asset, quoteAssetID string) *apiv1.GetIncomeReportResponse {
 	symbol := func(id string) string {
 		if a := assets[id]; a != nil {
+			return a.GetSymbol()
+		}
+		return ""
+	}
+	payerSymbol := func(id string) string {
+		if a := payers[id]; a != nil {
 			return a.GetSymbol()
 		}
 		return ""
@@ -307,6 +337,8 @@ func incomeReportToProto(r incomeReport, assets map[string]*apiv1.Asset, quoteAs
 			TaxValue:       tax.String(),
 			NetValue:       gross.Sub(tax).String(),
 			UnvaluedEvents: int32(row.unvaluedEvents), // #nosec G115 -- bounded by the event count
+			PayerAssetId:   row.payerID,
+			PayerSymbol:    payerSymbol(row.payerID),
 		})
 	}
 	out.GrossValue, out.TaxValue, out.NetValue = grossTotal.String(), taxTotal.String(), grossTotal.Sub(taxTotal).String()
