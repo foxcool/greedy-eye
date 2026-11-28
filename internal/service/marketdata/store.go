@@ -17,6 +17,9 @@ type Store interface {
 	// FindAssetByIdentity looks up an asset by its exact composite identity
 	// (symbol, market, type); market and type must be concrete.
 	FindAssetByIdentity(ctx context.Context, symbol, market string, typ entity.AssetType) (*entity.Asset, error)
+	// FindAssetsInNamespace returns every asset with symbol on any of markets,
+	// whatever its type, oldest first (see entity.SymbolNamespace).
+	FindAssetsInNamespace(ctx context.Context, symbol string, markets []string) ([]*entity.Asset, error)
 	GetOrCreateAssetBySymbol(ctx context.Context, symbol, nameIfNew string, typeIfNew entity.AssetType) (*entity.Asset, error)
 	UpdateAsset(ctx context.Context, asset *entity.Asset, fields []string) (*entity.Asset, error)
 	DeleteAsset(ctx context.Context, id string) error

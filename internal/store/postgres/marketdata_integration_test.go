@@ -633,13 +633,9 @@ func TestFindAssetByIdentity(t *testing.T) {
 // The incident: correcting Binance's quote currency from forex to cryptocurrency
 // (0f5c100, 2026-06-04) minted a USDT twin instead of updating the row, and with
 // symbol-only resolution every later sweep threw away Binance's whole batch on
-// "symbol USDT is ambiguous" — until 2026-08-04 (cbaee29) demoted contract rows
-// and 2026-08-14 (cc6e3d6) scoped the lookup by type. Those two closed the
-// ambiguity; what they left is that a twin can still be MINTED, and the wrong
-// one then answers for the ticker.
-//
-// So: one symbol on two types is two rows and neither goes ambiguous, and the
-// same (symbol, type) asked twice is one row.
+// "symbol USDT is ambiguous". Scoping the lookup by type closed the ambiguity
+// but still minted the twin. Type is a classification: a ticker known in crypto
+// or forex under one type answers for the other, and no second row appears.
 func TestGetOrCreateAssetBySymbol_TwinUSDTAteBinanceBatches(t *testing.T) {
 	pool := getTestPool(t)
 	s := NewMarketDataStore(pool)
@@ -647,23 +643,19 @@ func TestGetOrCreateAssetBySymbol_TwinUSDTAteBinanceBatches(t *testing.T) {
 
 	sym := "TWIN" + strings.ToUpper(uuid.NewString()[:6])
 
-	// The shape the incident created: the same ticker as a forex quote currency
-	// and as a crypto one. Before market entered the key this made every later
-	// lookup of the ticker ambiguous.
-	asForex, err := s.GetOrCreateAssetBySymbol(ctx, sym, sym, entity.AssetTypeForex)
-	require.NoError(t, err)
 	asCrypto, err := s.GetOrCreateAssetBySymbol(ctx, sym, sym, entity.AssetTypeCryptocurrency)
-	require.NoError(t, err, "the correction must resolve, not report the ticker ambiguous")
+	require.NoError(t, err)
+	require.Equal(t, entity.MarketCrypto, asCrypto.Market)
 
-	assert.NotEqual(t, asForex.ID, asCrypto.ID, "two kinds of the same ticker are two rows")
-	assert.Equal(t, "forex", asForex.Market)
-	assert.Equal(t, entity.MarketCrypto, asCrypto.Market)
+	// The correction in the other direction: a provider declaring the base forex.
+	asForex, err := s.GetOrCreateAssetBySymbol(ctx, sym, sym, entity.AssetTypeForex)
+	require.NoError(t, err, "a sweep must not fail because the ticker is known under another type")
+	assert.Equal(t, asCrypto.ID, asForex.ID, "another type is the same row, not a twin")
+	assert.Equal(t, entity.AssetTypeCryptocurrency, asForex.Type, "the row keeps its own type")
 
-	// And the resolution has to keep working with both rows present: this is the
-	// call a sweep makes, hourly, per provider.
-	againForex, err := s.GetOrCreateAssetBySymbol(ctx, sym, sym, entity.AssetTypeForex)
-	require.NoError(t, err, "a sweep must not start failing because a twin exists")
-	assert.Equal(t, asForex.ID, againForex.ID, "the same (symbol, type) is the same row")
+	var rows int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM assets WHERE symbol = $1`, sym).Scan(&rows))
+	assert.Equal(t, 1, rows, "no forex row was minted")
 
 	againCrypto, err := s.GetOrCreateAssetBySymbol(ctx, sym, sym, entity.AssetTypeCryptocurrency)
 	require.NoError(t, err)
@@ -671,33 +663,44 @@ func TestGetOrCreateAssetBySymbol_TwinUSDTAteBinanceBatches(t *testing.T) {
 
 	// Normalization travels with it, so a provider spelling its base in any case
 	// lands on the row every stored price points at.
-	lower, err := s.GetOrCreateAssetBySymbol(ctx, strings.ToLower(sym), sym, entity.AssetTypeCryptocurrency)
+	lower, err := s.GetOrCreateAssetBySymbol(ctx, strings.ToLower(sym), sym, entity.AssetTypeForex)
 	require.NoError(t, err)
 	assert.Equal(t, asCrypto.ID, lower.ID, "a ticker is normalized before it is an identity")
 }
 
-// TestGetOrCreateAssetBySymbol_LegacyMarketRowIsNotAdopted pins what adding
-// market to the identity key actually changes.
-//
-// A row sharing the symbol AND the type but sitting on another market is the one
-// case the type filter cannot separate: it is a single named candidate, so the
-// symbol lookup returns it, confidently and wrongly. That is how USD came to be
-// resolved at (USD, crypto, forex) — a currency on the crypto market, which both
-// reads as a fake token and stands where an impostor minted by whoever pays the
-// gas would collide with it.
-//
-// Resolving by the full identity means such a row is no longer adopted: the
-// caller gets the row its own write path would have created. The legacy row
-// keeps its prices and is moved deliberately, in psql, not silently by a sweep.
-func TestGetOrCreateAssetBySymbol_LegacyMarketRowIsNotAdopted(t *testing.T) {
+// TestGetOrCreateAssetBySymbol_SeveralTypesTakeTheOldest: when the namespace
+// already holds the ticker under several other types, the oldest row answers
+// and the call does not fail — one ambiguous base would drop a provider's batch.
+func TestGetOrCreateAssetBySymbol_SeveralTypesTakeTheOldest(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	ctx := context.Background()
+
+	sym := "OLD" + strings.ToUpper(uuid.NewString()[:6])
+	oldest, err := s.CreateAsset(ctx, &entity.Asset{Symbol: sym, Name: sym, Market: entity.MarketForex, Type: entity.AssetTypeForex})
+	require.NoError(t, err)
+	_, err = s.CreateAsset(ctx, &entity.Asset{Symbol: sym, Name: sym, Market: entity.MarketCrypto, Type: entity.AssetTypeStock})
+	require.NoError(t, err)
+
+	got, err := s.GetOrCreateAssetBySymbol(ctx, sym, sym, entity.AssetTypeCryptocurrency)
+	require.NoError(t, err)
+	assert.Equal(t, oldest.ID, got.ID)
+
+	var rows int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM assets WHERE symbol = $1`, sym).Scan(&rows))
+	assert.Equal(t, 2, rows, "nothing was minted")
+}
+
+// TestGetOrCreateAssetBySymbol_LegacyMarketRowIsAdopted: a forex currency
+// parked on the crypto market by the legacy backfill (ADR-010) is in the
+// crypto/forex namespace, so it answers for the ticker instead of being
+// shadowed by a fresh forex row while every stored price points at it.
+func TestGetOrCreateAssetBySymbol_LegacyMarketRowIsAdopted(t *testing.T) {
 	pool := getTestPool(t)
 	s := NewMarketDataStore(pool)
 	ctx := context.Background()
 
 	sym := "LGCY" + strings.ToUpper(uuid.NewString()[:6])
-
-	// The shape the legacy backfill left behind: a forex currency parked on the
-	// crypto market, where a fresh one would be created on 'forex'.
 	legacy, err := s.CreateAsset(ctx, &entity.Asset{
 		Symbol: sym,
 		Name:   "Legacy " + sym,
@@ -705,15 +708,47 @@ func TestGetOrCreateAssetBySymbol_LegacyMarketRowIsNotAdopted(t *testing.T) {
 		Type:   entity.AssetTypeForex,
 	})
 	require.NoError(t, err)
-	require.Equal(t, entity.MarketCrypto, legacy.Market)
 
 	got, err := s.GetOrCreateAssetBySymbol(ctx, sym, sym, entity.AssetTypeForex)
 	require.NoError(t, err)
+	assert.Equal(t, legacy.ID, got.ID)
+	assert.Equal(t, entity.MarketCrypto, got.Market, "the row is not moved; moving it is a deliberate fix")
+}
 
-	assert.NotEqual(t, legacy.ID, got.ID,
-		"a row on another market is not the row the write path targets")
-	assert.Equal(t, "forex", got.Market,
-		"resolution lands where CreateAsset would have put it")
+// TestFindOrCreateAsset_AnotherTypeTakesTheExistingRow: the same (symbol,
+// market) declared with another type resolves to the existing row with its own
+// type, and an explicit venue stays its own namespace.
+func TestFindOrCreateAsset_AnotherTypeTakesTheExistingRow(t *testing.T) {
+	pool := getTestPool(t)
+	s := NewMarketDataStore(pool)
+	h := marketdata.NewHandler(s, slog.New(slog.DiscardHandler))
+	ctx := middleware.WithSyncAuthority(context.Background())
+
+	sym := "TG" + strings.ToUpper(uuid.NewString()[:6])
+	findOrCreate := func(market string, typ apiv1.AssetType) *apiv1.FindOrCreateAssetResponse {
+		t.Helper()
+		resp, err := h.FindOrCreateAsset(ctx, connect.NewRequest(&apiv1.FindOrCreateAssetRequest{
+			Symbol: sym, Market: &market, Type: typ,
+		}))
+		require.NoError(t, err)
+		return resp.Msg
+	}
+
+	stock := findOrCreate("moex", apiv1.AssetType_ASSET_TYPE_STOCK)
+	require.True(t, stock.Created)
+
+	asFund := findOrCreate("moex", apiv1.AssetType_ASSET_TYPE_FUND)
+	assert.False(t, asFund.Created)
+	assert.Equal(t, stock.Asset.Id, asFund.Asset.Id)
+	assert.Equal(t, apiv1.AssetType_ASSET_TYPE_STOCK, asFund.Asset.Type, "the row keeps its own type")
+
+	onSpbex := findOrCreate("spbex", apiv1.AssetType_ASSET_TYPE_FUND)
+	assert.True(t, onSpbex.Created, "a ticker on another explicit venue is another asset")
+	assert.NotEqual(t, stock.Asset.Id, onSpbex.Asset.Id)
+
+	var rows int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM assets WHERE symbol = $1`, sym).Scan(&rows))
+	assert.Equal(t, 2, rows, "X@moex and X@spbex, no fund twin on moex")
 }
 
 // TestGetOrCreateAssetBySymbol_ContractRowDoesNotAnswerForATicker pins that a

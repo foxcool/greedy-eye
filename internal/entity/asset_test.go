@@ -80,3 +80,24 @@ func TestInOnchainNamespace(t *testing.T) {
 		assert.False(t, InOnchainNamespace(s), "source %q", s)
 	}
 }
+
+// TestSymbolNamespace pins where a creation path looks for an asset it would
+// otherwise mint beside: crypto and forex together when the market is the
+// type's own, an explicit venue alone.
+func TestSymbolNamespace(t *testing.T) {
+	both := []string{MarketCrypto, MarketForex}
+	cases := map[string]struct {
+		market string
+		typ    AssetType
+		want   []string
+	}{
+		"crypto on its own market":    {MarketCrypto, AssetTypeCryptocurrency, both},
+		"forex on its own market":     {" FOREX ", AssetTypeForex, both},
+		"explicit exchange":           {"moex", AssetTypeStock, []string{"moex"}},
+		"forex parked on crypto":      {MarketCrypto, AssetTypeForex, []string{MarketCrypto}},
+		"crypto isolated on contract": {ContractMarket("eth", "0xabc"), AssetTypeCryptocurrency, []string{ContractMarket("eth", "0xabc")}},
+	}
+	for name, c := range cases {
+		assert.Equal(t, c.want, SymbolNamespace(c.market, c.typ), name)
+	}
+}

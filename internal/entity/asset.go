@@ -56,6 +56,22 @@ func DefaultMarket(t AssetType) string {
 	}
 }
 
+// SymbolNamespace returns the markets a creation path searches, ignoring type,
+// before it mints a row: type is a classification, so a symbol already known
+// there under another type is that asset, not a new one.
+//
+// When market is the type's own global venue, crypto and forex are one
+// namespace: a quote currency declared forex once and cryptocurrency later
+// (USDT on Binance, 2026-06) would otherwise land on two markets and miss each
+// other. An explicit venue (moex, nasdaq, a contract market) is its own.
+func SymbolNamespace(market string, typ AssetType) []string {
+	market = NormalizeMarket(market)
+	if market != "" && market == DefaultMarket(typ) {
+		return []string{MarketCrypto, MarketForex}
+	}
+	return []string{market}
+}
+
 // AssetSymbol is a simple string representation of an asset symbol.
 // Kept for backward compatibility with existing code.
 type AssetSymbol string
