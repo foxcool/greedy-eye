@@ -42,7 +42,7 @@ different audiences:
 
 | ADR | Title | Status |
 |---|---|---|
-| ADR-001 | Modular Monolith vs Microservices | accepted; ADR-013 (proposed) states what the transition capability requires |
+| ADR-001 | Modular Monolith vs Microservices | accepted; amended by ADR-013, which states what the transition capability requires |
 | ADR-002 | Connect-RPC over h2c instead of gRPC-Gateway | accepted (supersedes the original gRPC + gRPC-Gateway decision) |
 | ADR-003 | 3-service domain API instead of 8 services | accepted; historical, the API now has five services |
 | ADR-004 | User management delegated to external service (psina) | accepted |
@@ -54,7 +54,7 @@ different audiences:
 | ADR-010 | The base of a pair and the currency of a total are different things | accepted |
 | ADR-011 | Provider spend is split into background and interactive classes, with a reserve for people | accepted |
 | ADR-012 | A trade reaches a chain through a Safe the user controls; GE never holds a key that spends | accepted; not implemented yet |
-| ADR-013 | Hybrid deployment contract: one process in production, a split checked in CI | proposed |
+| ADR-013 | Hybrid deployment contract: one process in production, a split checked in CI | accepted (2026-11-28) |
 
 **Related documents**
 - [providers.md](providers.md) — which external providers can be connected, what
@@ -237,7 +237,7 @@ graph TB
 **Scalability:**
 - Modular architecture with clear service boundaries
 - One process is the production mode; running the domains as separate processes is a capability
-  CI checks, not a deployment target (ADR-013, proposed). Ownership and the checks are in §8.6;
+  CI checks, not a deployment target (ADR-013). Ownership and the checks are in §8.6;
   the split is only partly verified until they all exist (Debt 3)
 - Connection pooling and efficient resource usage
 
@@ -1486,7 +1486,7 @@ somebody chose, since that would report one currency's number under another curr
 
 ### 8.6 Service boundaries
 
-Reference for ADR-013 (proposed): who owns each table and each job, and where the wiring still
+Reference for ADR-013: who owns each table and each job, and where the wiring still
 shares state inside one process. The decision lives in the ADR; this section is the map and is
 edited without editing the ADR. Measured on main at v0.28.0+ (2026-11-27).
 
@@ -1574,7 +1574,7 @@ per item is not a read path (`GetPrices` replaced the per-holding `GetLatestPric
 
 ### ADR-001: Modular Monolith vs Microservices
 - **Status**: accepted. It never said what the "transition capability" requires or what checks
-  it; ADR-013 (proposed) does
+  it; ADR-013 (accepted 2026-11-28) does
 - **Context**: Choice between microservice architecture and monolith for MVP
 - **Decision**: Modular monolith with microservices transition capability
 - **Consequences**:
@@ -2117,12 +2117,11 @@ per item is not a read path (`GetPrices` replaced the per-holding `GetLatestPric
 
 ### ADR-013: Hybrid deployment contract: one process in production, a split checked in CI
 
-- **Status**: proposed (2026-11-27). Every decision below is a recommendation for the owner to
-  accept or change. Decisions 1-2 and 4-10 restate a design the owner approved on 2026-10-26,
-  checked against main at v0.28.0+. Decisions 11-14 are new: they cover code that landed after
-  that design (ledger tables, news tables, `account_sync_claims`, the asset merge, price-source
-  health). When accepted, this ADR amends ADR-001 and §4.2 ("Deployment capability as monolith
-  or separate microservices"). The map it relies on is §8.6.
+- **Status**: accepted (2026-11-28), all 14 decisions as proposed on 2026-11-27. Decisions 1-2
+  and 4-10 restate a design the owner approved on 2026-10-26, checked against main at v0.28.0+.
+  Decisions 11-14 cover code that landed after that design (ledger tables, news tables,
+  `account_sync_claims`, the asset merge, price-source health). This ADR amends ADR-001 and §4.2
+  ("Deployment capability as monolith or separate microservices"). The map it relies on is §8.6.
 - **Context**: ADR-001 says "modular monolith with microservices transition capability" and
   nothing says what that capability requires or what checks it. Since then the cross-domain
   reads go through ports that the generated clients satisfy (`cmd/eye/ports.go`), `remotes:`
@@ -2135,7 +2134,7 @@ per item is not a read path (`GetPrices` replaced the per-holding `GetLatestPric
   child tasks that will fix these (per-domain schemas and roles, per-service DSN, single writer
   for users, credentials boundary, per-service budgets and jobs, the N-container stand) each
   need the same answers first: whose table, whose job, which check.
-- **Decision** (proposed):
+- **Decision**:
 
   1. **Modes.** One process serving every domain is the production mode. Running the domains as
      separate processes is a capability that CI verifies, not a deployment target. One user gets
