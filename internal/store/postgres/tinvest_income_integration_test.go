@@ -95,12 +95,13 @@ func TestTInvestIncome_RecordedOperations(t *testing.T) {
 		WithMarketDataClient(md).
 		WithBrokerSyncerSource(fixedBrokerSource{syncer: tinvestadapter.NewBrokerSyncer(client, "acc-1")})
 	uctx := middleware.ContextWithUser(ctx, user)
-	sync := func() *apiv1.SyncAccountResponse {
+	syncWith := func(backfill bool) *apiv1.SyncAccountResponse {
 		t.Helper()
-		resp, err := h.SyncAccount(uctx, connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: account.ID}))
+		resp, err := h.SyncAccount(uctx, connect.NewRequest(&apiv1.SyncAccountRequest{AccountId: account.ID, BackfillLedger: backfill}))
 		require.NoError(t, err)
 		return resp.Msg
 	}
+	sync := func() *apiv1.SyncAccountResponse { return syncWith(false) }
 	count := func(query string) int {
 		t.Helper()
 		var n int
@@ -119,9 +120,9 @@ func TestTInvestIncome_RecordedOperations(t *testing.T) {
 
 	first := sync()
 	require.Empty(t, first.LedgerErrors)
-	assert.Equal(t, int32(8), first.LedgerEventsCreated, "two overnight payments of one sum on one day are two")
-	assert.Equal(t, 8, count(events))
-	assert.Equal(t, 8, count(events+" AND kind = 'income' AND source = 'sync:tinvest'"))
+	assert.Equal(t, int32(10), first.LedgerEventsCreated, "two overnight payments of one sum on one day are two")
+	assert.Equal(t, 10, count(events))
+	assert.Equal(t, 10, count(events+" AND kind = 'income' AND source = 'sync:tinvest'"))
 	assert.Equal(t, 1, count("SELECT count(*) FROM holdings WHERE account_id = $1"), "income writes no holding")
 
 	var amount, direction, incomeKind string
@@ -131,6 +132,16 @@ func TestTInvestIncome_RecordedOperations(t *testing.T) {
 	assert.Equal(t, "67270000000", amount, "the tax to the kopeck at scale 9")
 	assert.Equal(t, "out", direction)
 	assert.Equal(t, "dividend", incomeKind)
+
+	// A tax that names no income is written as tax, its sign the direction.
+	for ref, want := range map[string]string{"op-tax-1": "out", "op-tax-correction-1": "in"} {
+		var dir, kind string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT l.direction, e.income_kind FROM ledger_events e
+			JOIN ledger_legs l ON l.event_id = e.id WHERE e.account_id = $1 AND e.external_ref = $2`, account.ID, ref).
+			Scan(&dir, &kind))
+		assert.Equal(t, want, dir, ref)
+		assert.Equal(t, "tax", kind, ref)
+	}
 
 	cursors, err := s.ListLedgerCursors(ctx, account.ID)
 	require.NoError(t, err)
@@ -145,7 +156,7 @@ func TestTInvestIncome_RecordedOperations(t *testing.T) {
 	second := sync()
 	require.Empty(t, second.LedgerErrors)
 	assert.Zero(t, second.LedgerEventsCreated, "a second run creates 0 rows")
-	assert.Equal(t, 8, count(events))
+	assert.Equal(t, 10, count(events))
 
 	// The broker says an operation id may change: the same payments under new
 	// ids are recognised by what they are, read back from the database.
@@ -156,6 +167,18 @@ func TestTInvestIncome_RecordedOperations(t *testing.T) {
 	assert.Zero(t, moved.LedgerEventsCreated, "renamed operations create 0 rows")
 	assert.Equal(t, 0, count(events+" AND external_ref LIKE 'renamed-%'"))
 	renamed.Store(false)
+
+	// An account synced by a build that did not read taxes naming no income
+	// has an advanced cursor and no such events. A plain sync does not reach
+	// back that far; a backfill does, and writes only what is missing.
+	_, err = pool.Exec(ctx, "DELETE FROM ledger_events WHERE account_id = $1 AND income_kind = 'tax'", account.ID)
+	require.NoError(t, err)
+	assert.Zero(t, sync().LedgerEventsCreated, "the past is outside a plain sync's window")
+	backfilled := syncWith(true)
+	require.Empty(t, backfilled.LedgerErrors)
+	assert.Equal(t, int32(2), backfilled.LedgerEventsCreated, "a backfill finds the taxes in the past")
+	assert.Equal(t, 10, count(events))
+	assert.Zero(t, syncWith(true).LedgerEventsCreated, "a second backfill writes nothing")
 
 	failing.Store(true)
 	time.Sleep(10 * time.Millisecond) // so a moved cursor would show

@@ -67,7 +67,7 @@ func TestReadIncome_RecordedPages(t *testing.T) {
 	for _, inc := range got {
 		byID[inc.ID] = inc
 	}
-	assert.Len(t, byID, 8, "canceled, in-progress and redemption operations are not income")
+	assert.Len(t, byID, 10, "canceled, in-progress and redemption operations are not income")
 	for id, want := range map[string]struct {
 		kind     entity.IncomeKind
 		currency string
@@ -81,6 +81,8 @@ func TestReadIncome_RecordedPages(t *testing.T) {
 		"op-overnight-2":             {entity.IncomeInterest, "RUB", "0.42"},
 		"op-usd-dividend-1":          {entity.IncomeDividend, "USD", "2.75"},
 		"op-tax-correction-coupon-1": {entity.IncomeCoupon, "RUB", "13"},
+		"op-tax-1":                   {entity.IncomeTax, "RUB", "-50"},
+		"op-tax-correction-1":        {entity.IncomeTax, "RUB", "10"},
 	} {
 		inc, ok := byID[id]
 		if !assert.True(t, ok, id) {
@@ -127,17 +129,23 @@ func TestReadIncome_Window(t *testing.T) {
 // filed under one kind, and what is not income is not.
 func TestIncomeKindOf(t *testing.T) {
 	for typ, want := range map[string]entity.IncomeKind{
-		"OPERATION_TYPE_COUPON":                   entity.IncomeCoupon,
-		"OPERATION_TYPE_BOND_TAX":                 entity.IncomeCoupon,
-		"OPERATION_TYPE_BOND_TAX_PROGRESSIVE":     entity.IncomeCoupon,
-		"OPERATION_TYPE_TAX_CORRECTION_COUPON":    entity.IncomeCoupon,
-		"OPERATION_TYPE_DIVIDEND":                 entity.IncomeDividend,
-		"OPERATION_TYPE_DIV_EXT":                  entity.IncomeDividend,
-		"OPERATION_TYPE_DIVIDEND_TAX":             entity.IncomeDividend,
-		"OPERATION_TYPE_DIVIDEND_TAX_PROGRESSIVE": entity.IncomeDividend,
-		"OPERATION_TYPE_OVERNIGHT":                entity.IncomeInterest,
-		"OPERATION_TYPE_TAX_REPO":                 entity.IncomeInterest,
-		"OPERATION_TYPE_TAX_REPO_REFUND":          entity.IncomeInterest,
+		"OPERATION_TYPE_COUPON":                     entity.IncomeCoupon,
+		"OPERATION_TYPE_BOND_TAX":                   entity.IncomeCoupon,
+		"OPERATION_TYPE_BOND_TAX_PROGRESSIVE":       entity.IncomeCoupon,
+		"OPERATION_TYPE_TAX_CORRECTION_COUPON":      entity.IncomeCoupon,
+		"OPERATION_TYPE_DIVIDEND":                   entity.IncomeDividend,
+		"OPERATION_TYPE_DIV_EXT":                    entity.IncomeDividend,
+		"OPERATION_TYPE_DIVIDEND_TAX":               entity.IncomeDividend,
+		"OPERATION_TYPE_DIVIDEND_TAX_PROGRESSIVE":   entity.IncomeDividend,
+		"OPERATION_TYPE_OVERNIGHT":                  entity.IncomeInterest,
+		"OPERATION_TYPE_TAX_REPO":                   entity.IncomeInterest,
+		"OPERATION_TYPE_TAX_REPO_REFUND":            entity.IncomeInterest,
+		"OPERATION_TYPE_TAX":                        entity.IncomeTax,
+		"OPERATION_TYPE_TAX_PROGRESSIVE":            entity.IncomeTax,
+		"OPERATION_TYPE_TAX_CORRECTION":             entity.IncomeTax,
+		"OPERATION_TYPE_TAX_CORRECTION_PROGRESSIVE": entity.IncomeTax,
+		"OPERATION_TYPE_BENEFIT_TAX":                entity.IncomeTax,
+		"OPERATION_TYPE_BENEFIT_TAX_PROGRESSIVE":    entity.IncomeTax,
 	} {
 		got, ok := IncomeKindOf(typ)
 		assert.True(t, ok, typ)
@@ -146,7 +154,7 @@ func TestIncomeKindOf(t *testing.T) {
 	for _, typ := range []string{
 		"OPERATION_TYPE_BUY", "OPERATION_TYPE_SELL", "OPERATION_TYPE_INPUT", "OPERATION_TYPE_OUTPUT",
 		"OPERATION_TYPE_BOND_REPAYMENT", "OPERATION_TYPE_BOND_REPAYMENT_FULL", "OPERATION_TYPE_BROKER_FEE",
-		"OPERATION_TYPE_TAX", "OPERATION_TYPE_TAX_CORRECTION", "OPERATION_TYPE_DIVIDEND_TRANSFER", "",
+		"OPERATION_TYPE_DIVIDEND_TRANSFER", "OPERATION_TYPE_OUT_STAMP_DUTY", "OPERATION_TYPE_SERVICE_FEE", "",
 	} {
 		_, ok := IncomeKindOf(typ)
 		assert.False(t, ok, typ)

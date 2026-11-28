@@ -45,12 +45,15 @@ const (
 	IncomeInterest      IncomeKind = "interest"
 	IncomeStakingReward IncomeKind = "staking_reward"
 	IncomeOther         IncomeKind = "other"
+	// IncomeTax is a tax the source names no income for (a broker's annual
+	// withholding and its corrections): it belongs to the net, not to a kind.
+	IncomeTax IncomeKind = "tax"
 )
 
 // Valid reports whether k is one of the known income kinds.
 func (k IncomeKind) Valid() bool {
 	switch k {
-	case IncomeCoupon, IncomeDividend, IncomeInterest, IncomeStakingReward, IncomeOther:
+	case IncomeCoupon, IncomeDividend, IncomeInterest, IncomeStakingReward, IncomeOther, IncomeTax:
 		return true
 	}
 	return false

@@ -201,8 +201,9 @@ not built). A position the broker reports as blocked becomes its own
 `locked` holding beside the liquid part.
 
 After the positions, each sync reads the account's income operations into the
-ledger: coupons, dividends, overnight interest and the taxes on them, the whole
-history on the first sync. A failure there does not fail the sync; it shows in
+ledger: coupons, dividends, overnight interest, the taxes on them, and the
+taxes that name no income (the annual withholding and its corrections, as
+`tax`), the whole history on the first sync. A failure there does not fail the sync; it shows in
 `ledger_errors` and in account health.
 
 The sync's own report says what it could not name (`positions_skipped`) and what

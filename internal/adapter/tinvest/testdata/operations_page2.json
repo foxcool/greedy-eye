@@ -45,6 +45,26 @@
       "payment": {"currency": "rub", "units": "13", "nano": 0}
     },
     {
+      "cursor": "c-203b",
+      "brokerAccountId": "acc-1",
+      "id": "op-tax-1",
+      "name": "Удержание налога",
+      "date": "2025-12-31T15:00:01Z",
+      "type": "OPERATION_TYPE_TAX",
+      "state": "OPERATION_STATE_EXECUTED",
+      "payment": {"currency": "rub", "units": "-50", "nano": 0}
+    },
+    {
+      "cursor": "c-203c",
+      "brokerAccountId": "acc-1",
+      "id": "op-tax-correction-1",
+      "name": "Корректировка налога по ставке 13%",
+      "date": "2026-09-04T10:00:00Z",
+      "type": "OPERATION_TYPE_TAX_CORRECTION",
+      "state": "OPERATION_STATE_EXECUTED",
+      "payment": {"currency": "rub", "units": "10", "nano": 0}
+    },
+    {
       "cursor": "c-204",
       "brokerAccountId": "acc-1",
       "id": "op-repayment-1",
