@@ -63,6 +63,27 @@ func (m *mockStore) FindAssetByIdentity(ctx context.Context, symbol, market stri
 	return nil, args.Error(1)
 }
 
+// FindAssetsInNamespace answers an empty catalogue unless a test expects the
+// call: most tests resolve an exact identity or create one, and the guard
+// against another type is noise for them.
+func (m *mockStore) FindAssetsInNamespace(ctx context.Context, symbol string, markets []string) ([]*entity.Asset, error) {
+	expected := false
+	for _, c := range m.ExpectedCalls {
+		if c.Method == "FindAssetsInNamespace" {
+			expected = true
+			break
+		}
+	}
+	if !expected {
+		return nil, nil
+	}
+	args := m.Called(ctx, symbol, markets)
+	if v := args.Get(0); v != nil {
+		return v.([]*entity.Asset), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockStore) GetOrCreateAssetBySymbol(ctx context.Context, symbol, nameIfNew string, typeIfNew entity.AssetType) (*entity.Asset, error) {
 	args := m.Called(ctx, symbol, nameIfNew, typeIfNew)
 	if v := args.Get(0); v != nil {

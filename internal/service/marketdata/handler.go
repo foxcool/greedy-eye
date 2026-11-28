@@ -911,10 +911,55 @@ func (h *Handler) planAsset(ctx context.Context, msg *apiv1.FindOrCreateAssetReq
 		return assetPlan{}, toConnectError(err)
 	}
 
+	existing, err := h.findUnderAnotherType(ctx, plan, hasRef)
+	if err != nil {
+		return assetPlan{}, toConnectError(err)
+	}
+	if existing != nil {
+		plan.asset = existing
+		plan.bindRef = hasRef
+		return plan, nil
+	}
+
 	if err := mayCreateAsset(ctx); err != nil {
 		return assetPlan{}, err
 	}
 	return plan, nil
+}
+
+// findUnderAnotherType returns the asset that already holds the plan's symbol
+// in its namespace under another type, or nil when there is none. Type is a
+// classification: a request that declares it differently takes the existing
+// row with its own type rather than minting a twin, and correcting the type is
+// UpdateAsset (ADR-006). Several candidates resolve to the oldest; a warning
+// names them all instead of failing the caller's batch.
+//
+// A contract never adopts a forex row: binding an address to a fiat currency
+// would price the token as that currency.
+func (h *Handler) findUnderAnotherType(ctx context.Context, p assetPlan, hasRef bool) (*entity.Asset, error) {
+	candidates, err := h.store.FindAssetsInNamespace(ctx, p.symbol, entity.SymbolNamespace(p.market, p.typ))
+	if err != nil {
+		return nil, err
+	}
+	if hasRef {
+		candidates = slices.DeleteFunc(candidates, func(a *entity.Asset) bool {
+			return a.Type == entity.AssetTypeForex
+		})
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	if h.log != nil {
+		ids := make([]string, len(candidates))
+		for i, c := range candidates {
+			ids[i] = fmt.Sprintf("%s (%s, %s)", c.ID, c.Market, apiv1.AssetType(c.Type))
+		}
+		h.log.Warn("asset resolved to an existing row of another type or market; the row keeps its own",
+			"symbol", p.symbol, "requested_market", p.market, "requested_type", apiv1.AssetType(p.typ).String(),
+			"asset_id", candidates[0].ID, "asset_market", candidates[0].Market,
+			"asset_type", apiv1.AssetType(candidates[0].Type).String(), "candidates", ids)
+	}
+	return candidates[0], nil
 }
 
 // applyAssetPlan performs the writes a plan calls for.

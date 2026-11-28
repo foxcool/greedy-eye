@@ -823,6 +823,12 @@ no review date hangs forever and devalues every other flag on the axis.
    mergeable duplicate row instead of extra balance on the genuine asset
 3. **A provider error fails loud.** Treating an unreachable provider as "not listed" would scatter
    genuine multi-chain tokens into per-contract rows permanently
+4. **Exact identity, then the symbol under any type.** `(symbol, market, type)` is asked first.
+   On a miss, the symbol is looked up in the request's namespace whatever its type — the market
+   itself when explicit, `crypto` and `forex` together when derived from the type — and the
+   oldest row found is taken with its own type (ADR-006). Type is a classification: a creation
+   never mints a neighbour that differs only by type; correcting the type is `UpdateAsset`.
+   Only when nothing is found is a row created
 
 Name, ticker and amount are all copyable; the contract is not. Matching by ticker alone is exactly
 how three different tokens once merged into one "Tether USD" on production and summed their
@@ -1812,6 +1818,27 @@ per item is not a read path (`GetPrices` replaced the per-holding `GetLatestPric
   (cryptocurrency → `crypto`, forex → `forex`) and is required for exchange-listed types.
   Symbol-only lookups (`GetAssetBySymbol`) return the unique match or fail with
   InvalidArgument when the symbol exists on several markets — no silent picking.
+
+  **Type is a classification, not identity**, although it sits in the key. It is corrected as
+  understanding improves, and with the type in the key every correction minted a neighbour
+  instead of updating the row — Binance's USDT, forex then cryptocurrency, became two rows on
+  dev and dropped that source's batches for two months. So a creation path
+  (`FindOrCreateAsset`, `GetOrCreateAssetBySymbol`) that misses the exact identity looks the
+  symbol up under any type before it mints, and takes the row it finds **with its own type**:
+  - on an explicit venue (`moex`, `nasdaq`, a contract market) it compares `(symbol, market)`,
+    so `X@moex` and `X@spbex` stay two assets;
+  - when the market is the type's own global venue (`crypto` for cryptocurrency, `forex` for
+    forex) it searches `crypto` and `forex` together (`entity.SymbolNamespace`): a quote
+    currency declared under the other type would otherwise land on the other market and miss;
+  - several candidates resolve to the oldest, never to an error, because one failed base drops
+    a provider's whole batch; a warning with both types and every candidate id is logged on any
+    mismatch;
+  - a request carrying a contract does not adopt a forex row: binding an address to a fiat
+    currency would price the token as that currency.
+
+  Correcting a type is `UpdateAsset` (admin), which changes the row in place and refuses a
+  collision. The row's type is never changed by a creation path, and `type` stays in
+  `UNIQUE` — the guard needs no migration.
 - **Consequences**:
   - ➕ Multi-market catalog possible (stocks, bonds, funds) without symbol collisions
   - ➕ One asset row per crypto asset regardless of price provider (no BTC duplication)
@@ -1819,9 +1846,16 @@ per item is not a read path (`GetPrices` replaced the per-holding `GetLatestPric
   - ➖ Symbol-only lookups become ambiguous once a ticker exists on two markets; callers
     must then resolve by ID or market
   - ➖ That backfill put USD on `crypto` and kept `market` out of quote-currency resolution
-    for the six weeks this ADR stood, which is how a USDT twin came to be minted on dev
-    (ADR-010). Resolution now uses the full composite; the backfilled row is moved rather
-    than the key widened
+    for the six weeks this ADR stood (ADR-010). Resolution now asks the full composite first;
+    the twin itself came from the type, which the creation guard above covers
+  - ➖ The guard treats one symbol in `crypto` and `forex` as one asset. An instance that
+    already holds a symbol on both markets has the older row answer for both, so check before
+    deploying it (expect 0 rows):
+
+    ```sql
+    SELECT symbol, array_agg(market || '/' || type ORDER BY created_at) FROM assets
+    WHERE market IN ('crypto', 'forex') GROUP BY symbol HAVING count(DISTINCT market) > 1;
+    ```
 - **Rejected**: market = price source (duplicates every asset per provider, fragments
   holdings); an `external_ref` column on `assets` (one asset maps to many provider IDs —
   1:N belongs in a mapping table, and a 1:1 column would die on the second source);
@@ -2015,7 +2049,8 @@ per item is not a read path (`GetPrices` replaced the per-holding `GetLatestPric
   USD stays in `assets` but moves to `market='forex'`, where it is an ordinary forex asset
   like RUB and the 53 currencies CBR already quotes. The premise "USD is not an asset" is half
   right: it is not a *crypto* asset. With that settled, `market` enters the identity key of
-  `GetOrCreateAssetBySymbol`, closing the hole the twin came through.
+  `GetOrCreateAssetBySymbol`. That did not close the hole the twin came through — the twin
+  differed by type, which was still in the lookup; the creation guard in ADR-006 closes it.
 
   A `CHECK (asset_id <> base_asset_id)` guards the pair itself: a row quoting an asset against
   itself says "1" in a shape that reads like data, and `crossRate` would divide by it happily.
@@ -2039,7 +2074,9 @@ per item is not a read path (`GetPrices` replaced the per-holding `GetLatestPric
     ```
 
     One `(USD, forex, forex)` row and one `(USDT, crypto, cryptocurrency)` row means the
-    instance is already in the target shape and there is nothing to move
+    instance is already in the target shape and there is nothing to move. Since the creation
+    guard (ADR-006) an unmoved `(USD, crypto, forex)` row is adopted instead of shadowed, so
+    the move fixes the market label rather than preventing a second USD
   - ➖ A display currency the catalogue does not hold fails the valuation rather than falling
     back to dollars — deliberate, since the quiet fallback would report one currency's number
     under another currency's name

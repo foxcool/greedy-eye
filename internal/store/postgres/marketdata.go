@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -35,13 +36,14 @@ func pageLimit(requested int) int {
 // MarketDataStore implements marketdata.Store using PostgreSQL.
 type MarketDataStore struct {
 	pool *pgxpool.Pool
+	log  *slog.Logger
 }
 
 // Compile-time interface implementation check.
 var _ marketdata.Store = (*MarketDataStore)(nil)
 
 func NewMarketDataStore(pool *pgxpool.Pool) *MarketDataStore {
-	return &MarketDataStore{pool: pool}
+	return &MarketDataStore{pool: pool, log: slog.Default()}
 }
 
 // assetColumns is the canonical column list scanned by scanAsset.
@@ -218,19 +220,12 @@ func (s *MarketDataStore) GetAsset(ctx context.Context, id string) (*entity.Asse
 // when creating. Safe under concurrent inserts: if a concurrent write wins the
 // race, the existing row is returned.
 //
-// The lookup is the FULL composite identity (symbol, market, type), with the
-// market implied by the type exactly as CreateAsset implies it. That is not a
-// refinement — it is the write path read back correctly. Anything narrower asks
-// a wider question than the one that was written, so every extra row sharing the
-// ticker answers "ambiguous" instead of naming a row, and a quote currency
-// resolved by an ambiguous ticker is a base that can silently become a different
-// base.
-//
-// It REPLACES an earlier scoping by type alone, kept because legacy rows had
-// been backfilled to 'crypto' regardless of type: matching on market would have
-// missed the row every stored price pointed at. That objection is settled by
-// moving those rows rather than by widening the lookup — see ADR-010, which also
-// records what the wider question cost.
+// The exact identity (symbol, market, type) is asked first, with the market
+// implied by the type exactly as CreateAsset implies it. On a miss the ticker is
+// looked up in crypto and forex under any type before a row is minted: type is
+// a classification, and a provider that reclassifies its base (Binance's USDT,
+// forex to cryptocurrency, 2026-06-04) must land on the row every stored price
+// points at instead of minting a twin (ADR-006).
 func (s *MarketDataStore) GetOrCreateAssetBySymbol(ctx context.Context, symbol, nameIfNew string, typ entity.AssetType) (*entity.Asset, error) {
 	market := entity.DefaultMarket(typ)
 	if market == "" {
@@ -243,6 +238,14 @@ func (s *MarketDataStore) GetOrCreateAssetBySymbol(ctx context.Context, symbol, 
 	}
 	if !errors.Is(err, store.ErrNotFound) {
 		return nil, err
+	}
+	others, err := s.FindAssetsInNamespace(ctx, symbol, entity.SymbolNamespace(market, typ))
+	if err != nil {
+		return nil, err
+	}
+	if len(others) > 0 {
+		warnClassMismatch(s.log, symbol, market, typ, others)
+		return others[0], nil
 	}
 	created, err := s.CreateAsset(ctx, &entity.Asset{
 		Symbol: symbol,
@@ -258,6 +261,22 @@ func (s *MarketDataStore) GetOrCreateAssetBySymbol(ctx context.Context, symbol, 
 		return nil, err
 	}
 	return created, nil
+}
+
+// warnClassMismatch names a resolution that took an existing row declared
+// differently from the request: the row's type stays, and correcting it is
+// UpdateAsset. The service layer logs the same event for FindOrCreateAsset.
+func warnClassMismatch(log *slog.Logger, symbol, market string, typ entity.AssetType, candidates []*entity.Asset) {
+	ids := make([]string, len(candidates))
+	for i, c := range candidates {
+		ids[i] = c.ID + " (" + c.Market + ", " + assetTypeToString(c.Type) + ")"
+	}
+	log.Warn("asset resolved to an existing row of another type or market; the row keeps its own",
+		"symbol", entity.NormalizeSymbol(symbol),
+		"requested_market", market, "requested_type", assetTypeToString(typ),
+		"asset_id", candidates[0].ID, "asset_market", candidates[0].Market,
+		"asset_type", assetTypeToString(candidates[0].Type),
+		"candidates", ids)
 }
 
 // GetAssetBySymbol returns an asset by its symbol. The symbol is normalized
@@ -388,6 +407,48 @@ func (s *MarketDataStore) FindAssetByIdentity(ctx context.Context, symbol, marke
 	}
 
 	return asset, nil
+}
+
+// FindAssetsInNamespace returns every asset with symbol on any of markets,
+// whatever its type, oldest first: the rows a creation path takes instead of
+// minting a neighbour that differs only in classification.
+func (s *MarketDataStore) FindAssetsInNamespace(ctx context.Context, symbol string, markets []string) ([]*entity.Asset, error) {
+	symbol = entity.NormalizeSymbol(symbol)
+	if symbol == "" {
+		return nil, fmt.Errorf("%w: symbol is required", store.ErrInvalidArgument)
+	}
+	normalized := make([]string, 0, len(markets))
+	for _, m := range markets {
+		if m = entity.NormalizeMarket(m); m != "" {
+			normalized = append(normalized, m)
+		}
+	}
+	if len(normalized) == 0 {
+		return nil, fmt.Errorf("%w: market is required", store.ErrInvalidArgument)
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+assetColumns+`
+		FROM assets
+		WHERE symbol = $1 AND market = ANY($2)
+		ORDER BY created_at ASC, id ASC`, symbol, normalized)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find assets in namespace: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*entity.Asset
+	for rows.Next() {
+		a, err := scanAsset(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan asset: %w", err)
+		}
+		out = append(out, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to find assets in namespace: %w", err)
+	}
+	return out, nil
 }
 
 // UpdateAsset updates an asset with the specified fields.
