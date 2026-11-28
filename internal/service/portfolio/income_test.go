@@ -215,3 +215,28 @@ func TestIncomeKindsReachTheAPI(t *testing.T) {
 	}
 	assert.Equal(t, apiv1.IncomeKind_INCOME_KIND_TAX, incomeKindToProto[entity.IncomeTax])
 }
+
+// A tax that names no income paid nothing: 50 withheld and 10 refunded is a
+// tax of 40 with no gross, and a month with only the refund nets +10.
+func TestBuildIncomeReport_TaxRefundLowersTheTax(t *testing.T) {
+	aug := time.Date(2026, 8, 20, 9, 0, 0, 0, time.UTC)
+	sep := time.Date(2026, 9, 4, 10, 0, 0, 0, time.UTC)
+	events := []*entity.LedgerEvent{
+		incomeEvent("withheld", aug, entity.IncomeTax, incomeLeg("rub", entity.LedgerOut, "50", 2)),
+		incomeEvent("refund-aug", aug, entity.IncomeTax, incomeLeg("rub", entity.LedgerIn, "10", 2)),
+		incomeEvent("refund-sep", sep, entity.IncomeTax, incomeLeg("rub", entity.LedgerIn, "10", 2)),
+	}
+
+	report := buildIncomeReport(events, fixedPrice(map[string]string{"rub": "0.01"}))
+
+	require.Len(t, report.rows, 2)
+	august, september := report.rows[0], report.rows[1]
+	assert.Equal(t, entity.IncomeTax, august.kind)
+	assert.True(t, august.gross.IsZero(), "a refund is not income paid")
+	assert.Equal(t, "40", august.tax.String())
+	assert.Equal(t, "-40", august.net().String())
+	assert.Equal(t, "0.4", august.taxValue.String())
+	assert.True(t, september.gross.IsZero())
+	assert.Equal(t, "-10", september.tax.String())
+	assert.Equal(t, "10", september.net().String(), "the month's net matches the broker's +10")
+}

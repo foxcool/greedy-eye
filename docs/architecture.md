@@ -411,8 +411,12 @@ graph TB
   foreign account reads as an empty page. An income event carries an `income_kind` (coupon,
   dividend, interest, staking_reward, other, tax); a tax withheld is an income event of the same kind
   with an out leg. A tax that names no income (a broker's annual withholding and its
-  corrections) is kind `tax`: an out leg withheld, an in leg refunded, so the report's net for
-  the period matches the broker's. GetIncomeReport sums a portfolio's or an account's income per month (UTC) x
+  corrections) is kind `tax`: an out leg withheld, an in leg refunded. On a `tax` row a refund
+  lowers the tax rather than adding to gross (tax goes below zero when refunds outweigh what the
+  month withheld), so gross stays what was paid and the period's net matches the broker's. A
+  build that reads more operation types finds them in the past through
+  `SyncAccount{backfill_ledger: true}` on the broker account, which re-reads its whole income
+  history; what is recorded is not written twice. GetIncomeReport sums a portfolio's or an account's income per month (UTC) x
   income kind x asset as gross, tax and net, valued in the display currency at each event's
   date: a currency at the central bank rate in force on that date, anything else at the
   nearest price within three days; an event with no such price is listed as unvalued, never

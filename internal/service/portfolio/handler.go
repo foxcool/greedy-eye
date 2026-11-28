@@ -1891,8 +1891,8 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	if err != nil {
 		return nil, err
 	}
-	if req.Msg.BackfillLedger && account.Type != entity.AccountTypeWallet {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("backfill_ledger reads a wallet's transfer history; this account is not a wallet"))
+	if req.Msg.BackfillLedger && account.Type != entity.AccountTypeWallet && account.Type != entity.AccountTypeBroker {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("backfill_ledger reads a wallet's transfer history or a broker's income; this account is neither"))
 	}
 	if account.Disabled() {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
@@ -1922,9 +1922,9 @@ func (h *Handler) SyncAccount(ctx context.Context, req *connect.Request[apiv1.Sy
 	// for anything watching, the event would not have happened.
 	var out syncOutcome
 	if account.Type == entity.AccountTypeBroker && account.Data[entity.BrokerAccountDataKey] == "" {
-		out, err = h.syncBrokerAccounts(ctx, account)
+		out, err = h.syncBrokerAccounts(ctx, account, req.Msg.BackfillLedger)
 	} else {
-		out, err = h.syncOneAccount(ctx, account)
+		out, err = h.syncOneAccount(ctx, account, req.Msg.BackfillLedger)
 	}
 	if err != nil {
 		return nil, err
@@ -2030,8 +2030,9 @@ func (o *syncOutcome) merge(other syncOutcome, accountName string) {
 }
 
 // syncOneAccount fetches one account's positions and writes them. It does not
-// price: a fan-out prices once for everything it touched.
-func (h *Handler) syncOneAccount(ctx context.Context, account *entity.Account) (syncOutcome, error) {
+// price: a fan-out prices once for everything it touched. backfill re-reads a
+// broker's whole income history.
+func (h *Handler) syncOneAccount(ctx context.Context, account *entity.Account, backfill bool) (syncOutcome, error) {
 	var (
 		balances   []syncedBalance
 		syncErrors []string
@@ -2112,7 +2113,7 @@ func (h *Handler) syncOneAccount(ctx context.Context, account *entity.Account) (
 	// same moment as nearly as two calls can.
 	var ledger ledgerOutcome
 	if account.Type == entity.AccountTypeBroker {
-		ledger = h.readBrokerIncome(ctx, account)
+		ledger = h.readBrokerIncome(ctx, account, backfill)
 	}
 
 	return syncOutcome{

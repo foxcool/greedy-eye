@@ -41,7 +41,7 @@ const brokerAccountsPageSize = 500
 // here, with its own holdings, because collapsing them destroys the only record
 // of where paper sits: two accounts holding the same share would be one row,
 // and moving it between them would change no sum at all.
-func (h *Handler) syncBrokerAccounts(ctx context.Context, parent *entity.Account) (syncOutcome, error) {
+func (h *Handler) syncBrokerAccounts(ctx context.Context, parent *entity.Account, backfill bool) (syncOutcome, error) {
 	var out syncOutcome
 
 	if h.brokerListerSource == nil {
@@ -94,7 +94,7 @@ func (h *Handler) syncBrokerAccounts(ctx context.Context, parent *entity.Account
 			out.errors = append(out.errors, fmt.Sprintf("%s: %s", account.Name, err.Error()))
 			continue
 		}
-		one, err := h.syncOneAccount(ctx, account)
+		one, err := h.syncOneAccount(ctx, account, backfill)
 		release()
 		if err != nil {
 			// Each account is its own call to the broker, so one failing says

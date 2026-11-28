@@ -23,13 +23,14 @@ const brokerIncomeDecimals = 9
 
 // readBrokerIncome continues a broker account's income history into the
 // ledger, right after its balances were written. The first run reads the
-// whole history.
+// whole history, and so does a backfill: a build that reads more operation
+// types than the one before finds them in the past only that way.
 //
 // Best effort: a failure here never fails the balance sync. It leaves the
 // cursor where it was, is stored on it for account health, and is returned
 // for the sync response. Events written before the failure stay; their refs
 // make the retry write nothing twice.
-func (h *Handler) readBrokerIncome(ctx context.Context, account *entity.Account) ledgerOutcome {
+func (h *Handler) readBrokerIncome(ctx context.Context, account *entity.Account, backfill bool) ledgerOutcome {
 	if h.brokerSource == nil {
 		return ledgerOutcome{}
 	}
@@ -57,7 +58,7 @@ func (h *Handler) readBrokerIncome(ctx context.Context, account *entity.Account)
 		err = fmt.Errorf("history here was read from %s, %s would record it twice", cursor.Source, source)
 	} else {
 		var from time.Time
-		if !cursor.AdvancedAt.IsZero() {
+		if !backfill && !cursor.AdvancedAt.IsZero() {
 			from = cursor.AdvancedAt.Add(-incomeRereadWindow)
 		}
 		out.eventsCreated, err = h.writeBrokerIncome(ctx, account.ID, source, reader, from, to)

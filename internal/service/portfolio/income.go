@@ -50,7 +50,10 @@ type incomeReport struct {
 
 // buildIncomeReport sums income events into rows of month (UTC) x income kind
 // x asset. An in leg is a payment and counts as gross; an out leg is what was
-// withheld from it and counts as tax, so net = gross - tax.
+// withheld from it and counts as tax, so net = gross - tax. On a tax that
+// names no income (kind tax) nothing was paid: an in leg is a refund and
+// lowers the tax, which goes below zero when refunds outweigh what the
+// period withheld.
 //
 // An event with no price on its date still adds to the amounts — it was paid —
 // but not to any value, and it is listed as unvalued: an unknown price is not
@@ -79,13 +82,18 @@ func buildIncomeReport(events []*entity.LedgerEvent, price incomePrice) incomeRe
 			unit, priced := price(l.AssetID, e.ExecutedAt)
 			value := amount.Mul(unit)
 
-			switch l.Direction {
-			case entity.LedgerIn:
+			switch {
+			case l.Direction == entity.LedgerIn && key.kind == entity.IncomeTax:
+				row.tax = row.tax.Sub(amount)
+				if priced {
+					row.taxValue = row.taxValue.Sub(value)
+				}
+			case l.Direction == entity.LedgerIn:
 				row.gross = row.gross.Add(amount)
 				if priced {
 					row.grossValue = row.grossValue.Add(value)
 				}
-			case entity.LedgerOut:
+			case l.Direction == entity.LedgerOut:
 				row.tax = row.tax.Add(amount)
 				if priced {
 					row.taxValue = row.taxValue.Add(value)

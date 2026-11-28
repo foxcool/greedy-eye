@@ -4232,7 +4232,8 @@ func (x *GetIncomeReportRequest) GetQuoteAssetId() string {
 
 // IncomeReportRow is one month x income kind x asset. Amounts are raw integer
 // decimal strings scaled by `decimals`, values by `value_decimals` of the
-// response. net = gross - tax.
+// response. net = gross - tax. On an INCOME_KIND_TAX row gross is zero and a
+// refund lowers tax, which is negative when refunds outweigh withholdings.
 type IncomeReportRow struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// First day of the month, UTC.
@@ -4537,7 +4538,12 @@ type SyncAccountRequest struct {
 	// Start reading the wallet's transfer history into the ledger from its first
 	// block, on every chain it holds a position on and whose history is not read
 	// yet. A long history is finished by the syncs that follow; each of them
-	// continues where the last stopped. Wallet accounts only.
+	// continues where the last stopped.
+	//
+	// On a broker account: read its whole income history again rather than
+	// from where the last read ended, so operations a newer build reads are
+	// picked up from the past. What is recorded already is not written twice.
+	// Wallet and broker accounts only.
 	BackfillLedger bool `protobuf:"varint,2,opt,name=backfill_ledger,json=backfillLedger,proto3" json:"backfill_ledger,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache

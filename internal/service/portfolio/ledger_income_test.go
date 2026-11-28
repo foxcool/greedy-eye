@@ -61,7 +61,7 @@ func TestReadBrokerIncome_WritesEachPaymentOnceAndMovesTheCursor(t *testing.T) {
 	acct := brokerAccount()
 
 	before := time.Now()
-	out := h.readBrokerIncome(context.Background(), acct)
+	out := h.readBrokerIncome(context.Background(), acct, false)
 	require.Empty(t, out.errors)
 	assert.Equal(t, int32(3), out.eventsCreated)
 	assert.True(t, syncer.froms[0].IsZero(), "the first run reads the whole history")
@@ -85,7 +85,7 @@ func TestReadBrokerIncome_WritesEachPaymentOnceAndMovesTheCursor(t *testing.T) {
 	assert.Empty(t, cursor.LastError)
 	assert.False(t, cursor.AdvancedAt.Before(before))
 
-	again := h.readBrokerIncome(context.Background(), acct)
+	again := h.readBrokerIncome(context.Background(), acct, false)
 	require.Empty(t, again.errors)
 	assert.Zero(t, again.eventsCreated, "a second run writes nothing")
 	assert.Len(t, s.events, 3)
@@ -100,7 +100,7 @@ func TestReadBrokerIncome_FailureKeepsTheCursor(t *testing.T) {
 	s.cursors[""] = &entity.LedgerCursor{AccountID: testAccountID, Source: "sync:tinvest", AdvancedAt: advanced, CheckedAt: advanced}
 	syncer := &incomeSyncer{err: errors.New("tinvest: status 500")}
 
-	out := incomeHandler(s, syncer).readBrokerIncome(context.Background(), brokerAccount())
+	out := incomeHandler(s, syncer).readBrokerIncome(context.Background(), brokerAccount(), false)
 	require.Len(t, out.errors, 1)
 	assert.Contains(t, out.errors[0], "status 500")
 	assert.Zero(t, out.eventsCreated)
@@ -118,7 +118,7 @@ func TestReadBrokerIncome_AnotherSourceDoesNotContinue(t *testing.T) {
 	s.cursors[""] = &entity.LedgerCursor{AccountID: testAccountID, Source: "sync:otherbroker"}
 	syncer := &incomeSyncer{income: []entity.BrokerIncome{payment("op-1", "coupon", "1", "RUB", time.Now())}}
 
-	out := incomeHandler(s, syncer).readBrokerIncome(context.Background(), brokerAccount())
+	out := incomeHandler(s, syncer).readBrokerIncome(context.Background(), brokerAccount(), false)
 	require.Len(t, out.errors, 1)
 	assert.Empty(t, s.events)
 	assert.Empty(t, syncer.froms, "nothing is read")
@@ -199,12 +199,12 @@ func TestReadBrokerIncome_RenamedOperationIsNotWrittenTwice(t *testing.T) {
 	s := newLedgerStore()
 	h := incomeHandler(s, syncer)
 
-	first := h.readBrokerIncome(context.Background(), brokerAccount())
+	first := h.readBrokerIncome(context.Background(), brokerAccount(), false)
 	require.Empty(t, first.errors)
 	assert.Equal(t, int32(2), first.eventsCreated, "two papers, two payments")
 
 	syncer.income = []entity.BrokerIncome{coupon("op-1-renamed", "ofz-a"), coupon("op-2", "ofz-b"), coupon("op-3", "ofz-c")}
-	again := h.readBrokerIncome(context.Background(), brokerAccount())
+	again := h.readBrokerIncome(context.Background(), brokerAccount(), false)
 	require.Empty(t, again.errors)
 	assert.Equal(t, int32(1), again.eventsCreated, "only the new paper's payment is written")
 	assert.Len(t, s.events, 3)
@@ -245,23 +245,47 @@ func TestReadBrokerIncome_SameContentIsAMultiset(t *testing.T) {
 	s := newLedgerStore()
 	h := incomeHandler(s, syncer)
 
-	first := h.readBrokerIncome(context.Background(), brokerAccount())
+	first := h.readBrokerIncome(context.Background(), brokerAccount(), false)
 	require.Empty(t, first.errors)
 	assert.Equal(t, int32(2), first.eventsCreated, "two distinct operations in one read are two events")
 
-	again := h.readBrokerIncome(context.Background(), brokerAccount())
+	again := h.readBrokerIncome(context.Background(), brokerAccount(), false)
 	require.Empty(t, again.errors)
 	assert.Zero(t, again.eventsCreated, "a resync writes no row")
 
 	syncer.income = []entity.BrokerIncome{overnight("op-a-renamed"), overnight("op-b")}
-	renamed := h.readBrokerIncome(context.Background(), brokerAccount())
+	renamed := h.readBrokerIncome(context.Background(), brokerAccount(), false)
 	require.Empty(t, renamed.errors)
 	assert.Zero(t, renamed.eventsCreated, "a renamed operation matches the recorded one it replaced")
 
 	syncer.income = []entity.BrokerIncome{overnight("op-a-renamed"), overnight("op-b"), overnight("op-c")}
-	third := h.readBrokerIncome(context.Background(), brokerAccount())
+	third := h.readBrokerIncome(context.Background(), brokerAccount(), false)
 	require.Empty(t, third.errors)
 	assert.Equal(t, int32(1), third.eventsCreated, "a third operation of the same content has nothing left to match")
 	assert.Len(t, s.events, 3)
 	assert.NotNil(t, s.events["sync:tinvest|op-c"])
+}
+
+// TestReadBrokerIncome_BackfillReadsTheWholeHistory: an advanced cursor reads
+// from the window before it, a backfill from the start, and what is recorded
+// already is not written twice.
+func TestReadBrokerIncome_BackfillReadsTheWholeHistory(t *testing.T) {
+	advanced := time.Now().UTC().Add(-time.Hour)
+	s := newLedgerStore()
+	s.cursors[""] = &entity.LedgerCursor{AccountID: testAccountID, Source: "sync:tinvest", AdvancedAt: advanced}
+	syncer := &incomeSyncer{income: []entity.BrokerIncome{payment("op-1", "tax", "10", "RUB", advanced.Add(-90*24*time.Hour))}}
+	h := incomeHandler(s, syncer)
+
+	plain := h.readBrokerIncome(context.Background(), brokerAccount(), false)
+	require.Empty(t, plain.errors)
+	assert.False(t, syncer.froms[0].IsZero(), "a plain sync reads from the window")
+
+	backfill := h.readBrokerIncome(context.Background(), brokerAccount(), true)
+	require.Empty(t, backfill.errors)
+	assert.True(t, syncer.froms[1].IsZero(), "a backfill reads from the start")
+
+	again := h.readBrokerIncome(context.Background(), brokerAccount(), true)
+	require.Empty(t, again.errors)
+	assert.Zero(t, again.eventsCreated, "a second backfill writes nothing")
+	assert.Len(t, s.events, 1)
 }
